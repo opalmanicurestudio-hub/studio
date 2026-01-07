@@ -65,6 +65,11 @@ const ExpenseCategory = ({
       <ScrollArea>
         <div className="flex space-x-4 pb-4">
           {children}
+          <div className="flex items-center justify-center w-64 md:w-72 shrink-0">
+             <Button variant="outline" className="w-full h-full border-dashed">
+                 <PlusCircle className="mr-2" /> Add Custom Cost
+             </Button>
+          </div>
         </div>
         <ScrollBar orientation="horizontal" />
       </ScrollArea>
@@ -73,16 +78,17 @@ const ExpenseCategory = ({
 );
 
 const DayScheduleRow = ({ day }: { day: string }) => {
+  const isChecked = !['Saturday', 'Sunday'].includes(day);
   return (
     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between rounded-lg border p-4 gap-4">
       <div className="flex items-center gap-4">
-        <Switch defaultChecked id={`switch-${day}`} />
+        <Switch defaultChecked={isChecked} id={`switch-${day}`} />
         <Label htmlFor={`switch-${day}`} className="text-base font-medium">{day}</Label>
       </div>
       <div className="flex items-center gap-2 w-full sm:w-auto">
-        <Input type="time" defaultValue="09:00" className="w-full sm:w-32" />
+        <Input type="time" defaultValue="09:00" className="w-full sm:w-32" disabled={!isChecked} />
         <span className='px-2'>-</span>
-        <Input type="time" defaultValue="17:00" className="w-full sm:w-32" />
+        <Input type="time" defaultValue="17:00" className="w-full sm:w-32" disabled={!isChecked} />
       </div>
     </div>
   );
@@ -110,7 +116,6 @@ export default function FinancialsPage() {
   
   const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Financials" />
@@ -123,7 +128,7 @@ export default function FinancialsPage() {
             </p>
           </div>
 
-          <Tabs defaultValue="tmhr" className="w-full">
+          <Tabs defaultValue="lifestyle" className="w-full">
             <TabsList className="grid w-full grid-cols-2 md:grid-cols-4">
               <TabsTrigger value="lifestyle"><Home className="mr-2 h-4 w-4"/>Lifestyle</TabsTrigger>
               <TabsTrigger value="business"><Briefcase className="mr-2 h-4 w-4"/>Business</TabsTrigger>
@@ -141,23 +146,68 @@ export default function FinancialsPage() {
                   <Accordion type="multiple" defaultValue={['Housing']} className="w-full space-y-4">
                     <ExpenseCategory title="Housing">
                         <BillItemCard title="Rent/Mortgage" />
-                        <BillItemCard title="Home Insurance" />
-                        <BillItemCard title="Property Tax" />
+                        <BillItemCard title="Property Taxes" />
+                        <BillItemCard title="HOA Fees" />
+                        <BillItemCard title="Insurance (Homeowner's/Renter's)" />
                     </ExpenseCategory>
                      <ExpenseCategory title="Utilities">
-                        <BillItemCard title="Electricity" />
-                        <BillItemCard title="Gas/Oil" />
+                        <BillItemCard title="Electric" />
                         <BillItemCard title="Water" />
-                        <BillItemCard title="Internet" />
-                         <BillItemCard title="Phone" />
+                        <BillItemCard title="Gas" />
+                        <BillItemCard title="Waste Management" />
                     </ExpenseCategory>
-                     <ExpenseCategory title="Custom Costs">
-                        <BillItemCard title="Groceries" isCustom />
-                        <div className="flex items-center justify-center w-64 md:w-72 shrink-0">
-                           <Button variant="outline" className="w-full h-full border-dashed">
-                               <PlusCircle className="mr-2" /> Add Custom Cost
-                           </Button>
-                        </div>
+                    <ExpenseCategory title="Internet & Phone">
+                      <BillItemCard title="Internet Bill" />
+                      <BillItemCard title="Cell Phone Bill" />
+                    </ExpenseCategory>
+                    <ExpenseCategory title="Streaming & Subscriptions">
+                      <BillItemCard title="Netflix" />
+                      <BillItemCard title="Spotify" />
+                      <BillItemCard title="News Subscription" />
+                      <BillItemCard title="Cloud Storage (iCloud, Google Drive, etc.)" />
+                    </ExpenseCategory>
+                    <ExpenseCategory title="Food">
+                      <BillItemCard title="Groceries" />
+                      <BillItemCard title="Restaurants" />
+                    </ExpenseCategory>
+                    <ExpenseCategory title="Transportation">
+                      <BillItemCard title="Car Payment" />
+                      <BillItemCard title="Car Insurance" />
+                      <BillItemCard title="Gas/Fuel" />
+                      <BillItemCard title="Public Transit" />
+                    </ExpenseCategory>
+                    <ExpenseCategory title="Health & Wellness">
+                      <BillItemCard title="Personal Health Insurance" />
+                      <BillItemCard title="Gym Membership" />
+                      <BillItemCard title="Therapy/Counseling" />
+                      <BillItemCard title="Medication" />
+                    </ExpenseCategory>
+                    <ExpenseCategory title="Debt Repayment">
+                      <BillItemCard title="Student Loans" />
+                      <BillItemCard title="Credit Card Payments" />
+                      <BillItemCard title="Buy Now, Pay Later" />
+                    </ExpenseCategory>
+                    <ExpenseCategory title="Family & Childcare">
+                      <BillItemCard title="Childcare / Daycare" />
+                      <BillItemCard title="Kids' Activities" />
+                      <BillItemCard title="Child Support" />
+                    </ExpenseCategory>
+                    <ExpenseCategory title="Pets">
+                      <BillItemCard title="Pet Food & Supplies" />
+                      <BillItemCard title="Pet Insurance" />
+                    </ExpenseCategory>
+                    <ExpenseCategory title="Personal Spending">
+                      <BillItemCard title="Shopping (Clothes, etc.)" />
+                      <BillItemCard title="Entertainment (Movies, Concerts, etc.)" />
+                      <BillItemCard title="Hobbies & Recreation" />
+                      <BillItemCard title="Personal Care" />
+                    </ExpenseCategory>
+                    <ExpenseCategory title="Gifts & Donations">
+                      <BillItemCard title="Gifts & Donations" />
+                    </ExpenseCategory>
+                    <ExpenseCategory title="Financial Goals">
+                      <BillItemCard title="Personal Savings" />
+                      <BillItemCard title="Retirement (IRA/401k)" />
                     </ExpenseCategory>
                   </Accordion>
                 </CardContent>
@@ -181,22 +231,48 @@ export default function FinancialsPage() {
                   <CardDescription>What does it cost to keep the lights on? Input your fixed business expenses.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <Accordion type="multiple" defaultValue={['Workspace']} className="w-full space-y-4">
-                    <ExpenseCategory title="Workspace">
-                        <BillItemCard title="Studio/Shop Rent" />
-                        <BillItemCard title="Business Insurance" />
+                  <Accordion type="multiple" defaultValue={['Rent & Facility']} className="w-full space-y-4">
+                    <ExpenseCategory title="Rent & Facility">
+                        <BillItemCard title="Studio Rent/Mortgage" />
+                        <BillItemCard title="Business Insurance (Liability, Property)" />
                     </ExpenseCategory>
-                     <ExpenseCategory title="Software">
+                     <ExpenseCategory title="Utilities">
+                        <BillItemCard title="Electric" />
+                        <BillItemCard title="Water" />
+                        <BillItemCard title="Gas" />
+                        <BillItemCard title="Waste Management" />
+                    </ExpenseCategory>
+                     <AccordionItem value="Capital Equipment">
+                        <AccordionTrigger className="px-4 py-3 text-base font-medium hover:no-underline bg-muted/50 rounded-t-lg">Capital Equipment</AccordionTrigger>
+                        <AccordionContent className="p-4 border border-t-0 rounded-b-lg text-sm text-muted-foreground">
+                            Monthly depreciation of items from your Inventory Hub under &quot;Equipment&quot; is automatically calculated here.
+                        </AccordionContent>
+                    </AccordionItem>
+                    <ExpenseCategory title="Software & Systems">
                         <BillItemCard title="Booking Software" />
-                        <BillItemCard title="Accounting Software" />
-                         <BillItemCard title="Website Hosting" />
+                        <BillItemCard title="Website Hosting" />
+                        <BillItemCard title="Email Marketing" />
                     </ExpenseCategory>
-                     <ExpenseCategory title="Custom Costs">
-                        <div className="flex items-center justify-center w-64 md:w-72 shrink-0">
-                           <Button variant="outline" className="w-full h-full border-dashed">
-                               <PlusCircle className="mr-2" /> Add Custom Cost
-                           </Button>
-                        </div>
+                    <ExpenseCategory title="Tech & Comms">
+                        <BillItemCard title="Business Phone Line" />
+                    </ExpenseCategory>
+                    <ExpenseCategory title="Professional & Admin">
+                        <BillItemCard title="Accountant/Bookkeeper" />
+                        <BillItemCard title="Licensing & Dues" />
+                    </ExpenseCategory>
+                     <ExpenseCategory title="Marketing & Growth">
+                        <BillItemCard title="Social Media Ads" />
+                        <BillItemCard title="Print Materials (Business Cards, Flyers)" />
+                    </ExpenseCategory>
+                    <ExpenseCategory title="Retail & Marketing Materials">
+                        <BillItemCard title="Packaging & Bags" />
+                    </ExpenseCategory>
+                    <ExpenseCategory title="Business Debt">
+                        <BillItemCard title="Business Loan" />
+                        <BillItemCard title="Tax Debt Payment" />
+                    </ExpenseCategory>
+                    <ExpenseCategory title="Miscellaneous">
+                        <BillItemCard title="Bank Fees" />
                     </ExpenseCategory>
                   </Accordion>
                 </CardContent>
