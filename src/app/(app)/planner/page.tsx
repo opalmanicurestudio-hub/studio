@@ -1,3 +1,4 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -85,7 +86,7 @@ const DayTimeline = ({ date, appointmentsForDay }: { date: Date; appointmentsFor
                   <div
                     key={apt.id}
                     className={cn(
-                      "absolute left-12 right-0 md:left-14 md:right-4 rounded-lg border p-2 md:p-3 text-sm flex flex-col",
+                      "absolute left-12 right-4 rounded-lg border p-2 text-sm flex flex-col",
                       {
                         "bg-blue-500/10 border-blue-500/20 text-blue-900 dark:text-blue-200": apt.status === 'confirmed',
                         "bg-green-500/10 border-green-500/20 text-green-900 dark:text-green-200": apt.status === 'completed',
@@ -95,8 +96,8 @@ const DayTimeline = ({ date, appointmentsForDay }: { date: Date; appointmentsFor
                     style={{ top: `${top}px`, minHeight: `${height}px` }}
                   >
                     <div className='flex justify-between items-start gap-1'>
-                        <div className="font-semibold text-xs md:text-sm">{client.name}</div>
-                        <Badge variant="outline" className={cn('capitalize text-[10px] md:text-xs font-medium border-current h-5', {
+                        <div className="font-semibold text-xs">{client.name}</div>
+                        <Badge variant="outline" className={cn('capitalize text-[10px] font-medium border-current h-5', {
                             "bg-blue-500/10 text-current": apt.status === 'confirmed',
                             "bg-green-500/10 text-current": apt.status === 'completed',
                             "bg-red-500/10 text-current": apt.status === 'canceled',
@@ -105,12 +106,12 @@ const DayTimeline = ({ date, appointmentsForDay }: { date: Date; appointmentsFor
                         </Badge>
                     </div>
                     
-                    <div className="text-current/80 text-xs md:text-sm">{service.name}</div>
-                    <div className="text-[10px] md:text-xs text-current/60 mt-1">
+                    <div className="text-current/80 text-xs">{service.name}</div>
+                    <div className="text-[10px] text-current/60 mt-1">
                       {format(apt.startTime, 'h:mm a')} - {format(apt.endTime, 'h:mm a')} ({duration} min)
                     </div>
                     {apt.status === 'completed' && (
-                        <div className='mt-auto pt-2 grid grid-cols-3 gap-1 md:gap-2 text-[10px] md:text-xs border-t border-current/10'>
+                        <div className='mt-auto pt-2 grid grid-cols-3 gap-1 text-[10px] border-t border-current/10'>
                             <div><span className='text-current/60'>Price:</span> ${service.price.toFixed(2)}</div>
                             <div className='text-red-500'><span className='text-current/60'>Cost:</span> ${service.cost.toFixed(2)}</div>
                             <div className='text-green-600 dark:text-green-400'><span className='text-current/60'>Net:</span> ${service.profit.toFixed(2)}</div>
