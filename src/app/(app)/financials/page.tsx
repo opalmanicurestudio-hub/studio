@@ -36,7 +36,7 @@ const BillItemCard = ({
   isEditing?: boolean;
 }) => {
   return (
-    <Card className="w-full shrink-0 md:w-72">
+    <Card className="w-full shrink-0">
       <CardContent className="p-4 space-y-4">
         <div className='space-y-2'>
             {isCustom && isEditing ? (
@@ -92,7 +92,7 @@ const ExpenseCategory = ({
     </AccordionTrigger>
     <AccordionContent className="p-4 border border-t-0 rounded-b-lg">
       <div className="md:hidden space-y-4">
-        {React.Children.map(children, child => React.cloneElement(child as React.ReactElement<any>, { isEditing }))}
+        {React.Children.map(children, child => React.cloneElement(child as React.ReactElement<any>, { isEditing, className: 'md:w-72' }))}
         {isEditing && (
          <div className="flex items-center justify-center w-full shrink-0">
              <Button variant="outline" className="w-full h-full border-dashed">
