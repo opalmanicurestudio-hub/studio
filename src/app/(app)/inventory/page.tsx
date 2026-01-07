@@ -4,15 +4,11 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
 } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, File, MoreHorizontal, MapPin } from 'lucide-react';
+import { PlusCircle, File, MoreHorizontal, ChevronUp, Database } from 'lucide-react';
 import { inventory, type InventoryItem } from '@/lib/data';
-import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,35 +17,23 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import Image from 'next/image';
-import { cn } from '@/lib/utils';
-
-const getStockStatus = (stock: number): { text: string; variant: 'default' | 'destructive' | 'secondary' } => {
-    if (stock <= 0) return { text: 'Out of Stock', variant: 'destructive' };
-    if (stock < 10) return { text: 'Low Stock', variant: 'secondary' };
-    return { text: 'In Stock', variant: 'default' }; 
-}
-
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 
 const ProductCard = ({ item }: { item: InventoryItem }) => {
-    const status = getStockStatus(item.stock);
     return (
         <Card className="w-full shrink-0 md:w-72">
-            <CardHeader className="p-4">
-                <div className="flex items-start justify-between">
-                    <div>
-                        <CardTitle className="text-base">{item.name}</CardTitle>
-                        <Badge 
-                            variant={status.variant} 
-                            className={cn(
-                                'mt-1',
-                                status.variant === 'default' && 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 border-green-200 dark:border-green-600/30',
-                                status.variant === 'secondary' && 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-400 border-yellow-200 dark:border-yellow-600/30'
-                            )}
-                        >
-                            {status.text}
-                        </Badge>
+            <CardContent className="p-4 space-y-4">
+                <div className="flex items-start justify-between gap-4">
+                    <div className='flex items-center gap-3'>
+                        <div className='w-14 h-14 bg-muted rounded-md flex-shrink-0'>
+                            <Image src={`https://picsum.photos/seed/inv${item.id}/100/100`} alt={item.name} width={56} height={56} className='rounded-md' data-ai-hint="product photo"/>
+                        </div>
+                        <div>
+                            <p className="font-semibold text-base">{item.name}</p>
+                            <p className="text-sm text-muted-foreground">{item.type}</p>
+                        </div>
                     </div>
-                    <DropdownMenu>
+                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button aria-haspopup="true" size="icon" variant="ghost" className="h-6 w-6">
                           <MoreHorizontal className="h-4 w-4" />
@@ -66,30 +50,43 @@ const ProductCard = ({ item }: { item: InventoryItem }) => {
                       </DropdownMenuContent>
                     </DropdownMenu>
                 </div>
-            </CardHeader>
-            <CardContent className="p-4 pt-0 space-y-4">
-                <div className='flex gap-4 items-center'>
-                    <div className='w-20 h-20 bg-muted rounded-md flex-shrink-0'>
-                        <Image src={`https://picsum.photos/seed/inv${item.id}/200/200`} alt={item.name} width={80} height={80} className='rounded-md' data-ai-hint="product photo"/>
-                    </div>
-                    <div className='space-y-1 text-center'>
+                
+                <Card className='bg-muted/50'>
+                    <CardContent className='p-3 text-center'>
+                        <p className='text-xs text-muted-foreground'>Total On Hand</p>
                         <p className='text-3xl font-bold'>{item.stock}</p>
-                        <p className='text-xs text-muted-foreground'>Total Stock</p>
-                    </div>
+                        <p className='text-xs text-muted-foreground'>30 uses left in open container</p>
+                    </CardContent>
+                </Card>
+
+                <div className='space-y-2'>
+                    <Button variant='secondary' className='w-full bg-yellow-100 text-yellow-800 hover:bg-yellow-200 border-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-400 dark:hover:bg-yellow-900/60 dark:border-yellow-600/30'>Low Stock</Button>
+                    <Button variant='outline' className='w-full'>Log 1 Use</Button>
                 </div>
-                 <div className="text-xs text-muted-foreground flex items-center gap-1.5">
-                    <MapPin className="w-3 h-3" />
-                    <span>Color Bar - Shelf A</span>
-                    <Badge variant="outline" className="ml-auto">+2 more</Badge>
-                </div>
+                
+                <Accordion type="single" collapsible className="w-full">
+                    <AccordionItem value="batches" className='border-0'>
+                        <AccordionTrigger className='p-2 text-sm text-muted-foreground justify-center gap-2 hover:no-underline rounded-md hover:bg-muted/50'>
+                             <Database className='w-4 h-4' /> Batches (1)
+                        </AccordionTrigger>
+                        <AccordionContent className='pt-2'>
+                            <p className='text-sm text-muted-foreground'>Batch details would go here.</p>
+                        </AccordionContent>
+                    </AccordionItem>
+                </Accordion>
             </CardContent>
         </Card>
     )
 }
 
 const ProductShelf = ({ title, items }: { title: string, items: InventoryItem[] }) => (
-  <div className="space-y-3">
-    <h3 className="text-lg font-semibold px-1 md:px-0">{title}</h3>
+  <div className="space-y-4">
+    <div className='flex items-center justify-between px-1 md:px-0'>
+        <h3 className="text-xl font-bold">{title}</h3>
+        <Button variant='ghost' size='icon' className='h-8 w-8'>
+            <ChevronUp className='h-5 w-5' />
+        </Button>
+    </div>
      <div className="md:hidden space-y-4">
       {items.map((item) => <ProductCard key={item.id} item={item} />)}
     </div>
