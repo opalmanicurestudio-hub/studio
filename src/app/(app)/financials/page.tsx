@@ -177,12 +177,15 @@ export default function FinancialsPage() {
           </div>
 
           <Tabs defaultValue="lifestyle" className="w-full">
-            <TabsList className="grid w-full grid-cols-2 md:grid-cols-4">
-              <TabsTrigger value="lifestyle"><Home className="mr-2 h-4 w-4"/>Lifestyle</TabsTrigger>
-              <TabsTrigger value="business"><Briefcase className="mr-2 h-4 w-4"/>Business</TabsTrigger>
-              <TabsTrigger value="schedule"><Clock className="mr-2 h-4 w-4"/>Schedule</TabsTrigger>
-              <TabsTrigger value="tmhr" className="font-bold text-primary data-[state=active]:text-primary"><DollarSign className="mr-2 h-4 w-4"/>TMHR</TabsTrigger>
-            </TabsList>
+            <ScrollArea className="w-full whitespace-nowrap">
+              <TabsList className="inline-grid w-max grid-cols-4">
+                <TabsTrigger value="lifestyle"><Home className="mr-2 h-4 w-4"/>Lifestyle</TabsTrigger>
+                <TabsTrigger value="business"><Briefcase className="mr-2 h-4 w-4"/>Business</TabsTrigger>
+                <TabsTrigger value="schedule"><Clock className="mr-2 h-4 w-4"/>Schedule</TabsTrigger>
+                <TabsTrigger value="tmhr" className="font-bold text-primary data-[state=active]:text-primary"><DollarSign className="mr-2 h-4 w-4"/>TMHR</TabsTrigger>
+              </TabsList>
+              <ScrollBar orientation="horizontal" />
+            </ScrollArea>
             
             <TabsContent value="lifestyle" className="mt-6">
               <Card>
