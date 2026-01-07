@@ -1,4 +1,3 @@
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -9,17 +8,9 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Search, Trash, UserPlus, FileDown } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,111 +20,82 @@ import {
 import { clients } from '@/lib/data';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
+import { Input } from '@/components/ui/input';
+
+const ClientCard = ({ client }: { client: any }) => {
+    return (
+        <Card>
+            <CardContent className="p-4 space-y-4">
+                <div className="flex items-start gap-4">
+                     <Avatar className="w-16 h-16 border">
+                        <AvatarImage src={client.avatarUrl} alt={client.name} data-ai-hint="person portrait" />
+                        <AvatarFallback>{client.name.charAt(0)}</AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1">
+                        <Link href={`/clients/${client.id}`} className="group">
+                            <p className="font-semibold text-lg group-hover:underline">{client.name}</p>
+                        </Link>
+                        <p className="text-sm text-muted-foreground">Last seen: {formatDistanceToNow(new Date(client.lastAppointment), { addSuffix: true })}</p>
+                    </div>
+                     <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button aria-haspopup="true" size="icon" variant="ghost" className="-mt-1 h-8 w-8 flex-shrink-0">
+                                <MoreHorizontal className="h-4 w-4" />
+                                <span className="sr-only">Toggle menu</span>
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                             <DropdownMenuItem asChild>
+                                <Link href={`/clients/${client.id}`}>View Details</Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem>Book Appointment</DropdownMenuItem>
+                            <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
+                 <div className="flex items-center justify-between text-sm">
+                    <span className='text-muted-foreground'>Lifetime Value</span>
+                    <Badge variant="outline" className="font-mono text-base">${client.lifetimeValue.toFixed(2)}</Badge>
+                </div>
+            </CardContent>
+        </Card>
+    )
+}
 
 export default function ClientsPage() {
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Clients" />
-      <main className="flex-1 p-4 md:p-8">
+      <main className="flex-1 p-4 md:p-8 space-y-6">
+        <div>
+            <h1 className="text-3xl font-bold">Client Log</h1>
+            <p className="text-muted-foreground">A scannable rolodex of your entire client base.</p>
+        </div>
+
         <Card>
-          <CardHeader>
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div>
-                <CardTitle>Client Log</CardTitle>
-                <CardDescription>
-                  Manage your clients and view their history.
-                </CardDescription>
-              </div>
-              <Button size="sm">
-                <PlusCircle className="mr-2 h-4 w-4" />
-                New Client
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Client</TableHead>
-                  <TableHead className="hidden sm:table-cell">
-                    Last Appointment
-                  </TableHead>
-                  <TableHead className="hidden md:table-cell">
-                    Lifetime Value
-                  </TableHead>
-                  <TableHead>
-                    <span className="sr-only">Actions</span>
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {[...clients].sort((a,b) => new Date(b.lastAppointment).getTime() - new Date(a.lastAppointment).getTime()).map((client) => (
-                  <TableRow key={client.id}>
-                    <TableCell>
-                      <Link
-                        href={`/clients/${client.id}`}
-                        className="flex items-center gap-3 group"
-                      >
-                        <Avatar>
-                          <AvatarImage
-                            src={client.avatarUrl}
-                            alt={client.name}
-                            data-ai-hint="person portrait"
-                          />
-                          <AvatarFallback>
-                            {client.name.charAt(0)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <div className="font-medium group-hover:underline">
-                            {client.name}
-                          </div>
-                          <div className="text-sm text-muted-foreground sm:hidden">
-                            {format(new Date(client.lastAppointment), 'MMM d, yyyy')}
-                          </div>
-                        </div>
-                      </Link>
-                    </TableCell>
-                    <TableCell className="hidden sm:table-cell">
-                      {format(new Date(client.lastAppointment), 'MMMM d, yyyy')}
-                    </TableCell>
-                    <TableCell className="hidden md:table-cell">
-                      <Badge variant="outline" className="font-mono">
-                        ${client.lifetimeValue.toFixed(2)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            aria-haspopup="true"
-                            size="icon"
-                            variant="ghost"
-                          >
-                            <MoreHorizontal className="h-4 w-4" />
-                            <span className="sr-only">Toggle menu</span>
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem asChild>
-                            <Link href={`/clients/${client.id}`}>
-                              View Details
-                            </Link>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem>Edit</DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive">
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
+            <CardHeader>
+                <div className="flex flex-col sm:flex-row items-center gap-4">
+                    <div className="relative w-full sm:max-w-xs">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input placeholder="Search by name or email..." className="pl-9" />
+                    </div>
+                    <div className="ml-auto flex items-center gap-2">
+                        <Button variant="outline"><FileDown className="mr-2 h-4 w-4" /> Export</Button>
+                        <Button variant="outline"><UserPlus className="mr-2 h-4 w-4" /> Merge Duplicates</Button>
+                        <Button><PlusCircle className="mr-2 h-4 w-4" /> New Client</Button>
+                    </div>
+                </div>
+            </CardHeader>
+            <CardContent>
+                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                    {[...clients].sort((a,b) => new Date(b.lastAppointment).getTime() - new Date(a.lastAppointment).getTime()).map((client) => (
+                        <ClientCard key={client.id} client={client} />
+                    ))}
+                 </div>
+            </CardContent>
         </Card>
+
       </main>
     </div>
   );
