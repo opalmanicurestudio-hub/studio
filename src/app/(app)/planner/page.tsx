@@ -114,17 +114,18 @@ export default function PlannerPage() {
         </div>
         <div className="md:hidden h-full">
             <ScrollArea className='h-full'>
-                <div className='space-y-4'>
+                <div className='flex gap-4'>
                 {weekDays.map((date) => {
                     const appointmentsForDay = appointments.filter(
                     (apt) => format(apt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd')
                     ).sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
                     return (
-                    <DayCard
-                        key={date.toString()}
-                        date={date}
-                        appointmentsForDay={appointmentsForDay}
-                    />
+                      <div key={date.toString()} className='w-4/5 flex-shrink-0'>
+                        <DayCard
+                            date={date}
+                            appointmentsForDay={appointmentsForDay}
+                        />
+                      </div>
                     );
                 })}
                 </div>

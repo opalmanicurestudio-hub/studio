@@ -191,7 +191,7 @@ export const appointments: Appointment[] = Array.from({ length: 21 }, (_, i) => 
     const today = new Date();
     const currentDayOfWeek = today.getDay();
     const daysSinceSunday = currentDayOfWeek;
-    const firstDayOfWeek = new Date(today.setDate(today.getDate() - daysSinceSunday));
+    const firstDayOfWeek = new Date(new Date().setDate(today.getDate() - daysSinceSunday));
 
     const startTime = new Date(firstDayOfWeek);
     startTime.setDate(firstDayOfWeek.getDate() + day);
