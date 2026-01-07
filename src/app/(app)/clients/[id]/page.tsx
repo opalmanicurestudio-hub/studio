@@ -17,6 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { format } from 'date-fns';
 import { Textarea } from '@/components/ui/textarea';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 
 export default function ClientDetailPage({ params }: { params: { id: string } }) {
   const client = clients.find((c) => c.id === params.id);
@@ -34,29 +35,31 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Client Profile" />
       <main className="flex-1 p-4 md:p-8 space-y-6">
-        <div className="flex items-center gap-4">
-            <Button variant="outline" size="icon" className="h-7 w-7" asChild>
-                <Link href="/clients">
-                    <ArrowLeft className="h-4 w-4" />
-                    <span className="sr-only">Back</span>
-                </Link>
-            </Button>
-            <Avatar className="w-12 h-12">
-                <AvatarImage src={client.avatarUrl} alt={client.name} />
-                <AvatarFallback>{client.name.substring(0, 2)}</AvatarFallback>
-            </Avatar>
-            <div>
-                <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">
-                    {client.name}
-                </h1>
-                 <div className="text-sm text-muted-foreground flex items-center gap-4">
-                    <span>{client.email}</span>
-                    <span>{client.phone}</span>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <div className="flex items-center gap-4 w-full">
+                <Button variant="outline" size="icon" className="h-7 w-7 flex-shrink-0" asChild>
+                    <Link href="/clients">
+                        <ArrowLeft className="h-4 w-4" />
+                        <span className="sr-only">Back</span>
+                    </Link>
+                </Button>
+                <Avatar className="w-12 h-12">
+                    <AvatarImage src={client.avatarUrl} alt={client.name} />
+                    <AvatarFallback>{client.name.substring(0, 2)}</AvatarFallback>
+                </Avatar>
+                <div className='flex-1'>
+                    <h1 className="whitespace-nowrap text-xl font-semibold tracking-tight">
+                        {client.name}
+                    </h1>
+                     <div className="text-xs sm:text-sm text-muted-foreground flex flex-col sm:flex-row sm:items-center sm:gap-4">
+                        <span>{client.email}</span>
+                        <span>{client.phone}</span>
+                    </div>
                 </div>
             </div>
 
-            <div className="ml-auto flex items-center gap-2">
-                <Button variant="outline">
+            <div className="w-full sm:w-auto sm:ml-auto">
+                <Button variant="outline" className="w-full">
                     <Edit className="h-4 w-4 mr-2" />
                     Edit Profile
                 </Button>
@@ -64,13 +67,16 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
         </div>
         
         <Tabs defaultValue="overview">
-            <TabsList className="grid w-full grid-cols-5">
+            <ScrollArea className="w-full">
+              <TabsList className="inline-grid w-max grid-cols-5">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="history">History</TabsTrigger>
                 <TabsTrigger value="photos">Photos</TabsTrigger>
                 <TabsTrigger value="referrals">Referrals</TabsTrigger>
                 <TabsTrigger value="incidents">Incidents</TabsTrigger>
-            </TabsList>
+              </TabsList>
+              <ScrollBar orientation="horizontal" />
+            </ScrollArea>
             <TabsContent value="overview" className="mt-6">
                 <div className="grid gap-6 md:grid-cols-3">
                     <div className="md:col-span-2 space-y-6">
