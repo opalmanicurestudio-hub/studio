@@ -18,6 +18,7 @@ import {
   Users,
   Sparkles,
   Settings,
+  DollarSign,
 } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '../ui/button';
@@ -52,6 +53,7 @@ const navItems = [
   { href: '/inventory', icon: Box, label: 'Inventory' },
   { href: '/clients', icon: Users, label: 'Clients' },
   { href: '/ai-cfo', icon: Sparkles, label: 'AI CFO' },
+  { href: '/financials', icon: DollarSign, label: 'Financials' },
 ];
 
 export function AppSidebar() {
@@ -89,7 +91,7 @@ export function AppSidebar() {
         <SidebarMenu>
             <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={pathname.startsWith('/settings')} tooltip="Settings">
-                  <Link href="/settings/financials">
+                  <Link href="/settings">
                     <Settings />
                     <span>Settings</span>
                   </Link>

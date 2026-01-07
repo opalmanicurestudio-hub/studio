@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, ChangeEvent } from 'react';
@@ -33,7 +34,7 @@ const BillItemCard = ({
   isCustom?: boolean;
 }) => {
   return (
-    <Card className="w-72 shrink-0">
+    <Card className="w-64 md:w-72 shrink-0">
       <CardContent className="p-4 space-y-2">
         {isCustom ? (
           <Input defaultValue={title} className="font-medium" />
@@ -73,15 +74,15 @@ const ExpenseCategory = ({
 
 const DayScheduleRow = ({ day }: { day: string }) => {
   return (
-    <div className="flex items-center justify-between rounded-lg border p-4">
+    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between rounded-lg border p-4 gap-4">
       <div className="flex items-center gap-4">
-        <Switch defaultChecked />
-        <Label className="text-base font-medium">{day}</Label>
+        <Switch defaultChecked id={`switch-${day}`} />
+        <Label htmlFor={`switch-${day}`} className="text-base font-medium">{day}</Label>
       </div>
-      <div className="flex items-center gap-2">
-        <Input type="time" defaultValue="09:00" className="w-32" />
-        <span>-</span>
-        <Input type="time" defaultValue="17:00" className="w-32" />
+      <div className="flex items-center gap-2 w-full sm:w-auto">
+        <Input type="time" defaultValue="09:00" className="w-full sm:w-32" />
+        <span className='px-2'>-</span>
+        <Input type="time" defaultValue="17:00" className="w-full sm:w-32" />
       </div>
     </div>
   );
@@ -112,7 +113,7 @@ export default function FinancialsPage() {
 
   return (
     <div className="flex min-h-screen w-full flex-col">
-      <AppHeader title="Settings" />
+      <AppHeader title="Financials" />
       <main className="flex-1 p-4 md:p-8">
         <div className="max-w-6xl mx-auto space-y-8">
           <div className="text-center">
@@ -123,11 +124,11 @@ export default function FinancialsPage() {
           </div>
 
           <Tabs defaultValue="tmhr" className="w-full">
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="lifestyle"><Home className="mr-2"/>Lifestyle</TabsTrigger>
-              <TabsTrigger value="business"><Briefcase className="mr-2"/>Business</TabsTrigger>
-              <TabsTrigger value="schedule"><Clock className="mr-2"/>Schedule</TabsTrigger>
-              <TabsTrigger value="tmhr" className="font-bold text-primary data-[state=active]:text-primary">TMHR</TabsTrigger>
+            <TabsList className="grid w-full grid-cols-2 md:grid-cols-4">
+              <TabsTrigger value="lifestyle"><Home className="mr-2 h-4 w-4"/>Lifestyle</TabsTrigger>
+              <TabsTrigger value="business"><Briefcase className="mr-2 h-4 w-4"/>Business</TabsTrigger>
+              <TabsTrigger value="schedule"><Clock className="mr-2 h-4 w-4"/>Schedule</TabsTrigger>
+              <TabsTrigger value="tmhr" className="font-bold text-primary data-[state=active]:text-primary"><DollarSign className="mr-2 h-4 w-4"/>TMHR</TabsTrigger>
             </TabsList>
             
             <TabsContent value="lifestyle" className="mt-6">
@@ -152,7 +153,7 @@ export default function FinancialsPage() {
                     </ExpenseCategory>
                      <ExpenseCategory title="Custom Costs">
                         <BillItemCard title="Groceries" isCustom />
-                        <div className="flex items-center justify-center w-72 shrink-0">
+                        <div className="flex items-center justify-center w-64 md:w-72 shrink-0">
                            <Button variant="outline" className="w-full h-full border-dashed">
                                <PlusCircle className="mr-2" /> Add Custom Cost
                            </Button>
@@ -160,7 +161,7 @@ export default function FinancialsPage() {
                     </ExpenseCategory>
                   </Accordion>
                 </CardContent>
-                <CardFooter className="bg-muted/50 p-4 rounded-b-lg mt-4 flex justify-end gap-8">
+                <CardFooter className="bg-muted/50 p-4 rounded-b-lg mt-4 flex flex-col sm:flex-row justify-end gap-4 sm:gap-8">
                     <div className="text-right">
                         <div className="text-sm text-muted-foreground">Monthly Total</div>
                         <div className="text-2xl font-bold">$3,000.00</div>
@@ -191,7 +192,7 @@ export default function FinancialsPage() {
                          <BillItemCard title="Website Hosting" />
                     </ExpenseCategory>
                      <ExpenseCategory title="Custom Costs">
-                        <div className="flex items-center justify-center w-72 shrink-0">
+                        <div className="flex items-center justify-center w-64 md:w-72 shrink-0">
                            <Button variant="outline" className="w-full h-full border-dashed">
                                <PlusCircle className="mr-2" /> Add Custom Cost
                            </Button>
@@ -199,7 +200,7 @@ export default function FinancialsPage() {
                     </ExpenseCategory>
                   </Accordion>
                 </CardContent>
-                <CardFooter className="bg-muted/50 p-4 rounded-b-lg mt-4 flex justify-end gap-8">
+                <CardFooter className="bg-muted/50 p-4 rounded-b-lg mt-4 flex flex-col sm:flex-row justify-end gap-4 sm:gap-8">
                     <div className="text-right">
                         <div className="text-sm text-muted-foreground">Monthly Total</div>
                         <div className="text-2xl font-bold">$1,500.00</div>
@@ -243,29 +244,29 @@ export default function FinancialsPage() {
             <TabsContent value="tmhr" className="mt-6">
                  <Card className="bg-primary/5 border-primary/20 text-center">
                     <CardHeader>
-                        <CardTitle className="text-3xl">Your True Minimum Hourly Rate</CardTitle>
-                        <CardDescription className="text-base">
+                        <CardTitle className="text-2xl md:text-3xl">Your True Minimum Hourly Rate</CardTitle>
+                        <CardDescription className="text-sm md:text-base">
                             This is the minimum you must earn per hour to break even and fund your life.
                         </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-6">
                         <div>
-                            <p className="text-7xl font-bold text-primary">${tmhr.toFixed(2)}</p>
+                            <p className="text-6xl md:text-7xl font-bold text-primary">${tmhr.toFixed(2)}</p>
                             <p className="text-muted-foreground mt-2">per billable hour</p>
                         </div>
                         <Card className="max-w-md mx-auto bg-background/50">
-                            <CardContent className="p-4 grid grid-cols-3 divide-x">
-                                <div className="text-center px-2">
+                            <CardContent className="p-4 grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x">
+                                <div className="text-center px-2 py-2 sm:py-0">
                                     <p className="text-sm text-muted-foreground">Lifestyle Cost</p>
-                                    <p className="text-xl font-semibold">${(costs.personal / (schedule.daysPerWeek * schedule.hoursPerDay * 4)).toFixed(2)}/hr</p>
+                                    <p className="text-lg md:text-xl font-semibold">${(costs.personal / (schedule.daysPerWeek * schedule.hoursPerDay * 4)).toFixed(2)}/hr</p>
                                 </div>
-                                <div className="text-center px-2">
+                                <div className="text-center px-2 py-2 sm:py-0">
                                     <p className="text-sm text-muted-foreground">Business Cost</p>
-                                    <p className="text-xl font-semibold">${(costs.business / (schedule.daysPerWeek * schedule.hoursPerDay * 4)).toFixed(2)}/hr</p>
+                                    <p className="text-lg md:text-xl font-semibold">${(costs.business / (schedule.daysPerWeek * schedule.hoursPerDay * 4)).toFixed(2)}/hr</p>
                                 </div>
-                                 <div className="text-center px-2">
+                                 <div className="text-center px-2 py-2 sm:py-0">
                                     <p className="text-sm text-muted-foreground">Billable Hours</p>
-                                    <p className="text-xl font-semibold">{schedule.daysPerWeek * schedule.hoursPerDay * 4}/mo</p>
+                                    <p className="text-lg md:text-xl font-semibold">{schedule.daysPerWeek * schedule.hoursPerDay * 4}/mo</p>
                                 </div>
                             </CardContent>
                         </Card>
