@@ -183,29 +183,55 @@ export const inventory: InventoryItem[] = [
 ];
 
 export const appointments: Appointment[] = Array.from({ length: 21 }, (_, i) => {
-    const day = Math.floor(i / 3);
-    const hour = 10 + (i % 3) * 2;
+    let dayOffset = Math.floor(i / 3);
+    const hour = 9 + Math.floor(Math.random() * 8); // 9am to 5pm
+    const minute = Math.random() > 0.5 ? 30 : 0;
+    
     const client = clients[i % clients.length];
-    const service = services[i % services.length];
+    let service = services[i % services.length];
 
+    // Ensure we don't only have add-ons as primary services
+    if (service.type === 'addon') {
+        service = services.filter(s => s.type === 'service')[i % services.filter(s => s.type === 'service').length];
+    }
+    
     const today = new Date();
-    const currentDayOfWeek = today.getDay();
-    const daysSinceSunday = currentDayOfWeek;
-    const firstDayOfWeek = new Date(new Date().setDate(today.getDate() - daysSinceSunday));
+    const currentDayOfWeek = today.getDay(); // 0=Sun, 1=Mon, ...
+    
+    // Make appointments for today
+    if (i < 4) {
+        dayOffset = currentDayOfWeek;
+    } else {
+        // Distribute other appointments across the week relative to today
+        dayOffset = (currentDayOfWeek + i) % 7;
+    }
+    
+    const targetDay = new Date();
+    targetDay.setDate(today.getDate() - currentDayOfWeek + dayOffset);
 
-    const startTime = new Date(firstDayOfWeek);
-    startTime.setDate(firstDayOfWeek.getDate() + day);
-    startTime.setHours(hour, 0, 0, 0);
+
+    const startTime = new Date(targetDay);
+    startTime.setHours(hour, minute, 0, 0);
 
     const endTime = new Date(startTime);
     endTime.setMinutes(startTime.getMinutes() + service.duration);
     
+    let status: Appointment['status'] = 'confirmed';
+    if (startTime < today && dayOffset < currentDayOfWeek) {
+        status = 'completed';
+    } else if (i % 10 === 0) { // Randomly cancel some
+        status = 'canceled';
+    }
+
+
     return {
         id: `apt${i}`,
         clientId: client.id,
         serviceId: service.id,
         startTime,
         endTime,
-        status: i < 18 ? 'completed' : 'confirmed',
+        status: status,
     };
-});
+}).sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
+
+    
