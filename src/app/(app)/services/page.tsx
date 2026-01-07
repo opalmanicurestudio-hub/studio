@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -9,14 +10,6 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MoreHorizontal, PlusCircle } from 'lucide-react';
@@ -37,9 +30,61 @@ import {
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { services, type Service } from '@/lib/data';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Progress } from '@/components/ui/progress';
 
 const TMHR = 45; // True Minimum Hourly Rate (mock)
 const PRODUCT_COST = 15; // Mock product cost
+
+const ServiceCard = ({ service, onProfitTesterOpen }: { service: Service, onProfitTesterOpen: (service: Service) => void }) => {
+  const profitPercentage = service.price > 0 ? (service.profit / service.price) * 100 : 0;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between">
+          <div>
+            <CardTitle className="text-lg">{service.name}</CardTitle>
+            <CardDescription>{service.duration} min</CardDescription>
+          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button aria-haspopup="true" size="icon" variant="ghost" className='-mt-2'>
+                <MoreHorizontal className="h-4 w-4" />
+                <span className="sr-only">Toggle menu</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem>Edit</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onProfitTesterOpen(service)}>
+                Profit Tester
+              </DropdownMenuItem>
+              <DropdownMenuItem className="text-destructive">
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+            <Progress value={profitPercentage} className={`h-2 ${service.profit >= 0 ? 'text-green-500' : 'text-destructive'}`} />
+            <div className="grid grid-cols-2 gap-2 text-sm">
+                <div>
+                    <p className="text-muted-foreground">Price</p>
+                    <p className="font-semibold">${service.price.toFixed(2)}</p>
+                </div>
+                 <div className='text-right'>
+                    <p className="text-muted-foreground">Est. Profit</p>
+                    <p className={`font-semibold ${service.profit >= 0 ? 'text-primary' : 'text-destructive'}`}>${service.profit.toFixed(2)}</p>
+                </div>
+            </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
 
 export default function ServicesPage() {
   const [isProfitTesterOpen, setIsProfitTesterOpen] = useState(false);
@@ -65,86 +110,34 @@ export default function ServicesPage() {
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Services" />
       <main className="flex-1 p-4 md:p-8">
-        <Card>
-          <CardHeader>
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div>
-                <CardTitle>Service Library</CardTitle>
-                <CardDescription>
-                  Manage your services and analyze their profitability.
-                </CardDescription>
-              </div>
+        <Tabs defaultValue="services">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+              <TabsList className="grid w-full grid-cols-2 sm:w-auto">
+                <TabsTrigger value="services">Services</TabsTrigger>
+                <TabsTrigger value="add-ons">Add-ons</TabsTrigger>
+              </TabsList>
+            <div className="ml-auto flex items-center gap-2">
               <Button size="sm">
                 <PlusCircle className="mr-2 h-4 w-4" />
                 New Service
               </Button>
             </div>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Service</TableHead>
-                  <TableHead className="hidden sm:table-cell">Duration</TableHead>
-                  <TableHead>Price</TableHead>
-                  <TableHead className="hidden md:table-cell">Est. Profit</TableHead>
-                  <TableHead className="hidden md:table-cell">Margin</TableHead>
-                  <TableHead>
-                    <span className="sr-only">Actions</span>
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {services.map((service) => (
-                  <TableRow key={service.id}>
-                    <TableCell>
-                      <div className="font-medium">{service.name}</div>
-                      <div className="text-sm text-muted-foreground sm:hidden">
-                        {service.duration} min / ${service.price.toFixed(2)}
-                      </div>
-                    </TableCell>
-                    <TableCell className="hidden sm:table-cell">{service.duration} min</TableCell>
-                    <TableCell>${service.price.toFixed(2)}</TableCell>
-                    <TableCell className="hidden md:table-cell text-primary">
-                      ${service.profit.toFixed(2)}
-                    </TableCell>
-                    <TableCell className="hidden md:table-cell">
-                      <Badge
-                        variant={
-                          service.margin > 80 ? 'default' : 'secondary'
-                        }
-                        className={service.margin > 80 ? 'bg-green-600/20 text-green-400 border-green-600/30' : ''}
-                      >
-                        {service.margin.toFixed(1)}%
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button aria-haspopup="true" size="icon" variant="ghost">
-                            <MoreHorizontal className="h-4 w-4" />
-                            <span className="sr-only">Toggle menu</span>
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem>Edit</DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleOpenProfitTester(service)}
-                          >
-                            Profit Tester
-                          </DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive">
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+          </div>
+          <TabsContent value="services" className="mt-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {services.map((service) => (
+                <ServiceCard key={service.id} service={service} onProfitTesterOpen={handleOpenProfitTester} />
+              ))}
+            </div>
+          </TabsContent>
+           <TabsContent value="add-ons" className="mt-6">
+             <Card>
+                <CardContent className="text-center py-20">
+                    <p className="text-muted-foreground">No add-on services yet. Add one to get started.</p>
+                </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </main>
 
       <Dialog
