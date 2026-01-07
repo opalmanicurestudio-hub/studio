@@ -21,11 +21,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import Image from 'next/image';
+import { cn } from '@/lib/utils';
 
 const getStockStatus = (stock: number): { text: string; variant: 'default' | 'destructive' | 'secondary' } => {
     if (stock <= 0) return { text: 'Out of Stock', variant: 'destructive' };
-    if (stock < 10) return { text: 'Low Stock', variant: 'secondary' }; // Yellowish
-    return { text: 'In Stock', variant: 'default' }; // Greenish
+    if (stock < 10) return { text: 'Low Stock', variant: 'secondary' };
+    return { text: 'In Stock', variant: 'default' }; 
 }
 
 
@@ -41,8 +42,8 @@ const ProductCard = ({ item }: { item: InventoryItem }) => {
                             variant={status.variant} 
                             className={cn(
                                 'mt-1',
-                                status.variant === 'default' && 'bg-green-600/20 text-green-400 border-green-600/30',
-                                status.variant === 'secondary' && 'bg-yellow-600/20 text-yellow-400 border-yellow-600/30'
+                                status.variant === 'default' && 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 border-green-200 dark:border-green-600/30',
+                                status.variant === 'secondary' && 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-400 border-yellow-200 dark:border-yellow-600/30'
                             )}
                         >
                             {status.text}
