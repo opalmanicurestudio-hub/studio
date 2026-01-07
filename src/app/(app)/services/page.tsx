@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -119,14 +118,20 @@ const ServiceCard = ({ service, onProfitTesterOpen }: { service: Service, onProf
 
 const ServiceCategory = ({ title, services, onProfitTesterOpen }: { title: string, services: Service[], onProfitTesterOpen: (service: Service) => void }) => {
     return (
-        <div className="space-y-4">
-            <h2 className="text-2xl font-bold tracking-tight">{title}</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {services.map((service) => (
-                    <ServiceCard key={service.id} service={service} onProfitTesterOpen={onProfitTesterOpen} />
-                ))}
-            </div>
-        </div>
+        <Accordion type="single" collapsible defaultValue="item-1">
+            <AccordionItem value="item-1">
+                <AccordionTrigger className="text-xl font-bold hover:no-underline">
+                    {title}
+                </AccordionTrigger>
+                <AccordionContent>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pt-4">
+                        {services.map((service) => (
+                            <ServiceCard key={service.id} service={service} onProfitTesterOpen={onProfitTesterOpen} />
+                        ))}
+                    </div>
+                </AccordionContent>
+            </AccordionItem>
+        </Accordion>
     )
 }
 
