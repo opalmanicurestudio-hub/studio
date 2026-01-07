@@ -24,6 +24,7 @@ export type InventoryItem = {
   id: string;
   name: string;
   type: 'professional' | 'retail' | 'equipment' | 'overhead';
+  category?: 'Color' | 'Styling' | 'Care';
   stock: number;
   costPerUnit: number;
   supplier: string;
@@ -126,14 +127,16 @@ export const services: Service[] = [
 ];
 
 export const inventory: InventoryItem[] = [
-    { id: 'inv1', name: 'Pro Color Tube 5N', type: 'professional', stock: 25, costPerUnit: 8.50, supplier: 'SalonSupply Co.' },
-    { id: 'inv2', name: 'Pro Developer 20vol', type: 'professional', stock: 10, costPerUnit: 12.00, supplier: 'SalonSupply Co.' },
-    { id: 'inv3', name: 'Retail Shine Serum', type: 'retail', stock: 30, costPerUnit: 14.00, supplier: 'BeautyWares' },
-    { id: 'inv4', name: 'Retail Hold Hairspray', type: 'retail', stock: 18, costPerUnit: 11.50, supplier: 'BeautyWares' },
-    { id: 'inv5', name: 'Styling Chair', type: 'equipment', stock: 2, costPerUnit: 1200.00, supplier: 'EquipPros' },
-    { id: 'inv6', name: 'Pro Shampoo (Gallon)', type: 'professional', stock: 4, costPerUnit: 45.00, supplier: 'SalonSupply Co.' },
-    { id: 'inv7', name: 'Paper Towels', type: 'overhead', stock: 50, costPerUnit: 1.00, supplier: 'General Supplies' },
-    { id: 'inv8', name: 'Cleaning Spray', type: 'overhead', stock: 5, costPerUnit: 3.00, supplier: 'General Supplies' },
+    { id: '1', name: 'Pro Color Tube 5N', type: 'professional', category: 'Color', stock: 25, costPerUnit: 8.50, supplier: 'SalonSupply Co.' },
+    { id: '2', name: 'Pro Developer 20vol', type: 'professional', category: 'Color', stock: 8, costPerUnit: 12.00, supplier: 'SalonSupply Co.' },
+    { id: '3', name: 'Retail Shine Serum', type: 'retail', stock: 30, costPerUnit: 14.00, supplier: 'BeautyWares' },
+    { id: '4', name: 'Retail Hold Hairspray', type: 'retail', stock: 18, costPerUnit: 11.50, supplier: 'BeautyWares' },
+    { id: '5', name: 'Styling Chair', type: 'equipment', stock: 2, costPerUnit: 1200.00, supplier: 'EquipPros' },
+    { id: '6', name: 'Pro Shampoo (Gallon)', type: 'professional', category: 'Care', stock: 4, costPerUnit: 45.00, supplier: 'SalonSupply Co.' },
+    { id: '7', name: 'Paper Towels', type: 'overhead', stock: 50, costPerUnit: 1.00, supplier: 'General Supplies' },
+    { id: '8', name: 'Cleaning Spray', type: 'overhead', stock: 5, costPerUnit: 3.00, supplier: 'General Supplies' },
+    { id: '9', name: 'Pro Mousse', type: 'professional', category: 'Styling', stock: 15, costPerUnit: 9.75, supplier: 'SalonSupply Co.' },
+    { id: '10', name: 'Pro Conditioner (Gallon)', type: 'professional', category: 'Care', stock: 0, costPerUnit: 48.00, supplier: 'SalonSupply Co.' },
 ];
 
 export const appointments: Appointment[] = Array.from({ length: 21 }, (_, i) => {
