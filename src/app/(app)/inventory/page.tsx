@@ -7,7 +7,7 @@ import {
 } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, File, MoreHorizontal, ChevronUp, Database } from 'lucide-react';
+import { PlusCircle, File, MoreHorizontal, ChevronUp, Database, Camera, AlertTriangle } from 'lucide-react';
 import { inventory, type InventoryItem } from '@/lib/data';
 import {
   DropdownMenu,
@@ -18,6 +18,11 @@ import {
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import Image from 'next/image';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import React, { useState, useEffect, useRef } from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { useToast } from '@/hooks/use-toast';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+
 
 const ProductCard = ({ item }: { item: InventoryItem }) => {
     return (
@@ -109,6 +114,41 @@ export default function InventoryPage() {
   const overheadItems = inventory.filter((i) => i.type === 'overhead');
   const equipmentItems = inventory.filter((i) => i.type === 'equipment');
 
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    if (isScannerOpen) {
+      const getCameraPermission = async () => {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+          setHasCameraPermission(true);
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+          }
+        } catch (error) {
+          console.error('Error accessing camera:', error);
+          setHasCameraPermission(false);
+          toast({
+            variant: 'destructive',
+            title: 'Camera Access Denied',
+            description: 'Please enable camera permissions in your browser settings to use the scanner.',
+          });
+          setIsScannerOpen(false);
+        }
+      };
+      getCameraPermission();
+    } else {
+        if (videoRef.current && videoRef.current.srcObject) {
+            const stream = videoRef.current.srcObject as MediaStream;
+            stream.getTracks().forEach(track => track.stop());
+            videoRef.current.srcObject = null;
+        }
+    }
+  }, [isScannerOpen, toast]);
+
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Inventory Hub" />
@@ -125,6 +165,10 @@ export default function InventoryPage() {
               <ScrollBar orientation="horizontal" className="sm:hidden" />
             </ScrollArea>
             <div className="ml-auto flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={() => setIsScannerOpen(true)}>
+                <Camera className="mr-2 h-4 w-4" />
+                Scan
+              </Button>
               <Button size="sm" variant="outline">
                 <File className="mr-2 h-4 w-4" />
                 Export
@@ -177,6 +221,35 @@ export default function InventoryPage() {
           </div>
         </Tabs>
       </main>
+
+       <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
+        <DialogContent className="sm:max-w-md p-0">
+          <DialogHeader className="p-4 pb-0">
+            <DialogTitle>Scan QR Code</DialogTitle>
+            <DialogDescription>
+              Position the QR code inside the frame to scan it.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="p-4 relative">
+             <video ref={videoRef} className="w-full aspect-square rounded-md bg-muted" autoPlay muted playsInline />
+             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
+            </div>
+            {hasCameraPermission === false && (
+                <Alert variant="destructive" className="mt-4">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Camera Access Required</AlertTitle>
+                    <AlertDescription>
+                        Please allow camera access to use the scanner. You may need to change permissions in your browser settings.
+                    </AlertDescription>
+                </Alert>
+            )}
+          </div>
+           <DialogFooter className="p-4 pt-0">
+                <Button variant="outline" onClick={() => setIsScannerOpen(false)}>Cancel</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
