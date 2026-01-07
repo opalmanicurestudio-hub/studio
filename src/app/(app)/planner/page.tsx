@@ -33,9 +33,9 @@ const DayCard = ({ date, appointmentsForDay }: { date: Date; appointmentsForDay:
               <div
                 key={apt.id}
                 className={cn("rounded-lg border p-3 text-sm", {
-                    "bg-blue-900/20 border-blue-700/50 text-blue-200": apt.status === 'confirmed',
-                    "bg-green-900/20 border-green-700/50 text-green-200": apt.status === 'completed',
-                    "bg-red-900/20 border-red-700/50 text-red-200 line-through": apt.status === 'canceled',
+                    "bg-blue-500/10 border-blue-500/20 text-foreground": apt.status === 'confirmed',
+                    "bg-green-500/10 border-green-500/20 text-foreground": apt.status === 'completed',
+                    "bg-red-500/10 border-red-500/20 text-foreground line-through": apt.status === 'canceled',
                 })}
               >
                 <p className="font-semibold">{client.name}</p>
