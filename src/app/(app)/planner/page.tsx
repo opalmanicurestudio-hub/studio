@@ -49,7 +49,7 @@ const DayTimeline = ({ date, appointmentsForDay }: { date: Date; appointmentsFor
 
   return (
     <Card className="flex flex-col h-full bg-muted/20">
-      <CardHeader className="flex flex-col items-stretch p-4">
+      <CardHeader className="flex flex-col items-stretch p-4 border-b">
         <div className="flex items-center justify-between">
             <CardTitle className="text-base font-medium">
             {format(date, 'EEE')}
@@ -63,7 +63,7 @@ const DayTimeline = ({ date, appointmentsForDay }: { date: Date; appointmentsFor
             <Button variant="secondary" size="sm"><PlusCircle className='mr-2 h-4 w-4'/>Add Entry</Button>
         </div>
       </CardHeader>
-      <CardContent className="flex-1 p-0">
+      <CardContent className="flex-1 p-0 overflow-hidden">
           <ScrollArea className='h-full'>
             <div className="relative pr-4">
               {hours.map((hour) => (
@@ -86,7 +86,7 @@ const DayTimeline = ({ date, appointmentsForDay }: { date: Date; appointmentsFor
                   <div
                     key={apt.id}
                     className={cn(
-                      "absolute left-12 right-4 rounded-lg border p-2 text-sm flex flex-col",
+                      "absolute left-12 right-2 rounded-lg border p-2 text-sm flex flex-col",
                       {
                         "bg-blue-500/10 border-blue-500/20 text-blue-900 dark:text-blue-200": apt.status === 'confirmed',
                         "bg-green-500/10 border-green-500/20 text-green-900 dark:text-green-200": apt.status === 'completed',
@@ -210,7 +210,7 @@ export default function PlannerPage() {
             );
           })}
         </div>
-        <div className="md:hidden h-full">
+        <div className="md:hidden h-full pb-6">
             <Carousel setApi={setApi} className="h-full" opts={{startIndex: current, loop: true}}>
                 <CarouselContent className='h-full -ml-4'>
                 {weekDays.map((date, index) => {
