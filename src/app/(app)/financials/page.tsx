@@ -34,7 +34,7 @@ const BillItemCard = ({
   isCustom?: boolean;
 }) => {
   return (
-    <Card className="w-64 md:w-72 shrink-0">
+    <Card className="w-full shrink-0 md:w-72">
       <CardContent className="p-4 space-y-2">
         {isCustom ? (
           <Input defaultValue={title} className="font-medium" />
@@ -62,10 +62,18 @@ const ExpenseCategory = ({
       {title}
     </AccordionTrigger>
     <AccordionContent className="p-4 border border-t-0 rounded-b-lg">
-      <ScrollArea>
+      <div className="md:hidden space-y-4">
+        {children}
+         <div className="flex items-center justify-center w-full shrink-0">
+             <Button variant="outline" className="w-full h-full border-dashed">
+                 <PlusCircle className="mr-2" /> Add Custom Cost
+             </Button>
+          </div>
+      </div>
+      <ScrollArea className="hidden md:block">
         <div className="flex space-x-4 pb-4">
           {children}
-          <div className="flex items-center justify-center w-64 md:w-72 shrink-0">
+          <div className="flex items-center justify-center w-72 shrink-0">
              <Button variant="outline" className="w-full h-full border-dashed">
                  <PlusCircle className="mr-2" /> Add Custom Cost
              </Button>
@@ -211,12 +219,12 @@ export default function FinancialsPage() {
                     </ExpenseCategory>
                   </Accordion>
                 </CardContent>
-                <CardFooter className="bg-muted/50 p-4 rounded-b-lg mt-4 flex flex-col sm:flex-row justify-end gap-4 sm:gap-8">
-                    <div className="text-right">
+                <CardFooter className="bg-muted/50 p-4 rounded-b-lg mt-4 flex flex-col sm:flex-row justify-end items-stretch sm:items-center gap-4 sm:gap-8">
+                    <div className="text-right flex-1">
                         <div className="text-sm text-muted-foreground">Monthly Total</div>
                         <div className="text-2xl font-bold">$3,000.00</div>
                     </div>
-                    <div className="text-right">
+                    <div className="text-right flex-1">
                         <div className="text-sm text-muted-foreground">Annual Total</div>
                         <div className="text-2xl font-bold">$36,000.00</div>
                     </div>
@@ -276,12 +284,12 @@ export default function FinancialsPage() {
                     </ExpenseCategory>
                   </Accordion>
                 </CardContent>
-                <CardFooter className="bg-muted/50 p-4 rounded-b-lg mt-4 flex flex-col sm:flex-row justify-end gap-4 sm:gap-8">
-                    <div className="text-right">
+                <CardFooter className="bg-muted/50 p-4 rounded-b-lg mt-4 flex flex-col sm:flex-row justify-end items-stretch sm:items-center gap-4 sm:gap-8">
+                    <div className="text-right flex-1">
                         <div className="text-sm text-muted-foreground">Monthly Total</div>
                         <div className="text-2xl font-bold">$1,500.00</div>
                     </div>
-                    <div className="text-right">
+                    <div className="text-right flex-1">
                         <div className="text-sm text-muted-foreground">Annual Total</div>
                         <div className="text-2xl font-bold">$18,000.00</div>
                     </div>
