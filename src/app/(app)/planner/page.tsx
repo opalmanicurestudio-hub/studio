@@ -3,9 +3,9 @@
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, MoreHorizontal, FileText } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import { appointments, clients, services } from '@/lib/data';
-import { format, addDays, subDays, startOfWeek, getHours, setHours, startOfDay, getMinutes } from 'date-fns';
+import { format, addDays, subDays, startOfWeek, setHours, startOfDay } from 'date-fns';
 import { useState, useMemo } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Carousel, CarouselContent, CarouselItem, type CarouselApi } from '@/components/ui/carousel';
@@ -18,8 +18,8 @@ const DayTimeline = ({ date, appointmentsForDay }: { date: Date; appointmentsFor
   const hours = Array.from({ length: 13 }, (_, i) => i + 8); // 8am to 8pm
 
   const getPosition = (time: Date) => {
-    const startOfDay = setHours(startOfDay(time), 8);
-    const minutes = (time.getTime() - startOfDay.getTime()) / 1000 / 60;
+    const timelineStart = setHours(startOfDay(time), 8);
+    const minutes = (time.getTime() - timelineStart.getTime()) / 1000 / 60;
     return (minutes / 60) * 80; // 80px per hour
   };
 
@@ -27,6 +27,24 @@ const DayTimeline = ({ date, appointmentsForDay }: { date: Date; appointmentsFor
     const minutes = (endTime.getTime() - startTime.getTime()) / 1000 / 60;
     return (minutes / 60) * 80;
   };
+
+  const dailyTotals = useMemo(() => {
+    return appointmentsForDay
+      .filter(apt => apt.status === 'completed')
+      .reduce(
+        (acc, apt) => {
+          const service = services.find(s => s.id === apt.serviceId);
+          if (service) {
+            acc.revenue += service.price;
+            acc.costs += service.cost;
+            acc.net += service.profit;
+          }
+          return acc;
+        },
+        { revenue: 0, costs: 0, net: 0 }
+      );
+  }, [appointmentsForDay]);
+
 
   return (
     <Card className="flex flex-col h-full bg-muted/20">
@@ -108,15 +126,15 @@ const DayTimeline = ({ date, appointmentsForDay }: { date: Date; appointmentsFor
             <div className="grid grid-cols-3 gap-2 w-full text-center">
                 <div className="rounded-md bg-green-500/10 p-2">
                     <p className="text-xs text-green-800/80 dark:text-green-400/80">Revenue</p>
-                    <p className="font-bold text-sm text-green-800 dark:text-green-400">$0.00</p>
+                    <p className="font-bold text-sm text-green-800 dark:text-green-400">${dailyTotals.revenue.toFixed(2)}</p>
                 </div>
                 <div className="rounded-md bg-red-500/10 p-2">
                     <p className="text-xs text-red-800/80 dark:text-red-400/80">Costs</p>
-                    <p className="font-bold text-sm text-red-800 dark:text-red-400">$0.00</p>
+                    <p className="font-bold text-sm text-red-800 dark:text-red-400">${dailyTotals.costs.toFixed(2)}</p>
                 </div>
                 <div className="rounded-md bg-blue-500/10 p-2">
                     <p className="text-xs text-blue-800/80 dark:text-blue-400/80">Net Profit</p>
-                    <p className="font-bold text-sm text-blue-800 dark:text-blue-400">$0.00</p>
+                    <p className="font-bold text-sm text-blue-800 dark:text-blue-400">${dailyTotals.net.toFixed(2)}</p>
                 </div>
             </div>
        </CardFooter>
@@ -169,7 +187,7 @@ export default function PlannerPage() {
             <Button variant="outline" size="icon" onClick={handleNextWeek}><ChevronRight /></Button>
         </div>
         <div className='hidden md:block'>
-             <p className='font-medium'>{format(startOfWeek(currentDate), 'MMMM yyyy')}</p>
+             <p className='font-medium'>{format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMMM yyyy')}</p>
         </div>
         <Button>
           <PlusCircle className="mr-2 h-4 w-4" />
@@ -217,5 +235,3 @@ export default function PlannerPage() {
     </div>
   );
 }
-
-    
