@@ -6,13 +6,9 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
 } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Clock, DollarSign, Sparkles, Box } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,6 +28,9 @@ import { Label } from '@/components/ui/label';
 import { services, type Service } from '@/lib/data';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
+import Image from 'next/image';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+
 
 const TMHR = 45; // True Minimum Hourly Rate (mock)
 const PRODUCT_COST = 15; // Mock product cost
@@ -40,46 +39,79 @@ const ServiceCard = ({ service, onProfitTesterOpen }: { service: Service, onProf
   const profitPercentage = service.price > 0 ? (service.profit / service.price) * 100 : 0;
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-start justify-between">
-          <div>
-            <CardTitle className="text-lg">{service.name}</CardTitle>
-            <CardDescription>{service.duration} min</CardDescription>
+    <Card className="overflow-hidden">
+      <CardContent className="p-4 space-y-4">
+        <div className="flex items-start gap-4">
+          <div className="w-24 h-24 bg-muted rounded-md flex-shrink-0">
+             <Image src={`https://picsum.photos/seed/svc${service.id}/100/100`} alt={service.name} width={96} height={96} className='rounded-md' data-ai-hint="manicure nails" />
           </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button aria-haspopup="true" size="icon" variant="ghost" className='-mt-2'>
-                <MoreHorizontal className="h-4 w-4" />
-                <span className="sr-only">Toggle menu</span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem>Edit</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onProfitTesterOpen(service)}>
-                Profit Tester
-              </DropdownMenuItem>
-              <DropdownMenuItem className="text-destructive">
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="flex-1 space-y-1">
+            <div className="flex justify-between items-start">
+              <h3 className="font-semibold text-lg">{service.name}</h3>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button aria-haspopup="true" size="icon" variant="ghost" className='-mt-1 h-8 w-8 flex-shrink-0'>
+                    <MoreHorizontal className="h-4 w-4" />
+                    <span className="sr-only">Toggle menu</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem>Edit</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onProfitTesterOpen(service)}>
+                    Profit Tester
+                  </DropdownMenuItem>
+                  <DropdownMenuItem className="text-destructive">
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+            <p className="text-sm text-muted-foreground flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" /> {service.duration} min <span className='text-muted-foreground/50'>(+20 pad)</span></p>
+            <p className="text-sm text-muted-foreground flex items-center gap-1.5"><DollarSign className="w-3.5 h-3.5" /> Deposit</p>
+          </div>
         </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
+        
         <div className="space-y-2">
             <Progress value={profitPercentage} className={`h-2 ${service.profit >= 0 ? 'text-green-500' : 'text-destructive'}`} />
-            <div className="grid grid-cols-2 gap-2 text-sm">
+            <div className="grid grid-cols-3 gap-2 text-sm">
                 <div>
                     <p className="text-muted-foreground">Price</p>
-                    <p className="font-semibold">${service.price.toFixed(2)}</p>
+                    <p className="font-semibold text-base">${service.price.toFixed(2)}</p>
+                </div>
+                 <div className='text-center'>
+                    <p className="text-muted-foreground">Cost</p>
+                    <p className="font-semibold text-base text-destructive">${service.cost.toFixed(2)}</p>
                 </div>
                  <div className='text-right'>
-                    <p className="text-muted-foreground">Est. Profit</p>
-                    <p className={`font-semibold ${service.profit >= 0 ? 'text-primary' : 'text-destructive'}`}>${service.profit.toFixed(2)}</p>
+                    <p className="text-muted-foreground">Profit</p>
+                    <p className={`font-semibold text-base ${service.profit >= 0 ? 'text-primary' : 'text-destructive'}`}>${service.profit.toFixed(2)}</p>
                 </div>
             </div>
         </div>
+
+        <Accordion type="multiple" className="w-full">
+            <AccordionItem value="profit-tester" className="border-b-0">
+                <AccordionTrigger className='p-3 text-sm font-medium hover:no-underline rounded-md bg-muted/50'>
+                    <div className='flex items-center gap-2'>
+                        <Sparkles className='w-4 h-4 text-primary' /> Profit Tester
+                    </div>
+                </AccordionTrigger>
+                <AccordionContent className='pt-4'>
+                    <p className='text-sm text-center text-muted-foreground'>Use the profit tester by opening the dialog.</p>
+                </AccordionContent>
+            </AccordionItem>
+             <AccordionItem value="cost-breakdown" className="border-b-0 mt-2">
+                <AccordionTrigger className='p-3 text-sm font-medium hover:no-underline rounded-md bg-muted/50'>
+                     <div className='flex items-center gap-2'>
+                        <Box className='w-4 h-4 text-primary' /> Cost Breakdown
+                    </div>
+                </AccordionTrigger>
+                <AccordionContent className='p-4 text-sm text-muted-foreground'>
+                    Cost breakdown details will be shown here.
+                </AccordionContent>
+            </AccordionItem>
+        </Accordion>
+
       </CardContent>
     </Card>
   );
@@ -191,3 +223,5 @@ export default function ServicesPage() {
     </div>
   );
 }
+
+    
