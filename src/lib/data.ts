@@ -13,6 +13,8 @@ export type Client = {
 export type Service = {
   id: string;
   name:string;
+  type: 'service' | 'addon';
+  category: string;
   duration: number; // in minutes
   price: number;
   cost: number;
@@ -91,6 +93,8 @@ export const services: Service[] = [
   {
     id: '1',
     name: 'Signature Haircut',
+    type: 'service',
+    category: 'Cutting',
     duration: 60,
     price: 85,
     cost: 15,
@@ -100,6 +104,8 @@ export const services: Service[] = [
   {
     id: '2',
     name: 'Full Color',
+    type: 'service',
+    category: 'Color',
     duration: 120,
     price: 250,
     cost: 45,
@@ -109,6 +115,8 @@ export const services: Service[] = [
   {
     id: '3',
     name: 'Balayage',
+    type: 'service',
+    category: 'Color',
     duration: 180,
     price: 350,
     cost: 60,
@@ -118,12 +126,47 @@ export const services: Service[] = [
   {
     id: '4',
     name: 'Deep Conditioning Treatment',
+    type: 'service',
+    category: 'Treatments',
     duration: 30,
     price: 60,
     cost: 10,
     profit: 50,
     margin: 83.33,
   },
+  {
+    id: '5',
+    name: 'Toner / Gloss',
+    type: 'addon',
+    category: 'Color',
+    duration: 30,
+    price: 50,
+    cost: 12,
+    profit: 38,
+    margin: 76,
+  },
+  {
+    id: '6',
+    name: 'Silent Appointment',
+    type: 'addon',
+    category: 'Experience',
+    duration: 0,
+    price: 0,
+    cost: 0,
+    profit: 0,
+    margin: 0,
+  },
+  {
+    id: '7',
+    name: 'Extra Time',
+    type: 'addon',
+    category: 'Timing',
+    duration: 15,
+    price: 20,
+    cost: 5,
+    profit: 15,
+    margin: 75,
+  }
 ];
 
 export const inventory: InventoryItem[] = [

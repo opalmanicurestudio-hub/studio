@@ -117,6 +117,19 @@ const ServiceCard = ({ service, onProfitTesterOpen }: { service: Service, onProf
   );
 };
 
+const ServiceCategory = ({ title, services, onProfitTesterOpen }: { title: string, services: Service[], onProfitTesterOpen: (service: Service) => void }) => {
+    return (
+        <div className="space-y-4">
+            <h2 className="text-2xl font-bold tracking-tight">{title}</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {services.map((service) => (
+                    <ServiceCard key={service.id} service={service} onProfitTesterOpen={onProfitTesterOpen} />
+                ))}
+            </div>
+        </div>
+    )
+}
+
 
 export default function ServicesPage() {
   const [isProfitTesterOpen, setIsProfitTesterOpen] = useState(false);
@@ -137,6 +150,26 @@ export default function ServicesPage() {
     const marginValue = testPrice > 0 ? (profitValue / testPrice) * 100 : 0;
     return { profit: profitValue, margin: marginValue };
   }, [selectedService, testPrice]);
+  
+  const mainServices = services.filter(s => s.type === 'service');
+  const addOnServices = services.filter(s => s.type === 'addon');
+  
+  const servicesByCategory = mainServices.reduce((acc, service) => {
+    if (!acc[service.category]) {
+      acc[service.category] = [];
+    }
+    acc[service.category].push(service);
+    return acc;
+  }, {} as Record<string, Service[]>);
+
+  const addOnsByCategory = addOnServices.reduce((acc, service) => {
+    if (!acc[service.category]) {
+      acc[service.category] = [];
+    }
+    acc[service.category].push(service);
+    return acc;
+  }, {} as Record<string, Service[]>);
+
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -155,19 +188,23 @@ export default function ServicesPage() {
               </Button>
             </div>
           </div>
-          <TabsContent value="services" className="mt-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {services.map((service) => (
-                <ServiceCard key={service.id} service={service} onProfitTesterOpen={handleOpenProfitTester} />
-              ))}
-            </div>
+          <TabsContent value="services" className="mt-6 space-y-8">
+            {Object.entries(servicesByCategory).map(([category, services]) => (
+                <ServiceCategory key={category} title={category} services={services} onProfitTesterOpen={handleOpenProfitTester} />
+            ))}
           </TabsContent>
-           <TabsContent value="add-ons" className="mt-6">
-             <Card>
-                <CardContent className="text-center py-20">
-                    <p className="text-muted-foreground">No add-on services yet. Add one to get started.</p>
-                </CardContent>
-            </Card>
+           <TabsContent value="add-ons" className="mt-6 space-y-8">
+             {addOnServices.length > 0 ? (
+                Object.entries(addOnsByCategory).map(([category, services]) => (
+                    <ServiceCategory key={category} title={category} services={services} onProfitTesterOpen={handleOpenProfitTester} />
+                ))
+             ) : (
+                <Card>
+                    <CardContent className="text-center py-20">
+                        <p className="text-muted-foreground">No add-on services yet. Add one to get started.</p>
+                    </CardContent>
+                </Card>
+             )}
           </TabsContent>
         </Tabs>
       </main>
@@ -223,5 +260,3 @@ export default function ServicesPage() {
     </div>
   );
 }
-
-    
