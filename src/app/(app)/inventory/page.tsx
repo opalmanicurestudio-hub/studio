@@ -1,3 +1,4 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -254,4 +255,5 @@ export default function InventoryPage() {
         </DialogContent>
       </Dialog>
     </div>
-  
+  );
+}
