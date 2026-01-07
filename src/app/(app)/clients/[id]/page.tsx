@@ -71,12 +71,12 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                     </CardContent>
                 </Card>
             </div>
-            <div className="md:col-span-2">
+            <div className="md:col-span-2 space-y-6">
                 <Card>
-                    <CardHeader className="p-4">
+                    <CardHeader className="p-4 pb-0">
                         <CardTitle>Client Stats</CardTitle>
                     </CardHeader>
-                    <CardContent className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 pt-0">
+                    <CardContent className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4">
                         <div className="p-4 rounded-lg bg-muted/50">
                             <div className="text-sm text-muted-foreground flex items-center gap-2"><DollarSign className="w-4 h-4" /> Lifetime Value</div>
                             <div className="text-2xl font-bold">${client.lifetimeValue.toFixed(2)}</div>
@@ -117,7 +117,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                                     return (
                                         <TableRow key={apt.id}>
                                             <TableCell>
-                                                <div>{format(apt.startTime, 'PP')}</div>
+                                                <div className='font-medium'>{format(apt.startTime, 'PP')}</div>
                                                 <div className='text-muted-foreground sm:hidden'>{service?.name}</div>
                                             </TableCell>
                                             <TableCell className='hidden sm:table-cell'>{service?.name || 'N/A'}</TableCell>

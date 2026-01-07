@@ -17,6 +17,7 @@ import { PlusCircle, File, MoreHorizontal } from 'lucide-react';
 import { inventory, type InventoryItem } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 
 const InventoryTable = ({ items }: { items: InventoryItem[] }) => (
   <Table>
@@ -81,11 +82,14 @@ export default function InventoryPage() {
       <main className="flex-1 p-4 md:p-8">
         <Tabs defaultValue="professional">
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-            <TabsList>
-              <TabsTrigger value="professional">Professional</TabsTrigger>
-              <TabsTrigger value="retail">Retail</TabsTrigger>
-              <TabsTrigger value="equipment">Equipment</TabsTrigger>
-            </TabsList>
+             <ScrollArea className="w-full whitespace-nowrap sm:w-auto">
+                <TabsList className="inline-grid w-max grid-cols-3 sm:w-auto">
+                    <TabsTrigger value="professional">Professional</TabsTrigger>
+                    <TabsTrigger value="retail">Retail</TabsTrigger>
+                    <TabsTrigger value="equipment">Equipment</TabsTrigger>
+                </TabsList>
+                <ScrollBar orientation='horizontal' className='sm:hidden' />
+            </ScrollArea>
             <div className="ml-auto flex items-center gap-2">
               <Button size="sm" variant="outline">
                 <File className="mr-2 h-4 w-4" />

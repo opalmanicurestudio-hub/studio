@@ -1,3 +1,5 @@
+'use client';
+
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -42,7 +44,7 @@ export default function ClientsPage() {
                   Manage your clients and view their history.
                 </CardDescription>
               </div>
-              <Button>
+              <Button size="sm">
                 <PlusCircle className="mr-2 h-4 w-4" />
                 New Client
               </Button>
@@ -53,8 +55,12 @@ export default function ClientsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Client</TableHead>
-                  <TableHead className="hidden sm:table-cell">Last Appointment</TableHead>
-                  <TableHead className="hidden md:table-cell">Lifetime Value</TableHead>
+                  <TableHead className="hidden sm:table-cell">
+                    Last Appointment
+                  </TableHead>
+                  <TableHead className="hidden md:table-cell">
+                    Lifetime Value
+                  </TableHead>
                   <TableHead>
                     <span className="sr-only">Actions</span>
                   </TableHead>
@@ -64,14 +70,27 @@ export default function ClientsPage() {
                 {clients.map((client) => (
                   <TableRow key={client.id}>
                     <TableCell>
-                      <Link href={`/clients/${client.id}`} className="flex items-center gap-3 group">
+                      <Link
+                        href={`/clients/${client.id}`}
+                        className="flex items-center gap-3 group"
+                      >
                         <Avatar>
-                          <AvatarImage src={client.avatarUrl} alt={client.name} data-ai-hint="person portrait" />
-                          <AvatarFallback>{client.name.charAt(0)}</AvatarFallback>
+                          <AvatarImage
+                            src={client.avatarUrl}
+                            alt={client.name}
+                            data-ai-hint="person portrait"
+                          />
+                          <AvatarFallback>
+                            {client.name.charAt(0)}
+                          </AvatarFallback>
                         </Avatar>
                         <div>
-                            <div className="font-medium group-hover:underline">{client.name}</div>
-                            <div className="text-muted-foreground text-sm sm:hidden">{format(new Date(client.lastAppointment), 'MMM d, yyyy')}</div>
+                          <div className="font-medium group-hover:underline">
+                            {client.name}
+                          </div>
+                          <div className="text-muted-foreground text-sm sm:hidden">
+                            {format(new Date(client.lastAppointment), 'MMM d, yyyy')}
+                          </div>
                         </div>
                       </Link>
                     </TableCell>
@@ -86,13 +105,21 @@ export default function ClientsPage() {
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button aria-haspopup="true" size="icon" variant="ghost">
+                          <Button
+                            aria-haspopup="true"
+                            size="icon"
+                            variant="ghost"
+                          >
                             <MoreHorizontal className="h-4 w-4" />
                             <span className="sr-only">Toggle menu</span>
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                           <DropdownMenuItem asChild><Link href={`/clients/${client.id}`}>View Details</Link></DropdownMenuItem>
+                          <DropdownMenuItem asChild>
+                            <Link href={`/clients/${client.id}`}>
+                              View Details
+                            </Link>
+                          </DropdownMenuItem>
                           <DropdownMenuItem>Edit</DropdownMenuItem>
                           <DropdownMenuItem className="text-destructive">
                             Delete

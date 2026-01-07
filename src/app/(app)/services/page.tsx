@@ -74,7 +74,7 @@ export default function ServicesPage() {
                   Manage your services and analyze their profitability.
                 </CardDescription>
               </div>
-              <Button>
+              <Button size="sm">
                 <PlusCircle className="mr-2 h-4 w-4" />
                 New Service
               </Button>
@@ -100,7 +100,7 @@ export default function ServicesPage() {
                     <TableCell>
                       <div className="font-medium">{service.name}</div>
                       <div className="text-sm text-muted-foreground sm:hidden">
-                        {service.duration} min
+                        {service.duration} min / ${service.price.toFixed(2)}
                       </div>
                     </TableCell>
                     <TableCell className="hidden sm:table-cell">{service.duration} min</TableCell>
