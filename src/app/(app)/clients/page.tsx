@@ -68,7 +68,7 @@ export default function ClientsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {clients.map((client) => (
+                {[...clients].sort((a,b) => new Date(b.lastAppointment).getTime() - new Date(a.lastAppointment).getTime()).map((client) => (
                   <TableRow key={client.id}>
                     <TableCell>
                       <Link
@@ -89,7 +89,7 @@ export default function ClientsPage() {
                           <div className="font-medium group-hover:underline">
                             {client.name}
                           </div>
-                          <div className="text-muted-foreground text-sm sm:hidden">
+                          <div className="text-sm text-muted-foreground sm:hidden">
                             {format(new Date(client.lastAppointment), 'MMM d, yyyy')}
                           </div>
                         </div>
