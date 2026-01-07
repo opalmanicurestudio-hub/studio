@@ -35,7 +35,7 @@ export default function ClientsPage() {
       <main className="flex-1 p-4 md:p-8">
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
                 <CardTitle>Client Log</CardTitle>
                 <CardDescription>
@@ -53,8 +53,8 @@ export default function ClientsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Client</TableHead>
-                  <TableHead>Last Appointment</TableHead>
-                  <TableHead>Lifetime Value</TableHead>
+                  <TableHead className="hidden sm:table-cell">Last Appointment</TableHead>
+                  <TableHead className="hidden md:table-cell">Lifetime Value</TableHead>
                   <TableHead>
                     <span className="sr-only">Actions</span>
                   </TableHead>
@@ -69,13 +69,16 @@ export default function ClientsPage() {
                           <AvatarImage src={client.avatarUrl} alt={client.name} data-ai-hint="person portrait" />
                           <AvatarFallback>{client.name.charAt(0)}</AvatarFallback>
                         </Avatar>
-                        <div className="font-medium group-hover:underline">{client.name}</div>
+                        <div>
+                            <div className="font-medium group-hover:underline">{client.name}</div>
+                            <div className="text-muted-foreground text-sm sm:hidden">{format(new Date(client.lastAppointment), 'MMM d, yyyy')}</div>
+                        </div>
                       </Link>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden sm:table-cell">
                       {format(new Date(client.lastAppointment), 'MMMM d, yyyy')}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden md:table-cell">
                       <Badge variant="outline" className="font-mono">
                         ${client.lifetimeValue.toFixed(2)}
                       </Badge>

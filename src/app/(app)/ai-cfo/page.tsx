@@ -76,25 +76,25 @@ export default function AiCfoPage() {
       <AppHeader title="AI CFO" />
       <main className="flex-1 p-4 md:p-8 flex">
         <Card className="w-full flex flex-col">
-          <CardContent className="flex-1 flex flex-col p-6">
+          <CardContent className="flex-1 flex flex-col p-4 md:p-6">
             <ScrollArea className="flex-1 pr-4 -mr-4 mb-4">
               <div className="space-y-6">
                 {messages.map((message, index) => (
                   <div
                     key={index}
-                    className={`flex items-start gap-4 ${
+                    className={`flex items-start gap-3 ${
                       message.role === 'user' ? 'justify-end' : ''
                     }`}
                   >
                     {message.role === 'assistant' && (
-                      <Avatar className="h-9 w-9 border border-primary/50">
+                      <Avatar className="h-8 w-8 border border-primary/50">
                         <AvatarFallback>
-                          <Sparkles className="text-primary" />
+                          <Sparkles className="text-primary h-4 w-4" />
                         </AvatarFallback>
                       </Avatar>
                     )}
                     <div
-                      className={`max-w-xl rounded-lg p-3 ${
+                      className={`max-w-lg rounded-lg p-3 ${
                         message.role === 'user'
                           ? 'bg-primary text-primary-foreground'
                           : 'bg-muted'
@@ -103,20 +103,20 @@ export default function AiCfoPage() {
                       <p className="text-sm">{message.content}</p>
                     </div>
                      {message.role === 'user' && (
-                      <Avatar className="h-9 w-9">
-                        <AvatarFallback><User/></AvatarFallback>
+                      <Avatar className="h-8 w-8">
+                        <AvatarFallback><User className='h-4 w-4'/></AvatarFallback>
                       </Avatar>
                     )}
                   </div>
                 ))}
                 {isLoading && (
                   <div className="flex items-start gap-4">
-                    <Avatar className="h-9 w-9 border border-primary/50">
+                    <Avatar className="h-8 w-8 border border-primary/50">
                       <AvatarFallback>
-                        <Sparkles className="text-primary" />
+                        <Sparkles className="text-primary h-4 w-4" />
                       </AvatarFallback>
                     </Avatar>
-                    <div className="max-w-xl rounded-lg p-3 bg-muted flex items-center">
+                    <div className="max-w-lg rounded-lg p-3 bg-muted flex items-center">
                       <Loader className="h-5 w-5 animate-spin" />
                     </div>
                   </div>
@@ -135,7 +135,7 @@ export default function AiCfoPage() {
                 disabled={isLoading}
                 className="flex-1"
               />
-              <Button type="submit" disabled={isLoading}>
+              <Button type="submit" disabled={isLoading} size='icon'>
                 {isLoading ? (
                   <Loader className="h-4 w-4 animate-spin" />
                 ) : (

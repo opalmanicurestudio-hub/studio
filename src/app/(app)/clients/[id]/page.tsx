@@ -51,7 +51,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
         <div className="grid gap-6 md:grid-cols-3">
             <div className="md:col-span-1">
                 <Card>
-                    <CardHeader className="flex flex-col items-center text-center">
+                    <CardHeader className="flex flex-col items-center text-center p-4">
                         <Avatar className="w-24 h-24 mb-4">
                             <AvatarImage src={client.avatarUrl} alt={client.name} />
                             <AvatarFallback>{client.name.substring(0, 2)}</AvatarFallback>
@@ -59,7 +59,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                         <CardTitle>{client.name}</CardTitle>
                         <CardDescription>Loyal Client</CardDescription>
                     </CardHeader>
-                    <CardContent className="text-sm space-y-2">
+                    <CardContent className="text-sm space-y-2 p-4 pt-0">
                         <div className="flex items-center gap-2">
                             <Mail className="w-4 h-4 text-muted-foreground" />
                             <span>{client.email}</span>
@@ -73,10 +73,10 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             </div>
             <div className="md:col-span-2">
                 <Card>
-                    <CardHeader>
+                    <CardHeader className="p-4">
                         <CardTitle>Client Stats</CardTitle>
                     </CardHeader>
-                    <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <CardContent className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 pt-0">
                         <div className="p-4 rounded-lg bg-muted/50">
                             <div className="text-sm text-muted-foreground flex items-center gap-2"><DollarSign className="w-4 h-4" /> Lifetime Value</div>
                             <div className="text-2xl font-bold">${client.lifetimeValue.toFixed(2)}</div>
@@ -95,7 +95,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
         </div>
         
         <Tabs defaultValue="history">
-            <TabsList>
+            <TabsList className='grid w-full grid-cols-2'>
                 <TabsTrigger value="history">Appointment History</TabsTrigger>
                 <TabsTrigger value="notes">Notes</TabsTrigger>
             </TabsList>
@@ -106,8 +106,8 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>Date</TableHead>
-                                    <TableHead>Service</TableHead>
-                                    <TableHead>Status</TableHead>
+                                    <TableHead className='hidden sm:table-cell'>Service</TableHead>
+                                    <TableHead className='hidden sm:table-cell'>Status</TableHead>
                                     <TableHead className="text-right">Amount</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -116,9 +116,12 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                                     const service = services.find(s => s.id === apt.serviceId);
                                     return (
                                         <TableRow key={apt.id}>
-                                            <TableCell>{format(apt.startTime, 'PP')}</TableCell>
-                                            <TableCell>{service?.name || 'N/A'}</TableCell>
-                                            <TableCell>{apt.status}</TableCell>
+                                            <TableCell>
+                                                <div>{format(apt.startTime, 'PP')}</div>
+                                                <div className='text-muted-foreground sm:hidden'>{service?.name}</div>
+                                            </TableCell>
+                                            <TableCell className='hidden sm:table-cell'>{service?.name || 'N/A'}</TableCell>
+                                            <TableCell className='hidden sm:table-cell'>{apt.status}</TableCell>
                                             <TableCell className="text-right">${service?.price.toFixed(2) || '0.00'}</TableCell>
                                         </TableRow>
                                     );

@@ -3,9 +3,11 @@
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { PlusCircle } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { appointments, clients, services } from '@/lib/data';
-import { format } from 'date-fns';
+import { format, addDays, subDays } from 'date-fns';
+import { useState } from 'react';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 const DayCard = ({ date, appointmentsForDay }: { date: Date; appointmentsForDay: any[] }) => {
   return (
@@ -39,7 +41,7 @@ const DayCard = ({ date, appointmentsForDay }: { date: Date; appointmentsForDay:
             );
           })
         ) : (
-          <div className="flex h-full items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/20 text-center">
+          <div className="flex h-full items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/20 text-center py-10">
             <p className="text-sm text-muted-foreground">No appointments</p>
           </div>
         )}
@@ -49,26 +51,54 @@ const DayCard = ({ date, appointmentsForDay }: { date: Date; appointmentsForDay:
 };
 
 export default function PlannerPage() {
-  const today = new Date();
-  const weekDays = Array.from({ length: 7 }, (_, i) => {
-    const day = new Date(today);
-    const currentDayOfWeek = today.getDay();
-    const daysSinceSunday = currentDayOfWeek;
-    day.setDate(today.getDate() - daysSinceSunday + i);
-    return day;
-  });
+  const [currentDate, setCurrentDate] = useState(new Date());
+
+  const getWeekDays = (date: Date) => {
+    const sunday = new Date(date);
+    sunday.setDate(date.getDate() - date.getDay());
+    return Array.from({ length: 7 }, (_, i) => {
+        const day = new Date(sunday);
+        day.setDate(sunday.getDate() + i);
+        return day;
+    });
+  };
+
+  const [weekDays, setWeekDays] = useState(getWeekDays(currentDate));
+
+  const handleNextWeek = () => {
+    const nextWeekDate = addDays(currentDate, 7);
+    setCurrentDate(nextWeekDate);
+    setWeekDays(getWeekDays(nextWeekDate));
+  };
+
+  const handlePrevWeek = () => {
+    const prevWeekDate = subDays(currentDate, 7);
+    setCurrentDate(prevWeekDate);
+    setWeekDays(getWeekDays(prevWeekDate));
+  };
+  
+  const handleToday = () => {
+    const today = new Date();
+    setCurrentDate(today);
+    setWeekDays(getWeekDays(today));
+  }
 
   return (
     <div className="flex h-screen w-full flex-col">
       <AppHeader title="Weekly Planner" />
-      <div className="flex justify-end p-4">
+      <div className="flex items-center justify-between p-4">
+        <div className="flex items-center gap-2">
+            <Button variant="outline" size="icon" onClick={handlePrevWeek}><ChevronLeft /></Button>
+            <Button variant="outline" onClick={handleToday}>Today</Button>
+            <Button variant="outline" size="icon" onClick={handleNextWeek}><ChevronRight /></Button>
+        </div>
         <Button>
           <PlusCircle className="mr-2 h-4 w-4" />
           Add Appointment
         </Button>
       </div>
       <main className="flex-1 overflow-hidden p-4 pt-0">
-        <div className="grid h-full grid-cols-1 gap-4 md:grid-cols-7 md:gap-2 lg:gap-4">
+        <div className="hidden md:grid h-full grid-cols-7 gap-2 lg:gap-4">
           {weekDays.map((date) => {
             const appointmentsForDay = appointments.filter(
               (apt) => format(apt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd')
@@ -81,6 +111,24 @@ export default function PlannerPage() {
               />
             );
           })}
+        </div>
+        <div className="md:hidden h-full">
+            <ScrollArea className='h-full'>
+                <div className='space-y-4'>
+                {weekDays.map((date) => {
+                    const appointmentsForDay = appointments.filter(
+                    (apt) => format(apt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd')
+                    ).sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+                    return (
+                    <DayCard
+                        key={date.toString()}
+                        date={date}
+                        appointmentsForDay={appointmentsForDay}
+                    />
+                    );
+                })}
+                </div>
+            </ScrollArea>
         </div>
       </main>
     </div>

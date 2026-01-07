@@ -2,9 +2,6 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
 } from '@/components/ui/card';
 import {
   Table,
@@ -26,23 +23,32 @@ const InventoryTable = ({ items }: { items: InventoryItem[] }) => (
     <TableHeader>
       <TableRow>
         <TableHead>Name</TableHead>
-        <TableHead>Stock</TableHead>
-        <TableHead>Cost/Unit</TableHead>
-        <TableHead>Supplier</TableHead>
+        <TableHead className='hidden sm:table-cell'>Stock</TableHead>
+        <TableHead className='hidden sm:table-cell'>Cost/Unit</TableHead>
+        <TableHead className='hidden md:table-cell'>Supplier</TableHead>
         <TableHead><span className="sr-only">Actions</span></TableHead>
       </TableRow>
     </TableHeader>
     <TableBody>
       {items.map((item) => (
         <TableRow key={item.id}>
-          <TableCell className="font-medium">{item.name}</TableCell>
           <TableCell>
+            <div className="font-medium">{item.name}</div>
+            <div className='sm:hidden text-sm text-muted-foreground'>
+              <span>Stock: </span>
+              <Badge variant={item.stock < 10 ? 'destructive' : 'outline'} className='mr-2'>
+                {item.stock}
+              </Badge>
+              <span>Cost: ${item.costPerUnit.toFixed(2)}</span>
+            </div>
+          </TableCell>
+          <TableCell className='hidden sm:table-cell'>
             <Badge variant={item.stock < 10 ? 'destructive' : 'outline'}>
               {item.stock}
             </Badge>
           </TableCell>
-          <TableCell>${item.costPerUnit.toFixed(2)}</TableCell>
-          <TableCell>{item.supplier}</TableCell>
+          <TableCell className='hidden sm:table-cell'>${item.costPerUnit.toFixed(2)}</TableCell>
+          <TableCell className='hidden md:table-cell'>{item.supplier}</TableCell>
           <TableCell>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -74,7 +80,7 @@ export default function InventoryPage() {
       <AppHeader title="Inventory Hub" />
       <main className="flex-1 p-4 md:p-8">
         <Tabs defaultValue="professional">
-          <div className="flex items-center">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
             <TabsList>
               <TabsTrigger value="professional">Professional</TabsTrigger>
               <TabsTrigger value="retail">Retail</TabsTrigger>

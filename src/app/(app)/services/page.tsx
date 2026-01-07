@@ -67,7 +67,7 @@ export default function ServicesPage() {
       <main className="flex-1 p-4 md:p-8">
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
                 <CardTitle>Service Library</CardTitle>
                 <CardDescription>
@@ -85,10 +85,10 @@ export default function ServicesPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Service</TableHead>
-                  <TableHead>Duration</TableHead>
+                  <TableHead className="hidden sm:table-cell">Duration</TableHead>
                   <TableHead>Price</TableHead>
-                  <TableHead>Est. Profit</TableHead>
-                  <TableHead>Margin</TableHead>
+                  <TableHead className="hidden md:table-cell">Est. Profit</TableHead>
+                  <TableHead className="hidden md:table-cell">Margin</TableHead>
                   <TableHead>
                     <span className="sr-only">Actions</span>
                   </TableHead>
@@ -97,13 +97,18 @@ export default function ServicesPage() {
               <TableBody>
                 {services.map((service) => (
                   <TableRow key={service.id}>
-                    <TableCell className="font-medium">{service.name}</TableCell>
-                    <TableCell>{service.duration} min</TableCell>
+                    <TableCell>
+                      <div className="font-medium">{service.name}</div>
+                      <div className="text-sm text-muted-foreground sm:hidden">
+                        {service.duration} min
+                      </div>
+                    </TableCell>
+                    <TableCell className="hidden sm:table-cell">{service.duration} min</TableCell>
                     <TableCell>${service.price.toFixed(2)}</TableCell>
-                    <TableCell className="text-primary">
+                    <TableCell className="hidden md:table-cell text-primary">
                       ${service.profit.toFixed(2)}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden md:table-cell">
                       <Badge
                         variant={
                           service.margin > 80 ? 'default' : 'secondary'
