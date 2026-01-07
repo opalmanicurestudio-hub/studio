@@ -71,16 +71,16 @@ export function AppSidebar() {
         <SidebarMenu>
           {navItems.map((item) => (
             <SidebarMenuItem key={item.href}>
-              <Link href={item.href} passHref legacyBehavior>
-                <SidebarMenuButton
-                  as="a"
-                  isActive={pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))}
-                  tooltip={item.label}
-                >
+              <SidebarMenuButton
+                asChild
+                isActive={pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))}
+                tooltip={item.label}
+              >
+                <Link href={item.href}>
                   <item.icon />
                   <span>{item.label}</span>
-                </SidebarMenuButton>
-              </Link>
+                </Link>
+              </SidebarMenuButton>
             </SidebarMenuItem>
           ))}
         </SidebarMenu>
@@ -88,12 +88,12 @@ export function AppSidebar() {
       <SidebarFooter>
         <SidebarMenu>
             <SidebarMenuItem>
-                <Link href="/settings/financials" passHref legacyBehavior>
-                    <SidebarMenuButton as="a" isActive={pathname.startsWith('/settings')} tooltip="Settings">
-                        <Settings />
-                        <span>Settings</span>
-                    </SidebarMenuButton>
-                </Link>
+                <SidebarMenuButton asChild isActive={pathname.startsWith('/settings')} tooltip="Settings">
+                  <Link href="/settings/financials">
+                    <Settings />
+                    <span>Settings</span>
+                  </Link>
+                </SidebarMenuButton>
             </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
