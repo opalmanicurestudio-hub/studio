@@ -1,6 +1,7 @@
+
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -87,6 +88,18 @@ export default function DashboardPage() {
     (apt) =>
       new Date(apt.startTime).toDateString() === new Date().toDateString()
   );
+
+  const recentActivities = useMemo(() => {
+    return appointments
+      .slice() // Create a shallow copy to avoid mutating the original array
+      .sort((a, b) => b.startTime.getTime() - a.startTime.getTime())
+      .slice(0, 5)
+      .map(apt => {
+        const client = clients.find(c => c.id === apt.clientId);
+        const service = services.find(s => s.id === apt.serviceId);
+        return { apt, client, service };
+      });
+  }, []);
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -188,12 +201,7 @@ export default function DashboardPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-6">
-              {appointments
-                .slice(-5)
-                .reverse()
-                .map((apt) => {
-                  const client = clients.find((c) => c.id === apt.clientId);
-                  const service = services.find((s) => s.id === apt.serviceId);
+              {recentActivities.map(({ apt, client, service }) => {
                   if (!client || !service) return null;
                   return (
                     <div key={apt.id} className="flex items-center gap-4">
