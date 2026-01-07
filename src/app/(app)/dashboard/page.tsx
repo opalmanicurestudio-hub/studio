@@ -89,17 +89,15 @@ export default function DashboardPage() {
       new Date(apt.startTime).toDateString() === new Date().toDateString()
   );
 
-  const recentActivities = useMemo(() => {
-    return appointments
-      .slice() // Create a shallow copy to avoid mutating the original array
-      .sort((a, b) => b.startTime.getTime() - a.startTime.getTime())
-      .slice(0, 5)
-      .map(apt => {
+  const recentActivities = appointments
+    .slice()
+    .sort((a, b) => b.startTime.getTime() - a.startTime.getTime())
+    .slice(0, 5)
+    .map(apt => {
         const client = clients.find(c => c.id === apt.clientId);
         const service = services.find(s => s.id === apt.serviceId);
         return { apt, client, service };
-      });
-  }, []);
+    });
 
   return (
     <div className="flex min-h-screen w-full flex-col">
