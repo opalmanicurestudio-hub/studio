@@ -29,18 +29,18 @@ const ProductCard = ({ item }: { item: InventoryItem }) => {
         <Card className="w-full shrink-0 md:w-72">
             <CardContent className="p-4 space-y-4">
                 <div className="flex items-start justify-between gap-4">
-                    <div className='flex items-center gap-3'>
+                    <div className='flex items-start gap-3'>
                         <div className='w-14 h-14 bg-muted rounded-md flex-shrink-0'>
                             <Image src={`https://picsum.photos/seed/inv${item.id}/100/100`} alt={item.name} width={56} height={56} className='rounded-md' data-ai-hint="product photo"/>
                         </div>
-                        <div>
-                            <p className="font-semibold text-base">{item.name}</p>
+                        <div className='flex-1'>
+                            <p className="font-semibold text-base leading-snug">{item.name}</p>
                             <p className="text-sm text-muted-foreground">{item.type}</p>
                         </div>
                     </div>
                      <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button aria-haspopup="true" size="icon" variant="ghost" className="h-6 w-6">
+                        <Button aria-haspopup="true" size="icon" variant="ghost" className="-mt-1 h-8 w-8 flex-shrink-0">
                           <MoreHorizontal className="h-4 w-4" />
                           <span className="sr-only">Toggle menu</span>
                         </Button>
@@ -254,6 +254,4 @@ export default function InventoryPage() {
         </DialogContent>
       </Dialog>
     </div>
-  );
-
-    
+  
