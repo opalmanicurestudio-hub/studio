@@ -84,20 +84,18 @@ export default function DashboardPage() {
     }
   };
 
-  const todayAppointments = appointments.filter(
+  const todayAppointments = useMemo(() => appointments.filter(
     (apt) =>
       new Date(apt.startTime).toDateString() === new Date().toDateString()
-  );
+  ), []);
 
-  const recentActivities = appointments
-    .slice()
-    .sort((a, b) => b.startTime.getTime() - a.startTime.getTime())
+  const recentActivities = useMemo(() => appointments
     .slice(0, 5)
     .map(apt => {
         const client = clients.find(c => c.id === apt.clientId);
         const service = services.find(s => s.id === apt.serviceId);
         return { apt, client, service };
-    });
+    }), []);
 
   return (
     <div className="flex min-h-screen w-full flex-col">
