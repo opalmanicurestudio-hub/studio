@@ -7,7 +7,7 @@ import {
 } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, File, MoreHorizontal, ChevronUp, Database, Camera, AlertTriangle } from 'lucide-react';
+import { PlusCircle, File, MoreHorizontal, Database, Camera, AlertTriangle } from 'lucide-react';
 import { inventory, type InventoryItem } from '@/lib/data';
 import {
   DropdownMenu,
@@ -228,9 +228,9 @@ export default function InventoryPage() {
        <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
         <DialogContent className="sm:max-w-md p-0">
           <DialogHeader className="p-4 pb-0">
-            <DialogTitle>Scan QR Code</DialogTitle>
+            <DialogTitle>Scan Barcode/QR Code</DialogTitle>
             <DialogDescription>
-              Position the QR code inside the frame to scan it.
+              Position the barcode or QR code inside the frame to scan it.
             </DialogDescription>
           </DialogHeader>
           <div className="p-4 relative">
@@ -255,4 +255,5 @@ export default function InventoryPage() {
       </Dialog>
     </div>
   );
-}
+
+    
