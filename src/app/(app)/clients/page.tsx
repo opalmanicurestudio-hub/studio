@@ -20,7 +20,7 @@ import {
 import { clients } from '@/lib/data';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
-import { format, formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow } from 'date-fns';
 import { Input } from '@/components/ui/input';
 
 const ClientCard = ({ client }: { client: any }) => {
@@ -80,7 +80,7 @@ export default function ClientsPage() {
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input placeholder="Search by name or email..." className="pl-9" />
                     </div>
-                    <div className="ml-auto flex w-full sm:w-auto items-center gap-2">
+                    <div className="ml-auto flex w-full flex-col sm:flex-row sm:w-auto items-center gap-2">
                         <Button variant="outline" className='w-full sm:w-auto'><FileDown className="mr-2 h-4 w-4" /> Export</Button>
                         <Button variant="outline" className='w-full sm:w-auto'><UserPlus className="mr-2 h-4 w-4" /> Merge</Button>
                         <Button className='w-full sm:w-auto'><PlusCircle className="mr-2 h-4 w-4" /> New Client</Button>
