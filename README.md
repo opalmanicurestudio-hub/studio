@@ -1,5 +1,3 @@
-# Firebase Studio
+# ClarityFlow
 
-This is a NextJS starter in Firebase Studio.
-
-To get started, take a look at src/app/page.tsx.
+A comprehensive business management application designed specifically for solo service professionals like hairstylists, estheticians, tattoo artists, and personal trainers.
