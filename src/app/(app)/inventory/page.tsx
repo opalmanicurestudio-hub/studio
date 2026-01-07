@@ -84,24 +84,39 @@ const ProductCard = ({ item }: { item: InventoryItem }) => {
     )
 }
 
-const ProductShelf = ({ title, items }: { title: string, items: InventoryItem[] }) => (
-  <div className="space-y-4">
-    <div className='flex items-center justify-between px-1 md:px-0'>
-        <h3 className="text-xl font-bold">{title}</h3>
-        <Button variant='ghost' size='icon' className='h-8 w-8'>
-            <ChevronUp className='h-5 w-5' />
-        </Button>
-    </div>
-     <div className="md:hidden space-y-4">
-      {items.map((item) => <ProductCard key={item.id} item={item} />)}
-    </div>
-    <ScrollArea className="hidden md:block">
-      <div className="flex space-x-4 pb-4">
-        {items.map((item) => <ProductCard key={item.id} item={item} />)}
-      </div>
-      <ScrollBar orientation="horizontal" />
-    </ScrollArea>
-  </div>
+const ProductShelf = ({ title, items }: { title: string, items: InventoryItem[] }) => {
+    if (items.length === 0) return null;
+
+    return (
+        <Accordion type="single" collapsible defaultValue="item-1" className="w-full">
+            <AccordionItem value="item-1" className='border-b-0'>
+                <AccordionTrigger className='px-1 md:px-0 hover:no-underline'>
+                    <div className='flex items-center justify-between w-full'>
+                        <h3 className="text-xl font-bold">{title}</h3>
+                    </div>
+                </AccordionTrigger>
+                <AccordionContent>
+                    <div className="md:hidden space-y-4 pt-4">
+                        {items.map((item) => <ProductCard key={item.id} item={item} />)}
+                    </div>
+                    <ScrollArea className="hidden md:block">
+                        <div className="flex space-x-4 pb-4">
+                            {items.map((item) => <ProductCard key={item.id} item={item} />)}
+                        </div>
+                        <ScrollBar orientation="horizontal" />
+                    </ScrollArea>
+                </AccordionContent>
+            </AccordionItem>
+        </Accordion>
+    );
+}
+
+const EmptyState = ({ message }: { message: string }) => (
+    <Card>
+        <CardContent className="text-center py-20">
+            <p className="text-muted-foreground">{message}</p>
+        </CardContent>
+    </Card>
 );
 
 
@@ -179,8 +194,8 @@ export default function InventoryPage() {
               </Button>
             </div>
           </div>
-          <div className="mt-6 space-y-8">
-            <TabsContent value="professional" className="m-0 space-y-8">
+          <div className="mt-6 space-y-4">
+            <TabsContent value="professional" className="m-0 space-y-4">
                 <ProductShelf title="Color" items={professionalColor} />
                 <ProductShelf title="Care" items={professionalCare} />
                 <ProductShelf title="Styling" items={professionalStyling} />
@@ -189,33 +204,21 @@ export default function InventoryPage() {
                {retailItems.length > 0 ? (
                     <ProductShelf title="All Retail" items={retailItems} />
                 ) : (
-                <Card>
-                    <CardContent className="text-center py-20">
-                        <p className="text-muted-foreground">No retail items yet.</p>
-                    </CardContent>
-                </Card>
+                    <EmptyState message="No retail items yet." />
                 )}
             </TabsContent>
             <TabsContent value="overhead" className="m-0">
               {overheadItems.length > 0 ? (
                     <ProductShelf title="All Overhead" items={overheadItems} />
                 ) : (
-                <Card>
-                    <CardContent className="text-center py-20">
-                        <p className="text-muted-foreground">No overhead items yet.</p>
-                    </CardContent>
-                </Card>
+                    <EmptyState message="No overhead items yet." />
                 )}
             </TabsContent>
             <TabsContent value="equipment" className="m-0">
                 {equipmentItems.length > 0 ? (
                     <ProductShelf title="All Equipment" items={equipmentItems} />
                 ) : (
-                <Card>
-                    <CardContent className="text-center py-20">
-                        <p className="text-muted-foreground">No equipment items yet.</p>
-                    </CardContent>
-                </Card>
+                    <EmptyState message="No equipment items yet." />
                 )}
             </TabsContent>
           </div>
