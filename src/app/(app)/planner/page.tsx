@@ -5,13 +5,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { appointments, clients, services } from '@/lib/data';
-import { format, addDays, subDays } from 'date-fns';
-import { useState } from 'react';
+import { format, addDays, subDays, startOfWeek, endOfWeek } from 'date-fns';
+import { useState, useMemo } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Carousel, CarouselContent, CarouselItem, type CarouselApi } from '@/components/ui/carousel';
+import { cn } from '@/lib/utils';
+import React from 'react';
 
 const DayCard = ({ date, appointmentsForDay }: { date: Date; appointmentsForDay: any[] }) => {
   return (
-    <Card className="flex flex-col">
+    <Card className="flex flex-col h-full">
       <CardHeader className="flex flex-row items-center justify-between p-4">
         <CardTitle className="text-base font-medium">
           {format(date, 'EEE')}
@@ -29,11 +32,15 @@ const DayCard = ({ date, appointmentsForDay }: { date: Date; appointmentsForDay:
             return (
               <div
                 key={apt.id}
-                className="rounded-lg border bg-card p-3 text-sm"
+                className={cn("rounded-lg border p-3 text-sm", {
+                    "bg-blue-900/20 border-blue-700/50 text-blue-200": apt.status === 'confirmed',
+                    "bg-green-900/20 border-green-700/50 text-green-200": apt.status === 'completed',
+                    "bg-red-900/20 border-red-700/50 text-red-200 line-through": apt.status === 'canceled',
+                })}
               >
                 <p className="font-semibold">{client.name}</p>
-                <p className="text-muted-foreground">{service.name}</p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-current/80">{service.name}</p>
+                <p className="text-xs text-current/60 mt-1">
                   {format(apt.startTime, 'h:mm a')} -{' '}
                   {format(apt.endTime, 'h:mm a')}
                 </p>
@@ -52,45 +59,50 @@ const DayCard = ({ date, appointmentsForDay }: { date: Date; appointmentsForDay:
 
 export default function PlannerPage() {
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [api, setApi] = React.useState<CarouselApi>()
+  const [current, setCurrent] = React.useState(0)
 
-  const getWeekDays = (date: Date) => {
-    const sunday = new Date(date);
-    sunday.setDate(date.getDate() - date.getDay());
-    return Array.from({ length: 7 }, (_, i) => {
-        const day = new Date(sunday);
-        day.setDate(sunday.getDate() + i);
-        return day;
-    });
-  };
+  const weekDays = useMemo(() => {
+    const start = startOfWeek(currentDate, { weekStartsOn: 0 });
+    return Array.from({ length: 7 }, (_, i) => addDays(start, i));
+  }, [currentDate]);
 
-  const [weekDays, setWeekDays] = useState(getWeekDays(currentDate));
+  React.useEffect(() => {
+    if (!api) return;
+ 
+    setCurrent(api.selectedScrollSnap())
+ 
+    api.on("select", () => {
+      setCurrent(api.selectedScrollSnap())
+    })
+  }, [api])
 
   const handleNextWeek = () => {
-    const nextWeekDate = addDays(currentDate, 7);
-    setCurrentDate(nextWeekDate);
-    setWeekDays(getWeekDays(nextWeekDate));
+    setCurrentDate(addDays(currentDate, 7));
   };
 
   const handlePrevWeek = () => {
-    const prevWeekDate = subDays(currentDate, 7);
-    setCurrentDate(prevWeekDate);
-    setWeekDays(getWeekDays(prevWeekDate));
+    setCurrentDate(subDays(currentDate, 7));
   };
   
   const handleToday = () => {
     const today = new Date();
-    setCurrentDate(today);
-    setWeekDays(getWeekDays(today));
+    if (format(today, 'yyyy-MM-dd') !== format(currentDate, 'yyyy-MM-dd')) {
+        setCurrentDate(today);
+    }
   }
 
   return (
     <div className="flex h-screen w-full flex-col">
       <AppHeader title="Weekly Planner" />
-      <div className="flex items-center justify-between p-4">
+      <div className="flex items-center justify-between gap-4 p-4">
         <div className="flex items-center gap-2">
             <Button variant="outline" size="icon" onClick={handlePrevWeek}><ChevronLeft /></Button>
-            <Button variant="outline" onClick={handleToday}>Today</Button>
+             <Button variant="outline" onClick={handleToday}>Today</Button>
             <Button variant="outline" size="icon" onClick={handleNextWeek}><ChevronRight /></Button>
+        </div>
+        <div className='hidden md:block'>
+             <p className='font-medium'>{format(startOfWeek(currentDate), 'MMMM yyyy')}</p>
         </div>
         <Button>
           <PlusCircle className="mr-2 h-4 w-4" />
@@ -98,7 +110,7 @@ export default function PlannerPage() {
         </Button>
       </div>
       <main className="flex-1 overflow-hidden p-4 pt-0">
-        <div className="hidden md:grid h-full grid-cols-7 gap-2 lg:gap-4">
+        <div className="hidden h-full md:grid grid-cols-7 gap-2 lg:gap-4">
           {weekDays.map((date) => {
             const appointmentsForDay = appointments.filter(
               (apt) => format(apt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd')
@@ -113,23 +125,28 @@ export default function PlannerPage() {
           })}
         </div>
         <div className="md:hidden h-full">
-            <ScrollArea className='h-full'>
-                <div className='flex gap-4'>
-                {weekDays.map((date) => {
+            <Carousel setApi={setApi} className="h-full">
+                <CarouselContent className='h-full'>
+                {weekDays.map((date, index) => {
                     const appointmentsForDay = appointments.filter(
                     (apt) => format(apt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd')
                     ).sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
                     return (
-                      <div key={date.toString()} className='w-4/5 flex-shrink-0'>
-                        <DayCard
-                            date={date}
-                            appointmentsForDay={appointmentsForDay}
-                        />
-                      </div>
+                      <CarouselItem key={index} className='h-full'>
+                         <ScrollArea className='h-full'>
+                            <DayCard
+                                date={date}
+                                appointmentsForDay={appointmentsForDay}
+                            />
+                         </ScrollArea>
+                      </CarouselItem>
                     );
                 })}
-                </div>
-            </ScrollArea>
+                </CarouselContent>
+            </Carousel>
+             <div className="py-2 text-center text-sm text-muted-foreground">
+                {format(weekDays[current] || new Date(), 'MMMM d, yyyy')}
+            </div>
         </div>
       </main>
     </div>
