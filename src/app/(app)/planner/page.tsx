@@ -63,8 +63,7 @@ const DayTimeline = ({ date, appointmentsForDay }: { date: Date; appointmentsFor
             <Button variant="secondary" size="sm"><PlusCircle className='mr-2 h-4 w-4'/>Add Entry</Button>
         </div>
       </CardHeader>
-      <CardContent className="flex-1 p-0 overflow-hidden">
-          <ScrollArea className='h-full'>
+      <CardContent className="flex-1 p-0 overflow-y-auto">
             <div className="relative pr-4">
               {hours.map((hour) => (
                 <div key={hour} className="relative h-20 border-t border-dashed">
@@ -121,7 +120,6 @@ const DayTimeline = ({ date, appointmentsForDay }: { date: Date; appointmentsFor
                 );
               })}
             </div>
-          </ScrollArea>
       </CardContent>
        <CardFooter className="p-2 border-t bg-background/50">
             <div className="grid grid-cols-3 gap-2 w-full text-center">
@@ -212,13 +210,13 @@ export default function PlannerPage() {
         </div>
         <div className="md:hidden h-full pb-6">
             <Carousel setApi={setApi} className="h-full" opts={{startIndex: current, loop: true}}>
-                <CarouselContent className='h-full -ml-4'>
+                <CarouselContent className='h-full'>
                 {weekDays.map((date, index) => {
                     const appointmentsForDay = appointments.filter(
                     (apt) => format(apt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd')
                     );
                     return (
-                      <CarouselItem key={index} className='h-full pl-4 basis-full'>
+                      <CarouselItem key={index} className='h-full'>
                          <DayTimeline
                             date={date}
                             appointmentsForDay={appointmentsForDay}
@@ -236,3 +234,5 @@ export default function PlannerPage() {
     </div>
   );
 }
+
+    
