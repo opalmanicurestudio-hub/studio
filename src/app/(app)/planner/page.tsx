@@ -79,7 +79,7 @@ const DayTimeline = ({ date, appointmentsForDay }: { date: Date; appointmentsFor
                 
                 const top = getPosition(apt.startTime);
                 const height = getHeight(apt.startTime, apt.endTime);
-                const duration = (apt.endTime.getTime() - startTime.getTime()) / 1000 / 60;
+                const duration = (apt.endTime.getTime() - apt.startTime.getTime()) / 1000 / 60;
 
                 return (
                   <div
@@ -210,14 +210,14 @@ export default function PlannerPage() {
           })}
         </div>
         <div className="md:hidden h-full">
-            <Carousel setApi={setApi} className="h-full" opts={{startIndex: current}}>
+            <Carousel setApi={setApi} className="h-full" opts={{startIndex: current, loop: true}}>
                 <CarouselContent className='h-full -ml-4'>
                 {weekDays.map((date, index) => {
                     const appointmentsForDay = appointments.filter(
                     (apt) => format(apt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd')
                     );
                     return (
-                      <CarouselItem key={index} className='h-full pl-4'>
+                      <CarouselItem key={index} className='h-full pl-4 basis-full'>
                          <DayTimeline
                             date={date}
                             appointmentsForDay={appointmentsForDay}
