@@ -360,7 +360,7 @@ export default function InventoryPage() {
   const retailItems: InventoryItem[] = [];
   const overheadItems: InventoryItem[] = [];
   const equipmentItems: InventoryItem[] = [];
-  const locations: any[] = [];
+  const locations: any[] = [{ id: 'loc-1', name: 'Back Room - Shelf A', description: 'Top shelf for backstock color tubes.'}];
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
@@ -578,5 +578,3 @@ export default function InventoryPage() {
     </div>
   );
 }
-
-    
