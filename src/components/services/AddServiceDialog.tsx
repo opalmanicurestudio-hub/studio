@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -627,6 +628,8 @@ export const AddServiceDialog = ({
         profit: netProfit,
         margin: margin,
         imageUrl: data.imageUrl,
+        products: data.products,
+        equipment: data.equipment,
       };
       
       onServiceAdded(newService);

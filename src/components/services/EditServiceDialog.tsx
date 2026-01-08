@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -566,12 +567,11 @@ export const EditServiceDialog = ({
             imageUrl: service.imageUrl || undefined,
             price: service.price,
             margin: service.margin,
-            // Mock data for now, these should be populated from service object
-            products: [],
-            equipment: [],
-            addOns: [],
-            depositType: 'none',
-            pricingStrategy: 'manual',
+            products: service.products || [],
+            equipment: service.equipment || [],
+            addOns: [], // This should come from service data if available
+            depositType: 'none', // This should come from service data if available
+            pricingStrategy: 'manual', // This should come from service data if available
           });
       }
   }, [service, methods.reset])
@@ -621,6 +621,8 @@ export const EditServiceDialog = ({
         margin: profitMargin,
         imageUrl: data.imageUrl,
         description: data.description,
+        products: data.products,
+        equipment: data.equipment,
       };
       
       onServiceUpdated(updatedService);

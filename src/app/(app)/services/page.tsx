@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -20,7 +21,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
-import { services as initialServices, type Service, inventory as allInventory } from '@/lib/data';
+import { services as initialServices, type Service, inventory as allInventory, type InventoryItem } from '@/lib/data';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
@@ -42,11 +43,14 @@ const InlineProfitTester = ({ service, tmhr }: { service: Service, tmhr: number 
     const totalDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
     const timeCost = (totalDuration / 60) * tmhr;
     
-    // In a real app, product costs would be calculated from a formula.
-    // For now, we derive it from the service's pre-calculated total cost.
-    const productCost = service.cost - ((service.duration / 60) * tmhr);
+    const productCost = (service.products || []).reduce((acc, p) => acc + p.costPerUnit, 0);
+    const equipmentDepreciation = (service.equipment || []).reduce((acc, eq) => {
+        const lifespanInMinutes = (eq.lifespanYears || 5) * 365 * 8 * 60; // Assuming 8hr work day
+        const costPerMinute = (eq.costPerUnit || 0) / lifespanInMinutes;
+        return acc + (costPerMinute * totalDuration);
+    }, 0);
     
-    const breakEvenPoint = timeCost + productCost;
+    const breakEvenPoint = timeCost + productCost + equipmentDepreciation;
 
     const profitValue = testPrice - breakEvenPoint;
     const marginValue = testPrice > 0 ? (profitValue / testPrice) * 100 : 0;
@@ -96,17 +100,13 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
     const totalDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
     const timeCost = (totalDuration / 60) * tmhr;
 
-    // These are simplified calculations. In a real app, this data would come from the service's formula.
-    const mockProductFormula = allInventory.slice(0, 2);
-    const mockEquipmentFormula = allInventory.filter(i => i.type === 'equipment').slice(0,1);
-
-    const productCosts = mockProductFormula.map(p => ({
+    const productCosts = (service.products || []).map(p => ({
       ...p,
-      cost: p.costPerUnit * 0.1, // Mock usage cost
+      cost: p.costPerUnit, // This might need to be adjusted based on usage
       location: 'Back Room - Shelf A' // Mock location
     }));
 
-    const equipmentCosts = mockEquipmentFormula.map(e => ({
+    const equipmentCosts = (service.equipment || []).map(e => ({
       ...e,
       cost: e.costPerUnit * 0.001 // Mock depreciation
     }));

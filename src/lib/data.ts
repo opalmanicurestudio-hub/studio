@@ -1,4 +1,5 @@
 
+
 import { BillDefinition, billDefinitions } from './financial-data';
 
 export type Client = {
@@ -25,6 +26,8 @@ export type Service = {
   profit: number;
   margin: number;
   imageUrl?: string;
+  products?: InventoryItem[];
+  equipment?: InventoryItem[];
 };
 
 export type InventoryItem = {
@@ -35,6 +38,7 @@ export type InventoryItem = {
   stock: number;
   costPerUnit: number;
   supplier: string;
+  lifespanYears?: number;
 };
 
 export type Appointment = {
@@ -75,6 +79,8 @@ export const services: Service[] = [
     cost: 35.00,
     profit: 85.00,
     margin: 70.8,
+    products: [],
+    equipment: [],
   },
   {
     id: "svc-2",
@@ -88,6 +94,8 @@ export const services: Service[] = [
     cost: 80.00,
     profit: 170.00,
     margin: 68.0,
+    products: [],
+    equipment: [],
   },
   {
     id: "svc-3",
@@ -99,6 +107,8 @@ export const services: Service[] = [
     cost: 10.00,
     profit: 35.00,
     margin: 77.8,
+    products: [],
+    equipment: [],
   }
 ];
 
