@@ -162,7 +162,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr }: { service: Service, o
   const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
 
   return (
-    <Card className="overflow-hidden w-full max-w-sm shrink-0">
+    <Card className="overflow-hidden w-full max-w-sm shrink-0 transition-all duration-200 hover:shadow-xl hover:-translate-y-1">
       <CardContent className="p-4 space-y-4">
         <div className="flex items-start gap-4">
           <div className="w-24 h-24 bg-muted rounded-md flex-shrink-0">
