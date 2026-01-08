@@ -28,6 +28,9 @@ import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Slider } from '@/components/ui/slider';
 import { ImageUpload } from '@/components/shared/ImageUpload';
+import { inventory, type InventoryItem } from '@/lib/data';
+import { BrowseProductsDialog } from './BrowseProductsDialog';
+import { SelectEquipmentDialog } from './SelectEquipmentDialog';
 
 
 const Step1_Basics = ({ 
@@ -128,7 +131,40 @@ const Step1_Basics = ({
     );
 };
 
-const Step2_Formula = () => (
+const Step2_Formula = ({
+    selectedProducts,
+    onProductsChange,
+    selectedEquipment,
+    onEquipmentChange,
+}: {
+    selectedProducts: InventoryItem[];
+    onProductsChange: (products: InventoryItem[]) => void;
+    selectedEquipment: InventoryItem[];
+    onEquipmentChange: (equipment: InventoryItem[]) => void;
+}) => {
+    const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
+    const [isEquipmentSelectorOpen, setIsEquipmentSelectorOpen] = useState(false);
+
+    const handleProductSelect = (products: InventoryItem[]) => {
+        onProductsChange(products);
+        setIsProductBrowserOpen(false);
+    };
+    
+    const handleEquipmentSelect = (equipment: InventoryItem[]) => {
+        onEquipmentChange(equipment);
+        setIsEquipmentSelectorOpen(false);
+    };
+
+    const removeProduct = (productId: string) => {
+        onProductsChange(selectedProducts.filter(p => p.id !== productId));
+    };
+
+    const removeEquipment = (equipmentId: string) => {
+        onEquipmentChange(selectedEquipment.filter(e => e.id !== equipmentId));
+    };
+
+    return (
+    <>
     <div className="grid gap-6 py-4">
         <div className="space-y-4">
             <div className="space-y-2">
@@ -136,13 +172,28 @@ const Step2_Formula = () => (
                     <Package className="w-5 h-5 text-primary" />
                     <Label className="text-lg font-semibold">Product Formula</Label>
                 </div>
-                 <Card>
-                    <CardContent className="p-4 text-center text-sm text-muted-foreground">
-                        No products added yet.
-                    </CardContent>
-                </Card>
+                {selectedProducts.length > 0 ? (
+                    <Card>
+                        <CardContent className="p-2 space-y-2">
+                            {selectedProducts.map(product => (
+                                <div key={product.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50">
+                                    <span className="text-sm font-medium">{product.name}</span>
+                                    <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeProduct(product.id)}>
+                                        <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            ))}
+                        </CardContent>
+                    </Card>
+                 ) : (
+                    <Card>
+                        <CardContent className="p-4 text-center text-sm text-muted-foreground">
+                            No products added yet.
+                        </CardContent>
+                    </Card>
+                 )}
                 <div className='flex gap-2'>
-                    <Button variant="outline"><PlusCircle className="mr-2 h-4 w-4" /> Browse Library</Button>
+                    <Button variant="outline" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> Browse Library</Button>
                     <Button variant="outline"><QrCode className="mr-2 h-4 w-4" /> Scan to Add</Button>
                 </div>
             </div>
@@ -153,12 +204,27 @@ const Step2_Formula = () => (
                     <Hammer className="w-5 h-5 text-primary" />
                     <Label className="text-lg font-semibold">Equipment Used</Label>
                 </div>
-                 <Card>
-                    <CardContent className="p-4 text-center text-sm text-muted-foreground">
-                        No equipment added.
-                    </CardContent>
-                </Card>
-                <Button variant="outline"><PlusCircle className="mr-2 h-4 w-4" /> Select Equipment</Button>
+                {selectedEquipment.length > 0 ? (
+                    <Card>
+                         <CardContent className="p-2 space-y-2">
+                            {selectedEquipment.map(item => (
+                                <div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50">
+                                    <span className="text-sm font-medium">{item.name}</span>
+                                    <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeEquipment(item.id)}>
+                                        <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            ))}
+                        </CardContent>
+                    </Card>
+                ) : (
+                    <Card>
+                        <CardContent className="p-4 text-center text-sm text-muted-foreground">
+                            No equipment added.
+                        </CardContent>
+                    </Card>
+                )}
+                <Button variant="outline" onClick={() => setIsEquipmentSelectorOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> Select Equipment</Button>
             </div>
         </div>
          <div className="space-y-4">
@@ -176,6 +242,21 @@ const Step2_Formula = () => (
             </div>
         </div>
     </div>
+    <BrowseProductsDialog
+        open={isProductBrowserOpen}
+        onOpenChange={setIsProductBrowserOpen}
+        onSelect={handleProductSelect}
+        allProducts={inventory.filter(i => i.type === 'professional' || i.type === 'retail')}
+        initialSelected={selectedProducts}
+    />
+     <SelectEquipmentDialog
+        open={isEquipmentSelectorOpen}
+        onOpenChange={setIsEquipmentSelectorOpen}
+        onSelect={handleEquipmentSelect}
+        allEquipment={inventory.filter(i => i.type === 'equipment')}
+        initialSelected={selectedEquipment}
+    />
+    </>
 );
 
 const Step3_Deposits = () => {
@@ -321,6 +402,8 @@ export const AddServiceDialog = ({
 }) => {
   const [step, setStep] = useState(1);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [selectedProducts, setSelectedProducts] = useState<InventoryItem[]>([]);
+  const [selectedEquipment, setSelectedEquipment] = useState<InventoryItem[]>([]);
   const totalSteps = 4;
   
   const handleOpenChange = (isOpen: boolean) => {
@@ -329,6 +412,8 @@ export const AddServiceDialog = ({
         setTimeout(() => {
           setStep(1);
           setImageUrl(null);
+          setSelectedProducts([]);
+          setSelectedEquipment([]);
         }, 300);
     }
   }
@@ -350,7 +435,12 @@ export const AddServiceDialog = ({
           <Progress value={(step / totalSteps) * 100} />
            <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
                 {step === 1 && <Step1_Basics onImageUpload={setImageUrl} categories={categories} onNewCategory={onNewCategory} />}
-                {step === 2 && <Step2_Formula />}
+                {step === 2 && <Step2_Formula 
+                    selectedProducts={selectedProducts}
+                    onProductsChange={setSelectedProducts}
+                    selectedEquipment={selectedEquipment}
+                    onEquipmentChange={setSelectedEquipment}
+                />}
                 {step === 3 && <Step3_Deposits />}
                 {step === 4 && <Step4_Pricing />}
            </div>
@@ -375,3 +465,5 @@ export const AddServiceDialog = ({
     </Dialog>
   );
 };
+
+    
