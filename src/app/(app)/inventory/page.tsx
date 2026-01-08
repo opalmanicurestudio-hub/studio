@@ -602,7 +602,6 @@ export default function InventoryPage() {
         onSave={handleAddNewLocation}
         locationTypes={locationTypes}
         onAddNewLocationType={handleAddNewLocationType}
-        locations={locations}
        />
 
     </div>

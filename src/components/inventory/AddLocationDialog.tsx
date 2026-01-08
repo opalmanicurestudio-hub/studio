@@ -31,7 +31,6 @@ export type Location = {
   name: string;
   locationTypeId: string;
   description?: string;
-  parentId?: string;
   environmentalNeeds?: string[];
   customNeeds?: string;
   photoUrl?: string;
@@ -40,7 +39,6 @@ export type Location = {
 const locationSchema = z.object({
   name: z.string().min(1, { message: 'Location name is required.' }),
   locationTypeId: z.string().min(1, { message: 'Location type is required.' }),
-  parentId: z.string().optional(),
   description: z.string().optional(),
   refrigerated: z.boolean().optional(),
   noSunlight: z.boolean().optional(),
@@ -57,14 +55,12 @@ export const AddLocationDialog = ({
   onSave,
   locationTypes,
   onAddNewLocationType,
-  locations,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (data: Omit<Location, 'id'>) => void;
   locationTypes: LocationType[];
   onAddNewLocationType: (name: string) => LocationType;
-  locations: Location[];
 }) => {
   const [isAddingType, setIsAddingType] = useState(false);
   const [newTypeName, setNewTypeName] = useState('');
@@ -95,7 +91,6 @@ export const AddLocationDialog = ({
     const finalData: Omit<Location, 'id'> = {
         name: data.name,
         locationTypeId: data.locationTypeId,
-        parentId: data.parentId,
         description: data.description,
         customNeeds: data.customNeeds,
         environmentalNeeds,
@@ -178,27 +173,6 @@ export const AddLocationDialog = ({
                    {errors.locationTypeId && <p className="text-sm text-destructive">{errors.locationTypeId.message}</p>}
                 </div>
               )}
-            />
-
-            <Controller
-                name="parentId"
-                control={control}
-                render={({ field }) => (
-                    <div className="space-y-2">
-                        <Label htmlFor="parent-location">Parent Location (Optional)</Label>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                            <SelectTrigger id="parent-location">
-                                <SelectValue placeholder="Nest inside another location" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="none">None (Top-Level Location)</SelectItem>
-                                {locations.map(loc => (
-                                    <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-                )}
             />
 
             <Controller
