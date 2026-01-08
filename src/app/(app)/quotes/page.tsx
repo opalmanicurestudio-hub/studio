@@ -41,6 +41,7 @@ import { Badge } from '@/components/ui/badge';
 import { clients, quotes, type Quote } from '@/lib/data';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
+import Link from 'next/link';
 
 const kpiData = {
   acceptedValue: 2150.0,
@@ -131,19 +132,19 @@ const QuoteCard = ({ quote }: { quote: Quote }) => {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                             <DropdownMenuItem>
-                              <FileText />
+                              <FileText className="mr-2 h-4 w-4"/>
                               <span>View/Edit</span>
                             </DropdownMenuItem>
                             <DropdownMenuItem>
-                               <Printer />
+                               <Printer className="mr-2 h-4 w-4"/>
                               <span>Print Quote</span>
                             </DropdownMenuItem>
                             <DropdownMenuItem>
-                              <FileStack />
+                              <FileStack className="mr-2 h-4 w-4"/>
                               <span>Create Invoice & Book</span>
                             </DropdownMenuItem>
                             <DropdownMenuItem className="text-destructive">
-                              <Trash2 />
+                              <Trash2 className="mr-2 h-4 w-4"/>
                               <span>Delete</span>
                             </DropdownMenuItem>
                         </DropdownMenuContent>
@@ -170,8 +171,10 @@ export default function QuotesPage() {
               Create, manage, and analyze project proposals.
             </p>
           </div>
-          <Button>
-            <PlusCircle className="mr-2" /> Create New Quote
+          <Button asChild>
+            <Link href="/quotes/new">
+              <PlusCircle className="mr-2" /> Create New Quote
+            </Link>
           </Button>
         </div>
 
@@ -257,5 +260,3 @@ export default function QuotesPage() {
     </div>
   );
 }
-
-    
