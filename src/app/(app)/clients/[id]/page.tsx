@@ -14,10 +14,11 @@ import { clients, appointments, services } from '@/lib/data';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { format } from 'date-fns';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 
 export default function ClientDetailPage({ params }: { params: { id: string } }) {
   const client = clients.find((c) => c.id === params.id);
@@ -28,7 +29,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
 
   const clientAppointments = appointments.filter(apt => apt.clientId === client.id);
   const upcomingAppointments = clientAppointments.filter(apt => apt.startTime > new Date() && apt.status !== 'canceled');
-  const pastAppointments = clientAppointments.filter(apt => apt.startTime <= new Date());
+  const pastAppointments = clientAppointments.filter(apt => apt.startTime <= new Date()).sort((a,b) => b.startTime.getTime() - a.startTime.getTime());
 
 
   return (
@@ -122,33 +123,37 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                     </CardHeader>
                     <CardContent>
                         {upcomingAppointments.length > 0 ? (
-                             <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead>Date</TableHead>
-                                        <TableHead>Service</TableHead>
-                                        <TableHead>Status</TableHead>
-                                        <TableHead className="text-right">Actions</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {upcomingAppointments.map(apt => {
-                                        const service = services.find(s => s.id === apt.serviceId);
-                                        return (
-                                            <TableRow key={apt.id}>
-                                                <TableCell>{format(apt.startTime, 'PPpp')}</TableCell>
-                                                <TableCell>{service?.name || 'N/A'}</TableCell>
-                                                <TableCell>{apt.status}</TableCell>
-                                                <TableCell className="text-right">
-                                                    <Button variant="ghost" size="sm">Cancel</Button>
-                                                </TableCell>
-                                            </TableRow>
-                                        )
-                                    })}
-                                </TableBody>
-                            </Table>
+                             <div className="space-y-4">
+                                {upcomingAppointments.map((apt, index) => {
+                                    const service = services.find(s => s.id === apt.serviceId);
+                                    return (
+                                        <div key={apt.id} className="relative flex gap-4">
+                                            <div className="flex flex-col items-center">
+                                                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary">
+                                                    <Calendar className="h-4 w-4" />
+                                                </div>
+                                                {index < upcomingAppointments.length - 1 && (
+                                                    <div className="h-full w-px bg-border -mt-1"></div>
+                                                )}
+                                            </div>
+                                            <div className="flex-1 pb-8">
+                                                <div className="flex items-start justify-between">
+                                                    <div>
+                                                        <p className="font-medium">{service?.name || 'N/A'}</p>
+                                                        <p className="text-sm text-muted-foreground">{format(apt.startTime, 'EEEE, MMMM d @ h:mm a')}</p>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <Badge variant="outline" className="capitalize">{apt.status}</Badge>
+                                                        <Button variant="ghost" size="sm">Cancel</Button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
                         ) : (
-                            <p className="text-sm text-muted-foreground">No upcoming appointments.</p>
+                            <p className="text-sm text-muted-foreground text-center py-4">No upcoming appointments.</p>
                         )}
                     </CardContent>
                 </Card>
@@ -158,29 +163,45 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                         <CardTitle>Past Appointments</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Date</TableHead>
-                                    <TableHead>Service</TableHead>
-                                    <TableHead>Status</TableHead>
-                                    <TableHead className="text-right">Amount</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {pastAppointments.map(apt => {
+                        {pastAppointments.length > 0 ? (
+                           <div className="space-y-4">
+                                {pastAppointments.map((apt, index) => {
                                     const service = services.find(s => s.id === apt.serviceId);
                                     return (
-                                        <TableRow key={apt.id}>
-                                            <TableCell>{format(apt.startTime, 'PP')}</TableCell>
-                                            <TableCell>{service?.name || 'N/A'}</TableCell>
-                                            <TableCell>{apt.status}</TableCell>
-                                            <TableCell className="text-right">${service?.price.toFixed(2) || '0.00'}</TableCell>
-                                        </TableRow>
-                                    );
+                                        <div key={apt.id} className="relative flex gap-4">
+                                            <div className="flex flex-col items-center">
+                                                <div className={cn(
+                                                    "flex h-8 w-8 items-center justify-center rounded-full",
+                                                    apt.status === 'completed' ? 'bg-green-500/10 text-green-600' : 'bg-muted text-muted-foreground'
+                                                    )}>
+                                                    <DollarSign className="h-4 w-4" />
+                                                </div>
+                                                {index < pastAppointments.length - 1 && (
+                                                    <div className="h-full w-px bg-border -mt-1"></div>
+                                                )}
+                                            </div>
+                                            <div className="flex-1 pb-8">
+                                                <div className="flex items-start justify-between">
+                                                    <div>
+                                                        <p className="font-medium">{service?.name || 'N/A'}</p>
+                                                        <p className="text-sm text-muted-foreground">{format(apt.startTime, 'MMMM d, yyyy')}</p>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <Badge variant={apt.status === 'completed' ? 'default' : 'secondary'} className={cn(
+                                                            'capitalize',
+                                                            apt.status === 'completed' && 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300'
+                                                        )}>{apt.status}</Badge>
+                                                        <p className="font-semibold text-lg">${service?.price.toFixed(2) || '0.00'}</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )
                                 })}
-                            </TableBody>
-                        </Table>
+                            </div>
+                        ) : (
+                             <p className="text-sm text-muted-foreground text-center py-4">No past appointments.</p>
+                        )}
                     </CardContent>
                 </Card>
             </TabsContent>
