@@ -153,7 +153,7 @@ const BillEditor = ({
             </AccordionTrigger>
             <AccordionContent className="pt-4">
                 <div className="flex flex-col sm:flex-row items-center gap-4">
-                    <div className="w-full sm:hidden grid grid-cols-1 gap-4">
+                    <div className="sm:hidden grid grid-cols-1 gap-4 w-full">
                          <BillItemCard title="Custom Expense" isCustom />
                     </div>
                     <ScrollArea className="w-full hidden sm:block">
@@ -463,5 +463,3 @@ export default function FinancialFoundationPage() {
     </div>
   );
 }
-
-    
