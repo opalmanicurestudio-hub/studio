@@ -11,7 +11,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, File, MoreHorizontal, Database, Camera, AlertTriangle, Truck, Search, SlidersHorizontal, QrCode, Package, Hammer, Beaker, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, BellRing } from 'lucide-react';
+import { PlusCircle, File, MoreHorizontal, Database, Camera, AlertTriangle, Truck, Search, SlidersHorizontal, QrCode, Package, Hammer, Beaker, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, BellRing, TrendingUp, DollarSign, BarChart, LineChart } from 'lucide-react';
 import { type InventoryItem, inventory as initialInventory } from '@/lib/data';
 import {
   DropdownMenu,
@@ -48,16 +48,27 @@ import { Badge } from '@/components/ui/badge';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 import { Carousel, CarouselContent, CarouselItem } from '@/components/ui/carousel';
+import { isPast, parseISO, differenceInYears } from 'date-fns';
 
 
 const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (item: InventoryItem) => void }) => {
+    
+    const stockStatus = useMemo(() => {
+        const hasExpiredBatch = item.batches.some(b => b.expirationDate && isPast(parseISO(b.expirationDate)));
+        if (hasExpiredBatch) return { label: 'Expired', className: 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-400 dark:border-red-600/30' };
+        if (item.totalStock <= 0) return { label: 'Out of Stock', className: 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-400 dark:border-red-600/30' };
+        // Assuming a reorderPoint property exists on the item
+        if (item.totalStock <= (item.reorderPoint || 5)) return { label: 'Low Stock', className: 'bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-400 dark:border-yellow-600/30' };
+        return { label: 'In Stock', className: 'bg-green-100 text-green-800 border-green-200 dark:bg-green-900/40 dark:text-green-400 dark:border-green-600/30' };
+    }, [item]);
+    
     return (
         <Card className={cn("w-full transition-all duration-200 hover:shadow-xl hover:-translate-y-1", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
             <CardContent className="p-3 space-y-3">
                 <div className="flex items-start justify-between gap-3">
                     <div className='flex items-start gap-3 flex-1 min-w-0'>
                         <div className='w-12 h-12 bg-muted rounded-md flex-shrink-0'>
-                            <Image src={item.id ? `https://picsum.photos/seed/inv${item.id}/100/100` : ''} alt={item.name} width={48} height={48} className='rounded-md' data-ai-hint="product photo"/>
+                            <Image src={item.imageUrl || `https://picsum.photos/seed/inv${item.id}/100/100`} alt={item.name} width={48} height={48} className='rounded-md' data-ai-hint="product photo"/>
                         </div>
                         <div className='flex-1 min-w-0'>
                             <p className="font-semibold text-sm leading-snug truncate">{item.name}</p>
@@ -119,7 +130,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                 </Card>
 
                 <div className='space-y-2'>
-                    <Button variant='secondary' size="sm" className='w-full h-8 bg-yellow-100 text-yellow-800 hover:bg-yellow-200 border-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-400 dark:hover:bg-yellow-900/60 dark:border-yellow-600/30'>Low Stock</Button>
+                    <Badge variant="secondary" className={cn("w-full justify-center h-6", stockStatus.className)}>{stockStatus.label}</Badge>
                     <Button variant='outline' size="sm" className='w-full h-8'>Log 1 Use</Button>
                 </div>
                 
@@ -207,7 +218,7 @@ const ReceiveStockDialog = ({ open, onOpenChange }: { open: boolean, onOpenChang
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                    <Button>Save Shipment & Update Stock</Button>
+                    <Button>Save Shipment &amp; Update Stock</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
@@ -366,6 +377,77 @@ const tabOptions = [
 export default function InventoryPage() {
   const [inventory, setInventory] = useState(initialInventory);
   
+  const { professionalValue, retailValue, overheadValue, equipmentValue, totalValue } = useMemo(() => {
+    let professional = 0;
+    let retail = 0;
+    let overhead = 0;
+    let equipment = 0;
+
+    inventory.forEach(item => {
+        const itemTotalValue = item.batches.reduce((acc, batch) => acc + (batch.stock * batch.costPerUnit), 0);
+        switch (item.type) {
+            case 'professional':
+                professional += itemTotalValue;
+                break;
+            case 'retail':
+                retail += itemTotalValue;
+                break;
+            case 'overhead':
+                overhead += itemTotalValue;
+                break;
+            case 'equipment':
+                const purchaseCost = item.costPerUnit || 0;
+                const yearsSincePurchase = item.batches[0]?.receivedDate ? differenceInYears(new Date(), parseISO(item.batches[0].receivedDate)) : 0;
+                const lifespan = item.lifespanYears || 5;
+                const depreciationPerYear = purchaseCost / lifespan;
+                const accumulatedDepreciation = Math.min(depreciationPerYear * yearsSincePurchase, purchaseCost);
+                const bookValue = purchaseCost - accumulatedDepreciation;
+                equipment += bookValue * item.totalStock;
+                break;
+        }
+    });
+    
+    return {
+        professionalValue: professional,
+        retailValue: retail,
+        overheadValue: overhead,
+        equipmentValue: equipment,
+        totalValue: professional + retail + overhead + equipment,
+    }
+  }, [inventory]);
+
+  const topProductUsage = useMemo(() => {
+      return inventory
+        .filter(item => item.type === 'professional' && (item.experimentUses || 0) > 0)
+        .sort((a,b) => (b.experimentUses || 0) - (a.experimentUses || 0))
+        .slice(0, 5)
+        .map(item => ({
+            ...item,
+            totalCost: (item.experimentUses || 0) * (item.costPerUnit || 0)
+        }))
+  }, [inventory]);
+  
+  const expiredProducts = useMemo(() => {
+    const expired: (InventoryItem & { expiredValue: number })[] = [];
+    inventory.forEach(product => {
+      let totalExpiredValue = 0;
+      product.batches.forEach(batch => {
+        if (batch.expirationDate && isPast(parseISO(batch.expirationDate)) && batch.stock > 0) {
+          totalExpiredValue += batch.stock * batch.costPerUnit;
+        }
+      });
+      if (totalExpiredValue > 0) {
+        expired.push({ ...product, expiredValue: totalExpiredValue });
+      }
+    });
+    return expired;
+  }, [inventory]);
+
+  const ongoingExperiments = useMemo(() => {
+    return inventory.filter(item => item.isExperimentActive);
+  }, [inventory]);
+
+
   const professionalColor: InventoryItem[] = inventory.filter(
     (item) => item.type === 'professional' && item.category === 'Color'
   );
@@ -509,7 +591,7 @@ export default function InventoryPage() {
   const handleUpdateCost = (productId: string, newCost: number) => {
     setInventory(prev => prev.map(p => 
       p.id === productId 
-      ? { ...p, batches: p.batches.map(b => ({...b, costPerUnit: newCost})), isExperimentActive: false, experimentUses: 0 } 
+      ? { ...p, costPerUnit: newCost, isExperimentActive: false, experimentUses: 0 } 
       : p
     ));
   };
@@ -548,7 +630,72 @@ export default function InventoryPage() {
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Inventory Hub" />
-      <main className="flex-1 p-4 md:p-8 space-y-4">
+      <main className="flex-1 p-4 md:p-8 space-y-6">
+
+        <div className='grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-6 mb-6'>
+            <Card className="xl:col-span-2">
+                <CardHeader>
+                    <CardTitle>Total Inventory Value</CardTitle>
+                    <CardDescription>Real-time valuation of all your business assets.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="text-4xl font-bold text-primary">${totalValue.toFixed(2)}</div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                        <div className="flex justify-between border-b pb-1">
+                            <span className="text-muted-foreground">Professional</span>
+                            <span className="font-medium">${professionalValue.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between border-b pb-1">
+                            <span className="text-muted-foreground">Retail</span>
+                            <span className="font-medium">${retailValue.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span className="text-muted-foreground">Overhead</span>
+                            <span className="font-medium">${overheadValue.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span className="text-muted-foreground">Equipment</span>
+                            <span className="font-medium">${equipmentValue.toFixed(2)}</span>
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+             <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><BarChart className="text-muted-foreground"/> Top Product Usage</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                    {topProductUsage.length > 0 ? topProductUsage.map(item => (
+                        <div key={item.id} className="flex justify-between items-center text-sm">
+                            <span className="truncate flex-1">{item.name}</span>
+                            <div className="flex items-center gap-4 ml-4">
+                                <span className="font-mono">{item.experimentUses} uses</span>
+                                <span className="font-mono w-20 text-right">${item.totalCost.toFixed(2)}</span>
+                            </div>
+                        </div>
+                    )) : <p className="text-sm text-muted-foreground text-center py-8">No usage data yet.</p>}
+                </CardContent>
+            </Card>
+             <Card>
+                 <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><AlertTriangle className="text-muted-foreground"/> Risks &amp; Spoilage</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                     <div>
+                        <h4 className="font-medium text-sm mb-2">Expired Products</h4>
+                        {expiredProducts.length > 0 ? (
+                             <div className="flex justify-between items-center text-red-500">
+                                <span className="font-bold">{expiredProducts.length} item(s) expired</span>
+                                <span className="font-mono text-lg font-bold">${expiredProducts.reduce((acc, p) => acc + p.expiredValue, 0).toFixed(2)}</span>
+                            </div>
+                        ): <p className="text-sm text-muted-foreground text-center py-4">No expired products.</p>}
+                    </div>
+                    <Button className="w-full" variant="secondary" onClick={() => setIsManageSpoilageOpen(true)}>Manage Spoilage</Button>
+                </CardContent>
+            </Card>
+        </div>
+
+
         <div className="flex flex-col gap-4">
           <div className="flex flex-col sm:flex-row items-center gap-2">
             <div className="relative flex-1 w-full">

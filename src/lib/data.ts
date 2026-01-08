@@ -46,6 +46,9 @@ export type InventoryItem = {
   totalStock: number;
   supplier: string;
   lifespanYears?: number;
+  costPerUnit?: number;
+  reorderPoint?: number;
+  imageUrl?: string;
   isExperimentActive?: boolean;
   experimentUses?: number;
   estimatedUses?: number;
@@ -84,16 +87,16 @@ export const clients: Client[] = [
 ];
 
 export const inventory: InventoryItem[] = [
-  { id: 'inv-1', name: 'Nail File', type: 'professional', category: 'Tools', totalStock: 50, supplier: 'ProNailSupply', batches: [{id: 'b1-1', stock: 50, costPerUnit: 0.25, receivedDate: '2024-05-01'}] },
-  { id: 'inv-2', name: 'Cuticle Oil', type: 'professional', category: 'Care', totalStock: 100, supplier: 'ProNailSupply', batches: [{id: 'b2-1', stock: 100, costPerUnit: 0.15, receivedDate: '2024-05-01'}] },
-  { id: 'inv-3', name: 'Base Coat Polish', type: 'professional', category: 'Color', totalStock: 30, supplier: 'ColorWorld', isExperimentActive: true, experimentUses: 22, estimatedUses: 30, batches: [{id: 'b3-1', stock: 30, costPerUnit: 0.50, receivedDate: '2024-05-01'}] },
-  { id: 'inv-4', name: 'Top Coat Polish', type: 'professional', category: 'Color', totalStock: 30, supplier: 'ColorWorld', batches: [{id: 'b4-1', stock: 30, costPerUnit: 0.50, receivedDate: '2024-05-01'}] },
-  { id: 'inv-5', name: 'Red Nail Polish', type: 'professional', category: 'Color', totalStock: 15, supplier: 'ColorWorld', batches: [{id: 'b5-1', stock: 15, costPerUnit: 0.80, receivedDate: '2024-05-01'}] },
-  { id: 'inv-6', name: 'Lotion', type: 'professional', category: 'Care', totalStock: 100, supplier: 'BeautyCare', batches: [{id: 'b6-1', stock: 100, costPerUnit: 0.30, receivedDate: '2024-05-01'}] },
-  { id: 'inv-7', name: 'UV Gel Lamp', type: 'equipment', category: 'Tools', totalStock: 2, supplier: 'EquipPro', lifespanYears: 3, batches: [{id: 'b7-1', stock: 2, costPerUnit: 150.00, receivedDate: '2024-01-15'}] },
-  { id: 'inv-8', name: 'Disinfectant Wipes', type: 'overhead', category: 'Cleaning', totalStock: 5, supplier: 'CleanSupplies', batches: [{id: 'b8-1', stock: 5, costPerUnit: 10.00, receivedDate: '2024-06-01'}] },
-  { id: 'inv-9', name: 'Retail Shine Serum', type: 'retail', category: 'Styling', totalStock: 12, supplier: 'BeautyCare', batches: [{id: 'b9-1', stock: 12, costPerUnit: 8.50, receivedDate: '2024-06-01'}] },
-  { id: 'inv-10', name: 'Pro Color Tube 5N', type: 'professional', category: 'Color', totalStock: 20, supplier: 'ColorWorld', isExperimentActive: false, experimentUses: 0, estimatedUses: 25, batches: [{id: 'b10-1', stock: 20, costPerUnit: 7.00, receivedDate: '2024-06-01'}] },
+  { id: 'inv-1', name: 'Nail File', type: 'professional', category: 'Tools', totalStock: 50, reorderPoint: 20, supplier: 'ProNailSupply', batches: [{id: 'b1-1', stock: 50, costPerUnit: 0.25, receivedDate: '2024-05-01'}] },
+  { id: 'inv-2', name: 'Cuticle Oil', type: 'professional', category: 'Care', totalStock: 100, reorderPoint: 25, supplier: 'ProNailSupply', batches: [{id: 'b2-1', stock: 100, costPerUnit: 0.15, receivedDate: '2024-05-01'}] },
+  { id: 'inv-3', name: 'Base Coat Polish', type: 'professional', category: 'Color', totalStock: 30, reorderPoint: 10, supplier: 'ColorWorld', isExperimentActive: true, experimentUses: 22, estimatedUses: 30, batches: [{id: 'b3-1', stock: 30, costPerUnit: 0.50, receivedDate: '2024-05-01'}] },
+  { id: 'inv-4', name: 'Top Coat Polish', type: 'professional', category: 'Color', totalStock: 30, reorderPoint: 10, supplier: 'ColorWorld', batches: [{id: 'b4-1', stock: 30, costPerUnit: 0.50, receivedDate: '2024-05-01'}] },
+  { id: 'inv-5', name: 'Red Nail Polish', type: 'professional', category: 'Color', totalStock: 15, reorderPoint: 5, supplier: 'ColorWorld', batches: [{id: 'b5-1', stock: 15, costPerUnit: 0.80, receivedDate: '2024-05-01', expirationDate: '2024-06-30'}] },
+  { id: 'inv-6', name: 'Lotion', type: 'professional', category: 'Care', totalStock: 100, reorderPoint: 20, supplier: 'BeautyCare', batches: [{id: 'b6-1', stock: 100, costPerUnit: 0.30, receivedDate: '2024-05-01'}] },
+  { id: 'inv-7', name: 'UV Gel Lamp', type: 'equipment', category: 'Tools', totalStock: 2, supplier: 'EquipPro', lifespanYears: 3, batches: [{id: 'b7-1', stock: 2, costPerUnit: 150.00, receivedDate: '2022-01-15'}] },
+  { id: 'inv-8', name: 'Disinfectant Wipes', type: 'overhead', category: 'Cleaning', totalStock: 5, reorderPoint: 2, supplier: 'CleanSupplies', batches: [{id: 'b8-1', stock: 5, costPerUnit: 10.00, receivedDate: '2024-06-01'}] },
+  { id: 'inv-9', name: 'Retail Shine Serum', type: 'retail', category: 'Styling', totalStock: 12, reorderPoint: 5, supplier: 'BeautyCare', batches: [{id: 'b9-1', stock: 12, costPerUnit: 8.50, receivedDate: '2024-06-01'}] },
+  { id: 'inv-10', name: 'Pro Color Tube 5N', type: 'professional', category: 'Color', totalStock: 2, reorderPoint: 5, supplier: 'ColorWorld', isExperimentActive: false, experimentUses: 0, estimatedUses: 25, batches: [{id: 'b10-1', stock: 2, costPerUnit: 7.00, receivedDate: '2024-06-01'}] },
 ];
 
 export const services: Service[] = [
