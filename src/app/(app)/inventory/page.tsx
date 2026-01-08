@@ -356,6 +356,9 @@ export default function InventoryPage() {
   const professionalCare: InventoryItem[] = inventory.filter(
     (item) => item.type === 'professional' && item.category === 'Care'
   );
+  const professionalTools: InventoryItem[] = inventory.filter(
+    (item) => item.type === 'professional' && item.category === 'Tools'
+  );
   const retailItems: InventoryItem[] = inventory.filter(
     (item) => item.type === 'retail'
   );
@@ -511,31 +514,44 @@ export default function InventoryPage() {
               ) : (
                 <>
                   <ProductShelf title="Color" items={professionalColor} />
-                  <ProductShelf title="Care" items={professionalCare} />
                   <ProductShelf title="Styling" items={professionalStyling} />
+                  <ProductShelf title="Care" items={professionalCare} />
+                  <ProductShelf title="Tools" items={professionalTools} />
                 </>
               )}
             </TabsContent>
             <TabsContent value="retail" className="m-0">
-              {retailItems.length === 0 ? (
-                <EmptyState message="No retail items yet. Add one to get started." />
-              ) : (
-                <ProductShelf title="All Retail" items={retailItems} />
-              )}
+               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {retailItems.length > 0 ? (
+                  retailItems.map((item) => <ProductCard key={item.id} item={item} />)
+                ) : (
+                  <div className="col-span-full">
+                    <EmptyState message="No retail items yet. Add one to get started." />
+                  </div>
+                )}
+              </div>
             </TabsContent>
             <TabsContent value="overhead" className="m-0">
-              {overheadItems.length === 0 ? (
-                <EmptyState message="No overhead items yet. Add one to get started." />
-              ) : (
-                <ProductShelf title="All Overhead" items={overheadItems} />
-              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {overheadItems.length > 0 ? (
+                  overheadItems.map((item) => <ProductCard key={item.id} item={item} />)
+                ) : (
+                  <div className="col-span-full">
+                    <EmptyState message="No overhead items yet. Add one to get started." />
+                  </div>
+                )}
+              </div>
             </TabsContent>
             <TabsContent value="equipment" className="m-0">
-              {equipmentItems.length === 0 ? (
-                <EmptyState message="No equipment items yet. Add one to get started." />
-              ) : (
-                <ProductShelf title="All Equipment" items={equipmentItems} />
-              )}
+               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {equipmentItems.length > 0 ? (
+                  equipmentItems.map((item) => <ProductCard key={item.id} item={item} />)
+                ) : (
+                  <div className="col-span-full">
+                    <EmptyState message="No equipment items yet. Add one to get started." />
+                  </div>
+                )}
+              </div>
             </TabsContent>
             <TabsContent value="locations" className="m-0 space-y-6">
               <div className="flex items-center justify-between">
