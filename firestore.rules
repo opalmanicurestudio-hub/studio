@@ -1,0 +1,213 @@
+/**
+ * # Firestore Security Rules
+ *
+ * ## Core Philosophy
+ * This ruleset enforces a strict multi-tenant security model. A `User` can own
+ * multiple `Tenant`s (businesses). All data related to a specific business—such
+ * as its services, clients, and appointments—is completely isolated within that
+ * tenant's data hierarchy. Access control is primarily managed through a custom
+ * auth claim, which efficiently verifies a user's ownership of a tenant without
+ * needing extra database reads.
+ *
+ * ## Data Structure
+ * The structure is hierarchical and tenant-centric. User profiles are stored in a
+ * top-level `/users/{userId}` collection. All business data resides under
+ * `/tenants/{tenantId}`, with subcollections for `/services`, `/products`,
+ * `/clients`, and `/appointments`. This namespacing is key to the security model.
+ *
+ * ## Key Security Decisions
+ * - **Custom Claims for Tenant Access**: To ensure high performance and avoid costly
+ *   `get()` calls in rules, access to a tenant's data tree (`/tenants/{tenantId}/...`)
+ *   is granted via a custom auth claim. The backend is responsible for setting a
+ *   `tenants` array (e.g., `{ "tenants": ["tenantId1", "tenantId2"] }`) on the
+ *   user's token upon sign-in.
+ * - **Publicly Readable Services/Products**: A tenant's services and products
+ *   (`/tenants/{tenantId}/services` and `/products`) are publicly readable to support
+ *   features like public booking pages. However, all write operations are strictly
+ *   limited to the owning user.
+ * - **Private Tenant Data**: All other tenant data, including clients and appointments,
+ *   is strictly private and can only be accessed by the tenant owner.
+ * - **No User/Tenant Listing**: Listing the top-level `/users` or `/tenants`
+ *   collections is disallowed to prevent enumeration of users or businesses on the platform.
+ *
+ * ## Denormalization for Authorization
+ * The security model relies on custom auth claims rather than denormalizing the
+ * owner's `userId` onto every subcollection document (e.g., on every Service).
+ * The primary denormalization is the `userId` on the `Tenant` document itself,
+ * which is used to establish the initial ownership link upon creation.
+ *
+ * ## Structural Segregation
+ * The ruleset leverages structural segregation effectively. User-specific data
+ * (`/users`) is kept separate from business-specific data (`/tenants`). Within
+ * tenants, public-facing data (services, products) and private data (clients,
+ * appointments) exist in different subcollections, allowing for simple and secure
+ * list operations.
+ */
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- Helper Functions ---
+
+    /**
+     * Returns true if the user is authenticated.
+     */
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    /**
+     * Returns true if the authenticated user's ID matches the provided userId.
+     * Used for rules where ownership is based on the document's path, like a user profile.
+     */
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    /**
+     * Returns true if the user is an owner of the specified tenant.
+     * CRITICAL: Relies on a 'tenants' custom claim on the user's auth token,
+     * which must be an array of tenant IDs the user owns.
+     * Example claim: { "tenants": ["tenant_abc", "tenant_xyz"] }
+     */
+    function isTenantOwner(tenantId) {
+      return isSignedIn() && request.auth.token.tenants.hasAny([tenantId]);
+    }
+
+    /**
+     * For CREATE operations: Validates that a new document's internal `id` field
+     * matches the document ID from the path, ensuring consistency.
+     */
+    function pathIdMatchesDataIdOnCreate(docId) {
+      return request.resource.data.id == docId;
+    }
+
+    /**
+     * For UPDATE operations: Ensures the document's internal `id` field is immutable.
+     */
+    function isIdImmutable() {
+      return request.resource.data.id == resource.data.id;
+    }
+    
+    /**
+     * For CREATE operations: Validates that a new document's `userId` field
+     * matches the authenticated user's UID.
+     */
+    function newDocIsOwnedByCurrentUser() {
+      return request.resource.data.userId == request.auth.uid;
+    }
+
+    /**
+     * For UPDATE operations: Ensures the document's `userId` field is immutable.
+     */
+    function isOwnerFieldImmutable() {
+      return request.resource.data.userId == resource.data.userId;
+    }
+
+    /**
+     * For CREATE operations in a tenant subcollection: Validates that the new document's
+     * `tenantId` field matches the `tenantId` from the path.
+     */
+    function newDocTenantIdMatchesPath(tenantId) {
+      return request.resource.data.tenantId == tenantId;
+    }
+
+    /**
+     * For UPDATE operations in a tenant subcollection: Ensures the document's
+     * `tenantId` field is immutable, preventing it from being moved between tenants.
+     */
+    function isTenantIdImmutable() {
+      return request.resource.data.tenantId == resource.data.tenantId;
+    }
+
+    /**
+     * @description Rules for user profile documents.
+     * @path /users/{userId}
+     * @allow (create) A signed-in user creating their own user document for the first time.
+     * @deny (get) A user trying to read another user's profile document.
+     * @principle Restricts access to a user's own data tree and enforces self-creation.
+     */
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow list: if false;
+      allow create: if isOwner(userId) && pathIdMatchesDataIdOnCreate(userId);
+      allow update: if isOwner(userId) && resource != null && isIdImmutable();
+      allow delete: if isOwner(userId) && resource != null;
+    }
+
+    /**
+     * @description Rules for tenant (business) documents.
+     * @path /tenants/{tenantId}
+     * @allow (create) A signed-in user creating a new tenant where they are the owner.
+     * @deny (list) Any user attempting to list all tenants in the system.
+     * @principle Enforces document ownership and prevents enumeration of businesses.
+     */
+    match /tenants/{tenantId} {
+      allow get: if isTenantOwner(tenantId);
+      allow list: if false;
+      allow create: if isSignedIn() && newDocIsOwnedByCurrentUser() && pathIdMatchesDataIdOnCreate(tenantId);
+      allow update: if isTenantOwner(tenantId) && resource != null && isOwnerFieldImmutable() && isIdImmutable();
+      allow delete: if isTenantOwner(tenantId) && resource != null;
+    }
+
+    /**
+     * @description Rules for services offered by a tenant.
+     * @path /tenants/{tenantId}/services/{serviceId}
+     * @allow (get) Any user (including anonymous) reading a tenant's service details.
+     * @deny (create) A user trying to create a service for a tenant they do not own.
+     * @principle Allows public read for booking pages but restricts writes to the tenant owner.
+     */
+    match /tenants/{tenantId}/services/{serviceId} {
+      allow get: if true;
+      allow list: if true;
+      allow create: if isTenantOwner(tenantId) && newDocTenantIdMatchesPath(tenantId);
+      allow update: if isTenantOwner(tenantId) && resource != null && isTenantIdImmutable();
+      allow delete: if isTenantOwner(tenantId) && resource != null;
+    }
+
+    /**
+     * @description Rules for products sold by a tenant.
+     * @path /tenants/{tenantId}/products/{productId}
+     * @allow (list) Any user (including anonymous) listing a tenant's products.
+     * @deny (update) A user trying to modify a product for a tenant they do not own.
+     * @principle Allows public read for catalogs but restricts writes to the tenant owner.
+     */
+    match /tenants/{tenantId}/products/{productId} {
+      allow get: if true;
+      allow list: if true;
+      allow create: if isTenantOwner(tenantId) && newDocTenantIdMatchesPath(tenantId);
+      allow update: if isTenantOwner(tenantId) && resource != null && isTenantIdImmutable();
+      allow delete: if isTenantOwner(tenantId) && resource != null;
+    }
+
+    /**
+     * @description Rules for the clients of a tenant. This data is private.
+     * @path /tenants/{tenantId}/clients/{clientId}
+     * @allow (create) The tenant owner creating a new client record.
+     * @deny (get) Any user other than the tenant owner reading a client's data.
+     * @principle Enforces strict data privacy for a tenant's business information.
+     */
+    match /tenants/{tenantId}/clients/{clientId} {
+      allow get: if isTenantOwner(tenantId);
+      allow list: if isTenantOwner(tenantId);
+      allow create: if isTenantOwner(tenantId) && newDocTenantIdMatchesPath(tenantId);
+      allow update: if isTenantOwner(tenantId) && resource != null && isTenantIdImmutable();
+      allow delete: if isTenantOwner(tenantId) && resource != null;
+    }
+
+    /**
+     * @description Rules for appointments booked with a tenant. This data is private.
+     * @path /tenants/{tenantId}/appointments/{appointmentId}
+     * @allow (list) The tenant owner listing all appointments for their business.
+     * @deny (get) Any user other than the tenant owner reading appointment details.
+     * @principle Enforces strict data privacy for a tenant's business information.
+     */
+    match /tenants/{tenantId}/appointments/{appointmentId} {
+      allow get: if isTenantOwner(tenantId);
+      allow list: if isTenantOwner(tenantId);
+      allow create: if isTenantOwner(tenantId) && newDocTenantIdMatchesPath(tenantId);
+      allow update: if isTenantOwner(tenantId) && resource != null && isTenantIdImmutable();
+      allow delete: if isTenantOwner(tenantId) && resource != null;
+    }
+  }
+}
