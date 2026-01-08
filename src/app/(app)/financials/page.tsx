@@ -63,6 +63,7 @@ import {
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 
 const BillItemCard = ({
   bill,
@@ -458,7 +459,7 @@ const FinancialProfileManager = ({
                       }}
                       className="w-full h-8"
                     />
-                    <Button size="icon" className="h-8 w-8" onClick={handleConfirmRename}>
+                    <Button size="icon" variant="outline" className="h-8 w-8 shrink-0" onClick={handleConfirmRename}>
                         <Check className="h-4 w-4" />
                     </Button>
                 </div>
@@ -571,8 +572,8 @@ export default function FinancialFoundationPage() {
 
     const [backupProfiles, setBackupProfiles] = useState(profiles);
 
-    const activeLifestyleProfile = useMemo(() => profiles.lifestyleProfiles.find(p => p.isActive)!, [profiles.lifestyleProfiles]);
-    const activeBusinessProfile = useMemo(() => profiles.businessProfiles.find(p => p.isActive)!, [profiles.businessProfiles]);
+    const activeLifestyleProfile = useMemo(() => profiles.lifestyleProfiles.find(p => p.isActive), [profiles.lifestyleProfiles]);
+    const activeBusinessProfile = useMemo(() => profiles.businessProfiles.find(p => p.isActive), [profiles.businessProfiles]);
 
     const handleBillChange = useCallback((profileType: 'lifestyle' | 'business', categoryName: string, billTitle: string, newAmount: number) => {
         const profileKey = `${profileType}Profiles` as const;
@@ -603,7 +604,7 @@ export default function FinancialFoundationPage() {
 
     const handleEditToggle = () => {
         if (!isEditing) {
-            setBackupProfiles(profiles);
+            setBackupProfiles(JSON.parse(JSON.stringify(profiles)));
             setIsEditing(true);
         } else {
             // This would be where a save to backend would happen
@@ -664,35 +665,16 @@ export default function FinancialFoundationPage() {
                 
                  <div className="grid lg:grid-cols-3 xl:grid-cols-4 gap-8 items-start mt-6">
                     <div className="lg:col-span-1 space-y-6">
-                       <Card className="block md:hidden">
-                          <Accordion type="single" collapsible>
-                            <AccordionItem value="profile-manager" className="border-b-0">
-                              <AccordionTrigger className='text-lg font-semibold p-4'>
-                                 <span className="capitalize">{activeTab} Profiles</span>
-                              </AccordionTrigger>
-                              <AccordionContent className='p-0'>
-                                <FinancialProfileManager 
-                                    activeTab={activeTab} 
-                                    profiles={profiles}
-                                    setProfiles={setProfiles}
-                                    isEditing={isEditing}
-                                    renamingProfileId={renamingProfileId}
-                                    setRenamingProfileId={setRenamingProfileId}
-                                />
-                              </AccordionContent>
-                            </AccordionItem>
-                          </Accordion>
+                       <Card className="block">
+                          <FinancialProfileManager 
+                              activeTab={activeTab} 
+                              profiles={profiles}
+                              setProfiles={setProfiles}
+                              isEditing={isEditing}
+                              renamingProfileId={renamingProfileId}
+                              setRenamingProfileId={setRenamingProfileId}
+                          />
                        </Card>
-                       <div className="hidden md:block">
-                           <FinancialProfileManager 
-                                activeTab={activeTab} 
-                                profiles={profiles}
-                                setProfiles={setProfiles}
-                                isEditing={isEditing}
-                                renamingProfileId={renamingProfileId}
-                                setRenamingProfileId={setRenamingProfileId}
-                            />
-                       </div>
                     </div>
                     <div className="lg:col-span-2 xl:col-span-3">
                         <TabsContent value="lifestyle" className="m-0">
@@ -726,5 +708,3 @@ export default function FinancialFoundationPage() {
     </div>
   );
 }
-
-    
