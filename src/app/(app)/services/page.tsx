@@ -38,7 +38,7 @@ const InlineProfitTester = ({ service, tmhr }: { service: Service, tmhr: number 
     setTestPrice(service.price);
   }, [service.price]);
 
-  const profitability = useMemo(() => {
+  const { profit, margin, breakEvenPoint } = useMemo(() => {
     const totalDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
     const timeCost = (totalDuration / 60) * tmhr;
     
@@ -73,19 +73,19 @@ const InlineProfitTester = ({ service, tmhr }: { service: Service, tmhr: number 
       <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/50 p-2">
         <div className="text-center">
           <p className="text-xs text-muted-foreground">Potential Profit</p>
-          <p className={`text-lg font-bold ${profitability.profit >= 0 ? 'text-green-500' : 'text-destructive'}`}>
-            ${profitability.profit.toFixed(2)}
+          <p className={`text-lg font-bold ${profit >= 0 ? 'text-green-500' : 'text-destructive'}`}>
+            ${profit.toFixed(2)}
           </p>
         </div>
         <div className="text-center">
           <p className="text-xs text-muted-foreground">Profit Margin</p>
-          <p className={`text-lg font-bold ${profitability.margin >= 0 ? 'text-green-500' : 'text-destructive'}`}>
-            {profitability.margin.toFixed(1)}%
+          <p className={`text-lg font-bold ${margin >= 0 ? 'text-green-500' : 'text-destructive'}`}>
+            {margin.toFixed(1)}%
           </p>
         </div>
       </div>
        <div className='text-[10px] text-muted-foreground space-y-0.5 text-center'>
-          <p>Break-Even: ${profitability.breakEvenPoint?.toFixed(2)}</p>
+          <p>Break-Even: ${breakEvenPoint?.toFixed(2)}</p>
        </div>
     </div>
   );
@@ -346,10 +346,6 @@ export default function ServicesPage() {
     if (newService.category && !serviceCategories.includes(newService.category)) {
       setServiceCategories(prev => [...prev, newService.category as string]);
     }
-    toast({
-        title: "Service Created",
-        description: `${newService.name} has been added to your library.`
-    })
   };
 
   const handleUpdateService = (updatedService: Service) => {
