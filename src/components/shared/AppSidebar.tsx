@@ -10,6 +10,9 @@ import {
   SidebarMenuButton,
   SidebarFooter,
   SidebarContent,
+  SidebarSeparator,
+  SidebarGroup,
+  SidebarGroupLabel
 } from '@/components/ui/sidebar';
 import {
   LayoutDashboard,
@@ -23,9 +26,9 @@ import {
   ArrowRightLeft,
   FileText,
   Landmark,
+  Wallet,
 } from 'lucide-react';
 import Link from 'next/link';
-import { Button } from '../ui/button';
 
 const ClarityFlowLogo = () => (
     <svg
@@ -57,11 +60,14 @@ const navItems = [
   { href: '/inventory', icon: Box, label: 'Inventory' },
   { href: '/clients', icon: Users, label: 'Clients' },
   { href: '/quotes', icon: FileText, label: 'Quotes' },
-  { href: '/transactions', icon: ArrowRightLeft, label: 'Transactions' },
-  { href: '/bills', icon: Landmark, label: 'Bills' },
-  { href: '/financials', icon: DollarSign, label: 'Payday' },
-  { href: '/ai-cfo', icon: Sparkles, label: 'AI CFO' },
 ];
+
+const financialNavItems = [
+    { href: '/financials', icon: Wallet, label: 'Foundation' },
+    { href: '/payday', icon: DollarSign, label: 'Payday' },
+    { href: '/bills', icon: Landmark, label: 'Bills' },
+    { href: '/transactions', icon: ArrowRightLeft, label: 'Transactions' },
+]
 
 export function AppSidebar() {
   const pathname = usePathname();
@@ -93,6 +99,37 @@ export function AppSidebar() {
             </SidebarMenuItem>
           ))}
         </SidebarMenu>
+        <SidebarSeparator />
+        <SidebarGroup>
+            <SidebarGroupLabel>Financials</SidebarGroupLabel>
+            <SidebarMenu>
+                {financialNavItems.map((item) => (
+                    <SidebarMenuItem key={item.href}>
+                    <SidebarMenuButton
+                        asChild
+                        isActive={pathname.startsWith(item.href)}
+                        tooltip={item.label}
+                    >
+                        <Link href={item.href}>
+                        <item.icon />
+                        <span>{item.label}</span>
+                        </Link>
+                    </SidebarMenuButton>
+                    </SidebarMenuItem>
+                ))}
+            </SidebarMenu>
+        </SidebarGroup>
+         <SidebarSeparator />
+          <SidebarMenu>
+            <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={pathname.startsWith('/ai-cfo')} tooltip="AI CFO">
+                  <Link href="/ai-cfo">
+                    <Sparkles />
+                    <span>AI CFO</span>
+                  </Link>
+                </SidebarMenuButton>
+            </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
@@ -109,3 +146,4 @@ export function AppSidebar() {
     </Sidebar>
   );
 }
+
