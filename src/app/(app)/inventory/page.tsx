@@ -38,7 +38,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { AddProductDialog } from '@/components/inventory/AddProductDialog';
-import { AddLocationDialog } from '@/components/inventory/AddLocationDialog';
+import { AddLocationDialog, type Location } from '@/components/inventory/AddLocationDialog';
 import { Textarea } from '@/components/ui/textarea';
 import Link from 'next/link';
 
@@ -360,7 +360,14 @@ export default function InventoryPage() {
   const retailItems: InventoryItem[] = [];
   const overheadItems: InventoryItem[] = [];
   const equipmentItems: InventoryItem[] = [];
-  const locations: any[] = [];
+  
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [locationTypes, setLocationTypes] = useState([
+    { id: 'lt1', name: 'Back Room Storage' },
+    { id: 'lt2', name: 'Retail Display' },
+    { id: 'lt3', name: 'Styling Station' },
+    { id: 'lt4', name: 'Color Bar' },
+  ]);
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
@@ -374,6 +381,20 @@ export default function InventoryPage() {
   const [isCreateBundleOpen, setIsCreateBundleOpen] = useState(false);
   const [isAddLocationOpen, setIsAddLocationOpen] = useState(false);
   const [isAddLocationFromProductOpen, setIsAddLocationFromProductOpen] = useState(false);
+
+  const handleAddNewLocation = (newLocation: Omit<Location, 'id'>) => {
+    const locationWithId = { ...newLocation, id: `loc-${Date.now()}` };
+    setLocations(prev => [...prev, locationWithId]);
+    toast({ title: "Location Added", description: `${locationWithId.name} has been created.` });
+    setIsAddLocationOpen(false);
+    setIsAddLocationFromProductOpen(false);
+  }
+
+  const handleAddNewLocationType = (newType: string) => {
+    const newLocationType = { id: `lt-${Date.now()}`, name: newType };
+    setLocationTypes(prev => [...prev, newLocationType]);
+    return newLocationType;
+  };
 
 
   useEffect(() => {
@@ -565,13 +586,24 @@ export default function InventoryPage() {
       <AddProductDialog 
         open={isAddProductOpen} 
         onOpenChange={setIsAddProductOpen}
+        locations={locations}
         isAddLocationDialogOpen={isAddLocationFromProductOpen}
         onAddLocationDialogOpenChange={setIsAddLocationFromProductOpen}
+        onAddNewLocation={handleAddNewLocation}
+        locationTypes={locationTypes}
+        onAddNewLocationType={handleAddNewLocationType}
       />
       <AddEquipmentDialog open={isAddEquipmentOpen} onOpenChange={setIsAddEquipmentOpen} />
       <AddOverheadDialog open={isAddOverheadOpen} onOpenChange={setIsAddOverheadOpen} />
       <CreateBundleDialog open={isCreateBundleOpen} onOpenChange={setIsCreateBundleOpen} />
-      <AddLocationDialog open={isAddLocationOpen} onOpenChange={setIsAddLocationOpen} />
+      <AddLocationDialog 
+        open={isAddLocationOpen} 
+        onOpenChange={setIsAddLocationOpen}
+        onSave={handleAddNewLocation}
+        locationTypes={locationTypes}
+        onAddNewLocationType={handleAddNewLocationType}
+        locations={locations}
+       />
 
     </div>
   );

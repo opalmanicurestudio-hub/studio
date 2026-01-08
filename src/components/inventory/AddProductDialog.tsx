@@ -27,7 +27,7 @@ import { PlusCircle, Info, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
-import { AddLocationDialog } from './AddLocationDialog';
+import { AddLocationDialog, type Location, type LocationType } from './AddLocationDialog';
 
 
 export type ProductType = 'professional' | 'retail' | 'both';
@@ -212,7 +212,7 @@ const Step2_CostingPricing = ({ productType }: { productType: ProductType }) => 
 };
 
 
-const Step3_InventorySupplier = ({ onAddLocationClick }: { onAddLocationClick: () => void }) => {
+const Step3_InventorySupplier = ({ onAddLocationClick, locations }: { onAddLocationClick: () => void, locations: Location[] }) => {
     const [secondaryLocations, setSecondaryLocations] = useState<string[]>([]);
     const addSecondaryLocation = () => setSecondaryLocations(prev => [...prev, `loc-${Date.now()}`]);
     const removeSecondaryLocation = (id: string) => setSecondaryLocations(prev => prev.filter(locId => locId !== id));
@@ -255,7 +255,9 @@ const Step3_InventorySupplier = ({ onAddLocationClick }: { onAddLocationClick: (
                                 <SelectValue placeholder="Select primary location" />
                             </SelectTrigger>
                             <SelectContent>
-                                 <SelectItem value="loc-1">Back Room - Shelf A</SelectItem>
+                                {locations.map(loc => (
+                                    <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
+                                ))}
                             </SelectContent>
                         </Select>
                          <Button variant="outline" size="icon" onClick={onAddLocationClick}><PlusCircle className="h-4 w-4" /></Button>
@@ -271,7 +273,9 @@ const Step3_InventorySupplier = ({ onAddLocationClick }: { onAddLocationClick: (
                                         <SelectValue placeholder="Select secondary location" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="loc-1">Back Room - Shelf A</SelectItem>
+                                         {locations.map(loc => (
+                                            <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
+                                        ))}
                                     </SelectContent>
                                 </Select>
                                 <Button variant="ghost" size="icon" className="text-destructive" onClick={() => removeSecondaryLocation(locId)}><Trash2 className="h-4 w-4" /></Button>
@@ -305,7 +309,25 @@ const Step3_InventorySupplier = ({ onAddLocationClick }: { onAddLocationClick: (
 };
 
 
-export const AddProductDialog = ({ open, onOpenChange, isAddLocationDialogOpen, onAddLocationDialogOpenChange }: { open: boolean, onOpenChange: (open: boolean) => void, isAddLocationDialogOpen: boolean, onAddLocationDialogOpenChange: (open: boolean) => void }) => {
+export const AddProductDialog = ({ 
+    open, 
+    onOpenChange, 
+    locations,
+    locationTypes,
+    onAddNewLocationType,
+    isAddLocationDialogOpen, 
+    onAddLocationDialogOpenChange,
+    onAddNewLocation,
+}: { 
+    open: boolean, 
+    onOpenChange: (open: boolean) => void, 
+    locations: Location[],
+    locationTypes: LocationType[],
+    onAddNewLocationType: (name: string) => LocationType,
+    isAddLocationDialogOpen: boolean, 
+    onAddLocationDialogOpenChange: (open: boolean) => void,
+    onAddNewLocation: (newLocation: Omit<Location, 'id'>) => void,
+}) => {
   const [step, setStep] = useState(1);
   const [productType, setProductType] = useState<ProductType>('professional');
   const totalSteps = 3;
@@ -346,7 +368,7 @@ export const AddProductDialog = ({ open, onOpenChange, isAddLocationDialogOpen, 
             <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
                 {step === 1 && <Step1_BasicDetails productType={productType} setProductType={setProductType} />}
                 {step === 2 && <Step2_CostingPricing productType={productType} />}
-                {step === 3 && <Step3_InventorySupplier onAddLocationClick={() => onAddLocationDialogOpenChange(true)} />}
+                {step === 3 && <Step3_InventorySupplier onAddLocationClick={() => onAddLocationDialogOpenChange(true)} locations={locations}/>}
             </div>
         </div>
 
@@ -363,7 +385,14 @@ export const AddProductDialog = ({ open, onOpenChange, isAddLocationDialogOpen, 
           </div>
         </DialogFooter>
 
-        <AddLocationDialog open={isAddLocationDialogOpen} onOpenChange={onAddLocationDialogOpenChange} />
+        <AddLocationDialog 
+            open={isAddLocationDialogOpen} 
+            onOpenChange={onAddLocationDialogOpenChange}
+            onSave={onAddNewLocation}
+            locations={locations}
+            locationTypes={locationTypes}
+            onAddNewLocationType={onAddNewLocationType}
+        />
 
       </DialogContent>
     </Dialog>
