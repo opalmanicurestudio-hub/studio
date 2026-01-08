@@ -36,6 +36,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { Input } from '@/components/ui/input';
 import { AddServiceDialog } from '@/components/services/AddServiceDialog';
 import Link from 'next/link';
+import { useToast } from '@/hooks/use-toast';
 
 
 const ServiceCard = ({ service, onProfitTesterOpen }: { service: Service, onProfitTesterOpen: (service: Service) => void }) => {
@@ -46,7 +47,14 @@ const ServiceCard = ({ service, onProfitTesterOpen }: { service: Service, onProf
       <CardContent className="p-4 space-y-4">
         <div className="flex items-start gap-4">
           <div className="w-24 h-24 bg-muted rounded-md flex-shrink-0">
-             <Image src={service.imageUrl || `https://picsum.photos/seed/svc${service.id}/100/100`} alt={service.name} width={96} height={96} className='rounded-md' data-ai-hint="manicure nails" />
+             <Image 
+                src={service.imageUrl || `https://picsum.photos/seed/svc${service.id}/100/100`} 
+                alt={service.name} 
+                width={96} 
+                height={96} 
+                className='rounded-md object-cover h-full w-full' 
+                data-ai-hint="manicure nails" 
+            />
           </div>
           <div className="flex-1 space-y-1">
             <div className="flex justify-between items-start">
@@ -171,6 +179,7 @@ export default function ServicesPage() {
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [testPrice, setTestPrice] = useState(0);
   const [tmhr, setTmhr] = useState(0);
+  const { toast } = useToast();
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -373,5 +382,6 @@ export default function ServicesPage() {
   );
 
     
+
 
 
