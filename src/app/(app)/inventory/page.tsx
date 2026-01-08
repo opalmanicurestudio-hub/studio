@@ -1,3 +1,4 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -7,10 +8,11 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  CardFooter,
 } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, File, MoreHorizontal, Database, Camera, AlertTriangle, Truck, Search, SlidersHorizontal, QrCode, Package, Hammer, Beaker, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit } from 'lucide-react';
+import { PlusCircle, File, MoreHorizontal, Database, Camera, AlertTriangle, Truck, Search, SlidersHorizontal, QrCode, Package, Hammer, Beaker, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin } from 'lucide-react';
 import { type InventoryItem } from '@/lib/data';
 import {
   DropdownMenu,
@@ -69,6 +71,13 @@ const ProductCard = ({ item }: { item: InventoryItem }) => {
                         <DropdownMenuItem className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Delete</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
+                </div>
+                
+                 <div className="flex items-center justify-between text-sm">
+                     <Badge variant="outline" className="flex items-center gap-1.5">
+                        <MapPin className="h-3 w-3" />
+                        Back Room
+                    </Badge>
                 </div>
                 
                 <Card className='bg-muted/50'>
@@ -577,3 +586,4 @@ export default function InventoryPage() {
     </div>
   );
 }
+
