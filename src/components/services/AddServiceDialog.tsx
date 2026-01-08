@@ -30,8 +30,15 @@ import { Slider } from '@/components/ui/slider';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 
 
-const Step1_Basics = ({ onImageUpload }: { onImageUpload: (url: string) => void }) => {
-    const [categories, setCategories] = useState(['Haircuts', 'Coloring']);
+const Step1_Basics = ({ 
+    onImageUpload, 
+    categories, 
+    onNewCategory 
+}: { 
+    onImageUpload: (url: string) => void;
+    categories: string[];
+    onNewCategory: (category: string) => void;
+}) => {
     const [selectedCategory, setSelectedCategory] = useState('');
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
@@ -39,7 +46,7 @@ const Step1_Basics = ({ onImageUpload }: { onImageUpload: (url: string) => void 
     const handleAddNewCategory = () => {
         if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
             const newCategory = newCategoryName.trim();
-            setCategories(prev => [...prev, newCategory]);
+            onNewCategory(newCategory);
             setSelectedCategory(newCategory);
             setNewCategoryName('');
             setIsAddingCategory(false);
@@ -301,7 +308,17 @@ const Step4_Pricing = () => {
     );
 };
 
-export const AddServiceDialog = ({ open, onOpenChange }: { open: boolean, onOpenChange: (open: boolean) => void }) => {
+export const AddServiceDialog = ({ 
+    open, 
+    onOpenChange,
+    categories,
+    onNewCategory,
+}: { 
+    open: boolean; 
+    onOpenChange: (open: boolean) => void;
+    categories: string[];
+    onNewCategory: (category: string) => void;
+}) => {
   const [step, setStep] = useState(1);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const totalSteps = 4;
@@ -332,7 +349,7 @@ export const AddServiceDialog = ({ open, onOpenChange }: { open: boolean, onOpen
         <div className="py-4 space-y-4">
           <Progress value={(step / totalSteps) * 100} />
            <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
-                {step === 1 && <Step1_Basics onImageUpload={setImageUrl} />}
+                {step === 1 && <Step1_Basics onImageUpload={setImageUrl} categories={categories} onNewCategory={onNewCategory} />}
                 {step === 2 && <Step2_Formula />}
                 {step === 3 && <Step3_Deposits />}
                 {step === 4 && <Step4_Pricing />}

@@ -32,8 +32,17 @@ import { AddLocationDialog, type Location, type LocationType } from './AddLocati
 
 export type ProductType = 'professional' | 'retail' | 'both';
 
-const Step1_BasicDetails = ({ productType, setProductType }: { productType: ProductType, setProductType: (type: ProductType) => void }) => {
-    const [categories, setCategories] = useState(['Color', 'Styling', 'Care']);
+const Step1_BasicDetails = ({ 
+    productType, 
+    setProductType,
+    categories,
+    onNewCategory,
+}: { 
+    productType: ProductType, 
+    setProductType: (type: ProductType) => void,
+    categories: string[];
+    onNewCategory: (category: string) => void;
+}) => {
     const [selectedCategory, setSelectedCategory] = useState('');
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
@@ -41,7 +50,7 @@ const Step1_BasicDetails = ({ productType, setProductType }: { productType: Prod
     const handleAddNewCategory = () => {
         if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
             const newCategory = newCategoryName.trim();
-            setCategories(prev => [...prev, newCategory]);
+            onNewCategory(newCategory);
             setSelectedCategory(newCategory);
             setNewCategoryName('');
             setIsAddingCategory(false);
@@ -345,6 +354,8 @@ export const AddProductDialog = ({
     onOpenChange, 
     locations,
     locationTypes,
+    categories,
+    onNewCategory,
     onAddNewLocationType,
     isAddLocationDialogOpen, 
     onAddLocationDialogOpenChange,
@@ -354,6 +365,8 @@ export const AddProductDialog = ({
     onOpenChange: (open: boolean) => void, 
     locations: Location[],
     locationTypes: LocationType[],
+    categories: string[],
+    onNewCategory: (category: string) => void,
     onAddNewLocationType: (name: string) => LocationType,
     isAddLocationDialogOpen: boolean, 
     onAddLocationDialogOpenChange: (open: boolean) => void,
@@ -397,7 +410,7 @@ export const AddProductDialog = ({
         <div className="py-4 space-y-4">
             <Progress value={(step / totalSteps) * 100} />
             <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
-                {step === 1 && <Step1_BasicDetails productType={productType} setProductType={setProductType} />}
+                {step === 1 && <Step1_BasicDetails productType={productType} setProductType={setProductType} categories={categories} onNewCategory={onNewCategory} />}
                 {step === 2 && <Step2_CostingPricing productType={productType} />}
                 {step === 3 && <Step3_InventorySupplier onAddLocationClick={() => onAddLocationDialogOpenChange(true)} locations={locations}/>}
             </div>
@@ -428,5 +441,3 @@ export const AddProductDialog = ({
     </Dialog>
   );
 };
-
-    

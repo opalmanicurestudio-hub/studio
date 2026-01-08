@@ -13,7 +13,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, File, MoreHorizontal, Database, Camera, AlertTriangle, Truck, Search, SlidersHorizontal, QrCode, Package, Hammer, Beaker, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer } from 'lucide-react';
-import { type InventoryItem } from '@/lib/data';
+import { type InventoryItem, inventory } from '@/lib/data';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,7 +24,7 @@ import {
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import Image from 'next/image';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -354,12 +354,24 @@ const CreateBundleDialog = ({ open, onOpenChange }: { open: boolean, onOpenChang
 }
 
 export default function InventoryPage() {
-  const professionalColor: InventoryItem[] = [];
-  const professionalStyling: InventoryItem[] = [];
-  const professionalCare: InventoryItem[] = [];
-  const retailItems: InventoryItem[] = [];
-  const overheadItems: InventoryItem[] = [];
-  const equipmentItems: InventoryItem[] = [];
+  const professionalColor: InventoryItem[] = inventory.filter(
+    (item) => item.type === 'professional' && item.category === 'Color'
+  );
+  const professionalStyling: InventoryItem[] = inventory.filter(
+    (item) => item.type === 'professional' && item.category === 'Styling'
+  );
+  const professionalCare: InventoryItem[] = inventory.filter(
+    (item) => item.type === 'professional' && item.category === 'Care'
+  );
+  const retailItems: InventoryItem[] = inventory.filter(
+    (item) => item.type === 'retail'
+  );
+  const overheadItems: InventoryItem[] = inventory.filter(
+    (item) => item.type === 'overhead'
+  );
+  const equipmentItems: InventoryItem[] = inventory.filter(
+    (item) => item.type === 'equipment'
+  );
   
   const [locations, setLocations] = useState<Location[]>([]);
   const [locationTypes, setLocationTypes] = useState([
@@ -382,6 +394,11 @@ export default function InventoryPage() {
   const [isAddLocationOpen, setIsAddLocationOpen] = useState(false);
   const [isAddLocationFromProductOpen, setIsAddLocationFromProductOpen] = useState(false);
 
+  const productCategories = useMemo(() => {
+    const categories = inventory.map(i => i.category).filter(Boolean) as string[];
+    return [...new Set(categories)];
+  }, []);
+
   const handleAddNewLocation = (newLocation: Omit<Location, 'id'>) => {
     const locationWithId = { ...newLocation, id: `loc-${Date.now()}` };
     setLocations(prev => [...prev, locationWithId]);
@@ -395,6 +412,11 @@ export default function InventoryPage() {
     setLocationTypes(prev => [...prev, newLocationType]);
     return newLocationType;
   };
+
+  const handleNewProductCategory = (category: string) => {
+    // In a real app, you might want to update a central category list
+    console.log("New product category added:", category);
+  }
 
 
   useEffect(() => {
@@ -592,6 +614,8 @@ export default function InventoryPage() {
         onAddNewLocation={handleAddNewLocation}
         locationTypes={locationTypes}
         onAddNewLocationType={handleAddNewLocationType}
+        categories={productCategories}
+        onNewCategory={handleNewProductCategory}
       />
       <AddEquipmentDialog open={isAddEquipmentOpen} onOpenChange={setIsAddEquipmentOpen} />
       <AddOverheadDialog open={isAddOverheadOpen} onOpenChange={setIsAddOverheadOpen} />

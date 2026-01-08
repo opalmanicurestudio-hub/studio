@@ -169,6 +169,10 @@ export default function ServicesPage() {
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [testPrice, setTestPrice] = useState(0);
 
+  const [serviceCategories, setServiceCategories] = useState(
+    [...new Set(services.map(s => s.category).filter(Boolean))]
+  );
+
   const handleOpenProfitTester = (service: Service) => {
     setSelectedService(service);
     setTestPrice(service.price);
@@ -204,6 +208,12 @@ export default function ServicesPage() {
     acc[category].push(service);
     return acc;
   }, {} as Record<string, Service[]>), [addOnServices]);
+  
+  const handleNewCategory = (category: string) => {
+    if (!serviceCategories.includes(category)) {
+        setServiceCategories(prev => [...prev, category]);
+    }
+  }
 
 
   return (
@@ -307,7 +317,12 @@ export default function ServicesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <AddServiceDialog open={isAddServiceDialogOpen} onOpenChange={setIsAddServiceDialogOpen} />
+      <AddServiceDialog 
+        open={isAddServiceDialogOpen} 
+        onOpenChange={setIsAddServiceDialogOpen} 
+        categories={serviceCategories}
+        onNewCategory={handleNewCategory}
+      />
     </div>
   );
 }
