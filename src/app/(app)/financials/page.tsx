@@ -234,27 +234,11 @@ const BillEditor = ({
 };
 
 
-const LifestyleTab = ({ isEditing, profileData, onProfileChange }: {
+const LifestyleTab = ({ isEditing, profileData, onBillChange }: {
     isEditing: boolean;
     profileData: any;
-    onProfileChange: (newProfileData: any) => void;
+    onBillChange: (categoryName: string, billTitle: string, newAmount: number) => void;
 }) => {
-    const handleBillChange = (categoryName: string, billTitle: string, newAmount: number) => {
-        const newCategories = profileData.categories.map((cat: any) => {
-            if (cat.name === categoryName) {
-                const newBills = cat.bills.map((bill: any) => {
-                    if (bill.title === billTitle) {
-                        return { ...bill, amount: newAmount };
-                    }
-                    return bill;
-                });
-                return { ...cat, bills: newBills };
-            }
-            return cat;
-        });
-        onProfileChange({ ...profileData, categories: newCategories });
-    };
-
     return (
         <div>
             <h2 className="text-2xl font-semibold">What does it cost to be you?</h2>
@@ -263,34 +247,18 @@ const LifestyleTab = ({ isEditing, profileData, onProfileChange }: {
                 <BillEditor
                     categories={profileData.categories}
                     isEditing={isEditing}
-                    onBillChange={handleBillChange}
+                    onBillChange={onBillChange}
                 />
             </div>
         </div>
     );
 };
 
-const BusinessTab = ({ isEditing, profileData, onProfileChange }: {
+const BusinessTab = ({ isEditing, profileData, onBillChange }: {
     isEditing: boolean;
     profileData: any;
-    onProfileChange: (newProfileData: any) => void;
+    onBillChange: (categoryName: string, billTitle: string, newAmount: number) => void;
 }) => {
-     const handleBillChange = (categoryName: string, billTitle: string, newAmount: number) => {
-        const newCategories = profileData.categories.map((cat: any) => {
-            if (cat.name === categoryName) {
-                const newBills = cat.bills.map((bill: any) => {
-                    if (bill.title === billTitle) {
-                        return { ...bill, amount: newAmount };
-                    }
-                    return bill;
-                });
-                return { ...cat, bills: newBills };
-            }
-            return cat;
-        });
-        onProfileChange({ ...profileData, categories: newCategories });
-    };
-
     return (
          <div>
             <h2 className="text-2xl font-semibold">What does it cost to keep the lights on?</h2>
@@ -299,7 +267,7 @@ const BusinessTab = ({ isEditing, profileData, onProfileChange }: {
                  <BillEditor
                     categories={profileData.categories}
                     isEditing={isEditing}
-                    onBillChange={handleBillChange}
+                    onBillChange={onBillChange}
                 />
             </div>
         </div>
@@ -541,15 +509,33 @@ export default function FinancialFoundationPage() {
     const activeLifestyleProfile = useMemo(() => profiles.lifestyleProfiles.find(p => p.isActive)!, [profiles.lifestyleProfiles]);
     const activeBusinessProfile = useMemo(() => profiles.businessProfiles.find(p => p.isActive)!, [profiles.businessProfiles]);
 
-    const handleProfileChange = useCallback((profileType: 'lifestyle' | 'business', newProfileData: any) => {
-        const profileKey = `${profileType}Profiles`;
-        setProfiles(prev => ({
-            ...prev,
-            [profileKey]: prev[profileKey as keyof typeof prev].map((p: any) =>
-                p.id === newProfileData.id ? newProfileData : p
-            )
-        }));
-    }, []);
+    const handleBillChange = useCallback((profileType: 'lifestyle' | 'business', categoryName: string, billTitle: string, newAmount: number) => {
+        const profileKey = `${profileType}Profiles` as const;
+        const activeProfileId = profiles[profileKey].find(p => p.isActive)!.id;
+
+        setProfiles(prev => {
+            const newProfiles = prev[profileKey].map(p => {
+                if (p.id === activeProfileId) {
+                    const newCategories = p.categories.map(cat => {
+                        if (cat.name === categoryName) {
+                            const newBills = cat.bills.map(bill => {
+                                if (bill.title === billTitle) {
+                                    return { ...bill, amount: newAmount };
+                                }
+                                return bill;
+                            });
+                            return { ...cat, bills: newBills };
+                        }
+                        return cat;
+                    });
+                    return { ...p, categories: newCategories };
+                }
+                return p;
+            });
+
+            return { ...prev, [profileKey]: newProfiles };
+        });
+    }, [profiles]);
 
     const handleEditToggle = () => {
         if (!isEditing) {
@@ -567,14 +553,14 @@ export default function FinancialFoundationPage() {
     };
 
     const lifestyleTotal = useMemo(() => {
-        if (!activeLifestyleProfile) return 0;
+        if (!activeLifestyleProfile || !activeLifestyleProfile.categories) return 0;
         return activeLifestyleProfile.categories.reduce((acc, category) => {
             return acc + category.bills.reduce((billAcc, bill) => billAcc + (bill.amount || 0), 0);
         }, 0);
     }, [activeLifestyleProfile]);
 
     const businessTotal = useMemo(() => {
-        if (!activeBusinessProfile) return 0;
+        if (!activeBusinessProfile || !activeBusinessProfile.categories) return 0;
         return activeBusinessProfile.categories.reduce((acc, category) => {
             return acc + category.bills.reduce((billAcc, bill) => billAcc + (bill.amount || 0), 0);
         }, 0);
@@ -626,14 +612,14 @@ export default function FinancialFoundationPage() {
                            <LifestyleTab
                              isEditing={isEditing}
                              profileData={activeLifestyleProfile}
-                             onProfileChange={(newProfileData) => handleProfileChange('lifestyle', newProfileData)}
+                             onBillChange={(categoryName, billTitle, newAmount) => handleBillChange('lifestyle', categoryName, billTitle, newAmount)}
                            />
                         </TabsContent>
                         <TabsContent value="business" className="m-0">
                            <BusinessTab
                              isEditing={isEditing}
                              profileData={activeBusinessProfile}
-                             onProfileChange={(newProfileData) => handleProfileChange('business', newProfileData)}
+                             onBillChange={(categoryName, billTitle, newAmount) => handleBillChange('business', categoryName, billTitle, newAmount)}
                            />
                         </TabsContent>
                         <TabsContent value="schedule" className="m-0">
@@ -653,5 +639,3 @@ export default function FinancialFoundationPage() {
     </div>
   );
 }
-
-    
