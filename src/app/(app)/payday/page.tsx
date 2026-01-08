@@ -79,4 +79,3 @@ const PaydayPage = () => {
 };
 
 export default PaydayPage;
-

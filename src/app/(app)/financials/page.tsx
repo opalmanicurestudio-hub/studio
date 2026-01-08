@@ -14,7 +14,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { DollarSign, Percent, Banknote, ShieldCheck, TrendingUp, Building, User, Save } from 'lucide-react';
+import { DollarSign, Percent, Banknote, ShieldCheck, TrendingUp, Building, User, Save, PlusCircle } from 'lucide-react';
 
 const FinancialFoundationPage = () => {
   return (

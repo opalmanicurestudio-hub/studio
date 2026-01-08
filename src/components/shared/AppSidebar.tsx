@@ -63,7 +63,7 @@ const navItems = [
 ];
 
 const financialNavItems = [
-    { href: '/financials', icon: Wallet, label: 'Foundation' },
+    { href: '/financials', icon: Wallet, label: 'Financials' },
     { href: '/payday', icon: DollarSign, label: 'Payday' },
     { href: '/bills', icon: Landmark, label: 'Bills' },
     { href: '/transactions', icon: ArrowRightLeft, label: 'Transactions' },
@@ -146,4 +146,3 @@ export function AppSidebar() {
     </Sidebar>
   );
 }
-
