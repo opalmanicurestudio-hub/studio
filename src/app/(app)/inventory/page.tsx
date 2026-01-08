@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, File, MoreHorizontal, Database, Camera, AlertTriangle, Truck, Search, SlidersHorizontal, QrCode, Package, Hammer, Beaker, FlaskConical, Pencil, Rocket, CheckCircle, Trash2 } from 'lucide-react';
+import { PlusCircle, File, MoreHorizontal, Database, Camera, AlertTriangle, Truck, Search, SlidersHorizontal, QrCode, Package, Hammer, Beaker, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit } from 'lucide-react';
 import { type InventoryItem } from '@/lib/data';
 import {
   DropdownMenu,
@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { AddProductDialog } from '@/components/inventory/AddProductDialog';
+import { Textarea } from '@/components/ui/textarea';
 
 
 const ProductCard = ({ item }: { item: InventoryItem }) => {
@@ -341,6 +342,33 @@ const CreateBundleDialog = ({ open, onOpenChange }: { open: boolean, onOpenChang
     )
 }
 
+const AddLocationDialog = ({ open, onOpenChange }: { open: boolean, onOpenChange: (open: boolean) => void }) => {
+    return (
+         <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Add New Location</DialogTitle>
+                    <DialogDescription>Create a new storage location for your inventory.</DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                    <div className="space-y-2">
+                        <Label htmlFor="location-name">Location Name</Label>
+                        <Input id="location-name" placeholder="e.g., Back Room - Shelf A" />
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="location-description">Description</Label>
+                        <Textarea id="location-description" placeholder="Optional: Describe what is stored here." />
+                    </div>
+                </div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                    <Button>Save Location</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    )
+}
+
 
 export default function InventoryPage() {
   const professionalColor: InventoryItem[] = [];
@@ -349,6 +377,11 @@ export default function InventoryPage() {
   const retailItems: InventoryItem[] = [];
   const overheadItems: InventoryItem[] = [];
   const equipmentItems: InventoryItem[] = [];
+  const locations = [
+      { id: 'loc1', name: 'Color Bar - Shelf A', description: 'Primary storage for all hair color tubes and developers.'},
+      { id: 'loc2', name: 'Back Room - Rack 2', description: 'Overflow and bulk storage.'},
+      { id: 'loc3', name: 'Styling Station 1 - Top Drawer', description: ''},
+  ];
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
@@ -360,6 +393,7 @@ export default function InventoryPage() {
   const [isAddEquipmentOpen, setIsAddEquipmentOpen] = useState(false);
   const [isAddOverheadOpen, setIsAddOverheadOpen] = useState(false);
   const [isCreateBundleOpen, setIsCreateBundleOpen] = useState(false);
+  const [isAddLocationOpen, setIsAddLocationOpen] = useState(false);
 
 
   useEffect(() => {
@@ -399,11 +433,12 @@ export default function InventoryPage() {
          <Tabs defaultValue="professional" className='w-full'>
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
               <ScrollArea className="w-full whitespace-nowrap sm:w-auto">
-                <TabsList className="inline-grid w-max grid-cols-4 sm:w-auto">
+                <TabsList className="inline-grid w-max grid-cols-5 sm:w-auto">
                   <TabsTrigger value="professional">Professional</TabsTrigger>
                   <TabsTrigger value="retail">Retail</TabsTrigger>
                   <TabsTrigger value="overhead">Overhead</TabsTrigger>
                   <TabsTrigger value="equipment">Equipment</TabsTrigger>
+                  <TabsTrigger value="locations">Locations</TabsTrigger>
                 </TabsList>
                 <ScrollBar orientation="horizontal" className="sm:hidden" />
               </ScrollArea>
@@ -476,6 +511,29 @@ export default function InventoryPage() {
                       <EmptyState message="No equipment items yet." />
                   )}
               </TabsContent>
+              <TabsContent value="locations" className="m-0 space-y-6">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h2 className="text-2xl font-bold">Storage Locations</h2>
+                        <p className="text-muted-foreground">A map of all your physical storage areas.</p>
+                    </div>
+                    <Button onClick={() => setIsAddLocationOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> New Location</Button>
+                </div>
+                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {locations.map(location => (
+                        <Card key={location.id}>
+                            <CardHeader>
+                                <CardTitle className="text-lg">{location.name}</CardTitle>
+                                {location.description && <CardDescription>{location.description}</CardDescription>}
+                            </CardHeader>
+                            <CardFooter className="flex gap-2">
+                                <Button variant="outline" size="sm"><Edit className="mr-2 h-3 w-3"/> Edit</Button>
+                                <Button variant="outline" size="sm" className="text-destructive"><Trash2 className="mr-2 h-3 w-3"/> Delete</Button>
+                            </CardFooter>
+                        </Card>
+                    ))}
+                 </div>
+              </TabsContent>
             </div>
          </Tabs>
       </main>
@@ -514,6 +572,7 @@ export default function InventoryPage() {
       <AddEquipmentDialog open={isAddEquipmentOpen} onOpenChange={setIsAddEquipmentOpen} />
       <AddOverheadDialog open={isAddOverheadOpen} onOpenChange={setIsAddOverheadOpen} />
       <CreateBundleDialog open={isCreateBundleOpen} onOpenChange={setIsCreateBundleOpen} />
+      <AddLocationDialog open={isAddLocationOpen} onOpenChange={setIsAddLocationOpen} />
 
     </div>
   );

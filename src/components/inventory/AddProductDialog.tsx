@@ -23,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { PlusCircle, Info } from 'lucide-react';
+import { PlusCircle, Info, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
@@ -210,8 +210,13 @@ const Step2_CostingPricing = ({ productType }: { productType: ProductType }) => 
 };
 
 
-const Step3_InventorySupplier = () => (
-    <div className="grid gap-4 py-4">
+const Step3_InventorySupplier = () => {
+    const [secondaryLocations, setSecondaryLocations] = useState<string[]>([]);
+    const addSecondaryLocation = () => setSecondaryLocations(prev => [...prev, `loc-${Date.now()}`]);
+    const removeSecondaryLocation = (id: string) => setSecondaryLocations(prev => prev.filter(locId => locId !== id));
+
+    return (
+    <div className="grid gap-6 py-4">
         <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
                 <Label htmlFor="vendor">Vendor</Label>
@@ -234,9 +239,54 @@ const Step3_InventorySupplier = () => (
             <Label htmlFor="low-stock-point">Low Stock Point</Label>
             <Input id="low-stock-point" type="number" placeholder="e.g., 5" />
         </div>
-        <div className="p-4 border rounded-lg space-y-4">
-            <h4 className="font-semibold">Initial Stock</h4>
-             <div className="grid grid-cols-2 gap-4">
+
+        <Card>
+            <CardHeader>
+                <CardTitle>Storage Locations</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+                <div className="space-y-2">
+                    <Label>Primary Location</Label>
+                    <div className="flex gap-2">
+                        <Select>
+                            <SelectTrigger>
+                                <SelectValue placeholder="Select primary location" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                 <SelectItem value="loc-1">Back Room - Shelf A</SelectItem>
+                            </SelectContent>
+                        </Select>
+                         <Button variant="outline" size="icon"><PlusCircle className="h-4 w-4" /></Button>
+                    </div>
+                </div>
+                 <div className="space-y-2">
+                    {secondaryLocations.map((locId) => (
+                        <div key={locId} className="space-y-2">
+                             <Label className="text-muted-foreground">Secondary Location</Label>
+                             <div className="flex gap-2">
+                                <Select>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select secondary location" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="loc-1">Back Room - Shelf A</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <Button variant="ghost" size="icon" className="text-destructive" onClick={() => removeSecondaryLocation(locId)}><Trash2 className="h-4 w-4" /></Button>
+                            </div>
+                        </div>
+                    ))}
+                    <Button variant="outline" size="sm" onClick={addSecondaryLocation}><PlusCircle className="mr-2 h-4 w-4" />Add Secondary Location</Button>
+                </div>
+            </CardContent>
+        </Card>
+
+        <Card>
+            <CardHeader>
+                <CardTitle>Initial Stock</CardTitle>
+                <CardDescription>Log the first batch of this product you have on hand.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                     <Label htmlFor="initial-quantity">Quantity</Label>
                     <Input id="initial-quantity" type="number" placeholder="0" />
@@ -245,24 +295,12 @@ const Step3_InventorySupplier = () => (
                     <Label htmlFor="expiration-date">Expiration Date</Label>
                     <Input id="expiration-date" type="date" />
                 </div>
-            </div>
-        </div>
-        <div className="space-y-2">
-            <Label>Storage Locations</Label>
-            <div className="flex gap-2">
-                <Select>
-                    <SelectTrigger>
-                        <SelectValue placeholder="Primary Location" />
-                    </SelectTrigger>
-                    <SelectContent>
-                         <SelectItem value="loc-1">Back Room - Shelf A</SelectItem>
-                    </SelectContent>
-                </Select>
-                 <Button variant="outline" size="icon"><PlusCircle className="h-4 w-4" /></Button>
-            </div>
-        </div>
+            </CardContent>
+        </Card>
+
     </div>
-);
+    )
+};
 
 
 export const AddProductDialog = ({ open, onOpenChange }: { open: boolean, onOpenChange: (open: boolean) => void }) => {
