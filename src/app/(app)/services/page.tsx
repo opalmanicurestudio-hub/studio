@@ -28,7 +28,7 @@ import {
 } from '@/components/ui/dialog';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
-import { services, type Service } from '@/lib/data';
+import { services as initialServices, type Service } from '@/lib/data';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
@@ -165,6 +165,7 @@ const EmptyState = ({ onAddNewService }: { onAddNewService: () => void }) => (
 
 
 export default function ServicesPage() {
+  const [services, setServices] = useState(initialServices);
   const [isProfitTesterOpen, setIsProfitTesterOpen] = useState(false);
   const [isAddServiceDialogOpen, setIsAddServiceDialogOpen] = useState(false);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
@@ -224,7 +225,7 @@ export default function ServicesPage() {
   const initialCategories = useMemo(() => {
     const allCategories = services.map(s => s.category).filter((c): c is string => !!c);
     return [...new Set(allCategories)];
-  }, []);
+  }, [services]);
 
   const [serviceCategories, setServiceCategories] = useState(initialCategories);
 
@@ -232,6 +233,10 @@ export default function ServicesPage() {
     if (!serviceCategories.includes(newCategory)) {
         setServiceCategories(prev => [...prev, newCategory]);
     }
+  };
+  
+  const handleAddNewService = (newService: Service) => {
+    setServices(prev => [...prev, newService]);
   };
 
   return (
@@ -362,8 +367,10 @@ export default function ServicesPage() {
         onOpenChange={setIsAddServiceDialogOpen}
         categories={serviceCategories}
         onNewCategory={handleNewCategory}
+        onServiceAdded={handleAddNewService}
       />
     </div>
   );
 
     
+

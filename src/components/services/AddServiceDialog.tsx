@@ -1,7 +1,6 @@
-
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -37,7 +36,6 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useMemo } from 'react';
 
 
 const serviceSchema = z.object({
@@ -491,12 +489,13 @@ const PricingForm = () => {
                         name="margin"
                         control={control}
                         defaultValue={60}
-                        render={({ field: { onChange, ...fieldProps } }) => (
+                        render={({ field: { onChange, value, ...fieldProps } }) => (
                            <Slider
                                 min={0}
                                 max={100}
                                 step={1}
                                 onValueChange={(value) => onChange(value[0])}
+                                value={[value || 60]}
                                 {...fieldProps}
                             />
                         )}
@@ -540,11 +539,13 @@ export const AddServiceDialog = ({
     onOpenChange,
     categories,
     onNewCategory,
+    onServiceAdded
 }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     categories: string[];
     onNewCategory: (category: string) => void;
+    onServiceAdded: (service: Service) => void;
 }) => {
   const [step, setStep] = useState(1);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -582,12 +583,40 @@ export const AddServiceDialog = ({
   }
 
   const onSubmit = (data: ServiceFormData) => {
-      console.log('Form Submitted', data);
-      handleOpenChange(false);
+      const price = data.price || 0;
+      
+      const duration = data.duration || 0;
+      const tmhr = parseFloat(localStorage.getItem('tmhr') || '0');
+      const timeCost = (duration / 60) * tmhr;
+      const productCost = (data.products || []).reduce((acc: number, p: any) => acc + (p.costPerUnit || 0), 0);
+      const equipmentDepreciation = (data.equipment || []).reduce((acc: any, eq: any) => {
+          const lifespanInMinutes = (eq.lifespanYears || 5) * 365 * 8 * 60;
+          const costPerMinute = (eq.cost || 0) / lifespanInMinutes;
+          return acc + (costPerMinute * duration);
+      }, 0);
+      const breakEvenCost = timeCost + productCost + equipmentDepreciation;
+      const netProfit = price - breakEvenCost;
+      const margin = price > 0 ? (netProfit / price) * 100 : 0;
+      
+      const newService: Service = {
+        id: `svc-${Date.now()}`,
+        name: data.name,
+        type: 'service', // Or 'addon' based on a form field if needed
+        category: data.categoryId || 'Uncategorized',
+        duration: duration,
+        price: price,
+        cost: breakEvenCost,
+        profit: netProfit,
+        margin: margin
+      };
+      
+      onServiceAdded(newService);
+
       toast({
           title: "Service Created",
           description: `${data.name} has been added to your library.`
       })
+      handleOpenChange(false);
   }
 
   const handleNext = async () => {
