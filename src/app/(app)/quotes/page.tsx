@@ -18,6 +18,10 @@ import {
   FileCheck,
   Percent,
   Clock,
+  FileText,
+  Printer,
+  FileStack,
+  Trash2,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -83,10 +87,22 @@ const QuoteTableRow = ({ quote }: { quote: Quote }) => {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem>View/Edit</DropdownMenuItem>
-            <DropdownMenuItem>Mark as Sent</DropdownMenuItem>
-            <DropdownMenuItem>Create Invoice & Book</DropdownMenuItem>
-            <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
+            <DropdownMenuItem>
+              <FileText />
+              <span>View/Edit</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem>
+              <Printer />
+              <span>Print Quote</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem>
+              <FileStack />
+              <span>Create Invoice & Book</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem className="text-destructive">
+              <Trash2 />
+              <span>Delete</span>
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </TableCell>
@@ -114,10 +130,22 @@ const QuoteCard = ({ quote }: { quote: Quote }) => {
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                            <DropdownMenuItem>View/Edit</DropdownMenuItem>
-                            <DropdownMenuItem>Mark as Sent</DropdownMenuItem>
-                            <DropdownMenuItem>Create Invoice & Book</DropdownMenuItem>
-                            <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
+                            <DropdownMenuItem>
+                              <FileText />
+                              <span>View/Edit</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem>
+                               <Printer />
+                              <span>Print Quote</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem>
+                              <FileStack />
+                              <span>Create Invoice & Book</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="text-destructive">
+                              <Trash2 />
+                              <span>Delete</span>
+                            </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
                 </div>
@@ -229,3 +257,5 @@ export default function QuotesPage() {
     </div>
   );
 }
+
+    
