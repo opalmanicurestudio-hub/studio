@@ -476,33 +476,36 @@ export default function InventoryPage() {
           <Tabs defaultValue="professional" className="w-full">
             <div className="mt-6 space-y-4">
               <TabsContent value="professional" className="m-0 space-y-4">
-                  <ProductShelf title="Color" items={professionalColor} />
-                  <ProductShelf title="Care" items={professionalCare} />
-                  <ProductShelf title="Styling" items={professionalStyling} />
-                  {(professionalColor.length === 0 && professionalCare.length === 0 && professionalStyling.length === 0) && (
-                    <EmptyState message="No professional products yet." />
-                  )}
+                {professionalColor.length === 0 && professionalCare.length === 0 && professionalStyling.length === 0 ? (
+                  <EmptyState message="No professional products yet." />
+                ) : (
+                  <>
+                    <ProductShelf title="Color" items={professionalColor} />
+                    <ProductShelf title="Care" items={professionalCare} />
+                    <ProductShelf title="Styling" items={professionalStyling} />
+                  </>
+                )}
               </TabsContent>
               <TabsContent value="retail" className="m-0">
-                {retailItems.length > 0 ? (
-                      <ProductShelf title="All Retail" items={retailItems} />
-                  ) : (
-                      <EmptyState message="No retail items yet." />
-                  )}
+                {retailItems.length === 0 ? (
+                  <EmptyState message="No retail items yet." />
+                ) : (
+                  <ProductShelf title="All Retail" items={retailItems} />
+                )}
               </TabsContent>
               <TabsContent value="overhead" className="m-0">
-                {overheadItems.length > 0 ? (
-                      <ProductShelf title="All Overhead" items={overheadItems} />
-                  ) : (
-                      <EmptyState message="No overhead items yet." />
-                  )}
+                {overheadItems.length === 0 ? (
+                  <EmptyState message="No overhead items yet." />
+                ) : (
+                  <ProductShelf title="All Overhead" items={overheadItems} />
+                )}
               </TabsContent>
               <TabsContent value="equipment" className="m-0">
-                  {equipmentItems.length > 0 ? (
-                      <ProductShelf title="All Equipment" items={equipmentItems} />
-                  ) : (
-                      <EmptyState message="No equipment items yet." />
-                  )}
+                {equipmentItems.length === 0 ? (
+                  <EmptyState message="No equipment items yet." />
+                ) : (
+                  <ProductShelf title="All Equipment" items={equipmentItems} />
+                )}
               </TabsContent>
               <TabsContent value="locations" className="m-0 space-y-6">
                 <div className="flex items-center justify-between">
@@ -575,3 +578,5 @@ export default function InventoryPage() {
     </div>
   );
 }
+
+    
