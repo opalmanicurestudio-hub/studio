@@ -60,6 +60,8 @@ import {
   Receipt,
   Package,
 } from 'lucide-react';
+import { type Bill, bills } from '@/lib/data';
+
 
 const BillItemCard = ({
   title,

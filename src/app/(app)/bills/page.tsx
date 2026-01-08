@@ -13,7 +13,6 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
-  PlusCircle,
   CreditCard,
   CalendarDays,
   AlertTriangle,
@@ -50,6 +49,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
+import { bills, type Bill } from '@/lib/data';
 
 const kpiData = {
   monthlyTotal: 4500,
@@ -57,14 +57,6 @@ const kpiData = {
   pastDue: 250,
 };
 
-const bills = [
-  { id: '1', name: 'Studio Rent', amount: 1200, dueDay: 1, context: 'Business' },
-  { id: '2', name: 'Booking Software', amount: 49, dueDay: 5, context: 'Business' },
-  { id: '3', name: 'Personal Rent', amount: 2000, dueDay: 1, context: 'Personal' },
-  { id: '4', name: 'Car Insurance', amount: 150, dueDay: 15, context: 'Personal' },
-  { id: '5', name: 'Liability Insurance', amount: 100, dueDay: 20, context: 'Business' },
-  { id: '6', name: 'Student Loans', amount: 400, dueDay: 25, context: 'Personal' },
-];
 
 const BillFilters = () => {
   return (
@@ -109,7 +101,7 @@ const BillFilters = () => {
 };
 
 
-const BillTableRow = ({ bill }: { bill: typeof bills[0]}) => (
+const BillTableRow = ({ bill }: { bill: Bill }) => (
     <TableRow>
         <TableCell className="font-medium">{bill.name}</TableCell>
         <TableCell>${bill.amount.toFixed(2)}</TableCell>
@@ -131,7 +123,7 @@ const BillTableRow = ({ bill }: { bill: typeof bills[0]}) => (
     </TableRow>
 );
 
-const BillCard = ({ bill }: { bill: typeof bills[0]}) => (
+const BillCard = ({ bill }: { bill: Bill }) => (
     <Card>
         <CardContent className="p-4 space-y-3">
             <div className="flex items-start justify-between gap-4">
