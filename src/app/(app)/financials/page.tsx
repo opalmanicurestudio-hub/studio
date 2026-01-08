@@ -244,44 +244,54 @@ const BillEditor = ({
 };
 
 
-const LifestyleTab = ({ isEditing, profileData, onBillChange }: {
-    isEditing: boolean;
-    profileData: any;
-    onBillChange: (categoryName: string, billTitle: string, newAmount: number) => void;
+const LifestyleTab = ({
+  isEditing,
+  profileData,
+  onBillChange,
+}: {
+  isEditing: boolean;
+  profileData: any;
+  onBillChange: (categoryName: string, billTitle: string, newAmount: number) => void;
 }) => {
-    return (
-        <div>
-            <h2 className="text-2xl font-semibold">What does it cost to be you?</h2>
-            <p className="text-muted-foreground mt-2">Log all your monthly personal living expenses to establish your lifestyle cost.</p>
-            <div className="mt-6">
-                <BillEditor
-                    categories={profileData.categories}
-                    isEditing={isEditing}
-                    onBillChange={onBillChange}
-                />
-            </div>
-        </div>
-    );
+  if (!profileData) return null;
+  return (
+    <div>
+      <h2 className="text-2xl font-semibold">What does it cost to be you?</h2>
+      <p className="text-muted-foreground mt-2">Log all your monthly personal living expenses to establish your lifestyle cost.</p>
+      <div className="mt-6">
+        <BillEditor
+          categories={profileData.categories}
+          isEditing={isEditing}
+          onBillChange={onBillChange}
+        />
+      </div>
+    </div>
+  );
 };
 
-const BusinessTab = ({ isEditing, profileData, onBillChange }: {
-    isEditing: boolean;
-    profileData: any;
-    onBillChange: (categoryName: string, billTitle: string, newAmount: number) => void;
+const BusinessTab = ({
+  isEditing,
+  profileData,
+  onBillChange,
+}: {
+  isEditing: boolean;
+  profileData: any;
+  onBillChange: (categoryName: string, billTitle: string, newAmount: number) => void;
 }) => {
-    return (
-         <div>
-            <h2 className="text-2xl font-semibold">What does it cost to keep the lights on?</h2>
-            <p className="text-muted-foreground mt-2">Log all your fixed, recurring business operating costs.</p>
-            <div className="mt-6">
-                 <BillEditor
-                    categories={profileData.categories}
-                    isEditing={isEditing}
-                    onBillChange={onBillChange}
-                />
-            </div>
-        </div>
-    );
+  if (!profileData) return null;
+  return (
+    <div>
+      <h2 className="text-2xl font-semibold">What does it cost to keep the lights on?</h2>
+      <p className="text-muted-foreground mt-2">Log all your fixed, recurring business operating costs.</p>
+      <div className="mt-6">
+        <BillEditor
+          categories={profileData.categories}
+          isEditing={isEditing}
+          onBillChange={onBillChange}
+        />
+      </div>
+    </div>
+  );
 };
 
 const DayScheduleRow = ({ day, isEditing }: { day: string, isEditing: boolean }) => {
@@ -580,7 +590,7 @@ export default function FinancialFoundationPage() {
 
     const handleEditToggle = () => {
         if (!isEditing) {
-            setBackupProfiles(deepCopyTemplate(profiles as any) as any);
+            setBackupProfiles(profiles);
             setIsEditing(true);
         } else {
             // This would be where a save to backend would happen
@@ -640,7 +650,7 @@ export default function FinancialFoundationPage() {
                 </TabsList>
                 
                 <div className="grid lg:grid-cols-3 xl:grid-cols-4 gap-8 items-start mt-6">
-                    <div className="hidden lg:block lg:col-span-1">
+                    <div className="lg:col-span-1 lg:sticky top-24 space-y-6">
                         <FinancialProfileManager 
                             activeTab={activeTab} 
                             profiles={profiles}
@@ -651,23 +661,6 @@ export default function FinancialFoundationPage() {
                         />
                     </div>
                     <div className="lg:col-span-2 xl:col-span-3">
-                         <div className="lg:hidden mb-6">
-                            <Accordion type="single" collapsible>
-                                <AccordionItem value="profiles">
-                                    <AccordionTrigger>Manage Profiles</AccordionTrigger>
-                                    <AccordionContent>
-                                        <FinancialProfileManager 
-                                            activeTab={activeTab} 
-                                            profiles={profiles}
-                                            setProfiles={setProfiles}
-                                            isEditing={isEditing}
-                                            renamingProfileId={renamingProfileId}
-                                            setRenamingProfileId={setRenamingProfileId}
-                                        />
-                                    </AccordionContent>
-                                </AccordionItem>
-                            </Accordion>
-                        </div>
                         <TabsContent value="lifestyle" className="m-0">
                            <LifestyleTab
                              isEditing={isEditing}
