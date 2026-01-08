@@ -183,18 +183,23 @@ export default function ServicesPage() {
   };
 
   const { profit, margin } = useMemo(() => {
-    if (!selectedService || tmhr === 0) return { profit: 0, margin: 0 };
-
-    const timeCost = (selectedService.duration / 60) * tmhr;
-    // Note: In a real app, product costs would be dynamically calculated from the service's formula.
-    // Here, we use the pre-calculated `service.cost` which includes product costs.
-    // The break-even point is essentially the service cost.
-    const breakEvenPoint = selectedService.cost;
+    if (!selectedService) return { profit: 0, margin: 0 };
     
+    // Time Cost is based on the service's duration and the user's TMHR
+    const timeCost = (selectedService.duration / 60) * tmhr;
+    
+    // Product cost is already pre-calculated in the service.cost field in mock data
+    // but in a real scenario would be sum of used inventory items.
+    // For this calculation, let's derive it by subtracting profit and time cost from price.
+    // This isn't perfect but allows the tester to work with existing mock data.
+    const productCost = selectedService.price - selectedService.profit - ((selectedService.duration / 60) * tmhr);
+    
+    const breakEvenPoint = timeCost + productCost;
+
     const profitValue = testPrice - breakEvenPoint;
     const marginValue = testPrice > 0 ? (profitValue / testPrice) * 100 : 0;
 
-    return { profit: profitValue, margin: marginValue };
+    return { profit: profitValue, margin: marginValue, breakEvenPoint, timeCost };
   }, [selectedService, testPrice, tmhr]);
   
   const mainServices = services.filter(s => s.type === 'service');
@@ -217,6 +222,19 @@ export default function ServicesPage() {
     acc[category].push(service);
     return acc;
   }, {} as Record<string, Service[]>), [addOnServices]);
+  
+  const serviceCategories = useMemo(() => {
+    const allCategories = services.map(s => s.category).filter(Boolean);
+    return [...new Set(allCategories)];
+  }, []);
+
+  const handleNewCategory = (newCategory: string) => {
+    // In a real app, this would likely update a central state or send a request to a backend.
+    // For now, we'll just log it to show it's being handled.
+    console.log(`New category added: ${newCategory}`);
+    // You might want to update the local state to reflect the new category immediately
+    // For simplicity, we'll assume the dialog handles its own state for the new item.
+  };
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -291,7 +309,7 @@ export default function ServicesPage() {
               </div>
               <Slider
                 id="price-slider"
-                min={selectedService ? selectedService.cost : 0}
+                min={profit.breakEvenPoint || 0}
                 max={(selectedService ? selectedService.price : 0) * 2 + 50}
                 step={1}
                 value={[testPrice]}
@@ -301,7 +319,7 @@ export default function ServicesPage() {
             <div className="grid grid-cols-2 gap-4 rounded-lg bg-muted/50 p-4">
               <div className="text-center">
                 <p className="text-sm text-muted-foreground">Potential Profit</p>
-                <p className={`text-2xl font-bold ${profit >= 0 ? 'text-green-500' : 'text-destructive'}`}>${profit.toFixed(2)}</p>
+                <p className={`text-2xl font-bold ${profit >= 0 ? 'text-green-500' : 'text-destructive'}`}>${profit.profit.toFixed(2)}</p>
               </div>
               <div className="text-center">
                 <p className="text-sm text-muted-foreground">Profit Margin</p>
@@ -309,8 +327,8 @@ export default function ServicesPage() {
               </div>
             </div>
              <div className='text-xs text-muted-foreground space-y-1 text-center'>
-                <p>Break-Even Point (Time + Products): ${selectedService?.cost.toFixed(2)}</p>
-                <p>Time Cost ({selectedService?.duration} min): ${selectedService ? ((selectedService.duration / 60) * tmhr).toFixed(2) : '0.00'}</p>
+                <p>Break-Even Point (Time + Products): ${profit.breakEvenPoint?.toFixed(2) || '0.00'}</p>
+                <p>Time Cost ({selectedService?.duration} min): ${profit.timeCost?.toFixed(2) || '0.00'}</p>
              </div>
           </div>
           <DialogFooter>
@@ -326,7 +344,9 @@ export default function ServicesPage() {
       </Dialog>
       <AddServiceDialog 
         open={isAddServiceDialogOpen} 
-        onOpenChange={setIsAddServiceDialogOpen} 
+        onOpenChange={setIsAddServiceDialogOpen}
+        categories={serviceCategories}
+        onNewCategory={handleNewCategory}
       />
     </div>
   );
