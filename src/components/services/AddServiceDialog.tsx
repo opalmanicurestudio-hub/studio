@@ -27,9 +27,10 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Slider } from '@/components/ui/slider';
+import { ImageUpload } from '@/components/shared/ImageUpload';
 
 
-const Step1_Basics = () => {
+const Step1_Basics = ({ onImageUpload }: { onImageUpload: (url: string) => void }) => {
     const [categories, setCategories] = useState(['Haircuts', 'Coloring']);
     const [selectedCategory, setSelectedCategory] = useState('');
     const [isAddingCategory, setIsAddingCategory] = useState(false);
@@ -99,7 +100,7 @@ const Step1_Basics = () => {
         </div>
         <div className="space-y-2">
             <Label>Service Image</Label>
-            <Button variant="outline" className="w-full">Upload Image</Button>
+            <ImageUpload onImageUploaded={onImageUpload} />
         </div>
         <div className="flex items-center justify-between p-4 border rounded-lg">
             <div className='space-y-1'>
@@ -302,12 +303,16 @@ const Step4_Pricing = () => {
 
 export const AddServiceDialog = ({ open, onOpenChange }: { open: boolean, onOpenChange: (open: boolean) => void }) => {
   const [step, setStep] = useState(1);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
   const totalSteps = 4;
   
   const handleOpenChange = (isOpen: boolean) => {
     onOpenChange(isOpen);
     if (!isOpen) {
-        setTimeout(() => setStep(1), 300);
+        setTimeout(() => {
+          setStep(1);
+          setImageUrl(null);
+        }, 300);
     }
   }
 
@@ -327,7 +332,7 @@ export const AddServiceDialog = ({ open, onOpenChange }: { open: boolean, onOpen
         <div className="py-4 space-y-4">
           <Progress value={(step / totalSteps) * 100} />
            <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
-                {step === 1 && <Step1_Basics />}
+                {step === 1 && <Step1_Basics onImageUpload={setImageUrl} />}
                 {step === 2 && <Step2_Formula />}
                 {step === 3 && <Step3_Deposits />}
                 {step === 4 && <Step4_Pricing />}
@@ -353,5 +358,3 @@ export const AddServiceDialog = ({ open, onOpenChange }: { open: boolean, onOpen
     </Dialog>
   );
 };
-
-    
