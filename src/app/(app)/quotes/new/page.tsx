@@ -86,20 +86,13 @@ export default function QuoteGeneratorPage() {
       <AppHeader title="New Quote" />
       <main className="flex-1 p-4 md:p-8">
         <div className="max-w-6xl mx-auto">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-8">
+          <div className="flex items-center justify-between gap-4 mb-8">
             <Button variant="outline" asChild>
               <Link href="/quotes">
                 <ArrowLeft className="mr-2" />
                 Back to All Quotes
               </Link>
             </Button>
-            <div className="flex w-full sm:w-auto items-center gap-2">
-              <Button variant="outline" className="flex-1 sm:flex-none">Preview</Button>
-              <Button className="flex-1 sm:flex-none">
-                <Save className="mr-2" />
-                Save Quote
-              </Button>
-            </div>
           </div>
 
           <div className="grid lg:grid-cols-3 gap-8">
@@ -221,6 +214,14 @@ export default function QuoteGeneratorPage() {
               <ProfitAnalysisCard />
             </div>
           </div>
+          
+          <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 mt-8">
+              <Button variant="outline" className="w-full sm:w-auto">Preview</Button>
+              <Button className="w-full sm:w-auto">
+                <Save className="mr-2" />
+                Save Quote
+              </Button>
+            </div>
         </div>
       </main>
     </div>
