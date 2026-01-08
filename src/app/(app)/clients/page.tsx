@@ -19,7 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { clients } from '@/lib/data';
+import { clients, appointments } from '@/lib/data';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { formatDistanceToNow } from 'date-fns';
@@ -130,8 +130,8 @@ export default function ClientsPage() {
 
       </main>
 
-      <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} />
-      <MergeClientsDialog open={isMergeClientsOpen} onOpenChange={setIsMergeClientsOpen} />
+      <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients} />
+      <MergeClientsDialog open={isMergeClientsOpen} onOpenChange={setIsMergeClientsOpen} allClients={clients} allAppointments={appointments} />
 
     </div>
   );

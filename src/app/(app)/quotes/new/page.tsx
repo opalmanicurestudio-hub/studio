@@ -29,7 +29,7 @@ import {
 } from '@/components/ui/accordion';
 import { ArrowLeft, Save, PlusCircle, Trash2, Calculator, Info } from 'lucide-react';
 import Link from 'next/link';
-import { clients } from '@/lib/data';
+import { clients, Client } from '@/lib/data';
 import { Textarea } from '@/components/ui/textarea';
 
 const ProfitAnalysisCard = () => (

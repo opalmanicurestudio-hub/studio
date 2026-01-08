@@ -44,7 +44,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ShieldAlert, AlertTriangle, Ear, Upload, CalendarIcon, PlusCircle, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { clients } from '@/lib/data';
+import { Client } from '@/lib/data';
 
 const ClientIntelAccordion = () => (
   <Accordion type="multiple" className="w-full space-y-4">
@@ -111,7 +111,7 @@ const ClientIntelAccordion = () => (
 );
 
 
-const AddClientForm = () => {
+const AddClientForm = ({ clients }: { clients: Client[] }) => {
     const [date, setDate] = useState<Date>();
     const [referralSource, setReferralSource] = useState<string>('');
     const [tags, setTags] = useState<string[]>(['Friend of Owner']);
@@ -264,7 +264,7 @@ const AddClientForm = () => {
     )
 }
 
-export const AddClientDialog = ({ open, onOpenChange }: { open: boolean, onOpenChange: (open: boolean) => void }) => {
+export const AddClientDialog = ({ open, onOpenChange, clients }: { open: boolean, onOpenChange: (open: boolean) => void, clients: Client[] }) => {
   const isMobile = useIsMobile();
 
   const title = "Add New Client";
@@ -279,7 +279,7 @@ export const AddClientDialog = ({ open, onOpenChange }: { open: boolean, onOpenC
             <SheetDescription>{description}</SheetDescription>
           </SheetHeader>
           <div className="py-4">
-            <AddClientForm />
+            <AddClientForm clients={clients} />
           </div>
           <SheetFooter>
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -298,7 +298,7 @@ export const AddClientDialog = ({ open, onOpenChange }: { open: boolean, onOpenC
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <div className="py-4">
-            <AddClientForm />
+            <AddClientForm clients={clients} />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>

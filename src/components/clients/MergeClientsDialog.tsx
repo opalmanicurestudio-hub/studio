@@ -24,16 +24,26 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { clients as allClients, appointments } from '@/lib/data';
+import { Appointment, Client } from '@/lib/data';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { DollarSign, Calendar, Hash } from 'lucide-react';
 import { format } from 'date-fns';
 
-type DuplicateClient = typeof allClients[0];
+type DuplicateClient = Client;
 
-export const MergeClientsDialog = ({ open, onOpenChange }: { open: boolean, onOpenChange: (open: boolean) => void }) => {
+export const MergeClientsDialog = ({ 
+    open, 
+    onOpenChange, 
+    allClients,
+    allAppointments
+}: { 
+    open: boolean, 
+    onOpenChange: (open: boolean) => void,
+    allClients: Client[],
+    allAppointments: Appointment[]
+}) => {
   const [step, setStep] = useState(1);
   const [email, setEmail] = useState('');
   const [duplicates, setDuplicates] = useState<DuplicateClient[]>([]);
@@ -76,9 +86,9 @@ export const MergeClientsDialog = ({ open, onOpenChange }: { open: boolean, onOp
 
   const totalAppointmentsToTransfer = useMemo(() => {
     return clientsToMerge.reduce((acc, client) => {
-        return acc + appointments.filter(apt => apt.clientId === client.id).length;
+        return acc + allAppointments.filter(apt => apt.clientId === client.id).length;
     }, 0);
-  }, [clientsToMerge])
+  }, [clientsToMerge, allAppointments])
 
   const handleMerge = () => {
       // In a real app, this would trigger a Firestore writeBatch.
@@ -129,7 +139,7 @@ export const MergeClientsDialog = ({ open, onOpenChange }: { open: boolean, onOp
                 <RadioGroup value={primaryClientId || ''} onValueChange={setPrimaryClientId}>
                     <div className="space-y-4">
                     {duplicates.map(client => {
-                        const clientAppointments = appointments.filter(apt => apt.clientId === client.id);
+                        const clientAppointments = allAppointments.filter(apt => apt.clientId === client.id);
                         return (
                             <Label key={client.id} htmlFor={`client-${client.id}`} className="block">
                                 <Card className={`cursor-pointer hover:border-primary ${primaryClientId === client.id ? 'border-primary ring-2 ring-primary' : ''}`}>
