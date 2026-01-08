@@ -1,3 +1,4 @@
+
 'use client';
 
 import { usePathname } from 'next/navigation';
@@ -21,6 +22,7 @@ import {
   DollarSign,
   ArrowRightLeft,
   FileText,
+  Landmark,
 } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '../ui/button';
@@ -56,7 +58,8 @@ const navItems = [
   { href: '/clients', icon: Users, label: 'Clients' },
   { href: '/quotes', icon: FileText, label: 'Quotes' },
   { href: '/transactions', icon: ArrowRightLeft, label: 'Transactions' },
-  { href: '/financials', icon: DollarSign, label: 'Financials' },
+  { href: '/bills', icon: Landmark, label: 'Bills' },
+  { href: '/financials', icon: DollarSign, label: 'Payday' },
   { href: '/ai-cfo', icon: Sparkles, label: 'AI CFO' },
 ];
 
