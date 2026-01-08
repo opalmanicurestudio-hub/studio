@@ -35,7 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Checkbox } from '@/components/ui/checkbox';
+import { AddProductDialog } from '@/components/inventory/AddProductDialog';
 
 
 const ProductCard = ({ item }: { item: InventoryItem }) => {
@@ -134,12 +134,6 @@ const EmptyState = ({ message }: { message: string }) => (
 );
 
 const ReceiveStockDialog = ({ open, onOpenChange }: { open: boolean, onOpenChange: (open: boolean) => void }) => {
-    const mockProducts = [
-        { id: '1', name: 'Pro Color Tube 5N' },
-        { id: '2', name: 'Retail Shine Serum' },
-        { id: '3', name: 'Developer 20 Vol' },
-        { id: '4', name: 'Keratin Shampoo' },
-    ];
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-2xl">
@@ -207,23 +201,6 @@ const ReceiveStockDialog = ({ open, onOpenChange }: { open: boolean, onOpenChang
     );
 };
 
-const AddProductDialog = ({ open, onOpenChange }: { open: boolean, onOpenChange: (open: boolean) => void }) => {
-    return (
-         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent>
-                <DialogHeader>
-                    <DialogTitle>Add Product</DialogTitle>
-                    <DialogDescription>Create a new professional or retail product for your inventory.</DialogDescription>
-                </DialogHeader>
-                <p className="py-8 text-center text-muted-foreground">Product creation form will be here.</p>
-                <DialogFooter>
-                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                    <Button>Save Product</Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    )
-}
 const AddEquipmentDialog = ({ open, onOpenChange }: { open: boolean, onOpenChange: (open: boolean) => void }) => {
     return (
          <Dialog open={open} onOpenChange={onOpenChange}>
@@ -232,7 +209,30 @@ const AddEquipmentDialog = ({ open, onOpenChange }: { open: boolean, onOpenChang
                     <DialogTitle>Add Equipment</DialogTitle>
                     <DialogDescription>Add a new piece of capital equipment to your asset list.</DialogDescription>
                 </DialogHeader>
-                <p className="py-8 text-center text-muted-foreground">Equipment creation form will be here.</p>
+                <div className="grid gap-4 py-4">
+                    <div className="space-y-2">
+                        <Label htmlFor="equipment-name">Equipment Name</Label>
+                        <Input id="equipment-name" placeholder="e.g., Hydraulic Styling Chair" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="purchase-cost">Purchase Cost</Label>
+                            <Input id="purchase-cost" type="number" placeholder="0.00" />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="lifespan">Lifespan (Years)</Label>
+                            <Input id="lifespan" type="number" placeholder="5" />
+                        </div>
+                    </div>
+                     <div className="space-y-2">
+                        <Label htmlFor="purchase-date">Purchase Date</Label>
+                        <Input id="purchase-date" type="date" />
+                    </div>
+                    <div className="space-y-2">
+                        <Label>Image</Label>
+                        <Button variant="outline" className="w-full">Upload Image</Button>
+                    </div>
+                </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
                     <Button>Save Equipment</Button>
@@ -249,7 +249,35 @@ const AddOverheadDialog = ({ open, onOpenChange }: { open: boolean, onOpenChange
                     <DialogTitle>Add Overhead Item</DialogTitle>
                     <DialogDescription>Add a general supply item to your inventory.</DialogDescription>
                 </DialogHeader>
-                <p className="py-8 text-center text-muted-foreground">Overhead item form will be here.</p>
+                 <div className="grid gap-4 py-4">
+                    <div className="space-y-2">
+                        <Label htmlFor="item-name">Item Name</Label>
+                        <Input id="item-name" placeholder="e.g., Disinfectant Wipes" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="purchase-cost">Total Purchase Cost</Label>
+                            <Input id="purchase-cost" type="number" placeholder="0.00" />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="initial-stock">Initial Stock (Units)</Label>
+                            <Input id="initial-stock" type="number" placeholder="1" />
+                        </div>
+                    </div>
+                     <div className="space-y-2">
+                        <Label htmlFor="category">Category</Label>
+                        <Select>
+                            <SelectTrigger>
+                                <SelectValue placeholder="Select a category" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="cleaning">Cleaning Supplies</SelectItem>
+                                <SelectItem value="office">Office Supplies</SelectItem>
+                                <SelectItem value="beverages">Client Beverages</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
                     <Button>Save Item</Button>
@@ -266,7 +294,44 @@ const CreateBundleDialog = ({ open, onOpenChange }: { open: boolean, onOpenChang
                     <DialogTitle>Create Bundle</DialogTitle>
                     <DialogDescription>Group existing retail products into a sellable bundle.</DialogDescription>
                 </DialogHeader>
-                <p className="py-8 text-center text-muted-foreground">Bundle creation form will be here.</p>
+                <div className="grid gap-4 py-4">
+                    <div className="space-y-2">
+                        <Label htmlFor="bundle-name">Bundle Name</Label>
+                        <Input id="bundle-name" placeholder="e.g., Summer Glow Kit" />
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="bundle-price">Bundle Price</Label>
+                        <Input id="bundle-price" type="number" placeholder="0.00" />
+                    </div>
+                    <div className='space-y-2'>
+                        <Label>Component Products</Label>
+                        <Card>
+                            <CardContent className="p-4 text-sm text-muted-foreground text-center">
+                                <p>No products added yet.</p>
+                            </CardContent>
+                        </Card>
+                        <Button variant="outline"><PlusCircle className="mr-2 h-4 w-4" /> Add Products</Button>
+                    </div>
+                    <Card className="bg-muted/50">
+                        <CardHeader>
+                            <CardTitle className="text-base">Profitability Analysis</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-2 text-sm">
+                             <div className="flex justify-between">
+                                <span>Total Component Cost:</span>
+                                <span className="font-medium">$0.00</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span>Net Profit:</span>
+                                <span className="font-medium text-primary">$0.00</span>
+                            </div>
+                             <div className="flex justify-between">
+                                <span>Profit Margin:</span>
+                                <span className="font-medium text-primary">0.0%</span>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
                     <Button>Save Bundle</Button>
