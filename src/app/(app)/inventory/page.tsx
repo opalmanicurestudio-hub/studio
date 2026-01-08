@@ -111,25 +111,6 @@ const ProductCard = ({ item }: { item: InventoryItem }) => {
     )
 }
 
-const ProductShelf = ({ title, items }: { title: string, items: InventoryItem[] }) => {
-    if (items.length === 0) return null;
-
-    return (
-        <Accordion type="single" collapsible defaultValue="item-1" className="w-full">
-            <AccordionItem value="item-1" className='border-b-0'>
-                <AccordionTrigger className='hover:no-underline'>
-                    <h3 className="text-xl font-bold">{title}</h3>
-                </AccordionTrigger>
-                <AccordionContent className="pt-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                        {items.map((item) => <ProductCard key={item.id} item={item} />)}
-                    </div>
-                </AccordionContent>
-            </AccordionItem>
-        </Accordion>
-    );
-}
-
 const EmptyState = ({ message }: { message: string }) => (
     <Card>
         <CardContent className="text-center py-20">
@@ -448,10 +429,10 @@ export default function InventoryPage() {
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Inventory Hub" />
-      <main className="flex-1 p-4 md:p-8 space-y-4">
-        <Tabs defaultValue="professional" className="w-full space-y-4">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center">
-            <ScrollArea className="w-full whitespace-nowrap md:w-auto">
+      <main className="flex-1 p-4 md:p-8 space-y-6">
+        <Tabs defaultValue="professional" className="w-full">
+          <div className='flex flex-col gap-4'>
+            <ScrollArea>
               <TabsList className="inline-flex">
                 <TabsTrigger value="professional">Professional</TabsTrigger>
                 <TabsTrigger value="retail">Retail</TabsTrigger>
@@ -459,11 +440,11 @@ export default function InventoryPage() {
                 <TabsTrigger value="equipment">Equipment</TabsTrigger>
                 <TabsTrigger value="locations">Locations</TabsTrigger>
               </TabsList>
-              <ScrollBar orientation="horizontal" className="md:hidden" />
+              <ScrollBar orientation="horizontal" />
             </ScrollArea>
-             <div className="flex w-full flex-col items-stretch gap-2 sm:flex-row md:ml-auto md:w-auto">
+             <div className="flex w-full flex-col items-stretch gap-2 sm:flex-row">
                 <Button className="w-full sm:w-auto" onClick={() => setIsReceiveStockOpen(true)}><Truck className="mr-2 h-4 w-4" /> Receive Stock</Button>
-                <div className="flex w-full items-stretch gap-2 sm:w-auto">
+                <div className="flex w-full items-stretch gap-2 sm:w-auto sm:ml-auto">
                   <Button variant="outline" className="flex-1" asChild>
                     <Link href="/inventory/labels">
                       <Printer className="mr-2 h-4 w-4" /> Labels
@@ -482,41 +463,76 @@ export default function InventoryPage() {
                   </DropdownMenu>
                 </div>
             </div>
-          </div>
-            
-          <div className='flex flex-col sm:flex-row gap-4'>
-             <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input placeholder="Search inventory..." className="pl-9" />
-            </div>
-            <div className='flex items-center gap-2'>
-              <Button variant="outline" className='flex-1 sm:flex-initial' onClick={() => setIsScannerOpen(true)}>
-                <QrCode className="mr-2 h-4 w-4" />
-                Scan
-              </Button>
-              <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                     <Button variant="outline" className='flex-1 sm:flex-initial'><SlidersHorizontal className="mr-2 h-4 w-4" /> Filters</Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem>Filter by Status</DropdownMenuItem>
-                    <DropdownMenuItem>Filter by Category</DropdownMenuItem>
-                     <DropdownMenuItem>Filter by Vendor</DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+            <div className='flex flex-col sm:flex-row gap-4'>
+              <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input placeholder="Search inventory..." className="pl-9" />
+              </div>
+              <div className='flex items-center gap-2'>
+                <Button variant="outline" className='flex-1 sm:flex-initial' onClick={() => setIsScannerOpen(true)}>
+                  <QrCode className="mr-2 h-4 w-4" />
+                  Scan
+                </Button>
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" className='flex-1 sm:flex-initial'><SlidersHorizontal className="mr-2 h-4 w-4" /> Filters</Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem>Filter by Status</DropdownMenuItem>
+                      <DropdownMenuItem>Filter by Category</DropdownMenuItem>
+                      <DropdownMenuItem>Filter by Vendor</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+              </div>
             </div>
           </div>
 
-          <div className="mt-2 space-y-4">
-            <TabsContent value="professional" className="m-0 space-y-4">
-              {professionalColor.length === 0 && professionalCare.length === 0 && professionalStyling.length === 0 ? (
+          <div className="mt-6 space-y-8">
+            <TabsContent value="professional" className="m-0 space-y-6">
+              {professionalColor.length === 0 && professionalCare.length === 0 && professionalStyling.length === 0 && professionalTools.length === 0 ? (
                 <EmptyState message="No professional products yet. Add one to get started." />
               ) : (
                 <>
-                  <ProductShelf title="Color" items={professionalColor} />
-                  <ProductShelf title="Styling" items={professionalStyling} />
-                  <ProductShelf title="Care" items={professionalCare} />
-                  <ProductShelf title="Tools" items={professionalTools} />
+                  <Accordion type="single" collapsible defaultValue="color" className="w-full">
+                      <AccordionItem value="color">
+                          <AccordionTrigger className='text-xl font-bold hover:no-underline'>Color</AccordionTrigger>
+                          <AccordionContent className="pt-4">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                                  {professionalColor.map((item) => <ProductCard key={item.id} item={item} />)}
+                              </div>
+                          </AccordionContent>
+                      </AccordionItem>
+                  </Accordion>
+                  <Accordion type="single" collapsible className="w-full">
+                      <AccordionItem value="styling">
+                           <AccordionTrigger className='text-xl font-bold hover:no-underline'>Styling</AccordionTrigger>
+                           <AccordionContent className="pt-4">
+                               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                                   {professionalStyling.map((item) => <ProductCard key={item.id} item={item} />)}
+                               </div>
+                           </AccordionContent>
+                      </AccordionItem>
+                  </Accordion>
+                  <Accordion type="single" collapsible className="w-full">
+                      <AccordionItem value="care">
+                           <AccordionTrigger className='text-xl font-bold hover:no-underline'>Care</AccordionTrigger>
+                           <AccordionContent className="pt-4">
+                               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                                   {professionalCare.map((item) => <ProductCard key={item.id} item={item} />)}
+                               </div>
+                           </AccordionContent>
+                      </AccordionItem>
+                  </Accordion>
+                   <Accordion type="single" collapsible className="w-full">
+                      <AccordionItem value="tools">
+                           <AccordionTrigger className='text-xl font-bold hover:no-underline'>Tools</AccordionTrigger>
+                           <AccordionContent className="pt-4">
+                               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                                   {professionalTools.map((item) => <ProductCard key={item.id} item={item} />)}
+                               </div>
+                           </AccordionContent>
+                      </AccordionItem>
+                  </Accordion>
                 </>
               )}
             </TabsContent>
