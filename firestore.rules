@@ -209,5 +209,33 @@ service cloud.firestore {
       allow update: if isTenantOwner(tenantId) && resource != null && isTenantIdImmutable();
       allow delete: if isTenantOwner(tenantId) && resource != null;
     }
+
+    /**
+     * @description Rules for recurring bills. This data is private.
+     * @path /tenants/{tenantId}/bills/{billId}
+     * @principle Enforces strict data privacy for a tenant's financial information.
+     */
+    match /tenants/{tenantId}/bills/{billId} {
+        allow read, write: if isTenantOwner(tenantId);
+    }
+    
+    /**
+     * @description Rules for all financial profiles. This data is private.
+     * @path /tenants/{tenantId}/{collection}/{profileId}
+     * @principle Enforces strict data privacy for a tenant's financial planning data.
+     */
+    match /tenants/{tenantId}/{collection}/{profileId} 
+        where collection in ['lifestyleProfiles', 'businessProfiles', 'scheduleProfiles'] {
+      allow read, write: if isTenantOwner(tenantId);
+    }
+
+    /**
+     * @description Rules for financial transactions. This data is private.
+     * @path /tenants/{tenantId}/transactions/{transactionId}
+     * @principle Enforces strict data privacy for a tenant's financial records.
+     */
+    match /tenants/{tenantId}/transactions/{transactionId} {
+        allow read, write: if isTenantOwner(tenantId);
+    }
   }
 }

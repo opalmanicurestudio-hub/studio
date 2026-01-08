@@ -36,7 +36,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { transactions, type Transaction } from '@/lib/financial-data';
+import { type Transaction } from '@/lib/financial-data';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { Input } from '@/components/ui/input';
@@ -59,6 +59,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { DateRange } from 'react-day-picker';
 import { cn } from '@/lib/utils';
+import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
+import { collection } from 'firebase/firestore';
 
 const TransactionIcon = ({ type }: { type: Transaction['type'] }) => {
   const iconClass = "h-5 w-5";
@@ -76,16 +78,17 @@ const TransactionIcon = ({ type }: { type: Transaction['type'] }) => {
   }
 };
 
-const TransactionFilters = () => {
+const TransactionFilters = ({ transactions }: { transactions: Transaction[] }) => {
     const [date, setDate] = React.useState<DateRange | undefined>({
         from: new Date(2024, 0, 20),
         to: new Date(),
     });
     
     const categories = useMemo(() => {
+        if (!transactions) return [];
         const allCategories = transactions.map(t => t.category);
         return [...new Set(allCategories)];
-    }, []);
+    }, [transactions]);
 
   return (
     <Card className="h-fit sticky top-20">
@@ -293,13 +296,30 @@ const TransactionCard = ({ transaction }: { transaction: Transaction }) => {
 };
 
 export default function LedgerPage() {
+  const { firestore } = useFirebase();
+  // TODO: Replace with dynamic tenant ID
+  const tenantId = 'tenant-abc';
+
+  const transactionsQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, 'tenants', tenantId, 'transactions');
+  }, [firestore, tenantId]);
+
+  const { data: transactions, isLoading } = useCollection<Transaction>(transactionsQuery);
+
+  const sortedTransactions = useMemo(() => {
+    if (!transactions) return [];
+    return [...transactions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [transactions]);
+
+
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Ledger" />
       <main className="flex-1 p-4 md:p-8">
         <div className="grid md:grid-cols-3 lg:grid-cols-4 gap-8">
           <div className="md:col-span-1 lg:col-span-1">
-            <TransactionFilters />
+            <TransactionFilters transactions={sortedTransactions} />
           </div>
           <div className="md:col-span-2 lg:col-span-3 space-y-4">
             <div className="flex items-center justify-end">
@@ -319,7 +339,12 @@ export default function LedgerPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {transactions.map((transaction) => (
+                    {isLoading && (
+                        <TableRow>
+                            <TableCell colSpan={6} className="text-center">Loading transactions...</TableCell>
+                        </TableRow>
+                    )}
+                    {!isLoading && sortedTransactions.map((transaction) => (
                       <TransactionRow key={transaction.id} transaction={transaction} />
                     ))}
                   </TableBody>
@@ -327,7 +352,8 @@ export default function LedgerPage() {
               </CardContent>
             </Card>
             <div className="md:hidden space-y-4">
-                 {transactions.map((transaction) => (
+                 {isLoading && <p className="text-center text-muted-foreground">Loading transactions...</p>}
+                 {!isLoading && sortedTransactions.map((transaction) => (
                     <TransactionCard key={transaction.id} transaction={transaction} />
                 ))}
             </div>

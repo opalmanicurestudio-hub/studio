@@ -251,6 +251,44 @@
         }
       },
       "required": ["id", "name", "isActive"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "type": "object",
+      "description": "Represents a single financial transaction (income, expense, etc.) for a tenant.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "description": {
+          "type": "string"
+        },
+        "clientOrVendor": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["income", "expense", "reversal", "payment"]
+        },
+        "context": {
+          "type": "string",
+          "enum": ["Business", "Personal"]
+        },
+        "category": {
+          "type": "string"
+        },
+        "amount": {
+          "type": "number"
+        },
+        "hasReceipt": {
+          "type": "boolean"
+        }
+      },
+      "required": ["id", "date", "description", "type", "context", "category", "amount"]
     }
   },
   "auth": {
@@ -318,6 +356,12 @@
         "$ref": "#/entities/ScheduleProfile"
       },
       "description": "Work schedule profiles for a specific tenant."
+    },
+    "/tenants/{tenantId}/transactions/{transactionId}": {
+      "schema": {
+        "$ref": "#/entities/Transaction"
+      },
+      "description": "Financial transaction log for a specific tenant."
     }
   }
 }
