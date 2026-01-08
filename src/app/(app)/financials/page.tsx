@@ -70,15 +70,37 @@ const BillItemCard = ({
 }) => (
   <Card className="w-full shrink-0 sm:w-72">
     <CardContent className="p-3">
-      <div className="space-y-2">
-        {isCustom ? (
-          <Input defaultValue={title} className="font-semibold border-dashed" />
-        ) : (
-          <Label className="font-semibold">{title}</Label>
-        )}
-        <div className="relative">
-          <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input type="number" placeholder="0.00" className="pl-8" />
+      <div className="space-y-3">
+        <div className="space-y-2">
+            {isCustom ? (
+            <Input defaultValue={title} className="font-semibold border-dashed" />
+            ) : (
+            <Label className="font-semibold">{title}</Label>
+            )}
+            <div className="relative">
+            <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input type="number" placeholder="0.00" className="pl-8" />
+            </div>
+        </div>
+        <div className='space-y-2 text-xs'>
+            <div className='space-y-1'>
+                <Label className='text-muted-foreground'>Payment URL</Label>
+                <Input placeholder='https://...' className='h-8 text-xs' />
+            </div>
+            <div className='grid grid-cols-3 gap-2'>
+                <div className='space-y-1'>
+                    <Label className='text-muted-foreground'>Due Day</Label>
+                    <Input type='number' placeholder='15' className='h-8 text-xs' />
+                </div>
+                 <div className='space-y-1'>
+                    <Label className='text-muted-foreground'>Late By</Label>
+                    <Input type='number' placeholder='20' className='h-8 text-xs' />
+                </div>
+                 <div className='space-y-1'>
+                    <Label className='text-muted-foreground'>Late Fee</Label>
+                    <Input type='number' placeholder='25.00' className='h-8 text-xs' />
+                </div>
+            </div>
         </div>
       </div>
     </CardContent>
@@ -425,16 +447,21 @@ export default function FinancialFoundationPage() {
                         </TabsContent>
                     </Tabs>
                 </div>
-                <div className="hidden lg:block">
-                    <TmhrBreakdownCard />
+                <div className="lg:col-span-1">
+                    <div className="hidden lg:block">
+                        <TmhrBreakdownCard />
+                    </div>
                 </div>
-                 <div className="lg:hidden mt-8 space-y-4">
-                    <h2 className="text-2xl font-bold text-center">Your Financial Snapshot</h2>
-                    <TmhrBreakdownCard />
-                 </div>
+            </div>
+            
+            <div className="lg:hidden mt-8 space-y-4">
+                <h2 className="text-2xl font-bold text-center">Your Financial Snapshot</h2>
+                <TmhrBreakdownCard />
             </div>
         </div>
       </main>
     </div>
   );
 }
+
+    
