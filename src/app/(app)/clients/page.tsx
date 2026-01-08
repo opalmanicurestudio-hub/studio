@@ -1,5 +1,6 @@
 'use client';
 
+import React, { useState } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -10,7 +11,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Search, FileDown, UserPlus } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Search, FileDown, UserPlus, Merge } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,6 +23,8 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { formatDistanceToNow } from 'date-fns';
 import { Input } from '@/components/ui/input';
+import { AddClientDialog } from '@/components/clients/AddClientDialog';
+import { MergeClientsDialog } from '@/components/clients/MergeClientsDialog';
 
 const ClientCard = ({ client }: { client: any }) => {
     return (
@@ -64,6 +67,9 @@ const ClientCard = ({ client }: { client: any }) => {
 }
 
 export default function ClientsPage() {
+  const [isAddClientOpen, setIsAddClientOpen] = useState(false);
+  const [isMergeClientsOpen, setIsMergeClientsOpen] = useState(false);
+
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Clients" />
@@ -82,8 +88,8 @@ export default function ClientsPage() {
                     </div>
                     <div className="ml-auto flex w-full flex-col sm:flex-row sm:w-auto items-center gap-2">
                         <Button variant="outline" className='w-full sm:w-auto'><FileDown className="mr-2 h-4 w-4" /> Export</Button>
-                        <Button variant="outline" className='w-full sm:w-auto'><UserPlus className="mr-2 h-4 w-4" /> Merge</Button>
-                        <Button className='w-full sm:w-auto'><PlusCircle className="mr-2 h-4 w-4" /> New Client</Button>
+                        <Button variant="outline" className='w-full sm:w-auto' onClick={() => setIsMergeClientsOpen(true)}><Merge className="mr-2 h-4 w-4" /> Merge</Button>
+                        <Button className='w-full sm:w-auto' onClick={() => setIsAddClientOpen(true)}><UserPlus className="mr-2 h-4 w-4" /> New Client</Button>
                     </div>
                 </div>
             </CardHeader>
@@ -97,6 +103,10 @@ export default function ClientsPage() {
         </Card>
 
       </main>
+
+      <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} />
+      <MergeClientsDialog open={isMergeClientsOpen} onOpenChange={setIsMergeClientsOpen} />
+
     </div>
   );
 }
