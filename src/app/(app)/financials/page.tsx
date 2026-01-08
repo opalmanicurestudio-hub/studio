@@ -172,7 +172,7 @@ const BillEditor = ({
 }) => {
   const total = useMemo(() => {
     return categories.reduce((acc, category) => {
-      return acc + category.bills.reduce((billAcc, bill) => billAcc + bill.amount, 0);
+      return acc + category.bills.reduce((billAcc, bill) => billAcc + (bill.amount || 0), 0);
     }, 0);
   }, [categories]);
 
@@ -211,7 +211,6 @@ const BillEditor = ({
               </AccordionTrigger>
               <AccordionContent className="pt-4">
                   <div className="flex flex-col items-start gap-4">
-                      {/* <BillItemCard title="Custom Expense" isCustom isEditing={isEditing}/> */}
                       {isEditing && (
                           <Button variant="outline"><PlusCircle className="w-4 h-4 mr-2" />Add Custom Cost</Button>
                       )}
@@ -238,20 +237,18 @@ const BillEditor = ({
 const LifestyleTab = ({ isEditing, profileData, onProfileChange }: {
     isEditing: boolean;
     profileData: any;
-    onProfileChange: (newCategories: any) => void;
+    onProfileChange: (newProfileData: any) => void;
 }) => {
     const handleBillChange = (categoryName: string, billTitle: string, newAmount: number) => {
         const newCategories = profileData.categories.map((cat: any) => {
             if (cat.name === categoryName) {
-                return {
-                    ...cat,
-                    bills: cat.bills.map((bill: any) => {
-                        if (bill.title === billTitle) {
-                            return { ...bill, amount: newAmount };
-                        }
-                        return bill;
-                    })
-                };
+                const newBills = cat.bills.map((bill: any) => {
+                    if (bill.title === billTitle) {
+                        return { ...bill, amount: newAmount };
+                    }
+                    return bill;
+                });
+                return { ...cat, bills: newBills };
             }
             return cat;
         });
@@ -276,20 +273,18 @@ const LifestyleTab = ({ isEditing, profileData, onProfileChange }: {
 const BusinessTab = ({ isEditing, profileData, onProfileChange }: {
     isEditing: boolean;
     profileData: any;
-    onProfileChange: (newCategories: any) => void;
+    onProfileChange: (newProfileData: any) => void;
 }) => {
      const handleBillChange = (categoryName: string, billTitle: string, newAmount: number) => {
         const newCategories = profileData.categories.map((cat: any) => {
             if (cat.name === categoryName) {
-                return {
-                    ...cat,
-                    bills: cat.bills.map((bill: any) => {
-                        if (bill.title === billTitle) {
-                            return { ...bill, amount: newAmount };
-                        }
-                        return bill;
-                    })
-                };
+                const newBills = cat.bills.map((bill: any) => {
+                    if (bill.title === billTitle) {
+                        return { ...bill, amount: newAmount };
+                    }
+                    return bill;
+                });
+                return { ...cat, bills: newBills };
             }
             return cat;
         });
@@ -395,11 +390,15 @@ const FinancialProfileManager = ({
 
   const handleAddProfile = () => {
     const newProfileName = `New ${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} Profile`;
-    const newProfileData = activeTab === 'lifestyle'
-      ? { categories: JSON.parse(JSON.stringify(lifestyleCategoriesTemplate)) }
-      : activeTab === 'business'
-      ? { categories: JSON.parse(JSON.stringify(businessCategoriesTemplate)) }
-      : {};
+    
+    let newProfileData;
+    if (activeTab === 'lifestyle') {
+      newProfileData = { categories: JSON.parse(JSON.stringify(lifestyleCategoriesTemplate)) };
+    } else if (activeTab === 'business') {
+      newProfileData = { categories: JSON.parse(JSON.stringify(businessCategoriesTemplate)) };
+    } else {
+        newProfileData = {};
+    }
 
     const newProfile = {
       id: `${activeTab.slice(0, 2)}${Date.now()}`,
@@ -490,7 +489,7 @@ const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal }: { lifestyleTotal: 
     return (
     <Card>
         <CardHeader>
-            <CardTitle>Your Financial Snapshot</CardTitle>
+            <CardTitle>Financial Snapshot</CardTitle>
             <CardDescription>Select your profiles to see the magic.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -570,14 +569,14 @@ export default function FinancialFoundationPage() {
     const lifestyleTotal = useMemo(() => {
         if (!activeLifestyleProfile) return 0;
         return activeLifestyleProfile.categories.reduce((acc, category) => {
-            return acc + category.bills.reduce((billAcc, bill) => billAcc + bill.amount, 0);
+            return acc + category.bills.reduce((billAcc, bill) => billAcc + (bill.amount || 0), 0);
         }, 0);
     }, [activeLifestyleProfile]);
 
     const businessTotal = useMemo(() => {
         if (!activeBusinessProfile) return 0;
         return activeBusinessProfile.categories.reduce((acc, category) => {
-            return acc + category.bills.reduce((billAcc, bill) => billAcc + bill.amount, 0);
+            return acc + category.bills.reduce((billAcc, bill) => billAcc + (bill.amount || 0), 0);
         }, 0);
     }, [activeBusinessProfile]);
 
@@ -654,3 +653,5 @@ export default function FinancialFoundationPage() {
     </div>
   );
 }
+
+    
