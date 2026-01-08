@@ -10,7 +10,6 @@ import {
   CardTitle,
   CardFooter,
 } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, File, MoreHorizontal, Database, Camera, AlertTriangle, Truck, Search, SlidersHorizontal, QrCode, Package, Hammer, Beaker, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer } from 'lucide-react';
 import { type InventoryItem, inventory as initialInventory } from '@/lib/data';
@@ -52,15 +51,15 @@ import { Carousel, CarouselContent, CarouselItem } from '@/components/ui/carouse
 const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void }) => {
     return (
         <Card className={cn("w-full transition-all duration-200 hover:shadow-xl hover:-translate-y-1", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
-            <CardContent className="p-4 space-y-4">
-                <div className="flex items-start justify-between gap-4">
+            <CardContent className="p-3 space-y-3">
+                <div className="flex items-start justify-between gap-3">
                     <div className='flex items-start gap-3 flex-1 min-w-0'>
                         <div className='w-12 h-12 bg-muted rounded-md flex-shrink-0'>
                             <Image src={item.id ? `https://picsum.photos/seed/inv${item.id}/100/100` : ''} alt={item.name} width={48} height={48} className='rounded-md' data-ai-hint="product photo"/>
                         </div>
                         <div className='flex-1 min-w-0'>
-                            <p className="font-semibold text-base leading-snug truncate">{item.name}</p>
-                            <p className="text-sm text-muted-foreground">{item.category}</p>
+                            <p className="font-semibold text-sm leading-snug truncate">{item.name}</p>
+                            <p className="text-xs text-muted-foreground">{item.category}</p>
                         </div>
                     </div>
                      <DropdownMenu>
@@ -91,7 +90,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment }: { it
                     </DropdownMenu>
                 </div>
                 
-                 <div className="flex items-center justify-between text-sm">
+                 <div className="flex items-center justify-between text-xs">
                      <Badge variant="outline" className="flex items-center gap-1.5">
                         <MapPin className="h-3 w-3" />
                         Back Room
@@ -104,31 +103,31 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment }: { it
                 </div>
                 
                 <Card className='bg-muted/50'>
-                    <CardContent className='p-3 text-center'>
+                    <CardContent className='p-2 text-center'>
                         <p className='text-xs text-muted-foreground'>Total On Hand</p>
-                        <p className='text-3xl font-bold'>{item.stock}</p>
+                        <p className='text-2xl font-bold'>{item.stock}</p>
                         {item.isExperimentActive ? (
                              <p className='text-xs text-purple-500 font-medium'>
-                                {item.experimentUses} uses logged in current experiment
+                                {item.experimentUses} uses logged
                             </p>
                         ) : (
-                             <p className='text-xs text-muted-foreground'>30 uses left in open container</p>
+                             <p className='text-xs text-muted-foreground'>30 uses left</p>
                         )}
                     </CardContent>
                 </Card>
 
                 <div className='space-y-2'>
-                    <Button variant='secondary' className='w-full bg-yellow-100 text-yellow-800 hover:bg-yellow-200 border-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-400 dark:hover:bg-yellow-900/60 dark:border-yellow-600/30'>Low Stock</Button>
-                    <Button variant='outline' className='w-full'>Log 1 Use</Button>
+                    <Button variant='secondary' size="sm" className='w-full h-8 bg-yellow-100 text-yellow-800 hover:bg-yellow-200 border-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-400 dark:hover:bg-yellow-900/60 dark:border-yellow-600/30'>Low Stock</Button>
+                    <Button variant='outline' size="sm" className='w-full h-8'>Log 1 Use</Button>
                 </div>
                 
                 <Accordion type="single" collapsible className="w-full">
                     <AccordionItem value="batches" className='border-0'>
-                        <AccordionTrigger className='p-2 text-sm text-muted-foreground justify-center gap-2 hover:no-underline rounded-md hover:bg-muted/50'>
-                             <Database className='w-4 h-4' /> Batches (1)
+                        <AccordionTrigger className='p-2 text-xs text-muted-foreground justify-center gap-2 hover:no-underline rounded-md hover:bg-muted/50 h-8'>
+                             <Database className='w-3 h-3' /> Batches (1)
                         </AccordionTrigger>
                         <AccordionContent className='pt-2'>
-                            <p className='text-sm text-muted-foreground'>Batch details would go here.</p>
+                            <p className='text-xs text-muted-foreground'>Batch details would go here.</p>
                         </AccordionContent>
                     </AccordionItem>
                 </Accordion>
@@ -582,41 +581,47 @@ export default function InventoryPage() {
           )
         ),
         retail: retailItems.length > 0 ? (
-          <Carousel opts={{ align: "start" }} className="w-full pl-4">
-            <CarouselContent className="-ml-4">
-                {retailItems.map((item) => (
-                   <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                        <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/></div>
-                   </CarouselItem>
-                ))}
-            </CarouselContent>
-          </Carousel>
+          <div className="pl-4">
+            <Carousel opts={{ align: "start" }} className="w-full">
+              <CarouselContent className="-ml-4">
+                  {retailItems.map((item) => (
+                    <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
+                          <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/></div>
+                    </CarouselItem>
+                  ))}
+              </CarouselContent>
+            </Carousel>
+          </div>
         ) : (
           <EmptyState message="No retail items yet. Add one to get started." />
         ),
         overhead: overheadItems.length > 0 ? (
-          <Carousel opts={{ align: "start" }} className="w-full pl-4">
-            <CarouselContent className="-ml-4">
-                {overheadItems.map((item) => (
-                   <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                     <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/></div>
-                   </CarouselItem>
-                ))}
-            </CarouselContent>
-          </Carousel>
+          <div className="pl-4">
+            <Carousel opts={{ align: "start" }} className="w-full">
+              <CarouselContent className="-ml-4">
+                  {overheadItems.map((item) => (
+                    <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
+                      <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/></div>
+                    </CarouselItem>
+                  ))}
+              </CarouselContent>
+            </Carousel>
+          </div>
         ) : (
           <EmptyState message="No overhead items yet. Add one to get started." />
         ),
         equipment: equipmentItems.length > 0 ? (
-          <Carousel opts={{ align: "start" }} className="w-full pl-4">
-            <CarouselContent className="-ml-4">
-                {equipmentItems.map((item) => (
-                   <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                     <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/></div>
-                   </CarouselItem>
-                ))}
-            </CarouselContent>
-          </Carousel>
+          <div className="pl-4">
+            <Carousel opts={{ align: "start" }} className="w-full">
+              <CarouselContent className="-ml-4">
+                  {equipmentItems.map((item) => (
+                    <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
+                      <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/></div>
+                    </CarouselItem>
+                  ))}
+              </CarouselContent>
+            </Carousel>
+          </div>
         ) : (
           <EmptyState message="No equipment items yet. Add one to get started." />
         ),
@@ -695,13 +700,20 @@ export default function InventoryPage() {
                             </SelectContent>
                         </Select>
                     ) : (
-                      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                        <TabsList>
-                          {tabOptions.map(option => (
-                            <TabsTrigger key={option.value} value={option.value}>{option.label}</TabsTrigger>
+                      <ScrollArea className="w-full whitespace-nowrap rounded-md">
+                        <div className="flex w-max space-x-2">
+                           {tabOptions.map(option => (
+                            <Button
+                              key={option.value}
+                              variant={activeTab === option.value ? 'default' : 'outline'}
+                              onClick={() => setActiveTab(option.value)}
+                            >
+                              {option.label}
+                            </Button>
                           ))}
-                        </TabsList>
-                      </Tabs>
+                        </div>
+                        <ScrollBar orientation="horizontal" />
+                      </ScrollArea>
                     )}
                 </div>
                 <div className="flex w-full sm:w-auto items-center gap-2">

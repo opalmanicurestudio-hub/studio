@@ -163,21 +163,21 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr }: { service: Service, o
 
   return (
     <Card className="overflow-hidden w-full max-w-sm shrink-0 transition-all duration-200 hover:shadow-xl hover:-translate-y-1">
-      <CardContent className="p-4 space-y-4">
-        <div className="flex items-start gap-4">
-          <div className="w-24 h-24 bg-muted rounded-md flex-shrink-0">
+      <CardContent className="p-3 space-y-3">
+        <div className="flex items-start gap-3">
+          <div className="w-20 h-20 bg-muted rounded-md flex-shrink-0">
              <Image 
                 src={service.imageUrl || `https://picsum.photos/seed/svc${service.id}/200/200`} 
                 alt={service.name} 
-                width={96} 
-                height={96} 
+                width={80} 
+                height={80} 
                 className='rounded-md object-cover h-full w-full' 
                 data-ai-hint="manicure nails" 
             />
           </div>
           <div className="flex-1 space-y-1">
             <div className="flex justify-between items-start">
-              <h3 className="font-semibold text-lg">{service.name}</h3>
+              <h3 className="font-semibold text-base">{service.name}</h3>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button aria-haspopup="true" size="icon" variant="ghost" className='-mt-1 h-8 w-8 flex-shrink-0'>
@@ -196,25 +196,25 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr }: { service: Service, o
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
-            <p className="text-sm text-muted-foreground flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" /> {service.duration} min {totalPadding > 0 && <span className='text-muted-foreground/50'>(+{totalPadding} pad)</span>}</p>
-            <p className="text-sm text-muted-foreground flex items-center gap-1.5"><DollarSign className="w-3.5 h-3.5" /> Deposit</p>
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5"><Clock className="w-3 h-3" /> {service.duration} min {totalPadding > 0 && <span className='text-muted-foreground/50'>(+{totalPadding} pad)</span>}</p>
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5"><DollarSign className="w-3 h-3" /> Deposit</p>
           </div>
         </div>
         
-        <div className="space-y-2">
-            <Progress value={profitPercentage} className={`h-2 ${service.profit >= 0 ? 'text-green-500' : 'text-destructive'}`} />
-            <div className="grid grid-cols-3 gap-2 text-sm">
+        <div className="space-y-1.5">
+            <Progress value={profitPercentage} className={`h-1.5 ${service.profit >= 0 ? 'text-green-500' : 'text-destructive'}`} />
+            <div className="grid grid-cols-3 gap-2 text-xs">
                 <div>
                     <p className="text-muted-foreground">Price</p>
-                    <p className="font-semibold text-base">${service.price.toFixed(2)}</p>
+                    <p className="font-semibold text-sm">${service.price.toFixed(2)}</p>
                 </div>
                  <div className='text-center'>
                     <p className="text-muted-foreground">Cost</p>
-                    <p className="font-semibold text-base text-destructive">${service.cost.toFixed(2)}</p>
+                    <p className="font-semibold text-sm text-destructive">${service.cost.toFixed(2)}</p>
                 </div>
                  <div className='text-right'>
                     <p className="text-muted-foreground">Profit</p>
-                    <p className={`font-semibold text-base ${service.profit >= 0 ? 'text-primary' : 'text-destructive'}`}>${service.profit.toFixed(2)}</p>
+                    <p className={`font-semibold text-sm ${service.profit >= 0 ? 'text-primary' : 'text-destructive'}`}>${service.profit.toFixed(2)}</p>
                 </div>
             </div>
         </div>
