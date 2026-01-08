@@ -41,6 +41,7 @@ import { useToast } from '@/hooks/use-toast';
 
 const ServiceCard = ({ service, onProfitTesterOpen }: { service: Service, onProfitTesterOpen: (service: Service) => void }) => {
   const profitPercentage = service.price > 0 ? (service.profit / service.price) * 100 : 0;
+  const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
 
   return (
     <Card className="overflow-hidden w-full max-w-sm shrink-0">
@@ -81,7 +82,7 @@ const ServiceCard = ({ service, onProfitTesterOpen }: { service: Service, onProf
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
-            <p className="text-sm text-muted-foreground flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" /> {service.duration} min <span className='text-muted-foreground/50'>(+20 pad)</span></p>
+            <p className="text-sm text-muted-foreground flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" /> {service.duration} min {totalPadding > 0 && <span className='text-muted-foreground/50'>(+{totalPadding} pad)</span>}</p>
             <p className="text-sm text-muted-foreground flex items-center gap-1.5"><DollarSign className="w-3.5 h-3.5" /> Deposit</p>
           </div>
         </div>
@@ -199,8 +200,9 @@ export default function ServicesPage() {
   const profitability = useMemo(() => {
     if (!selectedService) return { profit: 0, margin: 0, breakEvenPoint: 0, timeCost: 0 };
     
-    const timeCost = (selectedService.duration / 60) * tmhr;
-    const productCost = selectedService.price - selectedService.profit - timeCost;
+    const totalDuration = (selectedService.duration || 0) + (selectedService.padBefore || 0) + (selectedService.padAfter || 0);
+    const timeCost = (totalDuration / 60) * tmhr;
+    const productCost = selectedService.cost - timeCost; // cost on service is already total, so we subtract timecost to get product cost
     
     const breakEvenPoint = timeCost + productCost;
 
@@ -232,9 +234,9 @@ export default function ServicesPage() {
   }, {} as Record<string, Service[]>), [addOnServices]);
   
   const initialCategories = useMemo(() => {
-    const allCategories = services.map(s => s.category).filter((c): c is string => !!c);
+    const allCategories = initialServices.map(s => s.category).filter((c): c is string => !!c);
     return [...new Set(allCategories)];
-  }, [services]);
+  }, []);
 
   const [serviceCategories, setServiceCategories] = useState(initialCategories);
 
@@ -357,7 +359,7 @@ export default function ServicesPage() {
             </div>
              <div className='text-xs text-muted-foreground space-y-1 text-center'>
                 <p>Break-Even Point (Time + Products): ${profitability.breakEvenPoint?.toFixed(2) || '0.00'}</p>
-                <p>Time Cost ({selectedService?.duration} min): ${profitability.timeCost?.toFixed(2) || '0.00'}</p>
+                <p>Time Cost ({(selectedService?.duration || 0) + (selectedService?.padBefore || 0) + (selectedService?.padAfter || 0)} min): ${profitability.timeCost?.toFixed(2) || '0.00'}</p>
              </div>
           </div>
           <DialogFooter>
@@ -382,6 +384,7 @@ export default function ServicesPage() {
   );
 
     
+
 
 
 

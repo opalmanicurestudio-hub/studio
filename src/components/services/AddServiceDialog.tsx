@@ -42,7 +42,7 @@ import { z } from 'zod';
 const serviceSchema = z.object({
     name: z.string().min(1, 'Service name is required'),
     categoryId: z.string().optional(),
-    duration: z.number({ required_error: 'Duration is required.' }).min(1, 'Duration must be at least 1 minute'),
+    duration: z.number({ invalid_type_error: 'Duration is required.' }).min(1, 'Duration must be at least 1 minute'),
     padBefore: z.number().optional(),
     padAfter: z.number().optional(),
     description: z.string().optional(),
@@ -418,19 +418,26 @@ const PricingForm = () => {
     const margin = watch('margin', 60);
     const manualPrice = watch('price');
     const duration = watch('duration', 0);
+    const padBefore = watch('padBefore', 0);
+    const padAfter = watch('padAfter', 0);
     const selectedProducts = watch('products', []);
     const selectedEquipment = watch('equipment', []);
     
-    const timeCost = useMemo(() => (duration / 60) * tmhr, [duration, tmhr]);
+    const timeCost = useMemo(() => {
+        const totalDuration = (duration || 0) + (padBefore || 0) + (padAfter || 0);
+        return (totalDuration / 60) * tmhr;
+    }, [duration, padBefore, padAfter, tmhr]);
+
     const productCost = useMemo(() => selectedProducts.reduce((acc: number, p: any) => acc + (p.costPerUnit || 0), 0), [selectedProducts]);
     
     const equipmentDepreciation = useMemo(() => {
         return selectedEquipment.reduce((acc: any, eq: any) => {
+            const totalDuration = (duration || 0) + (padBefore || 0) + (padAfter || 0);
             const lifespanInMinutes = (eq.lifespanYears || 5) * 365 * 8 * 60; // Assuming 8hr work day
             const costPerMinute = (eq.cost || 0) / lifespanInMinutes;
-            return acc + (costPerMinute * duration);
+            return acc + (costPerMinute * totalDuration);
         }, 0);
-    }, [selectedEquipment, duration]);
+    }, [selectedEquipment, duration, padBefore, padAfter]);
 
     const breakEvenCost = timeCost + productCost + equipmentDepreciation;
 
@@ -591,13 +598,17 @@ export const AddServiceDialog = ({
       const price = data.price || 0;
       
       const duration = data.duration || 0;
+      const padBefore = data.padBefore || 0;
+      const padAfter = data.padAfter || 0;
+
       const tmhr = (typeof window !== 'undefined' && parseFloat(localStorage.getItem('tmhr') || '0')) || 0;
-      const timeCost = (duration / 60) * tmhr;
+      const totalTime = duration + padBefore + padAfter;
+      const timeCost = (totalTime / 60) * tmhr;
       const productCost = (data.products || []).reduce((acc: number, p: any) => acc + (p.costPerUnit || 0), 0);
       const equipmentDepreciation = (data.equipment || []).reduce((acc: any, eq: any) => {
           const lifespanInMinutes = (eq.lifespanYears || 5) * 365 * 8 * 60;
           const costPerMinute = (eq.cost || 0) / lifespanInMinutes;
-          return acc + (costPerMinute * duration);
+          return acc + (costPerMinute * totalTime);
       }, 0);
       const breakEvenCost = timeCost + productCost + equipmentDepreciation;
       const netProfit = price - breakEvenCost;
@@ -609,6 +620,8 @@ export const AddServiceDialog = ({
         type: 'service', // Or 'addon' based on a form field if needed
         category: data.categoryId || 'Uncategorized',
         duration: duration,
+        padBefore: padBefore,
+        padAfter: padAfter,
         price: price,
         cost: breakEvenCost,
         profit: netProfit,
