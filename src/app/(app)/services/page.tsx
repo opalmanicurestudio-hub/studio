@@ -189,8 +189,6 @@ export default function ServicesPage() {
   const profitability = useMemo(() => {
     if (!selectedService) return { profit: 0, margin: 0, breakEvenPoint: 0, timeCost: 0 };
     
-    // This is a simplified calculation. In a real app, productCost would be a sum of inventory items.
-    // For this mock data, we derive it from the final price and profit.
     const timeCost = (selectedService.duration / 60) * tmhr;
     const productCost = selectedService.price - selectedService.profit - timeCost;
     
@@ -223,17 +221,17 @@ export default function ServicesPage() {
     return acc;
   }, {} as Record<string, Service[]>), [addOnServices]);
   
-  const serviceCategories = useMemo(() => {
+  const initialCategories = useMemo(() => {
     const allCategories = services.map(s => s.category).filter((c): c is string => !!c);
     return [...new Set(allCategories)];
   }, []);
 
+  const [serviceCategories, setServiceCategories] = useState(initialCategories);
+
   const handleNewCategory = (newCategory: string) => {
-    // In a real app, this would likely update a central state or send a request to a backend.
-    // For now, we'll just log it to show it's being handled.
-    console.log(`New category added: ${newCategory}`);
-    // You might want to update the local state to reflect the new category immediately
-    // For simplicity, we'll assume the dialog handles its own state for the new item.
+    if (!serviceCategories.includes(newCategory)) {
+        setServiceCategories(prev => [...prev, newCategory]);
+    }
   };
 
   return (
