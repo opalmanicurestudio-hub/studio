@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -64,6 +64,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { useToast } from '@/hooks/use-toast';
 
 const BillItemCard = ({
   bill,
@@ -555,15 +556,19 @@ const FinancialProfileManager = ({
 
 
 const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal, totalHours }: { lifestyleTotal: number; businessTotal: number; totalHours: number; }) => {
+    const { toast } = useToast();
     const totalCosts = lifestyleTotal + businessTotal;
     const tmhr = totalHours > 0 ? totalCosts / totalHours : 0;
     
-    useEffect(() => {
-        // Store TMHR in local storage to be used by other pages
+    const handleSetDefaultRate = () => {
         if (typeof window !== 'undefined') {
             localStorage.setItem('tmhr', tmhr.toFixed(2));
+            toast({
+                title: 'Default Rate Saved',
+                description: `Your TMHR of $${tmhr.toFixed(2)}/hr has been set as the default.`,
+            });
         }
-    }, [tmhr]);
+    };
 
     return (
     <Card>
@@ -592,7 +597,7 @@ const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal, totalHours }: { life
             </div>
         </CardContent>
         <CardFooter>
-            <Button className="w-full">Set as Default Rate</Button>
+            <Button className="w-full" onClick={handleSetDefaultRate}>Set as Default Rate</Button>
         </CardFooter>
     </Card>
     );
@@ -731,7 +736,11 @@ export default function FinancialFoundationPage() {
         
         const totalWorkDaysInYear = 52 * Object.values(activeScheduleProfile.week).filter(d => d.enabled).length;
         const totalDaysOff = activeScheduleProfile.timeOff.vacationDays + activeScheduleProfile.timeOff.holidays;
-        const workDayPercentage = (totalWorkDaysInYear - totalDaysOff) / totalWorkDaysInYear;
+        
+        // Ensure totalDaysOff doesn't exceed totalWorkDaysInYear
+        const effectiveDaysOff = Math.min(totalDaysOff, totalWorkDaysInYear > 0 ? totalWorkDaysInYear : 0);
+
+        const workDayPercentage = totalWorkDaysInYear > 0 ? (totalWorkDaysInYear - effectiveDaysOff) / totalWorkDaysInYear : 0;
         
         const avgMonthlyHours = (weeklyHours * 52 / 12) * workDayPercentage;
 
@@ -756,15 +765,15 @@ export default function FinancialFoundationPage() {
 
     const lifestyleTotal = useMemo(() => {
         if (!activeLifestyleProfile || !activeLifestyleProfile.categories) return 0;
-        return activeLifestyleProfile.categories.reduce((acc, category) => {
-            return acc + category.bills.reduce((billAcc, bill) => billAcc + (bill.amount || 0), 0);
+        return activeLifestyleProfile.categories.reduce((acc: number, category: any) => {
+            return acc + category.bills.reduce((billAcc: number, bill: any) => billAcc + (bill.amount || 0), 0);
         }, 0);
     }, [activeLifestyleProfile]);
 
     const businessTotal = useMemo(() => {
         if (!activeBusinessProfile || !activeBusinessProfile.categories) return 0;
-        return activeBusinessProfile.categories.reduce((acc, category) => {
-            return acc + category.bills.reduce((billAcc, bill) => billAcc + (bill.amount || 0), 0);
+        return activeBusinessProfile.categories.reduce((acc: number, category: any) => {
+            return acc + category.bills.reduce((billAcc: number, bill: any) => billAcc + (bill.amount || 0), 0);
         }, 0);
     }, [activeBusinessProfile]);
 
@@ -850,3 +859,5 @@ export default function FinancialFoundationPage() {
     </div>
   );
 }
+
+    

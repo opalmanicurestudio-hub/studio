@@ -6,9 +6,12 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
   CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Clock, DollarSign, Sparkles, Box, List, Pencil, Search, SlidersHorizontal } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Clock, DollarSign, Sparkles, Box, List, Pencil, Search, SlidersHorizontal, Info } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,6 +35,7 @@ import Image from 'next/image';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Input } from '@/components/ui/input';
 import { AddServiceDialog } from '@/components/services/AddServiceDialog';
+import Link from 'next/link';
 
 
 const ServiceCard = ({ service, onProfitTesterOpen }: { service: Service, onProfitTesterOpen: (service: Service) => void }) => {
@@ -185,13 +189,12 @@ export default function ServicesPage() {
   const profitability = useMemo(() => {
     if (!selectedService) return { profit: 0, margin: 0, breakEvenPoint: 0, timeCost: 0 };
     
-    const timeCost = (selectedService.duration / 60) * tmhr;
-    
-    // In a real app, productCost would be a sum of inventory items.
+    // This is a simplified calculation. In a real app, productCost would be a sum of inventory items.
     // For this mock data, we derive it from the final price and profit.
-    const productCost = selectedService.price - selectedService.profit - ((selectedService.duration / 60) * tmhr);
+    const timeCost = (selectedService.duration / 60) * tmhr;
+    const productCost = selectedService.price - selectedService.profit - timeCost;
     
-    const breakEvenPoint = timeCost + (productCost > 0 ? productCost : 0);
+    const breakEvenPoint = timeCost + productCost;
 
     const profitValue = testPrice - breakEvenPoint;
     const marginValue = testPrice > 0 ? (profitValue / testPrice) * 100 : 0;
@@ -257,6 +260,23 @@ export default function ServicesPage() {
                 <Button variant="outline" className='w-full'><SlidersHorizontal className="mr-2 h-4 w-4" /> Filters</Button>
             </div>
         </div>
+        
+        <Card className="mb-6">
+            <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                    <CardTitle>Your Default TMHR</CardTitle>
+                    <CardDescription>
+                        This is the default hourly rate used for profit calculations.
+                    </CardDescription>
+                </div>
+                <Button variant="secondary" asChild>
+                    <Link href="/financials">Change Rate</Link>
+                </Button>
+            </CardHeader>
+            <CardContent>
+                <p className="text-4xl font-bold text-primary">${tmhr.toFixed(2)}<span className="text-lg font-medium text-muted-foreground">/hr</span></p>
+            </CardContent>
+        </Card>
 
         <Tabs defaultValue="services">
             <TabsList className="grid w-full grid-cols-2 sm:w-auto">
@@ -306,7 +326,7 @@ export default function ServicesPage() {
               </div>
               <Slider
                 id="price-slider"
-                min={profitability.breakEvenPoint || 0}
+                min={0}
                 max={(selectedService ? selectedService.price : 0) * 2 + 50}
                 step={1}
                 value={[testPrice]}
@@ -347,3 +367,5 @@ export default function ServicesPage() {
       />
     </div>
   );
+
+    
