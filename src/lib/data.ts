@@ -35,7 +35,7 @@ export type InventoryItem = {
   id: string;
   name: string;
   type: 'professional' | 'retail' | 'equipment' | 'overhead';
-  category?: 'Color' | 'Styling' | 'Care';
+  category: string;
   stock: number;
   costPerUnit: number;
   supplier: string;

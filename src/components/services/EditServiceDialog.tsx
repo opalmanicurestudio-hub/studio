@@ -44,7 +44,7 @@ const serviceSchema = z.object({
     id: z.string(),
     name: z.string().min(1, 'Service name is required'),
     type: z.enum(['service', 'addon']),
-    category: z.string().optional(),
+    category: z.string().min(1, 'Category is required'),
     duration: z.number({ invalid_type_error: 'Duration is required.' }).min(1, 'Duration must be at least 1 minute'),
     padBefore: z.number().optional(),
     padAfter: z.number().optional(),
@@ -76,7 +76,7 @@ const Step1_Basics = ({
     const { register, control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
-    const categoryId = watch('category');
+    const category = watch('category');
 
     const handleAddNewCategory = () => {
         if (newCategoryName.trim()) {
@@ -129,6 +129,7 @@ const Step1_Basics = ({
                     <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"><PlusCircle className="h-4 w-4" /></Button>
                 </div>
             )}
+            {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
         </div>
         <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
@@ -632,7 +633,7 @@ export const EditServiceDialog = ({
   const handleNext = async () => {
     const fieldsToValidate: (keyof ServiceFormData)[] = [];
     if (step === 1) {
-        fieldsToValidate.push('name', 'duration');
+        fieldsToValidate.push('name', 'duration', 'category');
     }
     
     const isValid = fieldsToValidate.length > 0 ? await methods.trigger(fieldsToValidate) : true;
