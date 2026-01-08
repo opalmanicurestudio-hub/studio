@@ -34,7 +34,7 @@ import {
   DollarSign,
   PlusCircle,
   Home,
-  Heartbeat,
+  Heart,
   Car,
   ShoppingCart,
   GraduationCap,
@@ -145,7 +145,7 @@ const lifestyleCategories = [
   },
   {
     name: 'Health',
-    icon: <Heartbeat className="w-5 h-5 text-primary" />,
+    icon: <Heart className="w-5 h-5 text-primary" />,
     bills: [{ title: 'Insurance' }, { title: 'Gym' }],
   },
   {
@@ -341,5 +341,3 @@ export default function FinancialFoundationPage() {
     </div>
   );
 }
-
-    
