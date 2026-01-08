@@ -106,7 +106,12 @@ const BillEditor = ({
               </div>
             </AccordionTrigger>
             <AccordionContent className="pt-4">
-              <ScrollArea>
+              <div className="sm:hidden grid grid-cols-1 gap-4">
+                {category.bills.map((bill) => (
+                  <BillItemCard key={bill.title} title={bill.title} />
+                ))}
+              </div>
+              <ScrollArea className="hidden sm:block">
                 <div className="flex space-x-4 pb-4">
                   {category.bills.map((bill) => (
                     <BillItemCard key={bill.title} title={bill.title} />
@@ -125,8 +130,11 @@ const BillEditor = ({
               </div>
             </AccordionTrigger>
             <AccordionContent className="pt-4">
-                <div className="flex items-center gap-4">
-                    <ScrollArea className="w-full">
+                <div className="flex flex-col sm:flex-row items-center gap-4">
+                    <div className="w-full sm:hidden grid grid-cols-1 gap-4">
+                         <BillItemCard title="Custom Expense" isCustom />
+                    </div>
+                    <ScrollArea className="w-full hidden sm:block">
                         <div className="flex space-x-4 pb-4">
                              <BillItemCard title="Custom Expense" isCustom />
                         </div>
@@ -430,5 +438,3 @@ export default function FinancialFoundationPage() {
     </div>
   );
 }
-
-    
