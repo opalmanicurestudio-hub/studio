@@ -33,7 +33,7 @@ import { clients } from '@/lib/data';
 import { Textarea } from '@/components/ui/textarea';
 
 const ProfitAnalysisCard = () => (
-  <Card className="sticky top-20">
+  <Card className="lg:sticky top-20">
     <CardHeader>
       <CardTitle>Profit & Pricing Analysis</CardTitle>
       <CardDescription>
@@ -86,24 +86,24 @@ export default function QuoteGeneratorPage() {
       <AppHeader title="New Quote" />
       <main className="flex-1 p-4 md:p-8">
         <div className="max-w-6xl mx-auto">
-          <div className="flex items-center justify-between gap-4 mb-8">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-8">
             <Button variant="outline" asChild>
               <Link href="/quotes">
                 <ArrowLeft className="mr-2" />
                 Back to All Quotes
               </Link>
             </Button>
-            <div className="flex items-center gap-2">
-              <Button variant="outline">Preview</Button>
-              <Button>
+            <div className="flex w-full sm:w-auto items-center gap-2">
+              <Button variant="outline" className="flex-1 sm:flex-none">Preview</Button>
+              <Button className="flex-1 sm:flex-none">
                 <Save className="mr-2" />
                 Save Quote
               </Button>
             </div>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-8">
-            <div className="md:col-span-2 space-y-6">
+          <div className="grid lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-2 space-y-6">
               <Accordion type="multiple" defaultValue={['item-1']} className="w-full space-y-6">
                 <AccordionItem value="item-1">
                   <AccordionTrigger className='text-lg font-semibold'>Event Details</AccordionTrigger>
@@ -157,7 +157,7 @@ export default function QuoteGeneratorPage() {
                         <div className='p-8 text-center text-sm text-muted-foreground bg-muted/50 rounded-lg'>
                           Line items will appear here.
                         </div>
-                        <div className='flex gap-2'>
+                        <div className='flex gap-2 flex-wrap'>
                            <Button variant="outline"><PlusCircle className="mr-2" />Add from Library</Button>
                            <Button variant="outline"><PlusCircle className="mr-2" />Browse Products</Button>
                         </div>
@@ -200,7 +200,7 @@ export default function QuoteGeneratorPage() {
                             <Label>Deposit Requirement</Label>
                              <p className="text-sm text-muted-foreground">Define how much the client needs to pay upfront to secure the booking.</p>
                              {/* Placeholder for ToggleGroup */}
-                             <div className="flex gap-2">
+                             <div className="flex gap-2 flex-wrap">
                                 <Button variant="outline">None</Button>
                                 <Button variant="secondary">Deposit</Button>
                                 <Button variant="outline">Pay in Full</Button>
@@ -217,7 +217,7 @@ export default function QuoteGeneratorPage() {
 
               </Accordion>
             </div>
-            <div className="md:col-span-1">
+            <div className="lg:col-span-1">
               <ProfitAnalysisCard />
             </div>
           </div>
