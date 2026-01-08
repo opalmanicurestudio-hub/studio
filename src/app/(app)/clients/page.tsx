@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState } from 'react';
@@ -11,7 +12,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Search, FileDown, UserPlus, Merge } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Search, FileDown, UserPlus, Merge, Users } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -66,9 +67,30 @@ const ClientCard = ({ client }: { client: any }) => {
     )
 }
 
+const EmptyState = ({ onAddClient }: { onAddClient: () => void }) => (
+    <div className="text-center py-20 px-6">
+        <div className='flex justify-center mb-6'>
+            <div className='w-20 h-20 bg-muted rounded-full flex items-center justify-center'>
+                <Users className='w-10 h-10 text-muted-foreground' />
+            </div>
+        </div>
+        <h3 className="text-2xl font-semibold">Start Building Your Client List</h3>
+        <p className="text-muted-foreground max-w-sm mx-auto mt-2 mb-6">
+            Your client log is where you'll manage your entire rolodex. Add your first client to get started.
+        </p>
+        <Button onClick={onAddClient}>
+            <UserPlus className="mr-2 h-4 w-4" />
+            Add New Client
+        </Button>
+    </div>
+);
+
+
 export default function ClientsPage() {
   const [isAddClientOpen, setIsAddClientOpen] = useState(false);
   const [isMergeClientsOpen, setIsMergeClientsOpen] = useState(false);
+  
+  const hasClients = clients.length > 0;
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -94,11 +116,15 @@ export default function ClientsPage() {
                 </div>
             </CardHeader>
             <CardContent>
-                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                    {[...clients].sort((a,b) => new Date(b.lastAppointment).getTime() - new Date(a.lastAppointment).getTime()).map((client) => (
-                        <ClientCard key={client.id} client={client} />
-                    ))}
-                 </div>
+                 {hasClients ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                        {[...clients].sort((a,b) => new Date(b.lastAppointment).getTime() - new Date(a.lastAppointment).getTime()).map((client) => (
+                            <ClientCard key={client.id} client={client} />
+                        ))}
+                    </div>
+                 ) : (
+                    <EmptyState onAddClient={() => setIsAddClientOpen(true)} />
+                 )}
             </CardContent>
         </Card>
 
