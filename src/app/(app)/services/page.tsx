@@ -46,7 +46,7 @@ const ServiceCard = ({ service, onProfitTesterOpen }: { service: Service, onProf
       <CardContent className="p-4 space-y-4">
         <div className="flex items-start gap-4">
           <div className="w-24 h-24 bg-muted rounded-md flex-shrink-0">
-             <Image src={`https://picsum.photos/seed/svc${service.id}/100/100`} alt={service.name} width={96} height={96} className='rounded-md' data-ai-hint="manicure nails" />
+             <Image src={service.imageUrl || `https://picsum.photos/seed/svc${service.id}/100/100`} alt={service.name} width={96} height={96} className='rounded-md' data-ai-hint="manicure nails" />
           </div>
           <div className="flex-1 space-y-1">
             <div className="flex justify-between items-start">
@@ -373,4 +373,5 @@ export default function ServicesPage() {
   );
 
     
+
 

@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -73,9 +74,10 @@ const Step1_Basics = ({
     const { register, control, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
+    const categoryId = watch('categoryId');
 
     const handleAddNewCategory = () => {
-        if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
+        if (newCategoryName.trim()) {
             const newCategory = newCategoryName.trim();
             onNewCategory(newCategory);
             setValue('categoryId', newCategory, { shouldValidate: true });
@@ -400,7 +402,7 @@ const Step3_Deposits = () => {
 };
 
 const PricingForm = () => {
-    const { control, watch, setValue } = useFormContext<ServiceFormData>();
+    const { control, watch, setValue, register } = useFormContext<ServiceFormData>();
     const [tmhr, setTmhr] = useState(0);
 
     useEffect(() => {
@@ -477,7 +479,7 @@ const PricingForm = () => {
             {pricingStrategy === 'manual' ? (
                 <div className="space-y-2">
                     <Label htmlFor="final-price">Final Price</Label>
-                    <Input id="final-price" type="number" placeholder="100.00" {...control.register('price', { valueAsNumber: true })} />
+                    <Input id="final-price" type="number" placeholder="100.00" {...register('price', { valueAsNumber: true })} />
                 </div>
             ) : (
                 <div className="space-y-4">
@@ -568,7 +570,7 @@ export const AddServiceDialog = ({
     }
   });
 
-  const { control } = methods;
+  const { control, watch } = methods;
   
   const totalSteps = 4;
   
@@ -607,7 +609,8 @@ export const AddServiceDialog = ({
         price: price,
         cost: breakEvenCost,
         profit: netProfit,
-        margin: margin
+        margin: margin,
+        imageUrl: data.imageUrl,
       };
       
       onServiceAdded(newService);
