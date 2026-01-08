@@ -496,7 +496,6 @@ export default function FinancialFoundationPage() {
             <Separator className="my-8" />
             
             <div className="mt-8 space-y-6 max-w-md mx-auto">
-                <h2 className="text-2xl font-bold text-center">Your Financial Snapshot</h2>
                 <TmhrBreakdownCard />
             </div>
         </div>
@@ -504,4 +503,3 @@ export default function FinancialFoundationPage() {
     </div>
   );
 }
-
