@@ -26,9 +26,7 @@
       },
       "required": [
         "id",
-        "email",
-        "firstName",
-        "lastName"
+        "email"
       ]
     },
     "Tenant": {
@@ -47,26 +45,7 @@
         },
         "userId": {
           "type": "string",
-          "description": "Reference to User. (Relationship: User 1:N Tenant) The ID of the user who owns this tenant."
-        },
-        "primaryColor": {
-          "type": "string",
-          "description": "Primary color for the tenant's branding.",
-          "format": "hex-color"
-        },
-        "backgroundColor": {
-          "type": "string",
-          "description": "Background color for the tenant's branding.",
-          "format": "hex-color"
-        },
-        "accentColor": {
-          "type": "string",
-          "description": "Accent color for the tenant's branding.",
-          "format": "hex-color"
-        },
-        "fontFamily": {
-          "type": "string",
-          "description": "Font family for the tenant's branding."
+          "description": "The ID of the user who owns this tenant."
         }
       },
       "required": [
@@ -84,10 +63,6 @@
         "id": {
           "type": "string",
           "description": "Unique identifier for the service."
-        },
-        "tenantId": {
-          "type": "string",
-          "description": "Reference to Tenant. (Relationship: Tenant 1:N Service) The ID of the tenant offering this service."
         },
         "name": {
           "type": "string",
@@ -108,7 +83,6 @@
       },
       "required": [
         "id",
-        "tenantId",
         "name",
         "durationMinutes",
         "price"
@@ -123,10 +97,6 @@
         "id": {
           "type": "string",
           "description": "Unique identifier for the product."
-        },
-        "tenantId": {
-          "type": "string",
-          "description": "Reference to Tenant. (Relationship: Tenant 1:N Product) The ID of the tenant that owns this product."
         },
         "name": {
           "type": "string",
@@ -147,7 +117,6 @@
       },
       "required": [
         "id",
-        "tenantId",
         "name",
         "cost",
         "quantity"
@@ -163,17 +132,13 @@
           "type": "string",
           "description": "Unique identifier for the appointment."
         },
-        "tenantId": {
-          "type": "string",
-          "description": "Reference to Tenant. (Relationship: Tenant 1:N Appointment) The ID of the tenant providing the appointment."
-        },
         "clientId": {
           "type": "string",
-          "description": "Reference to Client. (Relationship: Client 1:N Appointment) The ID of the client who booked the appointment."
+          "description": "The ID of the client who booked the appointment."
         },
         "serviceId": {
           "type": "string",
-          "description": "Reference to Service. (Relationship: Service 1:N Appointment) The ID of the service provided during the appointment."
+          "description": "The ID of the service provided during the appointment."
         },
         "startTime": {
           "type": "string",
@@ -192,7 +157,6 @@
       },
       "required": [
         "id",
-        "tenantId",
         "clientId",
         "serviceId",
         "startTime",
@@ -208,10 +172,6 @@
         "id": {
           "type": "string",
           "description": "Unique identifier for the client."
-        },
-        "tenantId": {
-          "type": "string",
-          "description": "Reference to Tenant. (Relationship: Tenant 1:N Client) The ID of the tenant the client belongs to."
         },
         "firstName": {
           "type": "string",
@@ -237,7 +197,6 @@
       },
       "required": [
         "id",
-        "tenantId",
         "firstName",
         "lastName"
       ]
@@ -245,125 +204,45 @@
   },
   "auth": {
     "providers": [
-      "password",
-      "anonymous"
+      "password"
     ]
   },
   "firestore": {
-    "structure": [
-      {
-        "path": "/users/{userId}",
-        "definition": {
-          "entityName": "User",
-          "schema": {
-            "$ref": "#/backend/entities/User"
-          },
-          "description": "Stores user profiles. User ID is used for path-based ownership.",
-          "params": [
-            {
-              "name": "userId",
-              "description": "The unique identifier for the user."
-            }
-          ]
-        }
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/User"
       },
-      {
-        "path": "/tenants/{tenantId}",
-        "definition": {
-          "entityName": "Tenant",
-          "schema": {
-            "$ref": "#/backend/entities/Tenant"
-          },
-          "description": "Stores tenant (business) profiles. Each tenant is isolated under its own document. The userId field is for identification only",
-          "params": [
-            {
-              "name": "tenantId",
-              "description": "The unique identifier for the tenant."
-            }
-          ]
-        }
+      "description": "Stores user profiles."
+    },
+    "/tenants/{tenantId}": {
+      "schema": {
+        "$ref": "#/entities/Tenant"
       },
-      {
-        "path": "/tenants/{tenantId}/services/{serviceId}",
-        "definition": {
-          "entityName": "Service",
-          "schema": {
-            "$ref": "#/backend/entities/Service"
-          },
-          "description": "Stores services offered by a tenant.",
-          "params": [
-            {
-              "name": "tenantId",
-              "description": "The unique identifier for the tenant."
-            },
-            {
-              "name": "serviceId",
-              "description": "The unique identifier for the service."
-            }
-          ]
-        }
+      "description": "Stores tenant (business) profiles."
+    },
+    "/tenants/{tenantId}/services/{serviceId}": {
+      "schema": {
+        "$ref": "#/entities/Service"
       },
-      {
-        "path": "/tenants/{tenantId}/products/{productId}",
-        "definition": {
-          "entityName": "Product",
-          "schema": {
-            "$ref": "#/backend/entities/Product"
-          },
-          "description": "Stores products used or sold by a tenant.",
-          "params": [
-            {
-              "name": "tenantId",
-              "description": "The unique identifier for the tenant."
-            },
-            {
-              "name": "productId",
-              "description": "The unique identifier for the product."
-            }
-          ]
-        }
+      "description": "Stores services offered by a tenant."
+    },
+    "/tenants/{tenantId}/products/{productId}": {
+      "schema": {
+        "$ref": "#/entities/Product"
       },
-      {
-        "path": "/tenants/{tenantId}/clients/{clientId}",
-        "definition": {
-          "entityName": "Client",
-          "schema": {
-            "$ref": "#/backend/entities/Client"
-          },
-          "description": "Stores clients of a tenant.",
-          "params": [
-            {
-              "name": "tenantId",
-              "description": "The unique identifier for the tenant."
-            },
-            {
-              "name": "clientId",
-              "description": "The unique identifier for the client."
-            }
-          ]
-        }
+      "description": "Stores products used or sold by a tenant."
+    },
+    "/tenants/{tenantId}/clients/{clientId}": {
+      "schema": {
+        "$ref": "#/entities/Client"
       },
-      {
-        "path": "/tenants/{tenantId}/appointments/{appointmentId}",
-        "definition": {
-          "entityName": "Appointment",
-          "schema": {
-            "$ref": "#/backend/entities/Appointment"
-          },
-          "description": "Stores appointments booked with a tenant.",
-          "params": [
-            {
-              "name": "tenantId",
-              "description": "The unique identifier for the tenant."
-            },
-            {
-              "name": "appointmentId",
-              "description": "The unique identifier for the appointment."
-            }
-          ]
-        }
-      }
-    ],
-    "reasoning": "The Firestore structure is designed to support a multi-tenant booking application, focusing on authorization independence and clear access patterns.  The core principle is to isolate tenants and their associated data while enabling secure and scalable data access. Each tenant's data (services, products, clients, appointments) is namespaced under a dedicated `/tenants/{tenantId}` collection, enabling straightforward security rules and efficient querying. User data is stored separately and tenants have a userId to identify ownership. The booking pages are stored as a subcollection `/tenants/{tenantId}/bookingPages/{bookingPageId}`.\n\nAuthorization Independence:\n\n*   Tenant Ownership: The `Tenant` document stores the `userId` of the owning user. While we could read the Tenant document in rules to authorize access to subcollections we avoid that anti-pattern. The UserId is only used on the backend to create the Tenant.\n*   No Hierarchical Authorization: Subcollections like `/tenants/{tenantId}/services` do NOT rely on reading the parent `Tenant` document for authorization. This ensures that creating a service does not require reading the tenant first, enabling atomic operations.\n*   Collection Group Queries (QAPs): The design supports collection group queries *within* a tenant. Because the structure ensures that any document in a subcollection always belongs to only one tenant, listing operations are always secure."
+      "description": "Stores clients of a tenant."
+    },
+    "/tenants/{tenantId}/appointments/{appointmentId}": {
+      "schema": {
+        "$ref": "#/entities/Appointment"
+      },
+      "description": "Stores appointments booked with a tenant."
+    }
   }
 }
