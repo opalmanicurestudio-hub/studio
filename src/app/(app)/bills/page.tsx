@@ -9,22 +9,16 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  CardFooter
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
-  ArrowUpDown,
-  MoreHorizontal,
   PlusCircle,
   CreditCard,
   CalendarDays,
   AlertTriangle,
+  MoreHorizontal,
 } from 'lucide-react';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import {
   Table,
   TableBody,
@@ -34,7 +28,6 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { transactions } from '@/lib/transactions';
 import { cn } from '@/lib/utils';
 import {
   Select,
@@ -45,6 +38,18 @@ import {
 } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
 
 const kpiData = {
   monthlyTotal: 4500,
@@ -63,7 +68,7 @@ const bills = [
 
 const BillFilters = () => {
   return (
-    <Card className="h-fit sticky top-20">
+    <Card className="h-fit sticky top-24">
       <CardHeader>
         <CardTitle>Filter Bills</CardTitle>
       </CardHeader>
@@ -104,6 +109,68 @@ const BillFilters = () => {
 };
 
 
+const BillTableRow = ({ bill }: { bill: typeof bills[0]}) => (
+    <TableRow>
+        <TableCell className="font-medium">{bill.name}</TableCell>
+        <TableCell>${bill.amount.toFixed(2)}</TableCell>
+        <TableCell>The {bill.dueDay} of each month</TableCell>
+        <TableCell>
+            <Badge
+                variant={bill.context === 'Business' ? 'secondary' : 'outline'}
+                className={cn({
+                    'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300': bill.context === 'Business',
+                    'bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-300': bill.context === 'Personal'
+                })}
+                >
+                {bill.context}
+            </Badge>
+        </TableCell>
+        <TableCell className="text-right">
+             <Button variant="outline" size="sm">Log Payment</Button>
+        </TableCell>
+    </TableRow>
+);
+
+const BillCard = ({ bill }: { bill: typeof bills[0]}) => (
+    <Card>
+        <CardContent className="p-4 space-y-3">
+            <div className="flex items-start justify-between gap-4">
+                <div>
+                    <p className="font-semibold">{bill.name}</p>
+                    <p className="text-sm text-muted-foreground">Due on the {bill.dueDay} of each month</p>
+                </div>
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="-mt-1 h-8 w-8">
+                            <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                        <DropdownMenuItem>Edit Bill</DropdownMenuItem>
+                         <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+                <Badge
+                    variant={bill.context === 'Business' ? 'secondary' : 'outline'}
+                    className={cn({
+                        'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300': bill.context === 'Business',
+                        'bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-300': bill.context === 'Personal'
+                    })}
+                >
+                    {bill.context}
+                </Badge>
+                <span className="font-semibold text-lg">${bill.amount.toFixed(2)}</span>
+            </div>
+        </CardContent>
+        <CardFooter className="p-2 border-t">
+            <Button variant="secondary" className="w-full">Log Payment</Button>
+        </CardFooter>
+    </Card>
+);
+
+
 export default function BillsPage() {
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -121,7 +188,7 @@ export default function BillsPage() {
           </Button>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Monthly Bills</CardTitle>
@@ -154,12 +221,23 @@ export default function BillsPage() {
           </Card>
         </div>
         
+        <div className="md:hidden">
+            <Accordion type="single" collapsible>
+                <AccordionItem value="filters">
+                    <AccordionTrigger>Filter Bills</AccordionTrigger>
+                    <AccordionContent>
+                        <BillFilters />
+                    </AccordionContent>
+                </AccordionItem>
+            </Accordion>
+        </div>
+
         <div className="grid md:grid-cols-3 lg:grid-cols-4 gap-8">
             <div className="hidden md:block md:col-span-1 lg:col-span-1">
                 <BillFilters />
             </div>
              <div className="md:col-span-2 lg:col-span-3">
-                <Card>
+                <Card className="hidden md:block">
                     <CardHeader>
                         <CardTitle>Bill Dashboard</CardTitle>
                         <CardDescription>A list of all your recurring bills from your Financial Foundation.</CardDescription>
@@ -168,41 +246,26 @@ export default function BillsPage() {
                         <Table>
                         <TableHeader>
                             <TableRow>
-                            <TableHead>Name</TableHead>
-                            <TableHead>Amount</TableHead>
-                            <TableHead>Due Day</TableHead>
-                            <TableHead>Context</TableHead>
-                            <TableHead>
-                                <span className="sr-only">Actions</span>
-                            </TableHead>
+                                <TableHead>Name</TableHead>
+                                <TableHead>Amount</TableHead>
+                                <TableHead>Due Day</TableHead>
+                                <TableHead>Context</TableHead>
+                                <TableHead className='text-right'>Actions</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {bills.map((bill) => (
-                                <TableRow key={bill.id}>
-                                    <TableCell className="font-medium">{bill.name}</TableCell>
-                                    <TableCell>${bill.amount.toFixed(2)}</TableCell>
-                                    <TableCell>The {bill.dueDay} of each month</TableCell>
-                                    <TableCell>
-                                         <Badge
-                                            variant={bill.context === 'Business' ? 'secondary' : 'outline'}
-                                            className={cn({
-                                                'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300': bill.context === 'Business',
-                                                'bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-300': bill.context === 'Personal'
-                                            })}
-                                            >
-                                            {bill.context}
-                                        </Badge>
-                                    </TableCell>
-                                    <TableCell className="text-right">
-                                        <Button size="sm">Log Payment</Button>
-                                    </TableCell>
-                                </TableRow>
+                               <BillTableRow key={bill.id} bill={bill} />
                             ))}
                         </TableBody>
                         </Table>
                     </CardContent>
                 </Card>
+                <div className="space-y-4 md:hidden">
+                     {bills.map((bill) => (
+                        <BillCard key={bill.id} bill={bill} />
+                    ))}
+                </div>
             </div>
         </div>
 
@@ -210,4 +273,3 @@ export default function BillsPage() {
     </div>
   );
 }
-
