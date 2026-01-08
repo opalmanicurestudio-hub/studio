@@ -1,4 +1,3 @@
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -8,13 +7,14 @@ import {
 } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, File, MoreHorizontal, Database, Camera, AlertTriangle } from 'lucide-react';
+import { PlusCircle, File, MoreHorizontal, Database, Camera, AlertTriangle, Truck, Search, SlidersHorizontal, QrCode, Package, Hammer, Beaker, FlaskConical, Pencil, Rocket, CheckCircle, Trash2 } from 'lucide-react';
 import { inventory, type InventoryItem } from '@/lib/data';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import Image from 'next/image';
@@ -23,6 +23,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Input } from '@/components/ui/input';
 
 
 const ProductCard = ({ item }: { item: InventoryItem }) => {
@@ -32,7 +33,7 @@ const ProductCard = ({ item }: { item: InventoryItem }) => {
                 <div className="flex items-start justify-between gap-4">
                     <div className='flex items-start gap-3'>
                         <div className='w-14 h-14 bg-muted rounded-md flex-shrink-0'>
-                            <Image src={`https://picsum.photos/seed/inv${item.id}/100/100`} alt={item.name} width={56} height={56} className='rounded-md' data-ai-hint="product photo"/>
+                            <Image src={item.id ? `https://picsum.photos/seed/inv${item.id}/100/100` : ''} alt={item.name} width={56} height={56} className='rounded-md' data-ai-hint="product photo"/>
                         </div>
                         <div className='flex-1'>
                             <p className="font-semibold text-base leading-snug">{item.name}</p>
@@ -47,12 +48,12 @@ const ProductCard = ({ item }: { item: InventoryItem }) => {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem>View Details</DropdownMenuItem>
-                        <DropdownMenuItem>Edit</DropdownMenuItem>
-                        <DropdownMenuItem>Reorder</DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive">
-                          Delete
-                        </DropdownMenuItem>
+                        <DropdownMenuItem><Pencil className="mr-2 h-4 w-4" /> Edit</DropdownMenuItem>
+                        <DropdownMenuItem><Rocket className="mr-2 h-4 w-4" /> Start/End Experiment</DropdownMenuItem>
+                        <DropdownMenuItem><AlertTriangle className="mr-2 h-4 w-4" /> Write-off / Damage</DropdownMenuItem>
+                         <DropdownMenuItem><QrCode className="mr-2 h-4 w-4" /> Reorder</DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Delete</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                 </div>
@@ -169,61 +170,87 @@ export default function InventoryPage() {
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Inventory Hub" />
       <main className="flex-1 p-4 md:p-8">
-        <Tabs defaultValue="professional">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-            <ScrollArea className="w-full whitespace-nowrap sm:w-auto">
-              <TabsList className="inline-grid w-max grid-cols-4 sm:w-auto">
-                <TabsTrigger value="professional">Professional</TabsTrigger>
-                <TabsTrigger value="retail">Retail</TabsTrigger>
-                <TabsTrigger value="overhead">Overhead</TabsTrigger>
-                <TabsTrigger value="equipment">Equipment</TabsTrigger>
-              </TabsList>
-              <ScrollBar orientation="horizontal" className="sm:hidden" />
-            </ScrollArea>
-            <div className="ml-auto flex items-center gap-2">
-              <Button size="sm" variant="outline" onClick={() => setIsScannerOpen(true)}>
-                <Camera className="mr-2 h-4 w-4" />
-                Scan
-              </Button>
-              <Button size="sm" variant="outline">
-                <File className="mr-2 h-4 w-4" />
-                Export
-              </Button>
-              <Button size="sm">
-                <PlusCircle className="mr-2 h-4 w-4" />
-                Add Item
-              </Button>
-            </div>
-          </div>
-          <div className="mt-6 space-y-4">
-            <TabsContent value="professional" className="m-0 space-y-4">
-                <ProductShelf title="Color" items={professionalColor} />
-                <ProductShelf title="Care" items={professionalCare} />
-                <ProductShelf title="Styling" items={professionalStyling} />
-            </TabsContent>
-            <TabsContent value="retail" className="m-0">
-               {retailItems.length > 0 ? (
-                    <ProductShelf title="All Retail" items={retailItems} />
-                ) : (
-                    <EmptyState message="No retail items yet." />
-                )}
-            </TabsContent>
-            <TabsContent value="overhead" className="m-0">
-              {overheadItems.length > 0 ? (
-                    <ProductShelf title="All Overhead" items={overheadItems} />
-                ) : (
-                    <EmptyState message="No overhead items yet." />
-                )}
-            </TabsContent>
-            <TabsContent value="equipment" className="m-0">
-                {equipmentItems.length > 0 ? (
-                    <ProductShelf title="All Equipment" items={equipmentItems} />
-                ) : (
-                    <EmptyState message="No equipment items yet." />
-                )}
-            </TabsContent>
-          </div>
-        </Tabs>
+         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <Tabs defaultValue="professional" className='w-full'>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                <ScrollArea className="w-full whitespace-nowrap sm:w-auto">
+                  <TabsList className="inline-grid w-max grid-cols-4 sm:w-auto">
+                    <TabsTrigger value="professional">Professional</TabsTrigger>
+                    <TabsTrigger value="retail">Retail</TabsTrigger>
+                    <TabsTrigger value="overhead">Overhead</TabsTrigger>
+                    <TabsTrigger value="equipment">Equipment</TabsTrigger>
+                  </TabsList>
+                  <ScrollBar orientation="horizontal" className="sm:hidden" />
+                </ScrollArea>
+                <div className="ml-auto flex flex-wrap items-center gap-2">
+                    <Button><Truck className="mr-2 h-4 w-4" /> Receive Stock</Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                         <Button variant="outline"><PlusCircle className="mr-2 h-4 w-4" /> Add New</Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem><Package className="mr-2 h-4 w-4" /> Add Product</DropdownMenuItem>
+                        <DropdownMenuItem><Hammer className="mr-2 h-4 w-4" /> Add Equipment</DropdownMenuItem>
+                        <DropdownMenuItem><Beaker className="mr-2 h-4 w-4" /> Add Overhead Item</DropdownMenuItem>
+                        <DropdownMenuItem><FlaskConical className="mr-2 h-4 w-4" /> Create Bundle</DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
+              </div>
+              
+              <div className='flex flex-col md:flex-row gap-4 mt-4'>
+                 <div className="relative w-full md:w-auto md:flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input placeholder="Search inventory..." className="pl-9" />
+                </div>
+                <div className='flex items-center gap-2'>
+                  <Button variant="outline" className='w-full' onClick={() => setIsScannerOpen(true)}>
+                    <QrCode className="mr-2 h-4 w-4" />
+                    Scan
+                  </Button>
+                  <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                         <Button variant="outline" className='w-full'><SlidersHorizontal className="mr-2 h-4 w-4" /> Filters</Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem>Filter by Status</DropdownMenuItem>
+                        <DropdownMenuItem>Filter by Category</DropdownMenuItem>
+                         <DropdownMenuItem>Filter by Vendor</DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
+              </div>
+
+              <div className="mt-6 space-y-4">
+                <TabsContent value="professional" className="m-0 space-y-4">
+                    <ProductShelf title="Color" items={professionalColor} />
+                    <ProductShelf title="Care" items={professionalCare} />
+                    <ProductShelf title="Styling" items={professionalStyling} />
+                </TabsContent>
+                <TabsContent value="retail" className="m-0">
+                  {retailItems.length > 0 ? (
+                        <ProductShelf title="All Retail" items={retailItems} />
+                    ) : (
+                        <EmptyState message="No retail items yet." />
+                    )}
+                </TabsContent>
+                <TabsContent value="overhead" className="m-0">
+                  {overheadItems.length > 0 ? (
+                        <ProductShelf title="All Overhead" items={overheadItems} />
+                    ) : (
+                        <EmptyState message="No overhead items yet." />
+                    )}
+                </TabsContent>
+                <TabsContent value="equipment" className="m-0">
+                    {equipmentItems.length > 0 ? (
+                        <ProductShelf title="All Equipment" items={equipmentItems} />
+                    ) : (
+                        <EmptyState message="No equipment items yet." />
+                    )}
+                </TabsContent>
+              </div>
+            </Tabs>
+        </div>
       </main>
 
        <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
