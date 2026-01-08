@@ -422,7 +422,7 @@ export default function FinancialFoundationPage() {
                 </div>
                  <div className="lg:hidden mt-8 space-y-4">
                     <h2 className="text-2xl font-bold text-center">Your Financial Snapshot</h2>
-                    <TmdrBreakdownCard />
+                    <TmhrBreakdownCard />
                  </div>
             </div>
         </div>
@@ -430,3 +430,5 @@ export default function FinancialFoundationPage() {
     </div>
   );
 }
+
+    
