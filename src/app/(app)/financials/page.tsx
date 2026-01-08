@@ -64,6 +64,8 @@ import {
   Edit,
   Save,
   Globe,
+  Calculator,
+  Info,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -313,9 +315,14 @@ const FinancialProfileManager = ({ activeTab }: { activeTab: string }) => {
     const profiles = useMemo(() => {
         switch (activeTab) {
             case 'lifestyle':
-                return [{ id: 'ls1', name: 'Default Lifestyle', isActive: true, isPro: false }];
+                return [
+                    { id: 'ls1', name: 'Default Lifestyle', isActive: true, isPro: false },
+                    { id: 'ls2', name: 'Lean Year Lifestyle', isActive: false, isPro: true }
+                ];
             case 'business':
-                return [{ id: 'bs1', name: 'Default Business', isActive: true, isPro: false }];
+                return [
+                    { id: 'bs1', name: 'Default Business', isActive: true, isPro: false },
+                ];
             case 'schedule':
                 return [
                     { id: 'sc1', name: 'Standard 35hr/wk', isActive: true, isPublic: true },
@@ -343,7 +350,8 @@ const FinancialProfileManager = ({ activeTab }: { activeTab: string }) => {
                             className="w-full justify-start h-auto py-2"
                         >
                             <span className="flex-1 text-left truncate">{profile.name}</span>
-                            {activeTab === 'schedule' && profile.isPublic && (
+                             {isProFeature && (profile as any).isPro && <Badge variant="outline" className="ml-2">Pro</Badge>}
+                            {activeTab === 'schedule' && (profile as any).isPublic && (
                                 <Globe className="h-4 w-4 text-muted-foreground ml-2" />
                             )}
                             {profile.isActive && <Badge variant="default" className="ml-2">Active</Badge>}
@@ -365,7 +373,7 @@ const FinancialProfileManager = ({ activeTab }: { activeTab: string }) => {
                 </div>
             </CardContent>
             <CardFooter className="p-2 border-t">
-                <Button variant="outline" className="w-full" disabled={isProFeature}>
+                <Button variant="outline" className="w-full">
                     <PlusCircle className="mr-2 h-4 w-4" />
                     Add New Profile
                     {isProFeature && <Badge className="ml-auto">Pro</Badge>}
