@@ -17,16 +17,16 @@ import {
 import {
   LayoutDashboard,
   Calendar,
+  Users,
+  Settings,
+  Sparkles,
   List,
   Box,
-  Users,
-  Sparkles,
-  Settings,
-  DollarSign,
   FileText,
-  Landmark,
   Wallet,
   BookOpen,
+  Landmark,
+  DollarSign
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -53,24 +53,34 @@ const ClarityFlowLogo = () => (
     </svg>
   );
 
-const navItems = [
+const coreNavItems = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { href: '/planner', icon: Calendar, label: 'Planner' },
-  { href: '/services', icon: List, label: 'Services' },
-  { href: '/inventory', icon: Box, label: 'Inventory' },
   { href: '/clients', icon: Users, label: 'Clients' },
-  { href: '/quotes', icon: FileText, label: 'Quotes' },
+];
+
+const salesNavItems = [
+    { href: '/services', icon: List, label: 'Services' },
+    { href: '/inventory', icon: Box, label: 'Inventory' },
+    { href: '/quotes', icon: FileText, label: 'Quotes' },
 ];
 
 const financialNavItems = [
     { href: '/financials', icon: Wallet, label: 'Financials' },
-    { href: '/payday', icon: DollarSign, label: 'Payday' },
-    { href: '/bills', icon: Landmark, label: 'Bills' },
     { href: '/ledger', icon: BookOpen, label: 'Ledger' },
+    { href: '/bills', icon: Landmark, label: 'Bills' },
+    { href: '/payday', icon: DollarSign, label: 'Payday' },
 ]
 
 export function AppSidebar() {
   const pathname = usePathname();
+
+  const isNavItemActive = (href: string) => {
+    if (href === '/dashboard') {
+        return pathname === href;
+    }
+    return pathname.startsWith(href);
+  }
 
   return (
     <Sidebar>
@@ -83,31 +93,54 @@ export function AppSidebar() {
         </div>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarMenu>
-          {navItems.map((item) => (
-            <SidebarMenuItem key={item.href}>
-              <SidebarMenuButton
-                asChild
-                isActive={pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))}
-                tooltip={item.label}
-              >
-                <Link href={item.href}>
-                  <item.icon />
-                  <span>{item.label}</span>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ))}
-        </SidebarMenu>
+        <SidebarGroup>
+             <SidebarGroupLabel>Core</SidebarGroupLabel>
+            <SidebarMenu>
+            {coreNavItems.map((item) => (
+                <SidebarMenuItem key={item.href}>
+                <SidebarMenuButton
+                    asChild
+                    isActive={isNavItemActive(item.href)}
+                    tooltip={item.label}
+                >
+                    <Link href={item.href}>
+                    <item.icon />
+                    <span>{item.label}</span>
+                    </Link>
+                </SidebarMenuButton>
+                </SidebarMenuItem>
+            ))}
+            </SidebarMenu>
+        </SidebarGroup>
+        <SidebarSeparator />
+         <SidebarGroup>
+            <SidebarGroupLabel>Service & Sales</SidebarGroupLabel>
+            <SidebarMenu>
+            {salesNavItems.map((item) => (
+                <SidebarMenuItem key={item.href}>
+                <SidebarMenuButton
+                    asChild
+                    isActive={isNavItemActive(item.href)}
+                    tooltip={item.label}
+                >
+                    <Link href={item.href}>
+                    <item.icon />
+                    <span>{item.label}</span>
+                    </Link>
+                </SidebarMenuButton>
+                </SidebarMenuItem>
+            ))}
+            </SidebarMenu>
+        </SidebarGroup>
         <SidebarSeparator />
         <SidebarGroup>
-            <SidebarGroupLabel>Financials</SidebarGroupLabel>
+            <SidebarGroupLabel>Financial Suite</SidebarGroupLabel>
             <SidebarMenu>
                 {financialNavItems.map((item) => (
                     <SidebarMenuItem key={item.href}>
                     <SidebarMenuButton
                         asChild
-                        isActive={pathname.startsWith(item.href)}
+                        isActive={isNavItemActive(item.href)}
                         tooltip={item.label}
                     >
                         <Link href={item.href}>
@@ -122,7 +155,7 @@ export function AppSidebar() {
          <SidebarSeparator />
           <SidebarMenu>
             <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={pathname.startsWith('/ai-cfo')} tooltip="AI CFO">
+                <SidebarMenuButton asChild isActive={isNavItemActive('/ai-cfo')} tooltip="AI CFO">
                   <Link href="/ai-cfo">
                     <Sparkles />
                     <span>AI CFO</span>
@@ -134,7 +167,7 @@ export function AppSidebar() {
       <SidebarFooter>
         <SidebarMenu>
             <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={pathname.startsWith('/settings')} tooltip="Settings">
+                <SidebarMenuButton asChild isActive={isNavItemActive('/settings')} tooltip="Settings">
                   <Link href="/settings">
                     <Settings />
                     <span>Settings</span>
