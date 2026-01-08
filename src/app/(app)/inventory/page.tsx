@@ -506,6 +506,107 @@ export default function InventoryPage() {
     }
   }, [isScannerOpen, toast]);
 
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'professional':
+        return (professionalColor.length === 0 && professionalCare.length === 0 && professionalStyling.length === 0 && professionalTools.length === 0) ? (
+          <EmptyState message="No professional products yet. Add one to get started." />
+        ) : (
+          <>
+            <Accordion type="single" collapsible defaultValue="color" className="w-full">
+                <AccordionItem value="color">
+                    <AccordionTrigger className='text-xl font-bold hover:no-underline'>Color</AccordionTrigger>
+                    <AccordionContent className="pt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                        {professionalColor.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/>)}
+                    </AccordionContent>
+                </AccordionItem>
+            </Accordion>
+            <Accordion type="single" collapsible className="w-full">
+                <AccordionItem value="styling">
+                     <AccordionTrigger className='text-xl font-bold hover:no-underline'>Styling</AccordionTrigger>
+                     <AccordionContent className="pt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                         {professionalStyling.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/>)}
+                     </AccordionContent>
+                </AccordionItem>
+            </Accordion>
+            <Accordion type="single" collapsible className="w-full">
+                <AccordionItem value="care">
+                     <AccordionTrigger className='text-xl font-bold hover:no-underline'>Care</AccordionTrigger>
+                     <AccordionContent className="pt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                         {professionalCare.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/>)}
+                     </AccordionContent>
+                </AccordionItem>
+            </Accordion>
+             <Accordion type="single" collapsible className="w-full">
+                <AccordionItem value="tools">
+                     <AccordionTrigger className='text-xl font-bold hover:no-underline'>Tools</AccordionTrigger>
+                     <AccordionContent className="pt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                         {professionalTools.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/>)}
+                     </AccordionContent>
+                </AccordionItem>
+            </Accordion>
+          </>
+        );
+      case 'retail':
+        return retailItems.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {retailItems.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/>)}
+          </div>
+        ) : (
+          <EmptyState message="No retail items yet. Add one to get started." />
+        );
+      case 'overhead':
+        return overheadItems.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {overheadItems.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/>)}
+          </div>
+        ) : (
+          <EmptyState message="No overhead items yet. Add one to get started." />
+        );
+      case 'equipment':
+        return equipmentItems.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {equipmentItems.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/>)}
+          </div>
+        ) : (
+          <EmptyState message="No equipment items yet. Add one to get started." />
+        );
+      case 'locations':
+        return (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+                <div>
+                    <h2 className="text-2xl font-bold">Storage Locations</h2>
+                    <p className="text-muted-foreground">A map of all your physical storage areas.</p>
+                </div>
+                <Button onClick={() => setIsAddLocationOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> New Location</Button>
+            </div>
+             {locations.length === 0 ? (
+                <EmptyState message="No storage locations defined yet. Add one to get started." />
+             ) : (
+                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {locations.map(location => (
+                        <Card key={location.id}>
+                            <CardHeader>
+                                <CardTitle className="text-lg">{location.name}</CardTitle>
+                                {location.description && <CardDescription>{location.description}</CardDescription>}
+                            </CardHeader>
+                            <CardFooter className="flex gap-2">
+                                <Button variant="outline" size="sm"><Edit className="mr-2 h-3 w-3"/> Edit</Button>
+                                <Button variant="outline" size="sm" className="text-destructive"><Trash2 className="mr-2 h-3 w-3"/> Delete</Button>
+                            </CardFooter>
+                        </Card>
+                    ))}
+                 </div>
+             )}
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
+
+
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Inventory Hub" />
@@ -524,13 +625,13 @@ export default function InventoryPage() {
                         </SelectContent>
                     </Select>
                 ) : (
-                    <Tabs value={activeTab} onValueChange={setActiveTab}>
-                        <TabsList>
-                            {tabOptions.map(option => (
-                                <TabsTrigger key={option.value} value={option.value}>{option.label}</TabsTrigger>
-                            ))}
-                        </TabsList>
-                    </Tabs>
+                  <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                    <TabsList>
+                      {tabOptions.map(option => (
+                        <TabsTrigger key={option.value} value={option.value}>{option.label}</TabsTrigger>
+                      ))}
+                    </TabsList>
+                  </Tabs>
                 )}
             </div>
             <div className="flex w-full sm:w-auto items-center gap-2">
@@ -577,102 +678,9 @@ export default function InventoryPage() {
             </div>
         </div>
 
-          <div className="mt-6 space-y-8">
-            <TabsContent value="professional" className="m-0 space-y-6">
-              {professionalColor.length === 0 && professionalCare.length === 0 && professionalStyling.length === 0 && professionalTools.length === 0 ? (
-                <EmptyState message="No professional products yet. Add one to get started." />
-              ) : (
-                <>
-                  <Accordion type="single" collapsible defaultValue="color" className="w-full">
-                      <AccordionItem value="color">
-                          <AccordionTrigger className='text-xl font-bold hover:no-underline'>Color</AccordionTrigger>
-                          <AccordionContent className="pt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                              {professionalColor.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/>)}
-                          </AccordionContent>
-                      </AccordionItem>
-                  </Accordion>
-                  <Accordion type="single" collapsible className="w-full">
-                      <AccordionItem value="styling">
-                           <AccordionTrigger className='text-xl font-bold hover:no-underline'>Styling</AccordionTrigger>
-                           <AccordionContent className="pt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                               {professionalStyling.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/>)}
-                           </AccordionContent>
-                      </AccordionItem>
-                  </Accordion>
-                  <Accordion type="single" collapsible className="w-full">
-                      <AccordionItem value="care">
-                           <AccordionTrigger className='text-xl font-bold hover:no-underline'>Care</AccordionTrigger>
-                           <AccordionContent className="pt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                               {professionalCare.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/>)}
-                           </AccordionContent>
-                      </AccordionItem>
-                  </Accordion>
-                   <Accordion type="single" collapsible className="w-full">
-                      <AccordionItem value="tools">
-                           <AccordionTrigger className='text-xl font-bold hover:no-underline'>Tools</AccordionTrigger>
-                           <AccordionContent className="pt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                               {professionalTools.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/>)}
-                           </AccordionContent>
-                      </AccordionItem>
-                  </Accordion>
-                </>
-              )}
-            </TabsContent>
-            <TabsContent value="retail" className="m-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {retailItems.length > 0 ? (
-                  retailItems.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/>)
-                ) : (
-                  <div className="col-span-full">
-                    <EmptyState message="No retail items yet. Add one to get started." />
-                  </div>
-                )}
-            </TabsContent>
-            <TabsContent value="overhead" className="m-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {overheadItems.length > 0 ? (
-                  overheadItems.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/>)
-                ) : (
-                  <div className="col-span-full">
-                    <EmptyState message="No overhead items yet. Add one to get started." />
-                  </div>
-                )}
-            </TabsContent>
-            <TabsContent value="equipment" className="m-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {equipmentItems.length > 0 ? (
-                  equipmentItems.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/>)
-                ) : (
-                  <div className="col-span-full">
-                    <EmptyState message="No equipment items yet. Add one to get started." />
-                  </div>
-                )}
-            </TabsContent>
-            <TabsContent value="locations" className="m-0 space-y-6">
-              <div className="flex items-center justify-between">
-                  <div>
-                      <h2 className="text-2xl font-bold">Storage Locations</h2>
-                      <p className="text-muted-foreground">A map of all your physical storage areas.</p>
-                  </div>
-                  <Button onClick={() => setIsAddLocationOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> New Location</Button>
-              </div>
-               {locations.length === 0 ? (
-                  <EmptyState message="No storage locations defined yet. Add one to get started." />
-               ) : (
-                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {locations.map(location => (
-                          <Card key={location.id}>
-                              <CardHeader>
-                                  <CardTitle className="text-lg">{location.name}</CardTitle>
-                                  {location.description && <CardDescription>{location.description}</CardDescription>}
-                              </CardHeader>
-                              <CardFooter className="flex gap-2">
-                                  <Button variant="outline" size="sm"><Edit className="mr-2 h-3 w-3"/> Edit</Button>
-                                  <Button variant="outline" size="sm" className="text-destructive"><Trash2 className="mr-2 h-3 w-3"/> Delete</Button>
-                              </CardFooter>
-                          </Card>
-                      ))}
-                   </div>
-               )}
-            </TabsContent>
-          </div>
+        <div className="mt-6 space-y-8">
+          {renderContent()}
+        </div>
       </main>
 
        <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
