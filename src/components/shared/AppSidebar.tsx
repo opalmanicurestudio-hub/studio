@@ -19,6 +19,7 @@ import {
   Sparkles,
   Settings,
   DollarSign,
+  ArrowRightLeft,
 } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '../ui/button';
@@ -52,8 +53,9 @@ const navItems = [
   { href: '/services', icon: List, label: 'Services' },
   { href: '/inventory', icon: Box, label: 'Inventory' },
   { href: '/clients', icon: Users, label: 'Clients' },
-  { href: '/ai-cfo', icon: Sparkles, label: 'AI CFO' },
+  { href: '/transactions', icon: ArrowRightLeft, label: 'Transactions' },
   { href: '/financials', icon: DollarSign, label: 'Financials' },
+  { href: '/ai-cfo', icon: Sparkles, label: 'AI CFO' },
 ];
 
 export function AppSidebar() {
