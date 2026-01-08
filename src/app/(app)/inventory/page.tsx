@@ -796,70 +796,58 @@ export default function InventoryPage() {
               <EmptyState message="No professional products yet. Add one to get started." />
             ) : (
               <div className="space-y-6">
-                <Accordion type="single" collapsible defaultValue="color" className="w-full">
-                  <AccordionItem value="color">
-                    <AccordionTrigger className='text-xl font-bold hover:no-underline'>Color</AccordionTrigger>
-                    <AccordionContent className="pl-4">
-                      <Carousel opts={{ align: "start" }} className="w-full">
-                        <CarouselContent className="-ml-4">
-                          {professionalColor.map((item) => (
-                            <CarouselItem key={item.id} className="pl-4 basis-full sm:basis-1/2 md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                              <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
-                            </CarouselItem>
-                          ))}
-                        </CarouselContent>
-                      </Carousel>
-                    </AccordionContent>
-                  </AccordionItem>
-                </Accordion>
-                <Accordion type="single" collapsible className="w-full">
-                  <AccordionItem value="styling">
-                    <AccordionTrigger className='text-xl font-bold hover:no-underline'>Styling</AccordionTrigger>
-                    <AccordionContent className="pl-4">
-                      <Carousel opts={{ align: "start" }} className="w-full">
-                        <CarouselContent className="-ml-4">
-                          {professionalStyling.map((item) => (
-                            <CarouselItem key={item.id} className="pl-4 basis-full sm:basis-1/2 md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                              <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
-                            </CarouselItem>
-                          ))}
-                        </CarouselContent>
-                      </Carousel>
-                    </AccordionContent>
-                  </AccordionItem>
-                </Accordion>
-                <Accordion type="single" collapsible className="w-full">
-                  <AccordionItem value="care">
-                    <AccordionTrigger className='text-xl font-bold hover:no-underline'>Care</AccordionTrigger>
-                    <AccordionContent className="pl-4">
-                      <Carousel opts={{ align: "start" }} className="w-full">
-                        <CarouselContent className="-ml-4">
-                          {professionalCare.map((item) => (
-                            <CarouselItem key={item.id} className="pl-4 basis-full sm:basis-1/2 md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                              <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
-                            </CarouselItem>
-                          ))}
-                        </CarouselContent>
-                      </Carousel>
-                    </AccordionContent>
-                  </AccordionItem>
-                </Accordion>
-                <Accordion type="single" collapsible className="w-full">
-                  <AccordionItem value="tools">
-                    <AccordionTrigger className='text-xl font-bold hover:no-underline'>Tools</AccordionTrigger>
-                    <AccordionContent className="pl-4">
-                      <Carousel opts={{ align: "start" }} className="w-full">
-                        <CarouselContent className="-ml-4">
-                          {professionalTools.map((item) => (
-                            <CarouselItem key={item.id} className="pl-4 basis-full sm:basis-1/2 md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                              <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
-                            </CarouselItem>
-                          ))}
-                        </CarouselContent>
-                      </Carousel>
-                    </AccordionContent>
-                  </AccordionItem>
-                </Accordion>
+                
+                <div className="space-y-2">
+                  <h2 className="text-xl font-bold">Color</h2>
+                  <Carousel opts={{ align: "start" }} className="w-full">
+                    <CarouselContent className="-ml-4">
+                      {professionalColor.map((item) => (
+                        <CarouselItem key={item.id} className="pl-4 basis-full sm:basis-1/2 md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
+                          <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
+                        </CarouselItem>
+                      ))}
+                    </CarouselContent>
+                  </Carousel>
+                </div>
+                
+                <div className="space-y-2">
+                   <h2 className="text-xl font-bold">Styling</h2>
+                  <Carousel opts={{ align: "start" }} className="w-full">
+                    <CarouselContent className="-ml-4">
+                      {professionalStyling.map((item) => (
+                        <CarouselItem key={item.id} className="pl-4 basis-full sm:basis-1/2 md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
+                          <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
+                        </CarouselItem>
+                      ))}
+                    </CarouselContent>
+                  </Carousel>
+                </div>
+
+                <div className="space-y-2">
+                   <h2 className="text-xl font-bold">Care</h2>
+                   <Carousel opts={{ align: "start" }} className="w-full">
+                    <CarouselContent className="-ml-4">
+                      {professionalCare.map((item) => (
+                        <CarouselItem key={item.id} className="pl-4 basis-full sm:basis-1/2 md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
+                          <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
+                        </CarouselItem>
+                      ))}
+                    </CarouselContent>
+                  </Carousel>
+                </div>
+                
+                <div className="space-y-2">
+                  <h2 className="text-xl font-bold">Tools</h2>
+                   <Carousel opts={{ align: "start" }} className="w-full">
+                    <CarouselContent className="-ml-4">
+                      {professionalTools.map((item) => (
+                        <CarouselItem key={item.id} className="pl-4 basis-full sm:basis-1/2 md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
+                          <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
+                        </CarouselItem>
+                      ))}
+                    </CarouselContent>
+                  </Carousel>
+                </div>
               </div>
             )
           )}
