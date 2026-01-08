@@ -1,3 +1,4 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -376,6 +377,7 @@ export default function InventoryPage() {
   const [isAddOverheadOpen, setIsAddOverheadOpen] = useState(false);
   const [isCreateBundleOpen, setIsCreateBundleOpen] = useState(false);
   const [isAddLocationOpen, setIsAddLocationOpen] = useState(false);
+  const [isAddLocationFromProductOpen, setIsAddLocationFromProductOpen] = useState(false);
 
 
   useEffect(() => {
@@ -559,7 +561,12 @@ export default function InventoryPage() {
       </Dialog>
 
       <ReceiveStockDialog open={isReceiveStockOpen} onOpenChange={setIsReceiveStockOpen} />
-      <AddProductDialog open={isAddProductOpen} onOpenChange={setIsAddProductOpen} />
+      <AddProductDialog 
+        open={isAddProductOpen} 
+        onOpenChange={setIsAddProductOpen}
+        isAddLocationDialogOpen={isAddLocationFromProductOpen}
+        onAddLocationDialogOpenChange={setIsAddLocationFromProductOpen}
+      />
       <AddEquipmentDialog open={isAddEquipmentOpen} onOpenChange={setIsAddEquipmentOpen} />
       <AddOverheadDialog open={isAddOverheadOpen} onOpenChange={setIsAddOverheadOpen} />
       <CreateBundleDialog open={isCreateBundleOpen} onOpenChange={setIsCreateBundleOpen} />

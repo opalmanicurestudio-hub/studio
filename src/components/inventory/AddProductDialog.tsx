@@ -27,6 +27,8 @@ import { PlusCircle, Info, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
+import { AddLocationDialog } from './AddLocationDialog';
+
 
 export type ProductType = 'professional' | 'retail' | 'both';
 
@@ -210,7 +212,7 @@ const Step2_CostingPricing = ({ productType }: { productType: ProductType }) => 
 };
 
 
-const Step3_InventorySupplier = () => {
+const Step3_InventorySupplier = ({ onAddLocationClick }: { onAddLocationClick: () => void }) => {
     const [secondaryLocations, setSecondaryLocations] = useState<string[]>([]);
     const addSecondaryLocation = () => setSecondaryLocations(prev => [...prev, `loc-${Date.now()}`]);
     const removeSecondaryLocation = (id: string) => setSecondaryLocations(prev => prev.filter(locId => locId !== id));
@@ -256,7 +258,7 @@ const Step3_InventorySupplier = () => {
                                  <SelectItem value="loc-1">Back Room - Shelf A</SelectItem>
                             </SelectContent>
                         </Select>
-                         <Button variant="outline" size="icon"><PlusCircle className="h-4 w-4" /></Button>
+                         <Button variant="outline" size="icon" onClick={onAddLocationClick}><PlusCircle className="h-4 w-4" /></Button>
                     </div>
                 </div>
                  <div className="space-y-2">
@@ -303,7 +305,7 @@ const Step3_InventorySupplier = () => {
 };
 
 
-export const AddProductDialog = ({ open, onOpenChange }: { open: boolean, onOpenChange: (open: boolean) => void }) => {
+export const AddProductDialog = ({ open, onOpenChange, isAddLocationDialogOpen, onAddLocationDialogOpenChange }: { open: boolean, onOpenChange: (open: boolean) => void, isAddLocationDialogOpen: boolean, onAddLocationDialogOpenChange: (open: boolean) => void }) => {
   const [step, setStep] = useState(1);
   const [productType, setProductType] = useState<ProductType>('professional');
   const totalSteps = 3;
@@ -344,7 +346,7 @@ export const AddProductDialog = ({ open, onOpenChange }: { open: boolean, onOpen
             <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
                 {step === 1 && <Step1_BasicDetails productType={productType} setProductType={setProductType} />}
                 {step === 2 && <Step2_CostingPricing productType={productType} />}
-                {step === 3 && <Step3_InventorySupplier />}
+                {step === 3 && <Step3_InventorySupplier onAddLocationClick={() => onAddLocationDialogOpenChange(true)} />}
             </div>
         </div>
 
@@ -360,6 +362,9 @@ export const AddProductDialog = ({ open, onOpenChange }: { open: boolean, onOpen
               </div>
           </div>
         </DialogFooter>
+
+        <AddLocationDialog open={isAddLocationDialogOpen} onOpenChange={onAddLocationDialogOpenChange} />
+
       </DialogContent>
     </Dialog>
   );
