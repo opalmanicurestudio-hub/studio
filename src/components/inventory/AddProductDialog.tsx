@@ -206,7 +206,8 @@ const Step2_CostingPricing = ({ productType }: { productType: ProductType }) => 
             </CardContent>
         </Card>
     </div>
-);
+    );
+};
 
 
 const Step3_InventorySupplier = () => (
