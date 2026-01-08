@@ -7,7 +7,7 @@ import {
   CardContent,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Clock, DollarSign, Sparkles, Box } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Clock, DollarSign, Sparkles, Box, List, Pencil } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,7 +38,7 @@ const ServiceCard = ({ service, onProfitTesterOpen }: { service: Service, onProf
   const profitPercentage = service.price > 0 ? (service.profit / service.price) * 100 : 0;
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden w-full max-w-sm shrink-0">
       <CardContent className="p-4 space-y-4">
         <div className="flex items-start gap-4">
           <div className="w-24 h-24 bg-muted rounded-md flex-shrink-0">
@@ -55,8 +55,12 @@ const ServiceCard = ({ service, onProfitTesterOpen }: { service: Service, onProf
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem>Edit</DropdownMenuItem>
+                  <DropdownMenuItem>
+                    <Pencil className="mr-2 h-4 w-4" />
+                    Edit
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => onProfitTesterOpen(service)}>
+                    <Sparkles className="mr-2 h-4 w-4" />
                     Profit Tester
                   </DropdownMenuItem>
                   <DropdownMenuItem className="text-destructive">
@@ -135,6 +139,26 @@ const ServiceCategory = ({ title, services, onProfitTesterOpen }: { title: strin
     )
 }
 
+const EmptyState = () => (
+    <Card className="flex flex-col items-center justify-center py-20 px-6 text-center">
+        <CardContent className='space-y-4'>
+            <div className='flex justify-center'>
+                 <div className='w-20 h-20 bg-muted rounded-full flex items-center justify-center'>
+                    <List className='w-10 h-10 text-muted-foreground' />
+                 </div>
+            </div>
+            <h3 className="text-2xl font-semibold">Build Your Service Menu</h3>
+            <p className="text-muted-foreground max-w-sm mx-auto">
+                This is where your services will live. Add your first service to calculate its profitability and build your client-facing menu.
+            </p>
+            <Button className='mt-4'>
+                <PlusCircle className="mr-2 h-4 w-4" />
+                Add New Service
+            </Button>
+        </CardContent>
+    </Card>
+)
+
 
 export default function ServicesPage() {
   const [isProfitTesterOpen, setIsProfitTesterOpen] = useState(false);
@@ -160,18 +184,20 @@ export default function ServicesPage() {
   const addOnServices = services.filter(s => s.type === 'addon');
   
   const servicesByCategory = mainServices.reduce((acc, service) => {
-    if (!acc[service.category]) {
-      acc[service.category] = [];
+    const category = service.category || 'Uncategorized';
+    if (!acc[category]) {
+      acc[category] = [];
     }
-    acc[service.category].push(service);
+    acc[category].push(service);
     return acc;
   }, {} as Record<string, Service[]>);
 
   const addOnsByCategory = addOnServices.reduce((acc, service) => {
-    if (!acc[service.category]) {
-      acc[service.category] = [];
+    const category = service.category || 'Uncategorized';
+    if (!acc[category]) {
+      acc[category] = [];
     }
-    acc[service.category].push(service);
+    acc[category].push(service);
     return acc;
   }, {} as Record<string, Service[]>);
 
@@ -194,12 +220,14 @@ export default function ServicesPage() {
             </div>
           </div>
           <TabsContent value="services" className="mt-6 space-y-8">
-            {Object.entries(servicesByCategory).map(([category, services]) => (
-                <ServiceCategory key={category} title={category} services={services} onProfitTesterOpen={handleOpenProfitTester} />
-            ))}
+            {Object.keys(servicesByCategory).length > 0 ? (
+                Object.entries(servicesByCategory).map(([category, services]) => (
+                    <ServiceCategory key={category} title={category} services={services} onProfitTesterOpen={handleOpenProfitTester} />
+                ))
+            ) : <EmptyState />}
           </TabsContent>
            <TabsContent value="add-ons" className="mt-6 space-y-8">
-             {addOnServices.length > 0 ? (
+             {Object.keys(addOnsByCategory).length > 0 ? (
                 Object.entries(addOnsByCategory).map(([category, services]) => (
                     <ServiceCategory key={category} title={category} services={services} onProfitTesterOpen={handleOpenProfitTester} />
                 ))
