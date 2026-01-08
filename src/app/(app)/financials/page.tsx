@@ -1,7 +1,7 @@
 
 'use client';
 
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -31,18 +31,22 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
   DollarSign,
   PlusCircle,
   Home,
   Heart,
   Car,
   ShoppingCart,
-  GraduationCap,
   Sparkles,
   Building,
   Monitor,
   Briefcase,
-  Brush,
   Wifi,
   MoreHorizontal,
   PiggyBank,
@@ -50,59 +54,48 @@ import {
   Dog,
   Baby,
   Landmark,
-  Shield,
   Trash2,
   Phone,
   Film,
   Megaphone,
   CreditCard,
-  Banknote,
   Receipt,
   Package,
+  Edit,
+  Save,
+  Globe,
 } from 'lucide-react';
-import { bills } from '@/lib/data';
-
+import { Badge } from '@/components/ui/badge';
 
 const BillItemCard = ({
   title,
   isCustom = false,
+  isEditing = false,
 }: {
   title: string;
   isCustom?: boolean;
+  isEditing?: boolean;
 }) => (
   <Card className="w-full shrink-0 sm:w-72">
     <CardContent className="p-3">
       <div className="space-y-3">
-        <div className="space-y-2">
-            {isCustom ? (
-            <Input defaultValue={title} className="font-semibold border-dashed" />
-            ) : (
-            <Label className="font-semibold">{title}</Label>
+        <div className="flex justify-between items-start">
+            <div className="space-y-2 flex-1">
+                {isCustom && isEditing ? (
+                    <Input defaultValue={title} className="font-semibold border-dashed h-9" disabled={!isEditing} />
+                ) : (
+                    <Label className="font-semibold text-base pt-2 block">{title}</Label>
+                )}
+                <div className="relative">
+                    <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input type="number" placeholder="0.00" className="pl-8" disabled={!isEditing} />
+                </div>
+            </div>
+            {isCustom && isEditing && (
+                 <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive-foreground hover:bg-destructive shrink-0">
+                    <Trash2 className="w-4 h-4"/>
+                </Button>
             )}
-            <div className="relative">
-            <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input type="number" placeholder="0.00" className="pl-8" />
-            </div>
-        </div>
-        <div className='space-y-2 text-xs'>
-            <div className='space-y-1'>
-                <Label className='text-muted-foreground'>Payment URL</Label>
-                <Input placeholder='https://...' className='h-8 text-xs' />
-            </div>
-            <div className='grid grid-cols-3 gap-2'>
-                <div className='space-y-1'>
-                    <Label className='text-muted-foreground'>Due Day</Label>
-                    <Input type='number' placeholder='15' className='h-8 text-xs' />
-                </div>
-                 <div className='space-y-1'>
-                    <Label className='text-muted-foreground'>Late By</Label>
-                    <Input type='number' placeholder='20' className='h-8 text-xs' />
-                </div>
-                 <div className='space-y-1'>
-                    <Label className='text-muted-foreground'>Late Fee</Label>
-                    <Input type='number' placeholder='25.00' className='h-8 text-xs' />
-                </div>
-            </div>
         </div>
       </div>
     </CardContent>
@@ -111,12 +104,14 @@ const BillItemCard = ({
 
 const BillEditor = ({
   categories,
+  isEditing,
 }: {
   categories: {
     name: string;
     icon: React.ReactNode;
-    bills: { title: string }[];
+    bills: { title: string, isCustom?: boolean }[];
   }[];
+  isEditing: boolean;
 }) => (
   <Card>
     <CardContent className="p-4 space-y-4">
@@ -132,13 +127,13 @@ const BillEditor = ({
             <AccordionContent className="pt-4">
                 <div className="sm:hidden grid grid-cols-1 gap-4">
                     {category.bills.map((bill) => (
-                      <BillItemCard key={bill.title} title={bill.title} />
+                      <BillItemCard key={bill.title} title={bill.title} isEditing={isEditing} isCustom={bill.isCustom} />
                     ))}
                 </div>
                 <ScrollArea className="hidden sm:block">
                     <div className="flex space-x-4 pb-4">
                     {category.bills.map((bill) => (
-                        <BillItemCard key={bill.title} title={bill.title} />
+                        <BillItemCard key={bill.title} title={bill.title} isEditing={isEditing} isCustom={bill.isCustom} />
                     ))}
                     </div>
                     <ScrollBar orientation="horizontal" />
@@ -146,7 +141,7 @@ const BillEditor = ({
             </AccordionContent>
           </AccordionItem>
         ))}
-        <AccordionItem value="custom">
+         <AccordionItem value="custom">
             <AccordionTrigger className="p-3 bg-muted/50 rounded-md hover:no-underline">
               <div className="flex items-center gap-3">
                 <Sparkles className="w-5 h-5 text-primary" />
@@ -155,16 +150,10 @@ const BillEditor = ({
             </AccordionTrigger>
             <AccordionContent className="pt-4">
                 <div className="flex flex-col sm:flex-row items-center gap-4">
-                    <div className="grid grid-cols-1 gap-4 w-full sm:hidden">
-                         <BillItemCard title="Custom Expense" isCustom />
-                    </div>
-                    <ScrollArea className="w-full hidden sm:block">
-                        <div className="flex space-x-4 pb-4">
-                             <BillItemCard title="Custom Expense" isCustom />
-                        </div>
-                        <ScrollBar orientation="horizontal" />
-                    </ScrollArea>
-                    <Button variant="outline" size="icon" className="shrink-0"><PlusCircle className="w-4 h-4" /></Button>
+                    <BillItemCard title="Custom Expense" isCustom isEditing={isEditing}/>
+                    {isEditing && (
+                        <Button variant="outline" size="icon" className="shrink-0"><PlusCircle className="w-4 h-4" /></Button>
+                    )}
                 </div>
             </AccordionContent>
           </AccordionItem>
@@ -184,194 +173,54 @@ const BillEditor = ({
 );
 
 const lifestyleCategories = [
-  {
-    name: 'Housing',
-    icon: <Home className="w-5 h-5 text-primary" />,
-    bills: [
-      { title: "Rent/Mortgage" },
-      { title: "Property Taxes" },
-      { title: "HOA Fees" },
-      { title: "Insurance (Homeowner's/Renter's)" },
-    ],
-  },
-  {
-    name: 'Utilities',
-    icon: <Receipt className="w-5 h-5 text-primary" />,
-    bills: [
-      { title: "Electric" },
-      { title: "Water" },
-      { title: "Gas" },
-      { title: "Waste Management" },
-    ],
-  },
-   {
-    name: 'Internet & Phone',
-    icon: <Wifi className="w-5 h-5 text-primary" />,
-    bills: [{ title: 'Internet Bill' }, { title: 'Cell Phone Bill' }],
-  },
-  {
-    name: 'Streaming & Subscriptions',
-    icon: <Film className="w-5 h-5 text-primary" />,
-    bills: [
-      { title: "Netflix" },
-      { title: "Spotify" },
-      { title: "News Subscription" },
-      { title: "Cloud Storage (iCloud, Google Drive, etc.)" },
-    ],
-  },
-  {
-    name: 'Food',
-    icon: <ShoppingCart className="w-5 h-5 text-primary" />,
-    bills: [{ title: 'Groceries' }, { title: 'Restaurants' }],
-  },
-  {
-    name: 'Transportation',
-    icon: <Car className="w-5 h-5 text-primary" />,
-    bills: [
-      { title: "Car Payment" },
-      { title: "Car Insurance" },
-      { title: "Gas/Fuel" },
-      { title: "Public Transit" },
-    ],
-  },
-  {
-    name: 'Health & Wellness',
-    icon: <Heart className="w-5 h-5 text-primary" />,
-    bills: [
-      { title: "Personal Health Insurance" },
-      { title: "Gym Membership" },
-      { title: "Therapy/Counseling" },
-      { title: "Medication" },
-    ],
-  },
-  {
-    name: 'Debt Repayment',
-    icon: <CreditCard className="w-5 h-5 text-primary" />,
-    bills: [
-      { title: "Student Loans" },
-      { title: "Credit Card Payments" },
-      { title: "Buy Now, Pay Later (e.g., Klarna, Afterpay)" },
-    ],
-  },
-  {
-    name: 'Family & Childcare',
-    icon: <Baby className="w-5 h-5 text-primary" />,
-    bills: [
-      { title: "Childcare / Daycare" },
-      { title: "Kids' Activities" },
-      { title: "Child Support" },
-    ],
-  },
-  {
-    name: 'Pets',
-    icon: <Dog className="w-5 h-5 text-primary" />,
-    bills: [{ title: 'Pet Food & Supplies' }, { title: 'Pet Insurance' }],
-  },
-  {
-    name: 'Personal Spending',
-    icon: <Sparkles className="w-5 h-5 text-primary" />,
-    bills: [
-      { title: "Shopping (Clothes, etc.)" },
-      { title: "Entertainment (Movies, Concerts, etc.)" },
-      { title: "Hobbies & Recreation" },
-      { title: "Personal Care (Haircuts, etc. that you don't do yourself)" },
-    ],
-  },
-  {
-    name: 'Gifts & Donations',
-    icon: <Gift className="w-5 h-5 text-primary" />,
-    bills: [{ title: 'Gifts' }, { title: 'Donations' }],
-  },
-  {
-    name: 'Financial Goals',
-    icon: <PiggyBank className="w-5 h-5 text-primary" />,
-    bills: [
-      { title: "Personal Savings" },
-      { title: "Retirement (IRA/401k contributions)" },
-    ],
-  },
+  { name: 'Housing', icon: <Home className="w-5 h-5 text-primary" />, bills: [ { title: "Rent/Mortgage" }, { title: "Property Taxes" }, { title: "HOA Fees" }, { title: "Insurance (Homeowner's/Renter's)" } ]},
+  { name: 'Utilities', icon: <Receipt className="w-5 h-5 text-primary" />, bills: [ { title: "Electric" }, { title: "Water" }, { title: "Gas" }, { title: "Waste Management" } ]},
+  { name: 'Internet & Phone', icon: <Wifi className="w-5 h-5 text-primary" />, bills: [{ title: 'Internet Bill' }, { title: 'Cell Phone Bill' }] },
+  { name: 'Streaming & Subscriptions', icon: <Film className="w-5 h-5 text-primary" />, bills: [ { title: "Netflix" }, { title: "Spotify" }, { title: "News Subscription" }, { title: "Cloud Storage (iCloud, Google Drive, etc.)" } ]},
+  { name: 'Food', icon: <ShoppingCart className="w-5 h-5 text-primary" />, bills: [{ title: 'Groceries' }, { title: 'Restaurants' }] },
+  { name: 'Transportation', icon: <Car className="w-5 h-5 text-primary" />, bills: [ { title: "Car Payment" }, { title: "Car Insurance" }, { title: "Gas/Fuel" }, { title: "Public Transit" } ]},
+  { name: 'Health & Wellness', icon: <Heart className="w-5 h-5 text-primary" />, bills: [ { title: "Personal Health Insurance" }, { title: "Gym Membership" }, { title: "Therapy/Counseling" }, { title: "Medication" } ]},
+  { name: 'Debt Repayment', icon: <CreditCard className="w-5 h-5 text-primary" />, bills: [ { title: "Student Loans" }, { title: "Credit Card Payments" }, { title: "Buy Now, Pay Later (e.g., Klarna, Afterpay)" } ]},
+  { name: 'Family & Childcare', icon: <Baby className="w-5 h-5 text-primary" />, bills: [ { title: "Childcare / Daycare" }, { title: "Kids' Activities" }, { title: "Child Support" } ]},
+  { name: 'Pets', icon: <Dog className="w-5 h-5 text-primary" />, bills: [{ title: 'Pet Food & Supplies' }, { title: 'Pet Insurance' }] },
+  { name: 'Personal Spending', icon: <Sparkles className="w-5 h-5 text-primary" />, bills: [ { title: "Shopping (Clothes, etc.)" }, { title: "Entertainment (Movies, Concerts, etc.)" }, { title: "Hobbies & Recreation" }, { title: "Personal Care (Haircuts, etc. that you don't do yourself)" } ]},
+  { name: 'Gifts & Donations', icon: <Gift className="w-5 h-5 text-primary" />, bills: [{ title: 'Gifts' }, { title: 'Donations' }] },
+  { name: 'Financial Goals', icon: <PiggyBank className="w-5 h-5 text-primary" />, bills: [ { title: "Personal Savings" }, { title: "Retirement (IRA/401k contributions)" } ]},
 ];
 
 const businessCategories = [
-   { 
-     name: "Rent & Facility", 
-     icon: <Building className="w-5 h-5 text-primary"/>, 
-     bills: [
-       {title: "Studio Rent/Mortgage"}, 
-       {title: "Business Insurance (Liability, Property)"}
-      ]
-   },
-   {
-     name: "Utilities",
-     icon: <Receipt className="w-5 h-5 text-primary"/>,
-     bills: [{title: "Electric"}, {title: "Water"}, {title: "Gas"}, {title: "Waste Management"}],
-   },
-   {
-    name: "Capital Equipment",
-    icon: <Briefcase className="w-5 h-5 text-primary" />,
-    bills: [], // This is auto-populated from inventory
-  },
-   { 
-     name: "Software & Systems", 
-     icon: <Monitor className="w-5 h-5 text-primary"/>, 
-     bills: [
-       {title: "Booking Software (e.g., ClarityFlow itself, Acuity, Square)"},
-       {title: "Website Hosting"}, 
-       {title: "Email Marketing (e.g., Mailchimp, ConvertKit)"}
-      ]
-   },
-   {
-    name: "Tech & Comms",
-    icon: <Phone className="w-5 h-5 text-primary"/>,
-    bills: [{title: "Business Phone Line"}]
-   },
-   { 
-     name: "Professional & Admin", 
-     icon: <Briefcase className="w-5 h-5 text-primary"/>, 
-     bills: [{title: "Accountant/Bookkeeper"}, {title: "Licensing & Dues"}]
-   },
-   {
-    name: "Marketing & Growth",
-    icon: <Megaphone className="w-5 h-5 text-primary"/>,
-    bills: [{title: "Social Media Ads"}, {title: "Print Materials (Business Cards, Flyers)"}]
-   },
-   {
-    name: "Retail & Marketing Materials",
-    icon: <Package className="w-5 h-5 text-primary"/>,
-    bills: [{title: "Packaging & Bags"}]
-   },
-   {
-    name: "Business Debt",
-    icon: <Landmark className="w-5 h-5 text-primary"/>,
-    bills: [{title: "Business Loan"}, {title: "Tax Debt Payment"}]
-   },
-   {
-    name: "Miscellaneous",
-    icon: <Sparkles className="w-5 h-5 text-primary"/>,
-    bills: [{title: "Bank Fees"}]
-   }
-]
+   { name: "Rent & Facility", icon: <Building className="w-5 h-5 text-primary"/>, bills: [ {title: "Studio Rent/Mortgage"}, {title: "Business Insurance (Liability, Property)"} ]},
+   { name: "Utilities", icon: <Receipt className="w-5 h-5 text-primary"/>, bills: [{title: "Electric"}, {title: "Water"}, {title: "Gas"}, {title: "Waste Management"}] },
+   { name: "Capital Equipment", icon: <Briefcase className="w-5 h-5 text-primary" />, bills: [] },
+   { name: "Software & Systems", icon: <Monitor className="w-5 h-5 text-primary"/>, bills: [ {title: "Booking Software (e.g., ClarityFlow itself, Acuity, Square)"}, {title: "Website Hosting"}, {title: "Email Marketing (e.g., Mailchimp, ConvertKit)"} ]},
+   { name: "Tech & Comms", icon: <Phone className="w-5 h-5 text-primary"/>, bills: [{title: "Business Phone Line"}] },
+   { name: "Professional & Admin", icon: <Briefcase className="w-5 h-5 text-primary"/>, bills: [{title: "Accountant/Bookkeeper"}, {title: "Licensing & Dues"}] },
+   { name: "Marketing & Growth", icon: <Megaphone className="w-5 h-5 text-primary"/>, bills: [{title: "Social Media Ads"}, {title: "Print Materials (Business Cards, Flyers)"}] },
+   { name: "Retail & Marketing Materials", icon: <Package className="w-5 h-5 text-primary"/>, bills: [{title: "Packaging & Bags"}] },
+   { name: "Business Debt", icon: <Landmark className="w-5 h-5 text-primary"/>, bills: [{title: "Business Loan"}, {title: "Tax Debt Payment"}] },
+   { name: "Miscellaneous", icon: <Sparkles className="w-5 h-5 text-primary"/>, bills: [{title: "Bank Fees", isCustom: true}] }
+];
 
-const LifestyleTab = () => (
+const LifestyleTab = ({ isEditing }: { isEditing: boolean }) => (
     <div>
         <h2 className="text-2xl font-semibold">What does it cost to be you?</h2>
         <p className="text-muted-foreground mt-2">Log all your monthly personal living expenses to establish your lifestyle cost.</p>
         <div className="mt-6">
-            <BillEditor categories={lifestyleCategories} />
+            <BillEditor categories={lifestyleCategories} isEditing={isEditing} />
         </div>
     </div>
 )
-const BusinessTab = () => (
+const BusinessTab = ({ isEditing }: { isEditing: boolean }) => (
      <div>
         <h2 className="text-2xl font-semibold">What does it cost to keep the lights on?</h2>
         <p className="text-muted-foreground mt-2">Log all your fixed, recurring business operating costs.</p>
         <div className="mt-6">
-            <BillEditor categories={businessCategories} />
+            <BillEditor categories={businessCategories} isEditing={isEditing} />
         </div>
     </div>
 )
 
-const DayScheduleRow = ({ day }: { day: string }) => {
+const DayScheduleRow = ({ day, isEditing }: { day: string, isEditing: boolean }) => {
     const timeOptions = Array.from({ length: 25 }, (_, i) => {
         const hour = Math.floor(i / 2) + 8;
         const minute = i % 2 === 0 ? '00' : '30';
@@ -383,11 +232,11 @@ const DayScheduleRow = ({ day }: { day: string }) => {
     return (
         <div className="flex flex-col sm:flex-row items-center gap-4 p-4 border-b">
             <div className="flex items-center gap-3 w-full sm:w-28">
-                <Switch defaultChecked={!['Saturday', 'Sunday'].includes(day)} id={`switch-${day}`} />
+                <Switch defaultChecked={!['Saturday', 'Sunday'].includes(day)} id={`switch-${day}`} disabled={!isEditing} />
                 <Label htmlFor={`switch-${day}`} className="font-semibold text-base">{day}</Label>
             </div>
             <div className="flex-1 grid grid-cols-2 gap-4 w-full">
-                <Select defaultValue="9:00 AM">
+                <Select defaultValue="9:00 AM" disabled={!isEditing}>
                     <SelectTrigger>
                         <SelectValue />
                     </SelectTrigger>
@@ -395,7 +244,7 @@ const DayScheduleRow = ({ day }: { day: string }) => {
                         {timeOptions.map(time => <SelectItem key={time} value={time}>{time}</SelectItem>)}
                     </SelectContent>
                 </Select>
-                <Select defaultValue="5:00 PM">
+                <Select defaultValue="5:00 PM" disabled={!isEditing}>
                     <SelectTrigger>
                         <SelectValue />
                     </SelectTrigger>
@@ -408,15 +257,15 @@ const DayScheduleRow = ({ day }: { day: string }) => {
     )
 }
 
-const ScheduleTab = () => (
+const ScheduleTab = ({ isEditing }: { isEditing: boolean }) => (
     <div>
         <h2 className="text-2xl font-semibold">How much time do you have to earn?</h2>
         <p className="text-muted-foreground mt-2">Define your available work hours to calculate your total billable time.</p>
         <div className="mt-6">
             <Card>
-                <CardContent className="p-0">
+                <CardContent className="p-0 divide-y">
                     {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(day => (
-                        <DayScheduleRow key={day} day={day} />
+                        <DayScheduleRow key={day} day={day} isEditing={isEditing} />
                     ))}
                 </CardContent>
             </Card>
@@ -425,11 +274,11 @@ const ScheduleTab = () => (
                 <CardContent className="grid md:grid-cols-2 gap-6">
                     <div className="space-y-2">
                         <Label>Vacation Days / Year</Label>
-                        <Input type="number" defaultValue="10" />
+                        <Input type="number" defaultValue="10" disabled={!isEditing} />
                     </div>
                      <div className="space-y-2">
                         <Label>Statutory Holidays / Year</Label>
-                        <Input type="number" defaultValue="8" />
+                        <Input type="number" defaultValue="8" disabled={!isEditing} />
                     </div>
                 </CardContent>
             </Card>
@@ -437,29 +286,79 @@ const ScheduleTab = () => (
     </div>
 )
 
+const FinancialProfileManager = ({ activeTab }: { activeTab: string }) => {
+    const profiles = useMemo(() => {
+        switch (activeTab) {
+            case 'lifestyle':
+                return [{ id: 'ls1', name: 'Default Lifestyle', isActive: true, isPro: false }];
+            case 'business':
+                return [{ id: 'bs1', name: 'Default Business', isActive: true, isPro: false }];
+            case 'schedule':
+                return [
+                    { id: 'sc1', name: 'Standard 35hr/wk', isActive: true, isPublic: true },
+                    { id: 'sc2', name: 'Aggressive 45hr/wk', isActive: false, isPublic: false }
+                ];
+            default:
+                return [];
+        }
+    }, [activeTab]);
+    
+    const isProFeature = activeTab === 'lifestyle' || activeTab === 'business';
+
+    return (
+        <Card className="lg:sticky top-24">
+            <CardHeader>
+                <CardTitle className="capitalize">{activeTab} Profiles</CardTitle>
+                <CardDescription>Manage your financial scenarios.</CardDescription>
+            </CardHeader>
+            <CardContent className="p-2">
+                <div className="space-y-1">
+                    {profiles.map(profile => (
+                        <Button
+                            key={profile.id}
+                            variant={profile.isActive ? 'secondary' : 'ghost'}
+                            className="w-full justify-start"
+                        >
+                            <span className="flex-1 text-left truncate">{profile.name}</span>
+                            {activeTab === 'schedule' && profile.isPublic && (
+                                <Globe className="h-4 w-4 text-muted-foreground ml-2" />
+                            )}
+                            {profile.isActive && <Badge variant="default" className="ml-2">Active</Badge>}
+                             <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-7 w-7 ml-1 shrink-0">
+                                        <MoreHorizontal className="h-4 w-4" />
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                    <DropdownMenuItem>Rename</DropdownMenuItem>
+                                    <DropdownMenuItem>Duplicate</DropdownMenuItem>
+                                    {activeTab === 'schedule' && <DropdownMenuItem>Set as Public</DropdownMenuItem>}
+                                    <DropdownMenuItem className="text-destructive" disabled={profiles.length === 1}>Delete</DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        </Button>
+                    ))}
+                </div>
+            </CardContent>
+            <CardFooter className="p-2">
+                <Button variant="outline" className="w-full" disabled={isProFeature}>
+                    <PlusCircle className="mr-2 h-4 w-4" />
+                    Add New Profile
+                    {isProFeature && <Badge className="ml-auto">Pro</Badge>}
+                </Button>
+            </CardFooter>
+        </Card>
+    )
+}
+
 const TmhrBreakdownCard = () => (
-    <Card className="lg:sticky top-20">
+    <Card className="lg:sticky top-24">
         <CardHeader>
             <CardTitle>Your Financial Snapshot</CardTitle>
             <CardDescription>Select your profiles to see the magic.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-             <div className="grid grid-cols-2 gap-4">
-                <Select defaultValue="default-lifestyle">
-                    <SelectTrigger><SelectValue/></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="default-lifestyle">Default Lifestyle</SelectItem>
-                      <SelectItem value="lean-lifestyle">Lean Year Lifestyle</SelectItem>
-                    </SelectContent>
-                </Select>
-                <Select defaultValue="default-schedule">
-                    <SelectTrigger><SelectValue/></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="default-schedule">Standard 35hr/wk</SelectItem>
-                      <SelectItem value="aggressive-schedule">Aggressive 45hr/wk</SelectItem>
-                      </SelectContent>
-                </Select>
-            </div>
             <Card className="bg-primary/10 border-primary/20 text-center p-6">
                 <p className="text-sm text-primary font-semibold">True Minimum Hourly Rate</p>
                 <p className="text-6xl font-bold text-primary">$0.00</p>
@@ -477,45 +376,59 @@ const TmhrBreakdownCard = () => (
 )
 
 export default function FinancialFoundationPage() {
+    const [isEditing, setIsEditing] = useState(false);
+    const [activeTab, setActiveTab] = useState('lifestyle');
+
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Financial Foundation" />
       <main className="flex-1 p-4 md:p-8">
         <div className="max-w-6xl mx-auto">
-            <div className="mb-8">
-              <h1 className="text-3xl font-bold">Your True Minimum Hourly Rate</h1>
-              <p className="text-muted-foreground mt-2 max-w-3xl">
-                The bedrock of your entire business. This is the exact amount you must earn per hour to cover all your expenses and fund your desired lifestyle.
-              </p>
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
+              <div>
+                <h1 className="text-3xl font-bold">Your True Minimum Hourly Rate</h1>
+                <p className="text-muted-foreground mt-2 max-w-3xl">
+                    The bedrock of your entire business. This is the exact amount you must earn per hour to cover all your expenses and fund your desired lifestyle.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {isEditing ? (
+                    <>
+                        <Button variant="outline" onClick={() => setIsEditing(false)}>Cancel</Button>
+                        <Button onClick={() => setIsEditing(false)}><Save className="mr-2"/>Save Changes</Button>
+                    </>
+                ) : (
+                    <Button onClick={() => setIsEditing(true)}><Edit className="mr-2"/>Edit Profiles</Button>
+                )}
+              </div>
             </div>
 
-            <div className="grid lg:grid-cols-3 gap-8 items-start">
-                <div className="lg:col-span-2">
-                     <Tabs defaultValue="lifestyle" className="w-full">
-                        <TabsList className="grid w-full grid-cols-3">
-                            <TabsTrigger value="lifestyle">1. Lifestyle</TabsTrigger>
-                            <TabsTrigger value="business">2. Business</TabsTrigger>
-                            <TabsTrigger value="schedule">3. Schedule</TabsTrigger>
-                        </TabsList>
-                        <TabsContent value="lifestyle" className="mt-6">
-                           <LifestyleTab />
+            <Tabs defaultValue="lifestyle" className="w-full" onValueChange={setActiveTab}>
+                <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="lifestyle">1. Lifestyle</TabsTrigger>
+                    <TabsTrigger value="business">2. Business</TabsTrigger>
+                    <TabsTrigger value="schedule">3. Schedule</TabsTrigger>
+                </TabsList>
+                
+                <div className="grid lg:grid-cols-3 gap-8 items-start mt-6">
+                    <div className="hidden lg:block lg:col-span-1">
+                        <FinancialProfileManager activeTab={activeTab} />
+                    </div>
+                    <div className="lg:col-span-2">
+                        <TabsContent value="lifestyle" className="m-0">
+                           <LifestyleTab isEditing={isEditing} />
                         </TabsContent>
-                        <TabsContent value="business" className="mt-6">
-                           <BusinessTab />
+                        <TabsContent value="business" className="m-0">
+                           <BusinessTab isEditing={isEditing} />
                         </TabsContent>
-                        <TabsContent value="schedule" className="mt-6">
-                           <ScheduleTab />
+                        <TabsContent value="schedule" className="m-0">
+                           <ScheduleTab isEditing={isEditing} />
                         </TabsContent>
-                    </Tabs>
-                </div>
-                <div className="lg:col-span-1">
-                    <div className="hidden lg:block">
-                        <TmhrBreakdownCard />
                     </div>
                 </div>
-            </div>
+            </Tabs>
             
-            <div className="lg:hidden mt-8 space-y-4">
+            <div className="mt-8 space-y-4">
                 <h2 className="text-2xl font-bold text-center">Your Financial Snapshot</h2>
                 <TmhrBreakdownCard />
             </div>
@@ -524,5 +437,3 @@ export default function FinancialFoundationPage() {
     </div>
   );
 }
-
-    
