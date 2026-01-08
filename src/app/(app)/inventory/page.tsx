@@ -432,7 +432,7 @@ export default function InventoryPage() {
       <main className="flex-1 p-4 md:p-8 space-y-6">
         <Tabs defaultValue="professional" className="w-full">
           <div className='flex flex-col gap-4'>
-            <ScrollArea>
+            <ScrollArea className="w-full">
               <TabsList className="inline-flex">
                 <TabsTrigger value="professional">Professional</TabsTrigger>
                 <TabsTrigger value="retail">Retail</TabsTrigger>
@@ -442,9 +442,9 @@ export default function InventoryPage() {
               </TabsList>
               <ScrollBar orientation="horizontal" />
             </ScrollArea>
-             <div className="flex w-full flex-col items-stretch gap-2 sm:flex-row">
+             <div className="flex w-full flex-col sm:flex-row items-stretch gap-2">
                 <Button className="w-full sm:w-auto" onClick={() => setIsReceiveStockOpen(true)}><Truck className="mr-2 h-4 w-4" /> Receive Stock</Button>
-                <div className="flex w-full items-stretch gap-2 sm:w-auto sm:ml-auto">
+                <div className="flex w-full sm:w-auto sm:ml-auto items-stretch gap-2">
                   <Button variant="outline" className="flex-1" asChild>
                     <Link href="/inventory/labels">
                       <Printer className="mr-2 h-4 w-4" /> Labels
@@ -656,5 +656,7 @@ export default function InventoryPage() {
     </div>
   );
 }
+
+    
 
     
