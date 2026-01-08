@@ -31,6 +31,7 @@ import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Input } from '@/components/ui/input';
+import { AddServiceDialog } from '@/components/services/AddServiceDialog';
 
 
 const TMHR = 45; // True Minimum Hourly Rate (mock)
@@ -141,7 +142,7 @@ const ServiceCategory = ({ title, services, onProfitTesterOpen }: { title: strin
     )
 }
 
-const EmptyState = () => (
+const EmptyState = ({ onAddNewService }: { onAddNewService: () => void }) => (
     <Card className="flex flex-col items-center justify-center py-20 px-6 text-center">
         <CardContent className='space-y-4'>
             <div className='flex justify-center'>
@@ -153,7 +154,7 @@ const EmptyState = () => (
             <p className="text-muted-foreground max-w-sm mx-auto">
                 This is where your services will live. Add your first service to calculate its profitability and build your client-facing menu.
             </p>
-            <Button className='mt-4'>
+            <Button className='mt-4' onClick={onAddNewService}>
                 <PlusCircle className="mr-2 h-4 w-4" />
                 Add New Service
             </Button>
@@ -164,6 +165,7 @@ const EmptyState = () => (
 
 export default function ServicesPage() {
   const [isProfitTesterOpen, setIsProfitTesterOpen] = useState(false);
+  const [isAddServiceDialogOpen, setIsAddServiceDialogOpen] = useState(false);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [testPrice, setTestPrice] = useState(0);
 
@@ -185,23 +187,23 @@ export default function ServicesPage() {
   const mainServices = services.filter(s => s.type === 'service');
   const addOnServices = services.filter(s => s.type === 'addon');
   
-  const servicesByCategory = mainServices.reduce((acc, service) => {
+  const servicesByCategory = useMemo(() => mainServices.reduce((acc, service) => {
     const category = service.category || 'Uncategorized';
     if (!acc[category]) {
       acc[category] = [];
     }
     acc[category].push(service);
     return acc;
-  }, {} as Record<string, Service[]>);
+  }, {} as Record<string, Service[]>), [mainServices]);
 
-  const addOnsByCategory = addOnServices.reduce((acc, service) => {
+  const addOnsByCategory = useMemo(() => addOnServices.reduce((acc, service) => {
     const category = service.category || 'Uncategorized';
     if (!acc[category]) {
       acc[category] = [];
     }
     acc[category].push(service);
     return acc;
-  }, {} as Record<string, Service[]>);
+  }, {} as Record<string, Service[]>), [addOnServices]);
 
 
   return (
@@ -213,7 +215,7 @@ export default function ServicesPage() {
                 <h1 className="text-3xl font-bold">Service Library</h1>
                 <p className="text-muted-foreground">Your menu builder and profitability calculator.</p>
             </div>
-            <Button>
+            <Button onClick={() => setIsAddServiceDialogOpen(true)}>
                 <PlusCircle className="mr-2 h-4 w-4" />
                 New Service
             </Button>
@@ -239,7 +241,7 @@ export default function ServicesPage() {
                 Object.entries(servicesByCategory).map(([category, services]) => (
                     <ServiceCategory key={category} title={category} services={services} onProfitTesterOpen={handleOpenProfitTester} />
                 ))
-            ) : <EmptyState />}
+            ) : <EmptyState onAddNewService={() => setIsAddServiceDialogOpen(true)} />}
           </TabsContent>
            <TabsContent value="add-ons" className="mt-6 space-y-8">
              {Object.keys(addOnsByCategory).length > 0 ? (
@@ -305,6 +307,7 @@ export default function ServicesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <AddServiceDialog open={isAddServiceDialogOpen} onOpenChange={setIsAddServiceDialogOpen} />
     </div>
   );
 }
