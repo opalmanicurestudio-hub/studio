@@ -53,20 +53,20 @@ const ClarityFlowLogo = () => (
     </svg>
   );
 
-const coreNavItems = [
-  { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { href: '/planner', icon: Calendar, label: 'Planner' },
+const setupNavItems = [
+  { href: '/financials', icon: Wallet, label: 'Financials' },
+  { href: '/services', icon: List, label: 'Services' },
+  { href: '/inventory', icon: Box, label: 'Inventory' },
   { href: '/clients', icon: Users, label: 'Clients' },
 ];
 
-const salesNavItems = [
-    { href: '/services', icon: List, label: 'Services' },
-    { href: '/inventory', icon: Box, label: 'Inventory' },
+const operationsNavItems = [
+    { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+    { href: '/planner', icon: Calendar, label: 'Planner' },
     { href: '/quotes', icon: FileText, label: 'Quotes' },
 ];
 
-const financialNavItems = [
-    { href: '/financials', icon: Wallet, label: 'Financials' },
+const moneyNavItems = [
     { href: '/ledger', icon: BookOpen, label: 'Ledger' },
     { href: '/bills', icon: Landmark, label: 'Bills' },
     { href: '/payday', icon: DollarSign, label: 'Payday' },
@@ -94,9 +94,9 @@ export function AppSidebar() {
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-             <SidebarGroupLabel>Core</SidebarGroupLabel>
+             <SidebarGroupLabel>Setup</SidebarGroupLabel>
             <SidebarMenu>
-            {coreNavItems.map((item) => (
+            {setupNavItems.map((item) => (
                 <SidebarMenuItem key={item.href}>
                 <SidebarMenuButton
                     asChild
@@ -114,9 +114,9 @@ export function AppSidebar() {
         </SidebarGroup>
         <SidebarSeparator />
          <SidebarGroup>
-            <SidebarGroupLabel>Service & Sales</SidebarGroupLabel>
+            <SidebarGroupLabel>Operations</SidebarGroupLabel>
             <SidebarMenu>
-            {salesNavItems.map((item) => (
+            {operationsNavItems.map((item) => (
                 <SidebarMenuItem key={item.href}>
                 <SidebarMenuButton
                     asChild
@@ -134,9 +134,9 @@ export function AppSidebar() {
         </SidebarGroup>
         <SidebarSeparator />
         <SidebarGroup>
-            <SidebarGroupLabel>Financial Suite</SidebarGroupLabel>
+            <SidebarGroupLabel>Money</SidebarGroupLabel>
             <SidebarMenu>
-                {financialNavItems.map((item) => (
+                {moneyNavItems.map((item) => (
                     <SidebarMenuItem key={item.href}>
                     <SidebarMenuButton
                         asChild
