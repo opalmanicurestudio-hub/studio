@@ -114,6 +114,24 @@ const ClientIntelAccordion = () => (
 const AddClientForm = () => {
     const [date, setDate] = useState<Date>();
     const [referralSource, setReferralSource] = useState<string>('');
+    const [tags, setTags] = useState<string[]>(['Friend of Owner']);
+    const [tagInput, setTagInput] = useState('');
+
+    const handleTagInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter' && tagInput.trim()) {
+            e.preventDefault();
+            const newTag = tagInput.trim();
+            if (!tags.includes(newTag)) {
+                setTags([...tags, newTag]);
+            }
+            setTagInput('');
+        }
+    };
+
+    const removeTag = (tagToRemove: string) => {
+        setTags(tags.filter(tag => tag !== tagToRemove));
+    };
+
 
     return (
         <ScrollArea className="h-[70vh] pr-6">
@@ -176,10 +194,27 @@ const AddClientForm = () => {
                     <h3 className="text-lg font-medium">Tags & Referral Source</h3>
                     <div className="space-y-2">
                         <Label htmlFor="custom-tags">Custom Tags</Label>
-                        <Input id="custom-tags" placeholder="Type a tag and press Enter (e.g., VIP)" />
+                        <Input 
+                            id="custom-tags" 
+                            placeholder="Type a tag and press Enter (e.g., VIP)" 
+                            value={tagInput}
+                            onChange={(e) => setTagInput(e.target.value)}
+                            onKeyDown={handleTagInputKeyDown}
+                        />
                         <div className="flex flex-wrap gap-2 pt-2">
-                            {/* Example tags */}
-                            <Badge variant="secondary">Friend of Owner <Button variant="ghost" size="icon" className="h-4 w-4 ml-1"><Trash2 className="h-3 w-3"/></Button></Badge>
+                            {tags.map(tag => (
+                                <Badge key={tag} variant="secondary" className="flex items-center gap-1">
+                                    {tag}
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-4 w-4 -mr-1"
+                                        onClick={() => removeTag(tag)}
+                                    >
+                                        <Trash2 className="h-3 w-3" />
+                                    </Button>
+                                </Badge>
+                            ))}
                         </div>
                     </div>
                     <div className="space-y-2">
