@@ -545,385 +545,252 @@ export default function InventoryPage() {
     }
   }, [isScannerOpen, toast]);
 
-  const renderContent = () => {
-    const contentMap: Record<string, React.ReactNode> = {
-        professional: (
-          (professionalColor.length === 0 && professionalCare.length === 0 && professionalStyling.length === 0 && professionalTools.length === 0) ? (
-            <EmptyState message="No professional products yet. Add one to get started." />
-          ) : (
-            <div className="m-0 space-y-6">
-                <Accordion type="single" collapsible defaultValue="color" className="w-full">
-                    <AccordionItem value="color">
-                        <AccordionTrigger className='text-xl font-bold hover:no-underline'>Color</AccordionTrigger>
-                        <AccordionContent className="pl-4">
-                             <Carousel opts={{ align: "start" }} className="w-full">
-                                <CarouselContent className="-ml-4">
-                                    {professionalColor.map((item) => (
-                                        <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                                            <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
-                                        </CarouselItem>
-                                    ))}
-                                </CarouselContent>
-                             </Carousel>
-                        </AccordionContent>
-                    </AccordionItem>
-                </Accordion>
-                <Accordion type="single" collapsible className="w-full">
-                    <AccordionItem value="styling">
-                         <AccordionTrigger className='text-xl font-bold hover:no-underline'>Styling</AccordionTrigger>
-                         <AccordionContent className="pl-4">
-                            <Carousel opts={{ align: "start" }} className="w-full">
-                                <CarouselContent className="-ml-4">
-                                    {professionalStyling.map((item) => (
-                                        <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                                            <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
-                                        </CarouselItem>
-                                    ))}
-                                </CarouselContent>
-                            </Carousel>
-                         </AccordionContent>
-                    </AccordionItem>
-                </Accordion>
-                <Accordion type="single" collapsible className="w-full">
-                    <AccordionItem value="care">
-                         <AccordionTrigger className='text-xl font-bold hover:no-underline'>Care</AccordionTrigger>
-                         <AccordionContent className="pl-4">
-                            <Carousel opts={{ align: "start" }} className="w-full">
-                                <CarouselContent className="-ml-4">
-                                    {professionalCare.map((item) => (
-                                        <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                                            <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
-                                        </CarouselItem>
-                                    ))}
-                                </CarouselContent>
-                            </Carousel>
-                         </AccordionContent>
-                    </AccordionItem>
-                </Accordion>
-                 <Accordion type="single" collapsible className="w-full">
-                    <AccordionItem value="tools">
-                         <AccordionTrigger className='text-xl font-bold hover:no-underline'>Tools</AccordionTrigger>
-                         <AccordionContent className="pl-4">
-                            <Carousel opts={{ align: "start" }} className="w-full">
-                                <CarouselContent className="-ml-4">
-                                    {professionalTools.map((item) => (
-                                        <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                                            <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
-                                        </CarouselItem>
-                                    ))}
-                                </CarouselContent>
-                            </Carousel>
-                         </AccordionContent>
-                    </AccordionItem>
-                </Accordion>
-            </div>
-          )
-        ),
-        retail: retailItems.length > 0 ? (
-          <div className="pl-4">
-            <Carousel opts={{ align: "start" }} className="w-full">
-              <CarouselContent className="-ml-4">
-                  {retailItems.map((item) => (
-                    <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                          <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
-                    </CarouselItem>
-                  ))}
-              </CarouselContent>
-            </Carousel>
-          </div>
-        ) : (
-          <EmptyState message="No retail items yet. Add one to get started." />
-        ),
-        overhead: overheadItems.length > 0 ? (
-          <div className="pl-4">
-            <Carousel opts={{ align: "start" }} className="w-full">
-              <CarouselContent className="-ml-4">
-                  {overheadItems.map((item) => (
-                    <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                      <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
-                    </CarouselItem>
-                  ))}
-              </CarouselContent>
-            </Carousel>
-          </div>
-        ) : (
-          <EmptyState message="No overhead items yet. Add one to get started." />
-        ),
-        equipment: equipmentItems.length > 0 ? (
-          <div className="pl-4">
-            <Carousel opts={{ align: "start" }} className="w-full">
-              <CarouselContent className="-ml-4">
-                  {equipmentItems.map((item) => (
-                    <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                      <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
-                    </CarouselItem>
-                  ))}
-              </CarouselContent>
-            </Carousel>
-          </div>
-        ) : (
-          <EmptyState message="No equipment items yet. Add one to get started." />
-        ),
-        locations: (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-                <div>
-                    <h2 className="text-2xl font-bold">Storage Locations</h2>
-                    <p className="text-muted-foreground">A map of all your physical storage areas.</p>
-                </div>
-                <Button onClick={() => setIsAddLocationOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> New Location</Button>
-            </div>
-             {locations.length === 0 ? (
-                <EmptyState message="No storage locations defined yet. Add one to get started." />
-             ) : (
-                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {locations.map(location => (
-                        <Card key={location.id}>
-                            <CardHeader>
-                                <CardTitle className="text-lg">{location.name}</CardTitle>
-                                {location.description && <CardDescription>{location.description}</CardDescription>}
-                            </CardHeader>
-                            <CardFooter className="flex gap-2">
-                                <Button variant="outline" size="sm"><Edit className="mr-2 h-3 w-3"/> Edit</Button>
-                                <Button variant="outline" size="sm" className="text-destructive"><Trash2 className="mr-2 h-3 w-3"/> Delete</Button>
-                            </CardFooter>
-                        </Card>
-                    ))}
-                 </div>
-             )}
-          </div>
-        ),
-    }
-    return contentMap[activeTab] || null;
-  };
-
-
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Inventory Hub" />
       <main className="flex-1 p-4 md:p-8 space-y-4">
         <div className="flex flex-col gap-4">
-            <div className="flex flex-col sm:flex-row items-center gap-2">
-                <div className="relative flex-1 w-full">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input placeholder="Search inventory..." className="pl-9" />
-                </div>
-                <div className='flex items-center gap-2 w-full sm:w-auto'>
-                    <Button variant="outline" className='flex-1 sm:flex-initial' onClick={() => setIsManageSpoilageOpen(true)}><BellRing className="mr-2 h-4 w-4" /> Spoilage</Button>
-                    <Button variant="outline" className='flex-1 sm:flex-initial' onClick={() => setIsScannerOpen(true)}>
-                        <QrCode className="mr-2 h-4 w-4" />
-                        Scan
-                    </Button>
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                        <Button variant="outline" className='flex-1 sm:flex-initial'><SlidersHorizontal className="mr-2 h-4 w-4" /> Filters</Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                        <DropdownMenuItem>Filter by Status</DropdownMenuItem>
-                        <DropdownMenuItem>Filter by Category</DropdownMenuItem>
-                        <DropdownMenuItem>Filter by Vendor</DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                </div>
+          <div className="flex flex-col sm:flex-row items-center gap-2">
+            <div className="relative flex-1 w-full">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input placeholder="Search inventory..." className="pl-9" />
             </div>
-            <div className="flex flex-col sm:flex-row items-center gap-2">
-                <div className='flex items-center gap-2 w-full'>
-                    {isMobile ? (
-                        <Select value={activeTab} onValueChange={setActiveTab}>
-                            <SelectTrigger className="w-full">
-                                <SelectValue placeholder="Select a category" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {tabOptions.map(option => (
-                                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    ) : (
-                      <ScrollArea className="w-full whitespace-nowrap rounded-md">
-                        <div className="flex w-max space-x-2">
-                           {tabOptions.map(option => (
-                            <Button
-                              key={option.value}
-                              variant={activeTab === option.value ? 'default' : 'outline'}
-                              onClick={() => setActiveTab(option.value)}
-                            >
-                              {option.label}
-                            </Button>
-                          ))}
-                        </div>
-                        <ScrollBar orientation="horizontal" />
-                      </ScrollArea>
-                    )}
-                </div>
-                <div className="flex w-full sm:w-auto items-center gap-2">
-                    <Button className="w-full" onClick={() => setIsReceiveStockOpen(true)}><Truck className="mr-2 h-4 w-4" /> Receive Stock</Button>
-                    <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button variant="outline" className="w-full"><PlusCircle className="mr-2 h-4 w-4" /> New</Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => setIsAddProductOpen(true)}><Package className="mr-2 h-4 w-4" /> Add Product</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setIsAddEquipmentOpen(true)}><Hammer className="mr-2 h-4 w-4" /> Add Equipment</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setIsAddOverheadOpen(true)}><Beaker className="mr-2 h-4 w-4" /> Add Overhead Item</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setIsCreateBundleOpen(true)}><FlaskConical className="mr-2 h-4 w-4" /> Create Bundle</DropdownMenuItem>
-                    </DropdownMenuContent>
-                    </DropdownMenu>
-                    <Button variant="outline" className="flex-1 sm:flex-initial" asChild>
-                        <Link href="/inventory/labels">
-                          <Printer className="mr-2 h-4 w-4" /> Labels
-                        </Link>
-                    </Button>
-                </div>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <Button variant="outline" className="flex-1 sm:flex-initial" onClick={() => setIsManageSpoilageOpen(true)}>
+                <BellRing className="mr-2 h-4 w-4" /> Spoilage
+              </Button>
+              <Button variant="outline" className="flex-1 sm:flex-initial" onClick={() => setIsScannerOpen(true)}>
+                <QrCode className="mr-2 h-4 w-4" />
+                Scan
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="flex-1 sm:flex-initial">
+                    <SlidersHorizontal className="mr-2 h-4 w-4" /> Filters
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem>Filter by Status</DropdownMenuItem>
+                  <DropdownMenuItem>Filter by Category</DropdownMenuItem>
+                  <DropdownMenuItem>Filter by Vendor</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
+          </div>
+          <div className="flex flex-col sm:flex-row items-center gap-2">
+            <div className="flex items-center gap-2 w-full">
+              {isMobile ? (
+                <Select value={activeTab} onValueChange={setActiveTab}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select a category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {tabOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <ScrollArea className="w-full whitespace-nowrap rounded-md">
+                  <div className="flex w-max space-x-2">
+                    {tabOptions.map((option) => (
+                      <Button
+                        key={option.value}
+                        variant={activeTab === option.value ? 'default' : 'outline'}
+                        onClick={() => setActiveTab(option.value)}
+                      >
+                        {option.label}
+                      </Button>
+                    ))}
+                  </div>
+                  <ScrollBar orientation="horizontal" />
+                </ScrollArea>
+              )}
+            </div>
+            <div className="flex w-full sm:w-auto items-center gap-2">
+              <Button className="w-full" onClick={() => setIsReceiveStockOpen(true)}>
+                <Truck className="mr-2 h-4 w-4" /> Receive Stock
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="w-full">
+                    <PlusCircle className="mr-2 h-4 w-4" /> New
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setIsAddProductOpen(true)}>
+                    <Package className="mr-2 h-4 w-4" /> Add Product
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setIsAddEquipmentOpen(true)}>
+                    <Hammer className="mr-2 h-4 w-4" /> Add Equipment
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setIsAddOverheadOpen(true)}>
+                    <Beaker className="mr-2 h-4 w-4" /> Add Overhead Item
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setIsCreateBundleOpen(true)}>
+                    <FlaskConical className="mr-2 h-4 w-4" /> Create Bundle
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button variant="outline" className="flex-1 sm:flex-initial" asChild>
+                <Link href="/inventory/labels">
+                  <Printer className="mr-2 h-4 w-4" /> Labels
+                </Link>
+              </Button>
+            </div>
+          </div>
         </div>
-        
-        {activeTab === 'professional' && (
-          (professionalColor.length === 0 && professionalCare.length === 0 && professionalStyling.length === 0 && professionalTools.length === 0) ? (
-            <EmptyState message="No professional products yet. Add one to get started." />
-          ) : (
-            <div className="m-0 space-y-6">
+
+        <div>
+          {activeTab === 'professional' && (
+            (professionalColor.length === 0 && professionalCare.length === 0 && professionalStyling.length === 0 && professionalTools.length === 0) ? (
+              <EmptyState message="No professional products yet. Add one to get started." />
+            ) : (
+              <div className="space-y-6">
                 <Accordion type="single" collapsible defaultValue="color" className="w-full">
-                    <AccordionItem value="color">
-                        <AccordionTrigger className='text-xl font-bold hover:no-underline'>Color</AccordionTrigger>
-                        <AccordionContent className="pl-4">
-                             <Carousel opts={{ align: "start" }} className="w-full">
-                                <CarouselContent className="-ml-4">
-                                    {professionalColor.map((item) => (
-                                        <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                                            <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
-                                        </CarouselItem>
-                                    ))}
-                                </CarouselContent>
-                             </Carousel>
-                        </AccordionContent>
-                    </AccordionItem>
+                  <AccordionItem value="color">
+                    <AccordionTrigger className='text-xl font-bold hover:no-underline'>Color</AccordionTrigger>
+                    <AccordionContent className="pl-4">
+                      <Carousel opts={{ align: "start" }} className="w-full">
+                        <CarouselContent className="-ml-4">
+                          {professionalColor.map((item) => (
+                            <CarouselItem key={item.id} className="pl-4 basis-full sm:basis-1/2 md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
+                              <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
+                            </CarouselItem>
+                          ))}
+                        </CarouselContent>
+                      </Carousel>
+                    </AccordionContent>
+                  </AccordionItem>
                 </Accordion>
                 <Accordion type="single" collapsible className="w-full">
-                    <AccordionItem value="styling">
-                         <AccordionTrigger className='text-xl font-bold hover:no-underline'>Styling</AccordionTrigger>
-                         <AccordionContent className="pl-4">
-                            <Carousel opts={{ align: "start" }} className="w-full">
-                                <CarouselContent className="-ml-4">
-                                    {professionalStyling.map((item) => (
-                                        <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                                            <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
-                                        </CarouselItem>
-                                    ))}
-                                </CarouselContent>
-                            </Carousel>
-                         </AccordionContent>
-                    </AccordionItem>
+                  <AccordionItem value="styling">
+                    <AccordionTrigger className='text-xl font-bold hover:no-underline'>Styling</AccordionTrigger>
+                    <AccordionContent className="pl-4">
+                      <Carousel opts={{ align: "start" }} className="w-full">
+                        <CarouselContent className="-ml-4">
+                          {professionalStyling.map((item) => (
+                            <CarouselItem key={item.id} className="pl-4 basis-full sm:basis-1/2 md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
+                              <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
+                            </CarouselItem>
+                          ))}
+                        </CarouselContent>
+                      </Carousel>
+                    </AccordionContent>
+                  </AccordionItem>
                 </Accordion>
                 <Accordion type="single" collapsible className="w-full">
-                    <AccordionItem value="care">
-                         <AccordionTrigger className='text-xl font-bold hover:no-underline'>Care</AccordionTrigger>
-                         <AccordionContent className="pl-4">
-                            <Carousel opts={{ align: "start" }} className="w-full">
-                                <CarouselContent className="-ml-4">
-                                    {professionalCare.map((item) => (
-                                        <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                                            <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
-                                        </CarouselItem>
-                                    ))}
-                                </CarouselContent>
-                            </Carousel>
-                         </AccordionContent>
-                    </AccordionItem>
+                  <AccordionItem value="care">
+                    <AccordionTrigger className='text-xl font-bold hover:no-underline'>Care</AccordionTrigger>
+                    <AccordionContent className="pl-4">
+                      <Carousel opts={{ align: "start" }} className="w-full">
+                        <CarouselContent className="-ml-4">
+                          {professionalCare.map((item) => (
+                            <CarouselItem key={item.id} className="pl-4 basis-full sm:basis-1/2 md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
+                              <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
+                            </CarouselItem>
+                          ))}
+                        </CarouselContent>
+                      </Carousel>
+                    </AccordionContent>
+                  </AccordionItem>
                 </Accordion>
-                 <Accordion type="single" collapsible className="w-full">
-                    <AccordionItem value="tools">
-                         <AccordionTrigger className='text-xl font-bold hover:no-underline'>Tools</AccordionTrigger>
-                         <AccordionContent className="pl-4">
-                            <Carousel opts={{ align: "start" }} className="w-full">
-                                <CarouselContent className="-ml-4">
-                                    {professionalTools.map((item) => (
-                                        <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                                            <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
-                                        </CarouselItem>
-                                    ))}
-                                </CarouselContent>
-                            </Carousel>
-                         </AccordionContent>
-                    </AccordionItem>
+                <Accordion type="single" collapsible className="w-full">
+                  <AccordionItem value="tools">
+                    <AccordionTrigger className='text-xl font-bold hover:no-underline'>Tools</AccordionTrigger>
+                    <AccordionContent className="pl-4">
+                      <Carousel opts={{ align: "start" }} className="w-full">
+                        <CarouselContent className="-ml-4">
+                          {professionalTools.map((item) => (
+                            <CarouselItem key={item.id} className="pl-4 basis-full sm:basis-1/2 md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
+                              <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
+                            </CarouselItem>
+                          ))}
+                        </CarouselContent>
+                      </Carousel>
+                    </AccordionContent>
+                  </AccordionItem>
                 </Accordion>
-            </div>
-          )
-        )}
-        {activeTab === 'retail' && (retailItems.length > 0 ? (
-          <div className="pl-4">
-            <Carousel opts={{ align: "start" }} className="w-full">
-              <CarouselContent className="-ml-4">
+              </div>
+            )
+          )}
+          {activeTab === 'retail' && (retailItems.length > 0 ? (
+            <div className="pl-4">
+              <Carousel opts={{ align: "start" }} className="w-full">
+                <CarouselContent className="-ml-4">
                   {retailItems.map((item) => (
-                    <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                          <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
+                    <CarouselItem key={item.id} className="pl-4 basis-full sm:basis-1/2 md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
+                      <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
                     </CarouselItem>
                   ))}
-              </CarouselContent>
-            </Carousel>
-          </div>
-        ) : (
-          <EmptyState message="No retail items yet. Add one to get started." />
-        ))}
-        {activeTab === 'overhead' && (overheadItems.length > 0 ? (
-          <div className="pl-4">
-            <Carousel opts={{ align: "start" }} className="w-full">
-              <CarouselContent className="-ml-4">
+                </CarouselContent>
+              </Carousel>
+            </div>
+          ) : (
+            <EmptyState message="No retail items yet. Add one to get started." />
+          ))}
+          {activeTab === 'overhead' && (overheadItems.length > 0 ? (
+            <div className="pl-4">
+              <Carousel opts={{ align: "start" }} className="w-full">
+                <CarouselContent className="-ml-4">
                   {overheadItems.map((item) => (
-                    <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
+                    <CarouselItem key={item.id} className="pl-4 basis-full sm:basis-1/2 md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
                       <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
                     </CarouselItem>
                   ))}
-              </CarouselContent>
-            </Carousel>
-          </div>
-        ) : (
-          <EmptyState message="No overhead items yet. Add one to get started." />
-        ))}
-        {activeTab === 'equipment' && (equipmentItems.length > 0 ? (
-          <div className="pl-4">
-            <Carousel opts={{ align: "start" }} className="w-full">
-              <CarouselContent className="-ml-4">
+                </CarouselContent>
+              </Carousel>
+            </div>
+          ) : (
+            <EmptyState message="No overhead items yet. Add one to get started." />
+          ))}
+          {activeTab === 'equipment' && (equipmentItems.length > 0 ? (
+            <div className="pl-4">
+              <Carousel opts={{ align: "start" }} className="w-full">
+                <CarouselContent className="-ml-4">
                   {equipmentItems.map((item) => (
-                    <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
+                    <CarouselItem key={item.id} className="pl-4 basis-full sm:basis-1/2 md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
                       <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
                     </CarouselItem>
                   ))}
-              </CarouselContent>
-            </Carousel>
-          </div>
-        ) : (
-          <EmptyState message="No equipment items yet. Add one to get started." />
-        ))}
-        {activeTab === 'locations' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
+                </CarouselContent>
+              </Carousel>
+            </div>
+          ) : (
+            <EmptyState message="No equipment items yet. Add one to get started." />
+          ))}
+          {activeTab === 'locations' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
                 <div>
-                    <h2 className="text-2xl font-bold">Storage Locations</h2>
-                    <p className="text-muted-foreground">A map of all your physical storage areas.</p>
+                  <h2 className="text-2xl font-bold">Storage Locations</h2>
+                  <p className="text-muted-foreground">A map of all your physical storage areas.</p>
                 </div>
                 <Button onClick={() => setIsAddLocationOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> New Location</Button>
-            </div>
-             {locations.length === 0 ? (
+              </div>
+              {locations.length === 0 ? (
                 <EmptyState message="No storage locations defined yet. Add one to get started." />
-             ) : (
-                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {locations.map(location => (
-                        <Card key={location.id}>
-                            <CardHeader>
-                                <CardTitle className="text-lg">{location.name}</CardTitle>
-                                {location.description && <CardDescription>{location.description}</CardDescription>}
-                            </CardHeader>
-                            <CardFooter className="flex gap-2">
-                                <Button variant="outline" size="sm"><Edit className="mr-2 h-3 w-3"/> Edit</Button>
-                                <Button variant="outline" size="sm" className="text-destructive"><Trash2 className="mr-2 h-3 w-3"/> Delete</Button>
-                            </CardFooter>
-                        </Card>
-                    ))}
-                 </div>
-             )}
-          </div>
-        )}
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {locations.map(location => (
+                    <Card key={location.id}>
+                      <CardHeader>
+                        <CardTitle className="text-lg">{location.name}</CardTitle>
+                        {location.description && <CardDescription>{location.description}</CardDescription>}
+                      </CardHeader>
+                      <CardFooter className="flex gap-2">
+                        <Button variant="outline" size="sm"><Edit className="mr-2 h-3 w-3" /> Edit</Button>
+                        <Button variant="outline" size="sm" className="text-destructive"><Trash2 className="mr-2 h-3 w-3" /> Delete</Button>
+                      </CardFooter>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </main>
 
        <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
