@@ -4,11 +4,14 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
   CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, File, MoreHorizontal, Database, Camera, AlertTriangle, Truck, Search, SlidersHorizontal, QrCode, Package, Hammer, Beaker, FlaskConical, Pencil, Rocket, CheckCircle, Trash2 } from 'lucide-react';
-import { inventory, type InventoryItem } from '@/lib/data';
+import { type InventoryItem } from '@/lib/data';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,6 +27,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
 
 
 const ProductCard = ({ item }: { item: InventoryItem }) => {
@@ -121,6 +133,149 @@ const EmptyState = ({ message }: { message: string }) => (
     </Card>
 );
 
+const ReceiveStockDialog = ({ open, onOpenChange }: { open: boolean, onOpenChange: (open: boolean) => void }) => {
+    const mockProducts = [
+        { id: '1', name: 'Pro Color Tube 5N' },
+        { id: '2', name: 'Retail Shine Serum' },
+        { id: '3', name: 'Developer 20 Vol' },
+        { id: '4', name: 'Keratin Shampoo' },
+    ];
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-2xl">
+                <DialogHeader>
+                    <DialogTitle>Receive Stock</DialogTitle>
+                    <DialogDescription>Log a new shipment from a vendor and update your stock levels.</DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-6 py-4 max-h-[70vh] overflow-y-auto pr-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="vendor">Vendor</Label>
+                            <Select>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select a vendor" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="vendor1">Supplier A</SelectItem>
+                                    <SelectItem value="vendor2">Supplier B</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="po-number">PO Number / Tracking</Label>
+                            <Input id="po-number" placeholder="Optional" />
+                        </div>
+                    </div>
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Items in Shipment</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <div className='p-4 border rounded-md'>
+                                <p className="text-sm text-muted-foreground mb-4">No items added yet. Add products from your library.</p>
+                                <Button variant="outline"><PlusCircle className="mr-2 h-4 w-4" /> Add Items</Button>
+                            </div>
+                        </CardContent>
+                    </Card>
+                     <Card>
+                        <CardHeader>
+                            <CardTitle>Landed Cost Calculator</CardTitle>
+                            <CardDescription>Add shipping, taxes, or other fees from the invoice to calculate the true cost per item.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="grid grid-cols-3 gap-4">
+                             <div className="space-y-2">
+                                <Label htmlFor="shipping-cost">Shipping</Label>
+                                <Input id="shipping-cost" type="number" placeholder="0.00" />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="tax-cost">Taxes</Label>
+                                <Input id="tax-cost" type="number" placeholder="0.00" />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="other-fees">Other Fees</Label>
+                                <Input id="other-fees" type="number" placeholder="0.00" />
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                    <Button>Save Shipment & Update Stock</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
+const AddProductDialog = ({ open, onOpenChange }: { open: boolean, onOpenChange: (open: boolean) => void }) => {
+    return (
+         <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Add Product</DialogTitle>
+                    <DialogDescription>Create a new professional or retail product for your inventory.</DialogDescription>
+                </DialogHeader>
+                <p className="py-8 text-center text-muted-foreground">Product creation form will be here.</p>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                    <Button>Save Product</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    )
+}
+const AddEquipmentDialog = ({ open, onOpenChange }: { open: boolean, onOpenChange: (open: boolean) => void }) => {
+    return (
+         <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Add Equipment</DialogTitle>
+                    <DialogDescription>Add a new piece of capital equipment to your asset list.</DialogDescription>
+                </DialogHeader>
+                <p className="py-8 text-center text-muted-foreground">Equipment creation form will be here.</p>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                    <Button>Save Equipment</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    )
+}
+const AddOverheadDialog = ({ open, onOpenChange }: { open: boolean, onOpenChange: (open: boolean) => void }) => {
+    return (
+         <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Add Overhead Item</DialogTitle>
+                    <DialogDescription>Add a general supply item to your inventory.</DialogDescription>
+                </DialogHeader>
+                <p className="py-8 text-center text-muted-foreground">Overhead item form will be here.</p>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                    <Button>Save Item</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    )
+}
+const CreateBundleDialog = ({ open, onOpenChange }: { open: boolean, onOpenChange: (open: boolean) => void }) => {
+    return (
+         <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Create Bundle</DialogTitle>
+                    <DialogDescription>Group existing retail products into a sellable bundle.</DialogDescription>
+                </DialogHeader>
+                <p className="py-8 text-center text-muted-foreground">Bundle creation form will be here.</p>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                    <Button>Save Bundle</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    )
+}
+
 
 export default function InventoryPage() {
   const professionalColor: InventoryItem[] = [];
@@ -134,6 +289,13 @@ export default function InventoryPage() {
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
   const videoRef = useRef<HTMLVideoElement>(null);
   const { toast } = useToast();
+
+  const [isReceiveStockOpen, setIsReceiveStockOpen] = useState(false);
+  const [isAddProductOpen, setIsAddProductOpen] = useState(false);
+  const [isAddEquipmentOpen, setIsAddEquipmentOpen] = useState(false);
+  const [isAddOverheadOpen, setIsAddOverheadOpen] = useState(false);
+  const [isCreateBundleOpen, setIsCreateBundleOpen] = useState(false);
+
 
   useEffect(() => {
     if (isScannerOpen) {
@@ -181,16 +343,16 @@ export default function InventoryPage() {
                 <ScrollBar orientation="horizontal" className="sm:hidden" />
               </ScrollArea>
               <div className="ml-auto w-full sm:w-auto flex flex-col sm:flex-row items-center gap-2">
-                  <Button className="w-full sm:w-auto"><Truck className="mr-2 h-4 w-4" /> Receive Stock</Button>
+                  <Button className="w-full sm:w-auto" onClick={() => setIsReceiveStockOpen(true)}><Truck className="mr-2 h-4 w-4" /> Receive Stock</Button>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                        <Button variant="outline" className="w-full sm:w-auto"><PlusCircle className="mr-2 h-4 w-4" /> Add New</Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem><Package className="mr-2 h-4 w-4" /> Add Product</DropdownMenuItem>
-                      <DropdownMenuItem><Hammer className="mr-2 h-4 w-4" /> Add Equipment</DropdownMenuItem>
-                      <DropdownMenuItem><Beaker className="mr-2 h-4 w-4" /> Add Overhead Item</DropdownMenuItem>
-                      <DropdownMenuItem><FlaskConical className="mr-2 h-4 w-4" /> Create Bundle</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setIsAddProductOpen(true)}><Package className="mr-2 h-4 w-4" /> Add Product</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setIsAddEquipmentOpen(true)}><Hammer className="mr-2 h-4 w-4" /> Add Equipment</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setIsAddOverheadOpen(true)}><Beaker className="mr-2 h-4 w-4" /> Add Overhead Item</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setIsCreateBundleOpen(true)}><FlaskConical className="mr-2 h-4 w-4" /> Create Bundle</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
               </div>
@@ -281,6 +443,13 @@ export default function InventoryPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ReceiveStockDialog open={isReceiveStockOpen} onOpenChange={setIsReceiveStockOpen} />
+      <AddProductDialog open={isAddProductOpen} onOpenChange={setIsAddProductOpen} />
+      <AddEquipmentDialog open={isAddEquipmentOpen} onOpenChange={setIsAddEquipmentOpen} />
+      <AddOverheadDialog open={isAddOverheadOpen} onOpenChange={setIsAddOverheadOpen} />
+      <CreateBundleDialog open={isCreateBundleOpen} onOpenChange={setIsCreateBundleOpen} />
+
     </div>
   );
 }
