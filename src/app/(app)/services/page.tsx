@@ -11,7 +11,7 @@ import {
   CardDescription
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Clock, DollarSign, Sparkles, Box, List, Pencil, Search, SlidersHorizontal, Info } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Clock, DollarSign, Sparkles, Box, List, Pencil, Search, SlidersHorizontal, Info, ShoppingCart, Hammer } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
-import { services as initialServices, type Service } from '@/lib/data';
+import { services as initialServices, type Service, inventory as allInventory } from '@/lib/data';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
@@ -44,14 +44,14 @@ const InlineProfitTester = ({ service, tmhr }: { service: Service, tmhr: number 
     
     // In a real app, product costs would be calculated from a formula.
     // For now, we derive it from the service's pre-calculated total cost.
-    const productCost = service.cost - ((service.duration / 60) * 40); // Assuming a base TMHR of $40 for initial cost calc
+    const productCost = service.cost - ((service.duration / 60) * tmhr);
     
     const breakEvenPoint = timeCost + productCost;
 
     const profitValue = testPrice - breakEvenPoint;
     const marginValue = testPrice > 0 ? (profitValue / testPrice) * 100 : 0;
 
-    return { profit: profitValue, margin: marginValue, breakEvenPoint, timeCost, productCost };
+    return { profit: profitValue, margin: marginValue, breakEvenPoint };
   }, [service, testPrice, tmhr]);
 
   return (
@@ -91,6 +91,71 @@ const InlineProfitTester = ({ service, tmhr }: { service: Service, tmhr: number 
   );
 };
 
+const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) => {
+  const { timeCost, productCosts, equipmentCosts, totalCost } = useMemo(() => {
+    const totalDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
+    const timeCost = (totalDuration / 60) * tmhr;
+
+    // These are simplified calculations. In a real app, this data would come from the service's formula.
+    const mockProductFormula = allInventory.slice(0, 2);
+    const mockEquipmentFormula = allInventory.filter(i => i.type === 'equipment').slice(0,1);
+
+    const productCosts = mockProductFormula.map(p => ({
+      ...p,
+      cost: p.costPerUnit * 0.1, // Mock usage cost
+      location: 'Back Room - Shelf A' // Mock location
+    }));
+
+    const equipmentCosts = mockEquipmentFormula.map(e => ({
+      ...e,
+      cost: e.costPerUnit * 0.001 // Mock depreciation
+    }));
+
+    const totalProductCost = productCosts.reduce((acc, p) => acc + p.cost, 0);
+    const totalEquipmentCost = equipmentCosts.reduce((acc, e) => acc + e.cost, 0);
+    const totalCost = timeCost + totalProductCost + totalEquipmentCost;
+
+    return { timeCost, productCosts, equipmentCosts, totalCost };
+  }, [service, tmhr]);
+
+  return (
+    <div className="space-y-4 text-sm">
+      <div className="space-y-2">
+        <h4 className="font-medium flex items-center gap-2"><Clock className="w-4 h-4 text-muted-foreground"/>Time Cost</h4>
+        <div className="flex justify-between items-center bg-muted/50 p-2 rounded-md">
+            <span>Your TMHR @ {((service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0))} min</span>
+            <span className="font-semibold">${timeCost.toFixed(2)}</span>
+        </div>
+      </div>
+       <div className="space-y-2">
+        <h4 className="font-medium flex items-center gap-2"><ShoppingCart className="w-4 h-4 text-muted-foreground"/>Product Costs</h4>
+         {productCosts.length > 0 ? productCosts.map(p => (
+            <div key={p.id} className="flex justify-between items-center bg-muted/50 p-2 rounded-md">
+                <div className='flex flex-col'>
+                    <span>{p.name}</span>
+                    <span className='text-xs text-muted-foreground'>{p.location}</span>
+                </div>
+                <span className="font-semibold">${p.cost.toFixed(2)}</span>
+            </div>
+         )) : <p className="text-xs text-muted-foreground text-center p-2">No products in formula.</p>}
+      </div>
+      <div className="space-y-2">
+        <h4 className="font-medium flex items-center gap-2"><Hammer className="w-4 h-4 text-muted-foreground"/>Equipment Depreciation</h4>
+        {equipmentCosts.length > 0 ? equipmentCosts.map(e => (
+            <div key={e.id} className="flex justify-between items-center bg-muted/50 p-2 rounded-md">
+                <span>{e.name}</span>
+                <span className="font-semibold">${e.cost.toFixed(2)}</span>
+            </div>
+         )) : <p className="text-xs text-muted-foreground text-center p-2">No equipment in formula.</p>}
+      </div>
+      <div className="flex justify-between font-bold text-base border-t pt-2 mt-2">
+        <span>Total Service Cost (Break-Even):</span>
+        <span>${totalCost.toFixed(2)}</span>
+      </div>
+    </div>
+  );
+};
+
 
 const ServiceCard = ({ service, onEditServiceOpen, tmhr }: { service: Service, onEditServiceOpen: (service: Service) => void, tmhr: number }) => {
   const profitPercentage = service.price > 0 ? (service.profit / service.price) * 100 : 0;
@@ -102,7 +167,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr }: { service: Service, o
         <div className="flex items-start gap-4">
           <div className="w-24 h-24 bg-muted rounded-md flex-shrink-0">
              <Image 
-                src={service.imageUrl || `https://picsum.photos/seed/svc${service.id}/100/100`} 
+                src={service.imageUrl || `https://picsum.photos/seed/svc${service.id}/200/200`} 
                 alt={service.name} 
                 width={96} 
                 height={96} 
@@ -171,8 +236,8 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr }: { service: Service, o
                         <Box className='w-4 h-4 text-primary' /> Cost Breakdown
                     </div>
                 </AccordionTrigger>
-                <AccordionContent className='p-4 text-sm text-muted-foreground'>
-                    Cost breakdown details will be shown here.
+                <AccordionContent className='p-4'>
+                    <CostBreakdown service={service} tmhr={tmhr} />
                 </AccordionContent>
             </AccordionItem>
         </Accordion>
@@ -278,6 +343,9 @@ export default function ServicesPage() {
   
   const handleAddNewService = (newService: Service) => {
     setServices(prev => [...prev, newService]);
+    if (newService.category && !serviceCategories.includes(newService.category)) {
+      setServiceCategories(prev => [...prev, newService.category as string]);
+    }
     toast({
         title: "Service Created",
         description: `${newService.name} has been added to your library.`
@@ -286,6 +354,9 @@ export default function ServicesPage() {
 
   const handleUpdateService = (updatedService: Service) => {
     setServices(prev => prev.map(s => s.id === updatedService.id ? updatedService : s));
+    if (updatedService.category && !serviceCategories.includes(updatedService.category)) {
+      setServiceCategories(prev => [...prev, updatedService.category as string]);
+    }
     toast({
         title: "Service Updated",
         description: `${updatedService.name} has been updated successfully.`
