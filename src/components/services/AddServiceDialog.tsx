@@ -42,7 +42,7 @@ import { z } from 'zod';
 const serviceSchema = z.object({
     name: z.string().min(1, 'Service name is required'),
     categoryId: z.string().optional(),
-    duration: z.number().min(1, 'Duration must be at least 1 minute'),
+    duration: z.number({ required_error: 'Duration is required.' }).min(1, 'Duration must be at least 1 minute'),
     padBefore: z.number().optional(),
     padAfter: z.number().optional(),
     description: z.string().optional(),
@@ -131,16 +131,16 @@ const Step1_Basics = ({
         <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
                 <Label htmlFor="duration">Duration (min)</Label>
-                <Input id="duration" type="number" placeholder="60" {...register('duration', { valueAsNumber: true })}/>
+                <Input id="duration" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>
                 {errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}
             </div>
             <div className="space-y-2">
                 <Label htmlFor="pad-before">Pad Before (min)</Label>
-                <Input id="pad-before" type="number" placeholder="0" {...register('padBefore', { valueAsNumber: true })} />
+                <Input id="pad-before" type="number" placeholder="e.g., 0" {...register('padBefore', { valueAsNumber: true })} />
             </div>
             <div className="space-y-2">
                 <Label htmlFor="pad-after">Pad After (min)</Label>
-                <Input id="pad-after" type="number" placeholder="15" {...register('padAfter', { valueAsNumber: true })} />
+                <Input id="pad-after" type="number" placeholder="e.g., 15" {...register('padAfter', { valueAsNumber: true })} />
             </div>
         </div>
         <div className="space-y-2">
@@ -406,9 +406,11 @@ const PricingForm = () => {
     const [tmhr, setTmhr] = useState(0);
 
     useEffect(() => {
-        const storedTmhr = localStorage.getItem('tmhr');
-        if (storedTmhr) {
-            setTmhr(parseFloat(storedTmhr));
+        if (typeof window !== 'undefined') {
+            const storedTmhr = localStorage.getItem('tmhr');
+            if (storedTmhr) {
+                setTmhr(parseFloat(storedTmhr));
+            }
         }
     }, []);
 
@@ -560,8 +562,9 @@ export const AddServiceDialog = ({
   const methods = useForm<ServiceFormData>({
     resolver: zodResolver(serviceSchema),
     defaultValues: {
-        duration: 60,
-        padAfter: 15,
+        duration: undefined,
+        padBefore: undefined,
+        padAfter: undefined,
         isPrivate: false,
         products: [],
         equipment: [],
@@ -588,7 +591,7 @@ export const AddServiceDialog = ({
       const price = data.price || 0;
       
       const duration = data.duration || 0;
-      const tmhr = parseFloat(localStorage.getItem('tmhr') || '0');
+      const tmhr = (typeof window !== 'undefined' && parseFloat(localStorage.getItem('tmhr') || '0')) || 0;
       const timeCost = (duration / 60) * tmhr;
       const productCost = (data.products || []).reduce((acc: number, p: any) => acc + (p.costPerUnit || 0), 0);
       const equipmentDepreciation = (data.equipment || []).reduce((acc: any, eq: any) => {
