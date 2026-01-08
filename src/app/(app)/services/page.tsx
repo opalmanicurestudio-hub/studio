@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -33,9 +33,6 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { Input } from '@/components/ui/input';
 import { AddServiceDialog } from '@/components/services/AddServiceDialog';
 
-
-const TMHR = 45; // True Minimum Hourly Rate (mock)
-const PRODUCT_COST = 15; // Mock product cost
 
 const ServiceCard = ({ service, onProfitTesterOpen }: { service: Service, onProfitTesterOpen: (service: Service) => void }) => {
   const profitPercentage = service.price > 0 ? (service.profit / service.price) * 100 : 0;
@@ -168,10 +165,16 @@ export default function ServicesPage() {
   const [isAddServiceDialogOpen, setIsAddServiceDialogOpen] = useState(false);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [testPrice, setTestPrice] = useState(0);
+  const [tmhr, setTmhr] = useState(0);
 
-  const [serviceCategories, setServiceCategories] = useState(
-    [...new Set(services.map(s => s.category).filter(Boolean))]
-  );
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const storedTmhr = localStorage.getItem('tmhr');
+      if (storedTmhr) {
+        setTmhr(parseFloat(storedTmhr));
+      }
+    }
+  }, []);
 
   const handleOpenProfitTester = (service: Service) => {
     setSelectedService(service);
@@ -180,13 +183,19 @@ export default function ServicesPage() {
   };
 
   const { profit, margin } = useMemo(() => {
-    if (!selectedService) return { profit: 0, margin: 0 };
-    const timeCost = (selectedService.duration / 60) * TMHR;
-    const totalCost = timeCost + PRODUCT_COST;
-    const profitValue = testPrice - totalCost;
+    if (!selectedService || tmhr === 0) return { profit: 0, margin: 0 };
+
+    const timeCost = (selectedService.duration / 60) * tmhr;
+    // Note: In a real app, product costs would be dynamically calculated from the service's formula.
+    // Here, we use the pre-calculated `service.cost` which includes product costs.
+    // The break-even point is essentially the service cost.
+    const breakEvenPoint = selectedService.cost;
+    
+    const profitValue = testPrice - breakEvenPoint;
     const marginValue = testPrice > 0 ? (profitValue / testPrice) * 100 : 0;
+
     return { profit: profitValue, margin: marginValue };
-  }, [selectedService, testPrice]);
+  }, [selectedService, testPrice, tmhr]);
   
   const mainServices = services.filter(s => s.type === 'service');
   const addOnServices = services.filter(s => s.type === 'addon');
@@ -208,13 +217,6 @@ export default function ServicesPage() {
     acc[category].push(service);
     return acc;
   }, {} as Record<string, Service[]>), [addOnServices]);
-  
-  const handleNewCategory = (category: string) => {
-    if (!serviceCategories.includes(category)) {
-        setServiceCategories(prev => [...prev, category]);
-    }
-  }
-
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -278,6 +280,7 @@ export default function ServicesPage() {
             <DialogTitle>Profit Tester</DialogTitle>
             <DialogDescription>
               Adjust the price for &quot;{selectedService?.name}&quot; to see potential profit.
+              (Using TMHR of <span className='font-bold'>${tmhr.toFixed(2)}/hr</span>)
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-8 py-4">
@@ -289,7 +292,7 @@ export default function ServicesPage() {
               <Slider
                 id="price-slider"
                 min={selectedService ? selectedService.cost : 0}
-                max={(selectedService ? selectedService.price : 0) * 2}
+                max={(selectedService ? selectedService.price : 0) * 2 + 50}
                 step={1}
                 value={[testPrice]}
                 onValueChange={(value) => setTestPrice(value[0])}
@@ -305,6 +308,10 @@ export default function ServicesPage() {
                 <p className={`text-2xl font-bold ${margin >= 0 ? 'text-green-500' : 'text-destructive'}`}>{margin.toFixed(1)}%</p>
               </div>
             </div>
+             <div className='text-xs text-muted-foreground space-y-1 text-center'>
+                <p>Break-Even Point (Time + Products): ${selectedService?.cost.toFixed(2)}</p>
+                <p>Time Cost ({selectedService?.duration} min): ${selectedService ? ((selectedService.duration / 60) * tmhr).toFixed(2) : '0.00'}</p>
+             </div>
           </div>
           <DialogFooter>
             <Button
@@ -320,8 +327,6 @@ export default function ServicesPage() {
       <AddServiceDialog 
         open={isAddServiceDialogOpen} 
         onOpenChange={setIsAddServiceDialogOpen} 
-        categories={serviceCategories}
-        onNewCategory={handleNewCategory}
       />
     </div>
   );

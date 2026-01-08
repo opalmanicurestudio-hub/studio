@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -294,52 +294,71 @@ const BusinessTab = ({
   );
 };
 
-const DayScheduleRow = ({ day, isEditing }: { day: string, isEditing: boolean }) => {
-    const timeOptions = Array.from({ length: 25 }, (_, i) => {
-        const hour = Math.floor(i / 2) + 8;
-        const minute = i % 2 === 0 ? '00' : '30';
-        const period = hour < 12 ? 'AM' : 'PM';
-        const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
-        return `${displayHour}:${minute} ${period}`;
-    });
+const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
+  const timeOptions = Array.from({ length: (22 - 8) * 2 + 1 }, (_, i) => {
+    const hour = Math.floor(i / 2) + 8;
+    const minute = i % 2 === 0 ? '00' : '30';
+    const period = hour < 12 ? 'AM' : 'PM';
+    const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+    return `${displayHour}:${minute} ${period}`;
+  });
 
-    return (
-        <div className="flex flex-col sm:flex-row items-center gap-4 p-4 border-b">
-            <div className="flex items-center gap-3 w-full sm:w-28">
-                <Switch defaultChecked={!['Saturday', 'Sunday'].includes(day)} id={`switch-${day}`} disabled={!isEditing} />
-                <Label htmlFor={`switch-${day}`} className="font-semibold text-base">{day}</Label>
-            </div>
-            <div className="flex-1 grid grid-cols-2 gap-4 w-full">
-                <Select defaultValue="9:00 AM" disabled={!isEditing}>
-                    <SelectTrigger>
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {timeOptions.map(time => <SelectItem key={time} value={time}>{time}</SelectItem>)}
-                    </SelectContent>
-                </Select>
-                <Select defaultValue="5:00 PM" disabled={!isEditing}>
-                    <SelectTrigger>
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {timeOptions.map(time => <SelectItem key={time} value={time}>{time}</SelectItem>)}
-                    </SelectContent>
-                </Select>
-            </div>
-        </div>
-    )
-}
+  return (
+    <div className="flex flex-col sm:flex-row items-center gap-4 p-4 border-b">
+      <div className="flex items-center gap-3 w-full sm:w-28">
+        <Switch
+          id={`switch-${day}`}
+          checked={dayData.enabled}
+          onCheckedChange={(checked) => onDayChange('enabled', checked)}
+          disabled={!isEditing}
+        />
+        <Label htmlFor={`switch-${day}`} className="font-semibold text-base">{day}</Label>
+      </div>
+      <div className="flex-1 grid grid-cols-2 gap-4 w-full">
+        <Select
+          value={dayData.start}
+          onValueChange={(value) => onDayChange('start', value)}
+          disabled={!isEditing || !dayData.enabled}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {timeOptions.map(time => <SelectItem key={`${day}-start-${time}`} value={time}>{time}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select
+          value={dayData.end}
+          onValueChange={(value) => onDayChange('end', value)}
+          disabled={!isEditing || !dayData.enabled}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {timeOptions.map(time => <SelectItem key={`${day}-end-${time}`} value={time}>{time}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+};
 
-const ScheduleTab = ({ isEditing }: { isEditing: boolean }) => (
+const ScheduleTab = ({ isEditing, scheduleData, onScheduleChange, onTimeOffChange }: { isEditing: boolean; scheduleData: any; onScheduleChange: any; onTimeOffChange: any }) => (
     <div>
         <h2 className="text-2xl font-semibold">How much time do you have to earn?</h2>
         <p className="text-muted-foreground mt-2">Define your available work hours to calculate your total billable time.</p>
         <div className="mt-6">
             <Card>
                 <CardContent className="p-0 divide-y">
-                    {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(day => (
-                        <DayScheduleRow key={day} day={day} isEditing={isEditing} />
+                    {Object.entries(scheduleData.week).map(([day, dayData]: [string, any]) => (
+                        <DayScheduleRow 
+                            key={day} 
+                            day={day} 
+                            dayData={dayData} 
+                            onDayChange={(field: string, value: any) => onScheduleChange(day, field, value)}
+                            isEditing={isEditing} 
+                        />
                     ))}
                 </CardContent>
             </Card>
@@ -348,11 +367,21 @@ const ScheduleTab = ({ isEditing }: { isEditing: boolean }) => (
                 <CardContent className="grid md:grid-cols-2 gap-6">
                     <div className="space-y-2">
                         <Label>Vacation Days / Year</Label>
-                        <Input type="number" defaultValue="0" disabled={!isEditing} />
+                        <Input 
+                            type="number" 
+                            value={scheduleData.timeOff.vacationDays}
+                            onChange={(e) => onTimeOffChange('vacationDays', parseInt(e.target.value) || 0)} 
+                            disabled={!isEditing} 
+                        />
                     </div>
                      <div className="space-y-2">
                         <Label>Statutory Holidays / Year</Label>
-                        <Input type="number" defaultValue="0" disabled={!isEditing} />
+                        <Input 
+                            type="number" 
+                            value={scheduleData.timeOff.holidays}
+                            onChange={(e) => onTimeOffChange('holidays', parseInt(e.target.value) || 0)} 
+                            disabled={!isEditing} 
+                        />
                     </div>
                 </CardContent>
             </Card>
@@ -390,7 +419,18 @@ const FinancialProfileManager = ({
     } else if (activeTab === 'business') {
       newProfileData = { categories: deepCopyTemplate(businessCategoriesTemplate) };
     } else {
-        newProfileData = {};
+        newProfileData = {
+            week: {
+                Monday: { enabled: true, start: '9:00 AM', end: '5:00 PM' },
+                Tuesday: { enabled: true, start: '9:00 AM', end: '5:00 PM' },
+                Wednesday: { enabled: true, start: '9:00 AM', end: '5:00 PM' },
+                Thursday: { enabled: true, start: '9:00 AM', end: '5:00 PM' },
+                Friday: { enabled: true, start: '9:00 AM', end: '5:00 PM' },
+                Saturday: { enabled: false, start: '9:00 AM', end: '5:00 PM' },
+                Sunday: { enabled: false, start: '9:00 AM', end: '5:00 PM' },
+            },
+            timeOff: { vacationDays: 0, holidays: 0 },
+        };
     }
 
     const newProfile = {
@@ -514,10 +554,16 @@ const FinancialProfileManager = ({
 };
 
 
-const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal }: { lifestyleTotal: number; businessTotal: number; }) => {
+const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal, totalHours }: { lifestyleTotal: number; businessTotal: number; totalHours: number; }) => {
     const totalCosts = lifestyleTotal + businessTotal;
-    const totalHours = 140; // Mock value, should come from active schedule profile
     const tmhr = totalHours > 0 ? totalCosts / totalHours : 0;
+    
+    useEffect(() => {
+        // Store TMHR in local storage to be used by other pages
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('tmhr', tmhr.toFixed(2));
+        }
+    }, [tmhr]);
 
     return (
     <Card>
@@ -541,7 +587,7 @@ const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal }: { lifestyleTotal: 
                 </div>
                 <div className="flex justify-between border-t pt-2 mt-2">
                     <span>Total Billable Hours / Month:</span>
-                    <span className="font-mono">{totalHours}</span>
+                    <span className="font-mono">{totalHours.toFixed(2)}</span>
                 </div>
             </div>
         </CardContent>
@@ -565,8 +611,38 @@ export default function FinancialFoundationPage() {
         { id: 'bs1', name: 'Default Business', isActive: true, isPro: false, categories: deepCopyTemplate(businessCategoriesTemplate) },
       ],
       scheduleProfiles: [
-        { id: 'sc1', name: 'Standard 35hr/wk', isActive: true, isPublic: true },
-        { id: 'sc2', name: 'Aggressive 45hr/wk', isActive: false, isPublic: false }
+        { 
+            id: 'sc1', 
+            name: 'Standard 35hr/wk', 
+            isActive: true, 
+            isPublic: true,
+            week: {
+                Monday: { enabled: true, start: '9:00 AM', end: '5:00 PM' },
+                Tuesday: { enabled: true, start: '9:00 AM', end: '5:00 PM' },
+                Wednesday: { enabled: true, start: '9:00 AM', end: '5:00 PM' },
+                Thursday: { enabled: true, start: '9:00 AM', end: '5:00 PM' },
+                Friday: { enabled: true, start: '9:00 AM', end: '5:00 PM' },
+                Saturday: { enabled: false, start: '9:00 AM', end: '5:00 PM' },
+                Sunday: { enabled: false, start: '9:00 AM', end: '5:00 PM' },
+            },
+            timeOff: { vacationDays: 0, holidays: 0 },
+        },
+        { 
+            id: 'sc2', 
+            name: 'Aggressive 45hr/wk', 
+            isActive: false, 
+            isPublic: false,
+            week: {
+                Monday: { enabled: true, start: '8:00 AM', end: '6:00 PM' },
+                Tuesday: { enabled: true, start: '8:00 AM', end: '6:00 PM' },
+                Wednesday: { enabled: true, start: '8:00 AM', end: '6:00 PM' },
+                Thursday: { enabled: true, start: '8:00 AM', end: '6:00 PM' },
+                Friday: { enabled: true, start: '8:00 AM', end: '6:00 PM' },
+                Saturday: { enabled: true, start: '10:00 AM', end: '3:00 PM' },
+                Sunday: { enabled: false, start: '9:00 AM', end: '5:00 PM' },
+            },
+            timeOff: { vacationDays: 10, holidays: 8 },
+        }
       ]
     });
 
@@ -574,6 +650,8 @@ export default function FinancialFoundationPage() {
 
     const activeLifestyleProfile = useMemo(() => profiles.lifestyleProfiles.find(p => p.isActive), [profiles.lifestyleProfiles]);
     const activeBusinessProfile = useMemo(() => profiles.businessProfiles.find(p => p.isActive), [profiles.businessProfiles]);
+    const activeScheduleProfile = useMemo(() => profiles.scheduleProfiles.find(p => p.isActive), [profiles.scheduleProfiles]);
+
 
     const handleBillChange = useCallback((profileType: 'lifestyle' | 'business', categoryName: string, billTitle: string, newAmount: number) => {
         const profileKey = `${profileType}Profiles` as const;
@@ -601,6 +679,65 @@ export default function FinancialFoundationPage() {
             return { ...prev, [profileKey]: newProfiles };
         });
     }, []);
+
+    const handleScheduleChange = useCallback((day: string, field: string, value: any) => {
+        setProfiles(prev => ({
+            ...prev,
+            scheduleProfiles: prev.scheduleProfiles.map(p => 
+                p.isActive ? {
+                    ...p,
+                    week: {
+                        ...p.week,
+                        [day]: { ...p.week[day as keyof typeof p.week], [field]: value }
+                    }
+                } : p
+            )
+        }))
+    }, []);
+    
+    const handleTimeOffChange = useCallback((field: string, value: number) => {
+        setProfiles(prev => ({
+            ...prev,
+            scheduleProfiles: prev.scheduleProfiles.map(p => 
+                p.isActive ? {
+                    ...p,
+                    timeOff: { ...p.timeOff, [field]: value }
+                } : p
+            )
+        }))
+    }, []);
+
+    const totalBillableHours = useMemo(() => {
+        if (!activeScheduleProfile) return 0;
+        
+        const timeToMinutes = (timeStr: string) => {
+            const [time, period] = timeStr.split(' ');
+            let [hours, minutes] = time.split(':').map(Number);
+            if (period === 'PM' && hours < 12) hours += 12;
+            if (period === 'AM' && hours === 12) hours = 0;
+            return hours * 60 + minutes;
+        };
+
+        const weeklyMinutes = Object.values(activeScheduleProfile.week).reduce((acc, day) => {
+            if (day.enabled) {
+                const startMinutes = timeToMinutes(day.start);
+                const endMinutes = timeToMinutes(day.end);
+                return acc + (endMinutes - startMinutes);
+            }
+            return acc;
+        }, 0);
+        
+        const weeklyHours = weeklyMinutes / 60;
+        
+        const totalWorkDaysInYear = 52 * Object.values(activeScheduleProfile.week).filter(d => d.enabled).length;
+        const totalDaysOff = activeScheduleProfile.timeOff.vacationDays + activeScheduleProfile.timeOff.holidays;
+        const workDayPercentage = (totalWorkDaysInYear - totalDaysOff) / totalWorkDaysInYear;
+        
+        const avgMonthlyHours = (weeklyHours * 52 / 12) * workDayPercentage;
+
+        return avgMonthlyHours > 0 ? avgMonthlyHours : 0;
+    }, [activeScheduleProfile]);
+
 
     const handleEditToggle = () => {
         if (!isEditing) {
@@ -692,7 +829,12 @@ export default function FinancialFoundationPage() {
                            />
                         </TabsContent>
                         <TabsContent value="schedule" className="m-0">
-                           <ScheduleTab isEditing={isEditing} />
+                           {activeScheduleProfile && <ScheduleTab 
+                            isEditing={isEditing}
+                            scheduleData={activeScheduleProfile}
+                            onScheduleChange={handleScheduleChange}
+                            onTimeOffChange={handleTimeOffChange}
+                           />}
                         </TabsContent>
                     </div>
                 </div>
@@ -701,7 +843,7 @@ export default function FinancialFoundationPage() {
             <Separator className="my-12" />
             
             <div className="mt-8 space-y-6 max-w-md mx-auto">
-                <TmhrBreakdownCard lifestyleTotal={lifestyleTotal} businessTotal={businessTotal} />
+                <TmhrBreakdownCard lifestyleTotal={lifestyleTotal} businessTotal={businessTotal} totalHours={totalBillableHours}/>
             </div>
         </div>
       </main>
