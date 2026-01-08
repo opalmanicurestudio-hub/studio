@@ -1,7 +1,6 @@
 {
   "entities": {
     "User": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "User",
       "type": "object",
       "description": "Represents a user of the ClarityFlow application.",
@@ -30,10 +29,9 @@
       ]
     },
     "Tenant": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "Tenant",
       "type": "object",
-      "description": "Represents a tenant (business) within the multi-tenant application.",
+      "description": "Represents a tenant (business) within the multi-tenant application, owned by a user.",
       "properties": {
         "id": {
           "type": "string",
@@ -55,30 +53,24 @@
       ]
     },
     "Service": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "Service",
       "type": "object",
       "description": "Represents a service offered by a tenant.",
       "properties": {
         "id": {
-          "type": "string",
-          "description": "Unique identifier for the service."
+          "type": "string"
         },
         "name": {
-          "type": "string",
-          "description": "Name of the service."
+          "type": "string"
         },
         "description": {
-          "type": "string",
-          "description": "Description of the service."
+          "type": "string"
         },
         "durationMinutes": {
-          "type": "number",
-          "description": "Duration of the service in minutes."
+          "type": "number"
         },
         "price": {
-          "type": "number",
-          "description": "Price of the service."
+          "type": "number"
         }
       },
       "required": [
@@ -89,30 +81,24 @@
       ]
     },
     "Product": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "Product",
       "type": "object",
       "description": "Represents a product used or sold by a tenant.",
       "properties": {
         "id": {
-          "type": "string",
-          "description": "Unique identifier for the product."
+          "type": "string"
         },
         "name": {
-          "type": "string",
-          "description": "Name of the product."
+          "type": "string"
         },
         "description": {
-          "type": "string",
-          "description": "Description of the product."
+          "type": "string"
         },
         "cost": {
-          "type": "number",
-          "description": "Cost of the product."
+          "type": "number"
         },
         "quantity": {
-          "type": "number",
-          "description": "Quantity of the product in stock."
+          "type": "number"
         }
       },
       "required": [
@@ -122,37 +108,55 @@
         "quantity"
       ]
     },
+    "Client": {
+      "title": "Client",
+      "type": "object",
+      "description": "Represents a client of a tenant.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "firstName": {
+          "type": "string"
+        },
+        "lastName": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string",
+          "format": "email"
+        },
+        "phone": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "firstName",
+        "lastName"
+      ]
+    },
     "Appointment": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "Appointment",
       "type": "object",
       "description": "Represents an appointment booked with a tenant.",
       "properties": {
         "id": {
-          "type": "string",
-          "description": "Unique identifier for the appointment."
+          "type": "string"
         },
         "clientId": {
-          "type": "string",
-          "description": "The ID of the client who booked the appointment."
+          "type": "string"
         },
         "serviceId": {
-          "type": "string",
-          "description": "The ID of the service provided during the appointment."
+          "type": "string"
         },
         "startTime": {
           "type": "string",
-          "description": "Start time of the appointment.",
           "format": "date-time"
         },
         "endTime": {
           "type": "string",
-          "description": "End time of the appointment.",
           "format": "date-time"
-        },
-        "notes": {
-          "type": "string",
-          "description": "Notes about the appointment."
         }
       },
       "required": [
@@ -163,43 +167,90 @@
         "endTime"
       ]
     },
-    "Client": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "Client",
+    "Bill": {
+      "title": "Bill",
       "type": "object",
-      "description": "Represents a client of a tenant.",
+      "description": "A recurring bill or expense for a tenant.",
       "properties": {
         "id": {
-          "type": "string",
-          "description": "Unique identifier for the client."
+          "type": "string"
         },
-        "firstName": {
-          "type": "string",
-          "description": "Client's first name."
+        "name": {
+          "type": "string"
         },
-        "lastName": {
-          "type": "string",
-          "description": "Client's last name."
+        "amount": {
+          "type": "number"
         },
-        "email": {
-          "type": "string",
-          "description": "Client's email address.",
-          "format": "email"
+        "dueDay": {
+          "type": "number"
         },
-        "phone": {
+        "billingCycle": {
           "type": "string",
-          "description": "Client's phone number."
+          "enum": ["monthly", "annually", "quarterly", "weekly"]
         },
-        "notes": {
+        "context": {
           "type": "string",
-          "description": "Notes about the client."
+          "enum": ["Business", "Personal"]
+        },
+        "category": {
+          "type": "string"
         }
       },
-      "required": [
-        "id",
-        "firstName",
-        "lastName"
-      ]
+      "required": ["id", "name", "amount", "dueDay", "billingCycle", "context", "category"]
+    },
+    "LifestyleProfile": {
+      "title": "Lifestyle Profile",
+      "type": "object",
+      "description": "A financial profile representing a user's personal lifestyle costs.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "isActive": {
+          "type": "boolean"
+        }
+      },
+      "required": ["id", "name", "isActive"]
+    },
+    "BusinessProfile": {
+      "title": "Business Profile",
+      "type": "object",
+      "description": "A financial profile representing a tenant's business operating costs.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "isActive": {
+          "type": "boolean"
+        }
+      },
+      "required": ["id", "name", "isActive"]
+    },
+    "ScheduleProfile": {
+      "title": "Schedule Profile",
+      "type": "object",
+      "description": "A profile defining a tenant's work availability and schedule.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "isActive": {
+          "type": "boolean"
+        },
+        "isPublic": {
+          "type": "boolean"
+        }
+      },
+      "required": ["id", "name", "isActive"]
     }
   },
   "auth": {
@@ -218,31 +269,55 @@
       "schema": {
         "$ref": "#/entities/Tenant"
       },
-      "description": "Stores tenant (business) profiles."
+      "description": "Stores tenant (business) profiles. All business-specific data is nested under this."
     },
     "/tenants/{tenantId}/services/{serviceId}": {
       "schema": {
         "$ref": "#/entities/Service"
       },
-      "description": "Stores services offered by a tenant."
+      "description": "Services offered by a specific tenant."
     },
     "/tenants/{tenantId}/products/{productId}": {
       "schema": {
         "$ref": "#/entities/Product"
       },
-      "description": "Stores products used or sold by a tenant."
+      "description": "Products sold or used by a specific tenant."
     },
     "/tenants/{tenantId}/clients/{clientId}": {
       "schema": {
         "$ref": "#/entities/Client"
       },
-      "description": "Stores clients of a tenant."
+      "description": "Clients belonging to a specific tenant."
     },
     "/tenants/{tenantId}/appointments/{appointmentId}": {
       "schema": {
         "$ref": "#/entities/Appointment"
       },
-      "description": "Stores appointments booked with a tenant."
+      "description": "Appointments for a specific tenant."
+    },
+    "/tenants/{tenantId}/bills/{billId}": {
+      "schema": {
+        "$ref": "#/entities/Bill"
+      },
+      "description": "Recurring bills and expenses for a specific tenant."
+    },
+     "/tenants/{tenantId}/lifestyleProfiles/{profileId}": {
+      "schema": {
+        "$ref": "#/entities/LifestyleProfile"
+      },
+      "description": "Personal financial profiles for the user owning the tenant."
+    },
+    "/tenants/{tenantId}/businessProfiles/{profileId}": {
+      "schema": {
+        "$ref": "#/entities/BusinessProfile"
+      },
+      "description": "Business cost profiles for a specific tenant."
+    },
+    "/tenants/{tenantId}/scheduleProfiles/{profileId}": {
+      "schema": {
+        "$ref": "#/entities/ScheduleProfile"
+      },
+      "description": "Work schedule profiles for a specific tenant."
     }
   }
 }
