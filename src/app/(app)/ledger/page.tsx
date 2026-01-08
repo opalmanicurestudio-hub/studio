@@ -296,21 +296,26 @@ const TransactionCard = ({ transaction }: { transaction: Transaction }) => {
 };
 
 export default function LedgerPage() {
-  const { firestore } = useFirebase();
+  const { firestore, user, isUserLoading } = useFirebase();
   // TODO: Replace with dynamic tenant ID
   const tenantId = 'tenant-abc';
 
   const transactionsQuery = useMemoFirebase(() => {
-    if (!firestore || !tenantId) return null;
+    // Wait until the user is authenticated before creating the query.
+    if (isUserLoading || !user || !firestore) {
+      return null;
+    }
     return collection(firestore, 'tenants', tenantId, 'transactions');
-  }, [firestore, tenantId]);
+  }, [firestore, user, isUserLoading, tenantId]);
 
-  const { data: transactions, isLoading } = useCollection<Transaction>(transactionsQuery);
+  const { data: transactions, isLoading: areTransactionsLoading } = useCollection<Transaction>(transactionsQuery);
 
   const sortedTransactions = useMemo(() => {
     if (!transactions) return [];
     return [...transactions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [transactions]);
+  
+  const isLoading = isUserLoading || areTransactionsLoading;
 
 
   return (
@@ -341,7 +346,7 @@ export default function LedgerPage() {
                   <TableBody>
                     {isLoading && (
                         <TableRow>
-                            <TableCell colSpan={6} className="text-center">Loading transactions...</TableCell>
+                            <TableCell colSpan={6} className="text-center">{isUserLoading ? 'Loading user...' : 'Loading transactions...'}</TableCell>
                         </TableRow>
                     )}
                     {!isLoading && sortedTransactions.map((transaction) => (
@@ -352,7 +357,7 @@ export default function LedgerPage() {
               </CardContent>
             </Card>
             <div className="md:hidden space-y-4">
-                 {isLoading && <p className="text-center text-muted-foreground">Loading transactions...</p>}
+                 {isLoading && <p className="text-center text-muted-foreground">{isUserLoading ? 'Loading user...' : 'Loading transactions...'}</p>}
                  {!isLoading && sortedTransactions.map((transaction) => (
                     <TransactionCard key={transaction.id} transaction={transaction} />
                 ))}
