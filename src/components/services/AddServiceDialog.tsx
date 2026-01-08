@@ -630,6 +630,7 @@ export const AddServiceDialog = ({
         imageUrl: data.imageUrl,
         products: data.products,
         equipment: data.equipment,
+        description: data.description,
       };
       
       onServiceAdded(newService);
