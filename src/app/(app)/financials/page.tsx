@@ -355,11 +355,15 @@ const FinancialProfileManager = ({
   profiles,
   setProfiles,
   isEditing,
+  renamingProfileId,
+  setRenamingProfileId,
 }: {
   activeTab: string;
   profiles: any;
   setProfiles: any;
   isEditing: boolean;
+  renamingProfileId: string | null;
+  setRenamingProfileId: (id: string | null) => void;
 }) => {
   const profileKey = `${activeTab}Profiles`;
   const currentProfiles = profiles[profileKey];
@@ -404,6 +408,16 @@ const FinancialProfileManager = ({
     }))
   }
 
+  const handleRename = (id: string, newName: string) => {
+    setProfiles((prev: any) => ({
+      ...prev,
+      [profileKey]: prev[profileKey].map((p: any) => 
+        p.id === id ? { ...p, name: newName } : p
+      ),
+    }));
+    setRenamingProfileId(null);
+  };
+
   return (
     <Card className="lg:sticky top-24">
       <CardHeader>
@@ -413,35 +427,52 @@ const FinancialProfileManager = ({
       <CardContent className="p-2">
         <div className="space-y-1">
           {currentProfiles.map((profile:any) => (
-            <Button
-              key={profile.id}
-              variant={profile.isActive ? 'secondary' : 'ghost'}
-              className="w-full justify-start h-auto py-2"
-              onClick={() => handleSetActive(profile.id)}
-              disabled={isEditing && profile.id !== getActiveProfileId()}
-            >
-              <span className="flex-1 text-left truncate">{profile.name}</span>
-              {profile.isPro && !profile.isActive && <Badge variant="outline" className="ml-2">Pro</Badge>}
-              {activeTab === 'schedule' && profile.isPublic && (
-                <Globe className="h-4 w-4 text-muted-foreground ml-2" />
+            <div key={profile.id} className="group/item relative">
+              {renamingProfileId === profile.id ? (
+                <Input
+                  defaultValue={profile.name}
+                  autoFocus
+                  onBlur={(e) => handleRename(profile.id, e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleRename(profile.id, e.currentTarget.value);
+                    if (e.key === 'Escape') setRenamingProfileId(null);
+                  }}
+                  className="w-full h-auto py-2 px-3 text-base"
+                />
+              ) : (
+                <Button
+                  variant={profile.isActive ? 'secondary' : 'ghost'}
+                  className="w-full justify-start h-auto py-2"
+                  onClick={() => handleSetActive(profile.id)}
+                  disabled={isEditing && profile.id !== getActiveProfileId()}
+                >
+                  <span className="flex-1 text-left truncate">{profile.name}</span>
+                  {profile.isPro && !profile.isActive && <Badge variant="outline" className="ml-2">Pro</Badge>}
+                  {activeTab === 'schedule' && profile.isPublic && (
+                    <Globe className="h-4 w-4 text-muted-foreground ml-2" />
+                  )}
+                  {profile.isActive && <Badge variant="default" className="ml-2">Active</Badge>}
+                </Button>
               )}
-              {profile.isActive && <Badge variant="default" className="ml-2">Active</Badge>}
-              {isEditing && profile.id === getActiveProfileId() && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 ml-1 shrink-0">
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem>Rename</DropdownMenuItem>
-                    <DropdownMenuItem>Duplicate</DropdownMenuItem>
-                    {activeTab === 'schedule' && <DropdownMenuItem>Set as Public</DropdownMenuItem>}
-                    <DropdownMenuItem className="text-destructive" disabled={currentProfiles.length <= 1}>Delete</DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+
+              {isEditing && profile.id === getActiveProfileId() && renamingProfileId !== profile.id && (
+                <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/item:opacity-100 focus-within:opacity-100">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 ml-1 shrink-0">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => setRenamingProfileId(profile.id)}>Rename</DropdownMenuItem>
+                        <DropdownMenuItem>Duplicate</DropdownMenuItem>
+                        {activeTab === 'schedule' && <DropdownMenuItem>Set as Public</DropdownMenuItem>}
+                        <DropdownMenuItem className="text-destructive" disabled={currentProfiles.length <= 1}>Delete</DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
               )}
-            </Button>
+            </div>
           ))}
         </div>
       </CardContent>
@@ -500,6 +531,7 @@ const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal }: { lifestyleTotal: 
 export default function FinancialFoundationPage() {
     const [isEditing, setIsEditing] = useState(false);
     const [activeTab, setActiveTab] = useState('lifestyle');
+    const [renamingProfileId, setRenamingProfileId] = useState<string | null>(null);
     
     const [profiles, setProfiles] = useState({
       lifestyleProfiles: [
@@ -614,6 +646,8 @@ export default function FinancialFoundationPage() {
                             profiles={profiles}
                             setProfiles={setProfiles}
                             isEditing={isEditing}
+                            renamingProfileId={renamingProfileId}
+                            setRenamingProfileId={setRenamingProfileId}
                         />
                     </div>
                     <div className="lg:col-span-1">
