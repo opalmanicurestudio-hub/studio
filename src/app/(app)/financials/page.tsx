@@ -79,7 +79,7 @@ const BillItemCard = ({
   isCustom?: boolean;
   isEditing?: boolean;
 }) => (
-  <Card className="w-full shrink-0 sm:w-80">
+  <Card className="w-full">
     <CardContent className="p-4">
       <div className="space-y-3">
         <div className="flex justify-between items-start gap-2">
@@ -140,9 +140,9 @@ const BillEditor = ({
 }) => (
   <Card>
     <CardContent className="p-4 space-y-4">
-      <Accordion type="multiple" defaultValue={['category-0']} className="w-full space-y-2">
+      <Accordion type="multiple" defaultValue={['category-0']} className="w-full">
         {categories.map((category, index) => (
-          <AccordionItem key={index} value={`category-${index}`}>
+          <AccordionItem key={index} value={`category-${index}`} className="border-b-0">
             <AccordionTrigger className="p-3 bg-muted/50 rounded-md hover:no-underline">
               <div className="flex items-center gap-3">
                 {category.icon}
@@ -158,7 +158,7 @@ const BillEditor = ({
             </AccordionContent>
           </AccordionItem>
         ))}
-         <AccordionItem value="custom">
+         <AccordionItem value="custom" className="border-b-0 mt-2">
             <AccordionTrigger className="p-3 bg-muted/50 rounded-md hover:no-underline">
               <div className="flex items-center gap-3">
                 <Sparkles className="w-5 h-5 text-primary" />
@@ -166,10 +166,10 @@ const BillEditor = ({
               </div>
             </AccordionTrigger>
             <AccordionContent className="pt-4">
-                <div className="flex flex-col sm:flex-row items-center gap-4">
+                <div className="flex flex-col items-start gap-4">
                     <BillItemCard title="Custom Expense" isCustom isEditing={isEditing}/>
                     {isEditing && (
-                        <Button variant="outline" size="icon" className="shrink-0"><PlusCircle className="w-4 h-4" /></Button>
+                        <Button variant="outline"><PlusCircle className="w-4 h-4 mr-2" />Add Custom Cost</Button>
                     )}
                 </div>
             </AccordionContent>
@@ -315,6 +315,8 @@ const FinancialProfileManager = ({
   isEditing: boolean;
 }) => {
   const isProFeature = activeTab === 'lifestyle' || activeTab === 'business';
+  const profileKey = `${activeTab}Profiles`;
+  const currentProfiles = profiles[profileKey];
 
   const handleAddProfile = () => {
     const newProfile = {
@@ -326,11 +328,19 @@ const FinancialProfileManager = ({
     };
     setProfiles((prev:any) => ({
       ...prev,
-      [`${activeTab}Profiles`]: [...prev[`${activeTab}Profiles`], newProfile],
+      [profileKey]: [...prev[profileKey], newProfile],
     }));
   };
   
-  const currentProfiles = profiles[`${activeTab}Profiles`];
+  const handleSetActive = (id: string) => {
+    setProfiles((prev: any) => ({
+        ...prev,
+        [profileKey]: prev[profileKey].map((p: any) => ({
+            ...p,
+            isActive: p.id === id,
+        }))
+    }))
+  }
 
 
   return (
@@ -346,6 +356,8 @@ const FinancialProfileManager = ({
               key={profile.id}
               variant={profile.isActive ? 'secondary' : 'ghost'}
               className="w-full justify-start h-auto py-2"
+              onClick={() => handleSetActive(profile.id)}
+              disabled={isEditing}
             >
               <span className="flex-1 text-left truncate">{profile.name}</span>
               {isProFeature && profile.isPro && !profile.isActive && <Badge variant="outline" className="ml-2">Pro</Badge>}
@@ -355,7 +367,7 @@ const FinancialProfileManager = ({
               {profile.isActive && <Badge variant="default" className="ml-2">Active</Badge>}
               {isEditing && (
                 <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
+                  <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                     <Button variant="ghost" size="icon" className="h-7 w-7 ml-1 shrink-0">
                       <MoreHorizontal className="h-4 w-4" />
                     </Button>
@@ -364,7 +376,7 @@ const FinancialProfileManager = ({
                     <DropdownMenuItem>Rename</DropdownMenuItem>
                     <DropdownMenuItem>Duplicate</DropdownMenuItem>
                     {activeTab === 'schedule' && <DropdownMenuItem>Set as Public</DropdownMenuItem>}
-                    <DropdownMenuItem className="text-destructive" disabled={currentProfiles.length === 1}>Delete</DropdownMenuItem>
+                    <DropdownMenuItem className="text-destructive" disabled={currentProfiles.length <= 1}>Delete</DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
@@ -416,7 +428,6 @@ export default function FinancialFoundationPage() {
     const [profiles, setProfiles] = useState({
       lifestyleProfiles: [
         { id: 'ls1', name: 'Default Lifestyle', isActive: true, isPro: false },
-        { id: 'ls2', name: 'Lean Year Lifestyle', isActive: false, isPro: true }
       ],
       businessProfiles: [
         { id: 'bs1', name: 'Default Business', isActive: true, isPro: false },
@@ -493,3 +504,4 @@ export default function FinancialFoundationPage() {
     </div>
   );
 }
+
