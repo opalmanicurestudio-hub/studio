@@ -20,6 +20,7 @@ import {
   Settings,
   DollarSign,
   ArrowRightLeft,
+  FileText,
 } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '../ui/button';
@@ -53,6 +54,7 @@ const navItems = [
   { href: '/services', icon: List, label: 'Services' },
   { href: '/inventory', icon: Box, label: 'Inventory' },
   { href: '/clients', icon: Users, label: 'Clients' },
+  { href: '/quotes', icon: FileText, label: 'Quotes' },
   { href: '/transactions', icon: ArrowRightLeft, label: 'Transactions' },
   { href: '/financials', icon: DollarSign, label: 'Financials' },
   { href: '/ai-cfo', icon: Sparkles, label: 'AI CFO' },

@@ -41,6 +41,16 @@ export type Appointment = {
   status: 'confirmed' | 'completed' | 'canceled';
 };
 
+export type Quote = {
+  id: string;
+  quoteNumber: string;
+  clientId: string;
+  eventName: string;
+  date: string;
+  status: 'draft' | 'sent' | 'accepted' | 'declined' | 'booked';
+  total: number;
+}
+
 export const clients: Client[] = [
   {
     id: '1',
@@ -234,4 +244,10 @@ export const appointments: Appointment[] = Array.from({ length: 21 }, (_, i) => 
     };
 }).sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
 
-    
+export const quotes: Quote[] = [
+  { id: '1', quoteNumber: 'Q-2024-001', clientId: '3', eventName: 'Carla & Mark\'s Wedding', date: '2024-09-14', status: 'accepted', total: 1850.00 },
+  { id: '2', quoteNumber: 'Q-2024-002', clientId: '5', eventName: 'Rodriguez Family Photoshoot', date: '2024-08-20', status: 'sent', total: 600.00 },
+  { id: '3', quoteNumber: 'Q-2024-003', clientId: '1', eventName: 'Gala Prep Package', date: '2024-07-30', status: 'draft', total: 450.00 },
+  { id: '4', quoteNumber: 'Q-2024-004', clientId: '2', eventName: 'Corporate Headshots - Onsite', date: '2024-08-10', status: 'declined', total: 2200.00 },
+  { id: '5', quoteNumber: 'Q-2024-005', clientId: '4', eventName: 'Birthday Glam Session', date: '2024-07-28', status: 'booked', total: 300.00 },
+];
