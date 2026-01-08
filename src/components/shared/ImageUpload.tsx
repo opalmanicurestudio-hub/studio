@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Upload, X } from 'lucide-react';
@@ -10,18 +10,24 @@ import { cn } from '@/lib/utils';
 
 interface ImageUploadProps {
   onImageUploaded: (dataUrl: string) => void;
+  initialImage?: string | null;
   maxSizeMB?: number;
   maxWidthOrHeight?: number;
 }
 
 export const ImageUpload: React.FC<ImageUploadProps> = ({
   onImageUploaded,
+  initialImage = null,
   maxSizeMB = 2,
   maxWidthOrHeight = 600,
 }) => {
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(initialImage);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+
+  useEffect(() => {
+    setImagePreview(initialImage);
+  }, [initialImage]);
 
   const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -113,3 +119,5 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
     </div>
   );
 };
+
+    

@@ -35,11 +35,12 @@ import Image from 'next/image';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Input } from '@/components/ui/input';
 import { AddServiceDialog } from '@/components/services/AddServiceDialog';
+import { EditServiceDialog } from '@/components/services/EditServiceDialog';
 import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast';
 
 
-const ServiceCard = ({ service, onProfitTesterOpen }: { service: Service, onProfitTesterOpen: (service: Service) => void }) => {
+const ServiceCard = ({ service, onProfitTesterOpen, onEditServiceOpen }: { service: Service, onProfitTesterOpen: (service: Service) => void, onEditServiceOpen: (service: Service) => void }) => {
   const profitPercentage = service.price > 0 ? (service.profit / service.price) * 100 : 0;
   const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
 
@@ -68,7 +69,7 @@ const ServiceCard = ({ service, onProfitTesterOpen }: { service: Service, onProf
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onEditServiceOpen(service)}>
                     <Pencil className="mr-2 h-4 w-4" />
                     Edit
                   </DropdownMenuItem>
@@ -133,7 +134,7 @@ const ServiceCard = ({ service, onProfitTesterOpen }: { service: Service, onProf
   );
 };
 
-const ServiceCategory = ({ title, services, onProfitTesterOpen }: { title: string, services: Service[], onProfitTesterOpen: (service: Service) => void }) => {
+const ServiceCategory = ({ title, services, onProfitTesterOpen, onEditServiceOpen }: { title: string, services: Service[], onProfitTesterOpen: (service: Service) => void, onEditServiceOpen: (service: Service) => void }) => {
     return (
         <Accordion type="single" collapsible defaultValue="item-1">
             <AccordionItem value="item-1">
@@ -143,7 +144,7 @@ const ServiceCategory = ({ title, services, onProfitTesterOpen }: { title: strin
                 <AccordionContent>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pt-4">
                         {services.map((service) => (
-                            <ServiceCard key={service.id} service={service} onProfitTesterOpen={onProfitTesterOpen} />
+                            <ServiceCard key={service.id} service={service} onProfitTesterOpen={onProfitTesterOpen} onEditServiceOpen={onEditServiceOpen} />
                         ))}
                     </div>
                 </AccordionContent>
@@ -177,6 +178,7 @@ export default function ServicesPage() {
   const [services, setServices] = useState(initialServices);
   const [isProfitTesterOpen, setIsProfitTesterOpen] = useState(false);
   const [isAddServiceDialogOpen, setIsAddServiceDialogOpen] = useState(false);
+  const [isEditServiceDialogOpen, setIsEditServiceDialogOpen] = useState(false);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [testPrice, setTestPrice] = useState(0);
   const [tmhr, setTmhr] = useState(0);
@@ -195,6 +197,11 @@ export default function ServicesPage() {
     setSelectedService(service);
     setTestPrice(service.price);
     setIsProfitTesterOpen(true);
+  };
+  
+  const handleOpenEditService = (service: Service) => {
+    setSelectedService(service);
+    setIsEditServiceDialogOpen(true);
   };
 
   const profitability = useMemo(() => {
@@ -250,6 +257,15 @@ export default function ServicesPage() {
     setServices(prev => [...prev, newService]);
   };
 
+  const handleUpdateService = (updatedService: Service) => {
+    setServices(prev => prev.map(s => s.id === updatedService.id ? updatedService : s));
+    toast({
+        title: "Service Updated",
+        description: `${updatedService.name} has been updated successfully.`
+    })
+  };
+
+
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Services" />
@@ -300,14 +316,14 @@ export default function ServicesPage() {
           <TabsContent value="services" className="mt-6 space-y-8">
             {Object.keys(servicesByCategory).length > 0 ? (
                 Object.entries(servicesByCategory).map(([category, services]) => (
-                    <ServiceCategory key={category} title={category} services={services} onProfitTesterOpen={handleOpenProfitTester} />
+                    <ServiceCategory key={category} title={category} services={services} onProfitTesterOpen={handleOpenProfitTester} onEditServiceOpen={handleOpenEditService} />
                 ))
             ) : <EmptyState onAddNewService={() => setIsAddServiceDialogOpen(true)} />}
           </TabsContent>
            <TabsContent value="add-ons" className="mt-6 space-y-8">
              {Object.keys(addOnsByCategory).length > 0 ? (
                 Object.entries(addOnsByCategory).map(([category, services]) => (
-                    <ServiceCategory key={category} title={category} services={services} onProfitTesterOpen={handleOpenProfitTester} />
+                    <ServiceCategory key={category} title={category} services={services} onProfitTesterOpen={handleOpenProfitTester} onEditServiceOpen={handleOpenEditService} />
                 ))
              ) : (
                 <Card>
@@ -380,11 +396,17 @@ export default function ServicesPage() {
         onNewCategory={handleNewCategory}
         onServiceAdded={handleAddNewService}
       />
+      {selectedService && (
+        <EditServiceDialog 
+            open={isEditServiceDialogOpen}
+            onOpenChange={setIsEditServiceDialogOpen}
+            service={selectedService}
+            categories={serviceCategories}
+            onNewCategory={handleNewCategory}
+            onServiceUpdated={handleUpdateService}
+        />
+      )}
     </div>
   );
 
     
-
-
-
-
