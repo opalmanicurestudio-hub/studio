@@ -72,8 +72,7 @@ const Step1_Basics = ({
     categories: string[];
     onNewCategory: (category: string) => void;
 }) => {
-    const { register, control, formState: { errors } } = useFormContext<ServiceFormData>();
-    const [selectedCategory, setSelectedCategory] = useState('');
+    const { register, control, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
 
@@ -81,7 +80,7 @@ const Step1_Basics = ({
         if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
             const newCategory = newCategoryName.trim();
             onNewCategory(newCategory);
-            setSelectedCategory(newCategory);
+            setValue('categoryId', newCategory, { shouldValidate: true });
             setNewCategoryName('');
             setIsAddingCategory(false);
         }
@@ -340,7 +339,7 @@ const Step2_Formula = ({ onScanClick }: { onScanClick: () => void; }) => {
 };
 
 const Step3_Deposits = () => {
-    const { control, register } = useFormContext<ServiceFormData>();
+    const { control, watch, register } = useFormContext<ServiceFormData>();
     const depositType = watch('depositType');
     
     return (
@@ -402,8 +401,8 @@ const Step3_Deposits = () => {
     );
 };
 
-const PricingForm = ({ control }: { control: Control<ServiceFormData> }) => {
-    const { watch, setValue } = useFormContext();
+const PricingForm = () => {
+    const { control, watch, setValue } = useFormContext<ServiceFormData>();
     const [tmhr, setTmhr] = useState(0);
 
     useEffect(() => {
@@ -649,7 +648,7 @@ export const AddServiceDialog = ({
                     {step === 1 && <Step1_Basics categories={categories} onNewCategory={onNewCategory} />}
                     {step === 2 && <Step2_Formula onScanClick={() => setIsScannerOpen(true)} />}
                     {step === 3 && <Step3_Deposits />}
-                    {step === 4 && <PricingForm control={control} />}
+                    {step === 4 && <PricingForm />}
             </div>
             </div>
 
