@@ -66,6 +66,7 @@ import {
   Globe,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
 
 const BillItemCard = ({
   title,
@@ -76,27 +77,49 @@ const BillItemCard = ({
   isCustom?: boolean;
   isEditing?: boolean;
 }) => (
-  <Card className="w-full shrink-0 sm:w-72">
-    <CardContent className="p-3">
+  <Card className="w-full shrink-0 sm:w-80">
+    <CardContent className="p-4">
       <div className="space-y-3">
-        <div className="flex justify-between items-start">
-            <div className="space-y-2 flex-1">
+        <div className="flex justify-between items-start gap-2">
+            <div className="space-y-1 flex-1">
                 {isCustom && isEditing ? (
                     <Input defaultValue={title} className="font-semibold border-dashed h-9" disabled={!isEditing} />
                 ) : (
                     <Label className="font-semibold text-base pt-2 block">{title}</Label>
                 )}
-                <div className="relative">
-                    <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                 <div className="relative">
+                    <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input type="number" placeholder="0.00" className="pl-8" disabled={!isEditing} />
                 </div>
             </div>
             {isCustom && isEditing && (
-                 <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive-foreground hover:bg-destructive shrink-0">
+                 <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive-foreground hover:bg-destructive shrink-0 -mr-2">
                     <Trash2 className="w-4 h-4"/>
                 </Button>
             )}
         </div>
+        {isEditing && (
+            <div className='pt-2 space-y-3'>
+                 <div className="space-y-1.5">
+                    <Label className="text-xs">Payment URL</Label>
+                    <Input placeholder="https://" className="h-8 text-xs" disabled={!isEditing} />
+                 </div>
+                <div className="grid grid-cols-3 gap-2">
+                    <div className="space-y-1.5">
+                        <Label className="text-xs">Due Day</Label>
+                        <Input type="number" placeholder="1" className="h-8 text-xs" disabled={!isEditing} />
+                    </div>
+                     <div className="space-y-1.5">
+                        <Label className="text-xs">Late By</Label>
+                        <Input type="number" placeholder="5" className="h-8 text-xs" disabled={!isEditing} />
+                    </div>
+                     <div className="space-y-1.5">
+                        <Label className="text-xs">Late Fee</Label>
+                        <Input type="number" placeholder="10.00" className="h-8 text-xs" disabled={!isEditing} />
+                    </div>
+                </div>
+            </div>
+        )}
       </div>
     </CardContent>
   </Card>
@@ -317,7 +340,7 @@ const FinancialProfileManager = ({ activeTab }: { activeTab: string }) => {
                         <Button
                             key={profile.id}
                             variant={profile.isActive ? 'secondary' : 'ghost'}
-                            className="w-full justify-start"
+                            className="w-full justify-start h-auto py-2"
                         >
                             <span className="flex-1 text-left truncate">{profile.name}</span>
                             {activeTab === 'schedule' && profile.isPublic && (
@@ -341,7 +364,7 @@ const FinancialProfileManager = ({ activeTab }: { activeTab: string }) => {
                     ))}
                 </div>
             </CardContent>
-            <CardFooter className="p-2">
+            <CardFooter className="p-2 border-t">
                 <Button variant="outline" className="w-full" disabled={isProFeature}>
                     <PlusCircle className="mr-2 h-4 w-4" />
                     Add New Profile
@@ -353,7 +376,7 @@ const FinancialProfileManager = ({ activeTab }: { activeTab: string }) => {
 }
 
 const TmhrBreakdownCard = () => (
-    <Card className="lg:sticky top-24">
+    <Card>
         <CardHeader>
             <CardTitle>Your Financial Snapshot</CardTitle>
             <CardDescription>Select your profiles to see the magic.</CardDescription>
@@ -391,7 +414,7 @@ export default function FinancialFoundationPage() {
                     The bedrock of your entire business. This is the exact amount you must earn per hour to cover all your expenses and fund your desired lifestyle.
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-shrink-0">
                 {isEditing ? (
                     <>
                         <Button variant="outline" onClick={() => setIsEditing(false)}>Cancel</Button>
@@ -410,11 +433,11 @@ export default function FinancialFoundationPage() {
                     <TabsTrigger value="schedule">3. Schedule</TabsTrigger>
                 </TabsList>
                 
-                <div className="grid lg:grid-cols-3 gap-8 items-start mt-6">
+                <div className="grid lg:grid-cols-[280px_1fr] xl:grid-cols-[340px_1fr] gap-8 items-start mt-6">
                     <div className="hidden lg:block lg:col-span-1">
                         <FinancialProfileManager activeTab={activeTab} />
                     </div>
-                    <div className="lg:col-span-2">
+                    <div className="lg:col-span-1">
                         <TabsContent value="lifestyle" className="m-0">
                            <LifestyleTab isEditing={isEditing} />
                         </TabsContent>
@@ -428,7 +451,9 @@ export default function FinancialFoundationPage() {
                 </div>
             </Tabs>
             
-            <div className="mt-8 space-y-4">
+            <Separator className="my-8" />
+            
+            <div className="mt-8 space-y-6 max-w-md mx-auto">
                 <h2 className="text-2xl font-bold text-center">Your Financial Snapshot</h2>
                 <TmhrBreakdownCard />
             </div>
@@ -437,3 +462,5 @@ export default function FinancialFoundationPage() {
     </div>
   );
 }
+
+    
