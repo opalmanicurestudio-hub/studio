@@ -150,19 +150,11 @@ const BillEditor = ({
               </div>
             </AccordionTrigger>
             <AccordionContent className="pt-4">
-                <div className="sm:hidden grid grid-cols-1 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-1 gap-4">
                     {category.bills.map((bill) => (
                       <BillItemCard key={bill.title} title={bill.title} isEditing={isEditing} isCustom={bill.isCustom} />
                     ))}
                 </div>
-                <ScrollArea className="hidden sm:block">
-                    <div className="flex space-x-4 pb-4">
-                    {category.bills.map((bill) => (
-                        <BillItemCard key={bill.title} title={bill.title} isEditing={isEditing} isCustom={bill.isCustom} />
-                    ))}
-                    </div>
-                    <ScrollBar orientation="horizontal" />
-                </ScrollArea>
             </AccordionContent>
           </AccordionItem>
         ))}
@@ -311,77 +303,88 @@ const ScheduleTab = ({ isEditing }: { isEditing: boolean }) => (
     </div>
 )
 
-const FinancialProfileManager = ({ activeTab }: { activeTab: string }) => {
-    const profiles = useMemo(() => {
-        switch (activeTab) {
-            case 'lifestyle':
-                return [
-                    { id: 'ls1', name: 'Default Lifestyle', isActive: true, isPro: false },
-                    { id: 'ls2', name: 'Lean Year Lifestyle', isActive: false, isPro: true }
-                ];
-            case 'business':
-                return [
-                    { id: 'bs1', name: 'Default Business', isActive: true, isPro: false },
-                ];
-            case 'schedule':
-                return [
-                    { id: 'sc1', name: 'Standard 35hr/wk', isActive: true, isPublic: true },
-                    { id: 'sc2', name: 'Aggressive 45hr/wk', isActive: false, isPublic: false }
-                ];
-            default:
-                return [];
-        }
-    }, [activeTab]);
-    
-    const isProFeature = activeTab === 'lifestyle' || activeTab === 'business';
+const FinancialProfileManager = ({
+  activeTab,
+  profiles,
+  setProfiles,
+  isEditing,
+}: {
+  activeTab: string;
+  profiles: any;
+  setProfiles: any;
+  isEditing: boolean;
+}) => {
+  const isProFeature = activeTab === 'lifestyle' || activeTab === 'business';
 
-    return (
-        <Card className="lg:sticky top-24">
-            <CardHeader>
-                <CardTitle className="capitalize">{activeTab} Profiles</CardTitle>
-                <CardDescription>Manage your financial scenarios.</CardDescription>
-            </CardHeader>
-            <CardContent className="p-2">
-                <div className="space-y-1">
-                    {profiles.map(profile => (
-                        <Button
-                            key={profile.id}
-                            variant={profile.isActive ? 'secondary' : 'ghost'}
-                            className="w-full justify-start h-auto py-2"
-                        >
-                            <span className="flex-1 text-left truncate">{profile.name}</span>
-                             {isProFeature && (profile as any).isPro && <Badge variant="outline" className="ml-2">Pro</Badge>}
-                            {activeTab === 'schedule' && (profile as any).isPublic && (
-                                <Globe className="h-4 w-4 text-muted-foreground ml-2" />
-                            )}
-                            {profile.isActive && <Badge variant="default" className="ml-2">Active</Badge>}
-                             <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button variant="ghost" size="icon" className="h-7 w-7 ml-1 shrink-0">
-                                        <MoreHorizontal className="h-4 w-4" />
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                    <DropdownMenuItem>Rename</DropdownMenuItem>
-                                    <DropdownMenuItem>Duplicate</DropdownMenuItem>
-                                    {activeTab === 'schedule' && <DropdownMenuItem>Set as Public</DropdownMenuItem>}
-                                    <DropdownMenuItem className="text-destructive" disabled={profiles.length === 1}>Delete</DropdownMenuItem>
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-                        </Button>
-                    ))}
-                </div>
-            </CardContent>
-            <CardFooter className="p-2 border-t">
-                <Button variant="outline" className="w-full">
-                    <PlusCircle className="mr-2 h-4 w-4" />
-                    Add New Profile
-                    {isProFeature && <Badge className="ml-auto">Pro</Badge>}
-                </Button>
-            </CardFooter>
-        </Card>
-    )
-}
+  const handleAddProfile = () => {
+    const newProfile = {
+      id: `${activeTab.slice(0, 2)}${Date.now()}`,
+      name: `New ${activeTab} Profile`,
+      isActive: false,
+      isPro: isProFeature,
+      isPublic: activeTab === 'schedule' ? false : undefined,
+    };
+    setProfiles((prev:any) => ({
+      ...prev,
+      [`${activeTab}Profiles`]: [...prev[`${activeTab}Profiles`], newProfile],
+    }));
+  };
+  
+  const currentProfiles = profiles[`${activeTab}Profiles`];
+
+
+  return (
+    <Card className="lg:sticky top-24">
+      <CardHeader>
+        <CardTitle className="capitalize">{activeTab} Profiles</CardTitle>
+        <CardDescription>Manage your financial scenarios.</CardDescription>
+      </CardHeader>
+      <CardContent className="p-2">
+        <div className="space-y-1">
+          {currentProfiles.map((profile:any) => (
+            <Button
+              key={profile.id}
+              variant={profile.isActive ? 'secondary' : 'ghost'}
+              className="w-full justify-start h-auto py-2"
+            >
+              <span className="flex-1 text-left truncate">{profile.name}</span>
+              {isProFeature && profile.isPro && !profile.isActive && <Badge variant="outline" className="ml-2">Pro</Badge>}
+              {activeTab === 'schedule' && profile.isPublic && (
+                <Globe className="h-4 w-4 text-muted-foreground ml-2" />
+              )}
+              {profile.isActive && <Badge variant="default" className="ml-2">Active</Badge>}
+              {isEditing && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 ml-1 shrink-0">
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem>Rename</DropdownMenuItem>
+                    <DropdownMenuItem>Duplicate</DropdownMenuItem>
+                    {activeTab === 'schedule' && <DropdownMenuItem>Set as Public</DropdownMenuItem>}
+                    <DropdownMenuItem className="text-destructive" disabled={currentProfiles.length === 1}>Delete</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </Button>
+          ))}
+        </div>
+      </CardContent>
+      {isEditing && (
+          <CardFooter className="p-2 border-t">
+            <Button variant="outline" className="w-full" onClick={handleAddProfile}>
+                <PlusCircle className="mr-2 h-4 w-4" />
+                Add New Profile
+                {isProFeature && <Badge className="ml-auto">Pro</Badge>}
+            </Button>
+          </CardFooter>
+      )}
+    </Card>
+  );
+};
+
 
 const TmhrBreakdownCard = () => (
     <Card>
@@ -409,6 +412,21 @@ const TmhrBreakdownCard = () => (
 export default function FinancialFoundationPage() {
     const [isEditing, setIsEditing] = useState(false);
     const [activeTab, setActiveTab] = useState('lifestyle');
+    
+    const [profiles, setProfiles] = useState({
+      lifestyleProfiles: [
+        { id: 'ls1', name: 'Default Lifestyle', isActive: true, isPro: false },
+        { id: 'ls2', name: 'Lean Year Lifestyle', isActive: false, isPro: true }
+      ],
+      businessProfiles: [
+        { id: 'bs1', name: 'Default Business', isActive: true, isPro: false },
+      ],
+      scheduleProfiles: [
+        { id: 'sc1', name: 'Standard 35hr/wk', isActive: true, isPublic: true },
+        { id: 'sc2', name: 'Aggressive 45hr/wk', isActive: false, isPublic: false }
+      ]
+    });
+
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -443,7 +461,12 @@ export default function FinancialFoundationPage() {
                 
                 <div className="grid lg:grid-cols-[280px_1fr] xl:grid-cols-[340px_1fr] gap-8 items-start mt-6">
                     <div className="hidden lg:block lg:col-span-1">
-                        <FinancialProfileManager activeTab={activeTab} />
+                        <FinancialProfileManager 
+                            activeTab={activeTab} 
+                            profiles={profiles}
+                            setProfiles={setProfiles}
+                            isEditing={isEditing}
+                        />
                     </div>
                     <div className="lg:col-span-1">
                         <TabsContent value="lifestyle" className="m-0">
@@ -470,5 +493,3 @@ export default function FinancialFoundationPage() {
     </div>
   );
 }
-
-    
