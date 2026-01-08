@@ -28,7 +28,7 @@ import { Input } from '@/components/ui/input';
 
 const ProductCard = ({ item }: { item: InventoryItem }) => {
     return (
-        <Card className="w-full shrink-0 md:w-72">
+        <Card className="w-full shrink-0">
             <CardContent className="p-4 space-y-4">
                 <div className="flex items-start justify-between gap-4">
                     <div className='flex items-start gap-3'>
@@ -123,13 +123,12 @@ const EmptyState = ({ message }: { message: string }) => (
 
 
 export default function InventoryPage() {
-  const professionalColor = inventory.filter((i) => i.type === 'professional' && i.category === 'Color');
-  const professionalStyling = inventory.filter((i) => i.type === 'professional' && i.category === 'Styling');
-  const professionalCare = inventory.filter((i) => i.type === 'professional' && i.category === 'Care');
-
-  const retailItems = inventory.filter((i) => i.type === 'retail');
-  const overheadItems = inventory.filter((i) => i.type === 'overhead');
-  const equipmentItems = inventory.filter((i) => i.type === 'equipment');
+  const professionalColor: InventoryItem[] = [];
+  const professionalStyling: InventoryItem[] = [];
+  const professionalCare: InventoryItem[] = [];
+  const retailItems: InventoryItem[] = [];
+  const overheadItems: InventoryItem[] = [];
+  const equipmentItems: InventoryItem[] = [];
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
@@ -170,87 +169,88 @@ export default function InventoryPage() {
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Inventory Hub" />
       <main className="flex-1 p-4 md:p-8">
-         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-            <Tabs defaultValue="professional" className='w-full'>
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                <ScrollArea className="w-full whitespace-nowrap sm:w-auto">
-                  <TabsList className="inline-grid w-max grid-cols-4 sm:w-auto">
-                    <TabsTrigger value="professional">Professional</TabsTrigger>
-                    <TabsTrigger value="retail">Retail</TabsTrigger>
-                    <TabsTrigger value="overhead">Overhead</TabsTrigger>
-                    <TabsTrigger value="equipment">Equipment</TabsTrigger>
-                  </TabsList>
-                  <ScrollBar orientation="horizontal" className="sm:hidden" />
-                </ScrollArea>
-                <div className="ml-auto flex flex-wrap items-center gap-2">
-                    <Button><Truck className="mr-2 h-4 w-4" /> Receive Stock</Button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                         <Button variant="outline"><PlusCircle className="mr-2 h-4 w-4" /> Add New</Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem><Package className="mr-2 h-4 w-4" /> Add Product</DropdownMenuItem>
-                        <DropdownMenuItem><Hammer className="mr-2 h-4 w-4" /> Add Equipment</DropdownMenuItem>
-                        <DropdownMenuItem><Beaker className="mr-2 h-4 w-4" /> Add Overhead Item</DropdownMenuItem>
-                        <DropdownMenuItem><FlaskConical className="mr-2 h-4 w-4" /> Create Bundle</DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                </div>
-              </div>
-              
-              <div className='flex flex-col md:flex-row gap-4 mt-4'>
-                 <div className="relative w-full md:w-auto md:flex-1">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input placeholder="Search inventory..." className="pl-9" />
-                </div>
-                <div className='flex items-center gap-2'>
-                  <Button variant="outline" className='w-full' onClick={() => setIsScannerOpen(true)}>
-                    <QrCode className="mr-2 h-4 w-4" />
-                    Scan
-                  </Button>
+         <Tabs defaultValue="professional" className='w-full'>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+              <ScrollArea className="w-full whitespace-nowrap sm:w-auto">
+                <TabsList className="inline-grid w-max grid-cols-4 sm:w-auto">
+                  <TabsTrigger value="professional">Professional</TabsTrigger>
+                  <TabsTrigger value="retail">Retail</TabsTrigger>
+                  <TabsTrigger value="overhead">Overhead</TabsTrigger>
+                  <TabsTrigger value="equipment">Equipment</TabsTrigger>
+                </TabsList>
+                <ScrollBar orientation="horizontal" className="sm:hidden" />
+              </ScrollArea>
+              <div className="ml-auto w-full sm:w-auto flex flex-col sm:flex-row items-center gap-2">
+                  <Button className="w-full sm:w-auto"><Truck className="mr-2 h-4 w-4" /> Receive Stock</Button>
                   <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                         <Button variant="outline" className='w-full'><SlidersHorizontal className="mr-2 h-4 w-4" /> Filters</Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem>Filter by Status</DropdownMenuItem>
-                        <DropdownMenuItem>Filter by Category</DropdownMenuItem>
-                         <DropdownMenuItem>Filter by Vendor</DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                </div>
+                    <DropdownMenuTrigger asChild>
+                       <Button variant="outline" className="w-full sm:w-auto"><PlusCircle className="mr-2 h-4 w-4" /> Add New</Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem><Package className="mr-2 h-4 w-4" /> Add Product</DropdownMenuItem>
+                      <DropdownMenuItem><Hammer className="mr-2 h-4 w-4" /> Add Equipment</DropdownMenuItem>
+                      <DropdownMenuItem><Beaker className="mr-2 h-4 w-4" /> Add Overhead Item</DropdownMenuItem>
+                      <DropdownMenuItem><FlaskConical className="mr-2 h-4 w-4" /> Create Bundle</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
               </div>
+            </div>
+            
+            <div className='flex flex-col md:flex-row gap-4 mt-4'>
+               <div className="relative w-full md:flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input placeholder="Search inventory..." className="pl-9" />
+              </div>
+              <div className='flex items-center gap-2 w-full md:w-auto'>
+                <Button variant="outline" className='w-full' onClick={() => setIsScannerOpen(true)}>
+                  <QrCode className="mr-2 h-4 w-4" />
+                  Scan
+                </Button>
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                       <Button variant="outline" className='w-full'><SlidersHorizontal className="mr-2 h-4 w-4" /> Filters</Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem>Filter by Status</DropdownMenuItem>
+                      <DropdownMenuItem>Filter by Category</DropdownMenuItem>
+                       <DropdownMenuItem>Filter by Vendor</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+              </div>
+            </div>
 
-              <div className="mt-6 space-y-4">
-                <TabsContent value="professional" className="m-0 space-y-4">
-                    <ProductShelf title="Color" items={professionalColor} />
-                    <ProductShelf title="Care" items={professionalCare} />
-                    <ProductShelf title="Styling" items={professionalStyling} />
-                </TabsContent>
-                <TabsContent value="retail" className="m-0">
-                  {retailItems.length > 0 ? (
-                        <ProductShelf title="All Retail" items={retailItems} />
-                    ) : (
-                        <EmptyState message="No retail items yet." />
-                    )}
-                </TabsContent>
-                <TabsContent value="overhead" className="m-0">
-                  {overheadItems.length > 0 ? (
-                        <ProductShelf title="All Overhead" items={overheadItems} />
-                    ) : (
-                        <EmptyState message="No overhead items yet." />
-                    )}
-                </TabsContent>
-                <TabsContent value="equipment" className="m-0">
-                    {equipmentItems.length > 0 ? (
-                        <ProductShelf title="All Equipment" items={equipmentItems} />
-                    ) : (
-                        <EmptyState message="No equipment items yet." />
-                    )}
-                </TabsContent>
-              </div>
-            </Tabs>
-        </div>
+            <div className="mt-6 space-y-4">
+              <TabsContent value="professional" className="m-0 space-y-4">
+                  <ProductShelf title="Color" items={professionalColor} />
+                  <ProductShelf title="Care" items={professionalCare} />
+                  <ProductShelf title="Styling" items={professionalStyling} />
+                  {(professionalColor.length === 0 && professionalCare.length === 0 && professionalStyling.length === 0) && (
+                    <EmptyState message="No professional products yet." />
+                  )}
+              </TabsContent>
+              <TabsContent value="retail" className="m-0">
+                {retailItems.length > 0 ? (
+                      <ProductShelf title="All Retail" items={retailItems} />
+                  ) : (
+                      <EmptyState message="No retail items yet." />
+                  )}
+              </TabsContent>
+              <TabsContent value="overhead" className="m-0">
+                {overheadItems.length > 0 ? (
+                      <ProductShelf title="All Overhead" items={overheadItems} />
+                  ) : (
+                      <EmptyState message="No overhead items yet." />
+                  )}
+              </TabsContent>
+              <TabsContent value="equipment" className="m-0">
+                  {equipmentItems.length > 0 ? (
+                      <ProductShelf title="All Equipment" items={equipmentItems} />
+                  ) : (
+                      <EmptyState message="No equipment items yet." />
+                  )}
+              </TabsContent>
+            </div>
+         </Tabs>
       </main>
 
        <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
