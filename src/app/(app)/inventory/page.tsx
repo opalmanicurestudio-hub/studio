@@ -41,11 +41,12 @@ import { AddProductDialog } from '@/components/inventory/AddProductDialog';
 import { AddLocationDialog, type Location } from '@/components/inventory/AddLocationDialog';
 import { Textarea } from '@/components/ui/textarea';
 import Link from 'next/link';
+import { Badge } from '@/components/ui/badge';
 
 
 const ProductCard = ({ item }: { item: InventoryItem }) => {
     return (
-        <Card className="w-full sm:w-80 shrink-0">
+        <Card className="w-full">
             <CardContent className="p-4 space-y-4">
                 <div className="flex items-start justify-between gap-4">
                     <div className='flex items-start gap-3 flex-1'>
@@ -116,21 +117,13 @@ const ProductShelf = ({ title, items }: { title: string, items: InventoryItem[] 
     return (
         <Accordion type="single" collapsible defaultValue="item-1" className="w-full">
             <AccordionItem value="item-1" className='border-b-0'>
-                <AccordionTrigger className='px-1 md:px-0 hover:no-underline'>
-                    <div className='flex items-center justify-between w-full'>
-                        <h3 className="text-xl font-bold">{title}</h3>
-                    </div>
+                <AccordionTrigger className='hover:no-underline'>
+                    <h3 className="text-xl font-bold">{title}</h3>
                 </AccordionTrigger>
-                <AccordionContent>
-                    <div className="md:hidden space-y-4 pt-4">
+                <AccordionContent className="pt-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                         {items.map((item) => <ProductCard key={item.id} item={item} />)}
                     </div>
-                    <ScrollArea className="hidden md:block">
-                        <div className="flex space-x-4 pb-4">
-                            {items.map((item) => <ProductCard key={item.id} item={item} />)}
-                        </div>
-                        <ScrollBar orientation="horizontal" />
-                    </ScrollArea>
                 </AccordionContent>
             </AccordionItem>
         </Accordion>
@@ -454,9 +447,9 @@ export default function InventoryPage() {
       <AppHeader title="Inventory Hub" />
       <main className="flex-1 p-4 md:p-8 space-y-4">
         <Tabs defaultValue="professional" className="w-full space-y-4">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center">
             <ScrollArea className="w-full whitespace-nowrap md:w-auto">
-              <TabsList className="inline-flex w-full">
+              <TabsList className="inline-flex">
                 <TabsTrigger value="professional">Professional</TabsTrigger>
                 <TabsTrigger value="retail">Retail</TabsTrigger>
                 <TabsTrigger value="overhead">Overhead</TabsTrigger>
@@ -465,17 +458,17 @@ export default function InventoryPage() {
               </TabsList>
               <ScrollBar orientation="horizontal" className="md:hidden" />
             </ScrollArea>
-             <div className="flex w-full flex-col items-stretch gap-2 md:w-auto md:flex-row">
-                <Button className="w-full md:w-auto" onClick={() => setIsReceiveStockOpen(true)}><Truck className="mr-2 h-4 w-4" /> Receive Stock</Button>
-                <div className="flex w-full items-stretch gap-2 md:w-auto">
+             <div className="flex w-full flex-col items-stretch gap-2 sm:flex-row md:ml-auto md:w-auto">
+                <Button className="w-full sm:w-auto" onClick={() => setIsReceiveStockOpen(true)}><Truck className="mr-2 h-4 w-4" /> Receive Stock</Button>
+                <div className="flex w-full items-stretch gap-2 sm:w-auto">
                   <Button variant="outline" className="flex-1" asChild>
                     <Link href="/inventory/labels">
-                      <Printer className="mr-2 h-4 w-4" /> Print Labels
+                      <Printer className="mr-2 h-4 w-4" /> Labels
                     </Link>
                   </Button>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                       <Button variant="outline" className="flex-1"><PlusCircle className="mr-2 h-4 w-4" /> Add New</Button>
+                       <Button variant="outline" className="flex-1"><PlusCircle className="mr-2 h-4 w-4" /> New</Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onClick={() => setIsAddProductOpen(true)}><Package className="mr-2 h-4 w-4" /> Add Product</DropdownMenuItem>
@@ -488,19 +481,19 @@ export default function InventoryPage() {
             </div>
           </div>
             
-          <div className='flex flex-col md:flex-row gap-4'>
-             <div className="relative w-full md:flex-1">
+          <div className='flex flex-col sm:flex-row gap-4'>
+             <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input placeholder="Search inventory..." className="pl-9" />
             </div>
-            <div className='flex items-center gap-2 w-full md:w-auto'>
-              <Button variant="outline" className='flex-1 md:flex-initial' onClick={() => setIsScannerOpen(true)}>
+            <div className='flex items-center gap-2'>
+              <Button variant="outline" className='flex-1 sm:flex-initial' onClick={() => setIsScannerOpen(true)}>
                 <QrCode className="mr-2 h-4 w-4" />
                 Scan
               </Button>
               <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                     <Button variant="outline" className='flex-1 md:flex-initial'><SlidersHorizontal className="mr-2 h-4 w-4" /> Filters</Button>
+                     <Button variant="outline" className='flex-1 sm:flex-initial'><SlidersHorizontal className="mr-2 h-4 w-4" /> Filters</Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem>Filter by Status</DropdownMenuItem>
@@ -631,3 +624,5 @@ export default function InventoryPage() {
     </div>
   );
 }
+
+    
