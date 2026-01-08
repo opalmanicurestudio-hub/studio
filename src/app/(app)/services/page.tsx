@@ -18,14 +18,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { services as initialServices, type Service } from '@/lib/data';
@@ -39,8 +31,68 @@ import { EditServiceDialog } from '@/components/services/EditServiceDialog';
 import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast';
 
+const InlineProfitTester = ({ service, tmhr }: { service: Service, tmhr: number }) => {
+  const [testPrice, setTestPrice] = useState(service.price);
 
-const ServiceCard = ({ service, onProfitTesterOpen, onEditServiceOpen }: { service: Service, onProfitTesterOpen: (service: Service) => void, onEditServiceOpen: (service: Service) => void }) => {
+  useEffect(() => {
+    setTestPrice(service.price);
+  }, [service.price]);
+
+  const profitability = useMemo(() => {
+    const totalDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
+    const timeCost = (totalDuration / 60) * tmhr;
+    
+    // In a real app, product costs would be calculated from a formula.
+    // For now, we derive it from the service's pre-calculated total cost.
+    const productCost = service.cost - ((service.duration / 60) * 40); // Assuming a base TMHR of $40 for initial cost calc
+    
+    const breakEvenPoint = timeCost + productCost;
+
+    const profitValue = testPrice - breakEvenPoint;
+    const marginValue = testPrice > 0 ? (profitValue / testPrice) * 100 : 0;
+
+    return { profit: profitValue, margin: marginValue, breakEvenPoint, timeCost, productCost };
+  }, [service, testPrice, tmhr]);
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <div className="flex justify-between items-baseline">
+          <Label htmlFor={`price-slider-${service.id}`}>Test Price</Label>
+          <span className="font-semibold text-primary">${testPrice.toFixed(2)}</span>
+        </div>
+        <Slider
+          id={`price-slider-${service.id}`}
+          min={0}
+          max={service.price * 2 + 50}
+          step={1}
+          value={[testPrice]}
+          onValueChange={(value) => setTestPrice(value[0])}
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/50 p-2">
+        <div className="text-center">
+          <p className="text-xs text-muted-foreground">Potential Profit</p>
+          <p className={`text-lg font-bold ${profitability.profit >= 0 ? 'text-green-500' : 'text-destructive'}`}>
+            ${profitability.profit.toFixed(2)}
+          </p>
+        </div>
+        <div className="text-center">
+          <p className="text-xs text-muted-foreground">Profit Margin</p>
+          <p className={`text-lg font-bold ${profitability.margin >= 0 ? 'text-green-500' : 'text-destructive'}`}>
+            {profitability.margin.toFixed(1)}%
+          </p>
+        </div>
+      </div>
+       <div className='text-[10px] text-muted-foreground space-y-0.5 text-center'>
+          <p>Break-Even: ${profitability.breakEvenPoint?.toFixed(2)} (Time: ${profitability.timeCost?.toFixed(2)} + Products: ${profitability.productCost?.toFixed(2)})</p>
+       </div>
+    </div>
+  );
+};
+
+
+const ServiceCard = ({ service, onEditServiceOpen, tmhr }: { service: Service, onEditServiceOpen: (service: Service) => void, tmhr: number }) => {
   const profitPercentage = service.price > 0 ? (service.profit / service.price) * 100 : 0;
   const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
 
@@ -72,10 +124,6 @@ const ServiceCard = ({ service, onProfitTesterOpen, onEditServiceOpen }: { servi
                   <DropdownMenuItem onClick={() => onEditServiceOpen(service)}>
                     <Pencil className="mr-2 h-4 w-4" />
                     Edit
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => onProfitTesterOpen(service)}>
-                    <Sparkles className="mr-2 h-4 w-4" />
-                    Profit Tester
                   </DropdownMenuItem>
                   <DropdownMenuItem className="text-destructive">
                     Delete
@@ -114,7 +162,7 @@ const ServiceCard = ({ service, onProfitTesterOpen, onEditServiceOpen }: { servi
                     </div>
                 </AccordionTrigger>
                 <AccordionContent className='pt-4'>
-                    <p className='text-sm text-center text-muted-foreground'>Use the profit tester by opening the dialog.</p>
+                    <InlineProfitTester service={service} tmhr={tmhr} />
                 </AccordionContent>
             </AccordionItem>
              <AccordionItem value="cost-breakdown" className="border-b-0 mt-2">
@@ -134,7 +182,7 @@ const ServiceCard = ({ service, onProfitTesterOpen, onEditServiceOpen }: { servi
   );
 };
 
-const ServiceCategory = ({ title, services, onProfitTesterOpen, onEditServiceOpen }: { title: string, services: Service[], onProfitTesterOpen: (service: Service) => void, onEditServiceOpen: (service: Service) => void }) => {
+const ServiceCategory = ({ title, services, onEditServiceOpen, tmhr }: { title: string, services: Service[], onEditServiceOpen: (service: Service) => void, tmhr: number }) => {
     return (
         <Accordion type="single" collapsible defaultValue="item-1">
             <AccordionItem value="item-1">
@@ -144,7 +192,7 @@ const ServiceCategory = ({ title, services, onProfitTesterOpen, onEditServiceOpe
                 <AccordionContent>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pt-4">
                         {services.map((service) => (
-                            <ServiceCard key={service.id} service={service} onProfitTesterOpen={onProfitTesterOpen} onEditServiceOpen={onEditServiceOpen} />
+                            <ServiceCard key={service.id} service={service} onEditServiceOpen={onEditServiceOpen} tmhr={tmhr} />
                         ))}
                     </div>
                 </AccordionContent>
@@ -176,11 +224,9 @@ const EmptyState = ({ onAddNewService }: { onAddNewService: () => void }) => (
 
 export default function ServicesPage() {
   const [services, setServices] = useState(initialServices);
-  const [isProfitTesterOpen, setIsProfitTesterOpen] = useState(false);
   const [isAddServiceDialogOpen, setIsAddServiceDialogOpen] = useState(false);
   const [isEditServiceDialogOpen, setIsEditServiceDialogOpen] = useState(false);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
-  const [testPrice, setTestPrice] = useState(0);
   const [tmhr, setTmhr] = useState(0);
   const { toast } = useToast();
 
@@ -193,32 +239,11 @@ export default function ServicesPage() {
     }
   }, []);
 
-  const handleOpenProfitTester = (service: Service) => {
-    setSelectedService(service);
-    setTestPrice(service.price);
-    setIsProfitTesterOpen(true);
-  };
-  
   const handleOpenEditService = (service: Service) => {
     setSelectedService(service);
     setIsEditServiceDialogOpen(true);
   };
 
-  const profitability = useMemo(() => {
-    if (!selectedService) return { profit: 0, margin: 0, breakEvenPoint: 0, timeCost: 0 };
-    
-    const totalDuration = (selectedService.duration || 0) + (selectedService.padBefore || 0) + (selectedService.padAfter || 0);
-    const timeCost = (totalDuration / 60) * tmhr;
-    const productCost = selectedService.cost - timeCost; // cost on service is already total, so we subtract timecost to get product cost
-    
-    const breakEvenPoint = timeCost + productCost;
-
-    const profitValue = testPrice - breakEvenPoint;
-    const marginValue = testPrice > 0 ? (profitValue / testPrice) * 100 : 0;
-
-    return { profit: profitValue, margin: marginValue, breakEvenPoint, timeCost };
-  }, [selectedService, testPrice, tmhr]);
-  
   const mainServices = services.filter(s => s.type === 'service');
   const addOnServices = services.filter(s => s.type === 'addon');
   
@@ -316,14 +341,14 @@ export default function ServicesPage() {
           <TabsContent value="services" className="mt-6 space-y-8">
             {Object.keys(servicesByCategory).length > 0 ? (
                 Object.entries(servicesByCategory).map(([category, services]) => (
-                    <ServiceCategory key={category} title={category} services={services} onProfitTesterOpen={handleOpenProfitTester} onEditServiceOpen={handleOpenEditService} />
+                    <ServiceCategory key={category} title={category} services={services} onEditServiceOpen={handleOpenEditService} tmhr={tmhr} />
                 ))
             ) : <EmptyState onAddNewService={() => setIsAddServiceDialogOpen(true)} />}
           </TabsContent>
            <TabsContent value="add-ons" className="mt-6 space-y-8">
              {Object.keys(addOnsByCategory).length > 0 ? (
                 Object.entries(addOnsByCategory).map(([category, services]) => (
-                    <ServiceCategory key={category} title={category} services={services} onProfitTesterOpen={handleOpenProfitTester} onEditServiceOpen={handleOpenEditService} />
+                    <ServiceCategory key={category} title={category} services={services} onEditServiceOpen={handleOpenEditService} tmhr={tmhr} />
                 ))
              ) : (
                 <Card>
@@ -336,59 +361,6 @@ export default function ServicesPage() {
         </Tabs>
       </main>
 
-      <Dialog
-        open={isProfitTesterOpen}
-        onOpenChange={setIsProfitTesterOpen}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Profit Tester</DialogTitle>
-            <DialogDescription>
-              Adjust the price for &quot;{selectedService?.name}&quot; to see potential profit.
-              (Using TMHR of <span className='font-bold'>${tmhr.toFixed(2)}/hr</span>)
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-8 py-4">
-            <div className="space-y-4">
-              <div className="flex justify-between items-baseline">
-                <Label htmlFor="price-slider">Service Price</Label>
-                <span className="text-2xl font-bold text-primary">${testPrice.toFixed(2)}</span>
-              </div>
-              <Slider
-                id="price-slider"
-                min={0}
-                max={(selectedService ? selectedService.price : 0) * 2 + 50}
-                step={1}
-                value={[testPrice]}
-                onValueChange={(value) => setTestPrice(value[0])}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4 rounded-lg bg-muted/50 p-4">
-              <div className="text-center">
-                <p className="text-sm text-muted-foreground">Potential Profit</p>
-                <p className={`text-2xl font-bold ${profitability.profit >= 0 ? 'text-green-500' : 'text-destructive'}`}>${profitability.profit.toFixed(2)}</p>
-              </div>
-              <div className="text-center">
-                <p className="text-sm text-muted-foreground">Profit Margin</p>
-                <p className={`text-2xl font-bold ${profitability.margin >= 0 ? 'text-green-500' : 'text-destructive'}`}>{profitability.margin.toFixed(1)}%</p>
-              </div>
-            </div>
-             <div className='text-xs text-muted-foreground space-y-1 text-center'>
-                <p>Break-Even Point (Time + Products): ${profitability.breakEvenPoint?.toFixed(2) || '0.00'}</p>
-                <p>Time Cost ({(selectedService?.duration || 0) + (selectedService?.padBefore || 0) + (selectedService?.padAfter || 0)} min): ${profitability.timeCost?.toFixed(2) || '0.00'}</p>
-             </div>
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setIsProfitTesterOpen(false)}
-            >
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
       <AddServiceDialog 
         open={isAddServiceDialogOpen} 
         onOpenChange={setIsAddServiceDialogOpen}
