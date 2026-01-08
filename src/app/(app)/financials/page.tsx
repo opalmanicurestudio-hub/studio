@@ -45,6 +45,20 @@ import {
   Brush,
   Wifi,
   MoreHorizontal,
+  PiggyBank,
+  Gift,
+  Dog,
+  Baby,
+  Landmark,
+  Shield,
+  Trash2,
+  Phone,
+  Film,
+  Megaphone,
+  CreditCard,
+  Banknote,
+  Receipt,
+  Package,
 } from 'lucide-react';
 
 const BillItemCard = ({
@@ -141,35 +155,116 @@ const lifestyleCategories = [
   {
     name: 'Housing',
     icon: <Home className="w-5 h-5 text-primary" />,
-    bills: [{ title: 'Rent / Mortgage' }, { title: 'Utilities' }],
+    bills: [{ title: 'Rent/Mortgage' }, { title: 'Property Taxes' }, { title: 'HOA Fees' }, { title: 'Insurance' }],
   },
   {
-    name: 'Health',
-    icon: <Heart className="w-5 h-5 text-primary" />,
-    bills: [{ title: 'Insurance' }, { title: 'Gym' }],
+    name: 'Utilities',
+    icon: <Receipt className="w-5 h-5 text-primary" />,
+    bills: [{ title: 'Electric' }, { title: 'Water' }, { title: 'Gas' }, { title: 'Waste Management' }],
+  },
+   {
+    name: 'Internet & Phone',
+    icon: <Wifi className="w-5 h-5 text-primary" />,
+    bills: [{ title: 'Internet Bill' }, { title: 'Cell Phone Bill' }],
+  },
+  {
+    name: 'Streaming & Subscriptions',
+    icon: <Film className="w-5 h-5 text-primary" />,
+    bills: [{ title: 'Netflix' }, { title: 'Spotify' }, { title: 'News Subscription' }, { title: 'Cloud Storage' }],
+  },
+  {
+    name: 'Food',
+    icon: <ShoppingCart className="w-5 h-5 text-primary" />,
+    bills: [{ title: 'Groceries' }, { title: 'Restaurants' }],
   },
   {
     name: 'Transportation',
     icon: <Car className="w-5 h-5 text-primary" />,
-    bills: [{ title: 'Car Payment' }, { title: 'Insurance' }, { title: 'Gas' }],
+    bills: [{ title: 'Car Payment' }, { title: 'Car Insurance' }, { title: 'Gas/Fuel' }, { title: 'Public Transit' }],
   },
   {
-    name: 'Daily Living',
-    icon: <ShoppingCart className="w-5 h-5 text-primary" />,
-    bills: [{ title: 'Groceries' }, { title: 'Personal Care' }],
+    name: 'Health & Wellness',
+    icon: <Heart className="w-5 h-5 text-primary" />,
+    bills: [{ title: 'Health Insurance' }, { title: 'Gym Membership' }, { title: 'Therapy/Counseling' }, { title: 'Medication' }],
   },
-   {
-    name: 'Education',
-    icon: <GraduationCap className="w-5 h-5 text-primary" />,
-    bills: [{ title: 'Student Loans' }],
+  {
+    name: 'Debt Repayment',
+    icon: <CreditCard className="w-5 h-5 text-primary" />,
+    bills: [{ title: 'Student Loans' }, { title: 'Credit Card Payments' }, { title: 'Buy Now, Pay Later' }],
+  },
+  {
+    name: 'Family & Childcare',
+    icon: <Baby className="w-5 h-5 text-primary" />,
+    bills: [{ title: 'Childcare / Daycare' }, { title: 'Kids\' Activities' }, { title: 'Child Support' }],
+  },
+  {
+    name: 'Pets',
+    icon: <Dog className="w-5 h-5 text-primary" />,
+    bills: [{ title: 'Pet Food & Supplies' }, { title: 'Pet Insurance' }],
+  },
+  {
+    name: 'Personal Spending',
+    icon: <Sparkles className="w-5 h-5 text-primary" />,
+    bills: [{ title: 'Shopping' }, { title: 'Entertainment' }, { title: 'Hobbies & Recreation' }, { title: 'Personal Care' }],
+  },
+  {
+    name: 'Gifts & Donations',
+    icon: <Gift className="w-5 h-5 text-primary" />,
+    bills: [{ title: 'Gifts' }, { title: 'Donations' }],
+  },
+  {
+    name: 'Financial Goals',
+    icon: <PiggyBank className="w-5 h-5 text-primary" />,
+    bills: [{ title: 'Personal Savings' }, { title: 'Retirement' }],
   },
 ];
 
 const businessCategories = [
-   { name: "Rent & Utilities", icon: <Building className="w-5 h-5 text-primary"/>, bills: [{title: "Studio Rent"}, {title: "Water & Electric"}, {title: "Business Internet"}]},
-   { name: "Software & Subscriptions", icon: <Monitor className="w-5 h-5 text-primary"/>, bills: [{title: "Booking Software"}, {title: "Website Hosting"}]},
-   { name: "Professional", icon: <Briefcase className="w-5 h-5 text-primary"/>, bills: [{title: "Liability Insurance"}, {title: "Licensing Fees"}, {title: "Continuing Ed."}]},
-   { name: "Supplies", icon: <Brush className="w-5 h-5 text-primary"/>, bills: [{title: "Backbar"}, {title: "Color"}, {title: "Styling Products"}]},
+   { 
+     name: "Rent & Facility", 
+     icon: <Building className="w-5 h-5 text-primary"/>, 
+     bills: [{title: "Studio Rent/Mortgage"}, {title: "Business Insurance"}]
+   },
+   {
+     name: "Utilities",
+     icon: <Receipt className="w-5 h-5 text-primary"/>,
+     bills: [{title: "Electric"}, {title: "Water"}, {title: "Gas"}, {title: "Waste Management"}],
+   },
+   { 
+     name: "Software & Systems", 
+     icon: <Monitor className="w-5 h-5 text-primary"/>, 
+     bills: [{title: "Booking Software"}, {title: "Website Hosting"}, {title: "Email Marketing"}]
+   },
+   {
+    name: "Tech & Comms",
+    icon: <Phone className="w-5 h-5 text-primary"/>,
+    bills: [{title: "Business Phone Line"}]
+   },
+   { 
+     name: "Professional & Admin", 
+     icon: <Briefcase className="w-5 h-5 text-primary"/>, 
+     bills: [{title: "Accountant/Bookkeeper"}, {title: "Licensing & Dues"}]
+   },
+   {
+    name: "Marketing & Growth",
+    icon: <Megaphone className="w-5 h-5 text-primary"/>,
+    bills: [{title: "Social Media Ads"}, {title: "Print Materials"}]
+   },
+   {
+    name: "Retail & Marketing Materials",
+    icon: <Package className="w-5 h-5 text-primary"/>,
+    bills: [{title: "Packaging & Bags"}]
+   },
+   {
+    name: "Business Debt",
+    icon: <Landmark className="w-5 h-5 text-primary"/>,
+    bills: [{title: "Business Loan"}, {title: "Tax Debt Payment"}]
+   },
+   {
+    name: "Miscellaneous",
+    icon: <Sparkles className="w-5 h-5 text-primary"/>,
+    bills: [{title: "Bank Fees"}]
+   }
 ]
 
 const LifestyleTab = () => (
@@ -258,7 +353,7 @@ const ScheduleTab = () => (
 )
 
 const TmhrBreakdownCard = () => (
-    <Card className="lg:sticky top-24">
+    <Card className="lg:sticky top-20">
         <CardHeader>
             <CardTitle>Your Financial Snapshot</CardTitle>
             <CardDescription>Select your profiles to see the magic.</CardDescription>
@@ -327,7 +422,7 @@ export default function FinancialFoundationPage() {
                 </div>
                  <div className="lg:hidden mt-8 space-y-4">
                     <h2 className="text-2xl font-bold text-center">Your Financial Snapshot</h2>
-                    <TmhrBreakdownCard />
+                    <TmdrBreakdownCard />
                  </div>
             </div>
         </div>
