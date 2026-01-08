@@ -63,7 +63,7 @@ const navItems = [
 ];
 
 const financialNavItems = [
-    { href: '/financials', icon: Wallet, label: 'Financials' },
+    { href: '/financials', icon: Wallet, label: 'Financial Foundation' },
     { href: '/payday', icon: DollarSign, label: 'Payday' },
     { href: '/bills', icon: Landmark, label: 'Bills' },
     { href: '/transactions', icon: ArrowRightLeft, label: 'Transactions' },
