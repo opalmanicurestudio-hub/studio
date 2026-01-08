@@ -1,7 +1,7 @@
 
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -16,9 +16,11 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { PlusCircle, Upload } from 'lucide-react';
+import { PlusCircle, Upload, Save } from 'lucide-react';
 
 export const AddLocationDialog = ({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) => {
+  const [isAddingType, setIsAddingType] = useState(false);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
@@ -38,20 +40,27 @@ export const AddLocationDialog = ({ open, onOpenChange }: { open: boolean; onOpe
           </div>
           <div className="space-y-2">
             <Label htmlFor="location-type">Location Type</Label>
-            <div className='flex gap-2'>
-              <Select>
-                  <SelectTrigger id="location-type">
-                      <SelectValue placeholder="Select a type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                      <SelectItem value="back-room">Back Room Storage</SelectItem>
-                      <SelectItem value="retail-display">Retail Display</SelectItem>
-                      <SelectItem value="styling-station">Styling Station</SelectItem>
-                      <SelectItem value="color-bar">Color Bar</SelectItem>
-                  </SelectContent>
-              </Select>
-              <Button variant="outline" size="icon"><PlusCircle className="h-4 w-4" /></Button>
-            </div>
+            {isAddingType ? (
+              <div className="flex gap-2">
+                <Input placeholder="Enter new type name..." />
+                <Button onClick={() => setIsAddingType(false)}><Save className="h-4 w-4" /></Button>
+              </div>
+            ) : (
+              <div className='flex gap-2'>
+                <Select>
+                    <SelectTrigger id="location-type">
+                        <SelectValue placeholder="Select a type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="back-room">Back Room Storage</SelectItem>
+                        <SelectItem value="retail-display">Retail Display</SelectItem>
+                        <SelectItem value="styling-station">Styling Station</SelectItem>
+                        <SelectItem value="color-bar">Color Bar</SelectItem>
+                    </SelectContent>
+                </Select>
+                <Button variant="outline" size="icon" onClick={() => setIsAddingType(true)}><PlusCircle className="h-4 w-4" /></Button>
+              </div>
+            )}
           </div>
            <div className="space-y-2">
             <Label htmlFor="parent-location">Parent Location (Optional)</Label>
