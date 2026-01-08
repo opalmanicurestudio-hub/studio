@@ -1,4 +1,3 @@
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -42,6 +41,7 @@ import { AddLocationDialog, type Location } from '@/components/inventory/AddLoca
 import { Textarea } from '@/components/ui/textarea';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 
 const ProductCard = ({ item }: { item: InventoryItem }) => {
@@ -327,6 +327,15 @@ const CreateBundleDialog = ({ open, onOpenChange }: { open: boolean, onOpenChang
     )
 }
 
+const tabOptions = [
+    { value: 'professional', label: 'Professional' },
+    { value: 'retail', label: 'Retail' },
+    { value: 'overhead', label: 'Overhead' },
+    { value: 'equipment', label: 'Equipment' },
+    { value: 'locations', label: 'Locations' },
+];
+
+
 export default function InventoryPage() {
   const professionalColor: InventoryItem[] = inventory.filter(
     (item) => item.type === 'professional' && item.category === 'Color'
@@ -370,6 +379,9 @@ export default function InventoryPage() {
   const [isCreateBundleOpen, setIsCreateBundleOpen] = useState(false);
   const [isAddLocationOpen, setIsAddLocationOpen] = useState(false);
   const [isAddLocationFromProductOpen, setIsAddLocationFromProductOpen] = useState(false);
+  
+  const isMobile = useIsMobile();
+  const [activeTab, setActiveTab] = useState('professional');
 
   const productCategories = useMemo(() => {
     const categories = inventory.map(i => i.category).filter(Boolean) as string[];
@@ -429,20 +441,34 @@ export default function InventoryPage() {
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Inventory Hub" />
-      <main className="flex-1 p-4 md:p-8 space-y-6">
-        <Tabs defaultValue="professional" className="w-full">
-          <div className='flex flex-col gap-4'>
-            <ScrollArea className="w-full">
-              <TabsList className="inline-flex">
-                <TabsTrigger value="professional">Professional</TabsTrigger>
-                <TabsTrigger value="retail">Retail</TabsTrigger>
-                <TabsTrigger value="overhead">Overhead</TabsTrigger>
-                <TabsTrigger value="equipment">Equipment</TabsTrigger>
-                <TabsTrigger value="locations">Locations</TabsTrigger>
+      <main className="flex-1 p-4 md:p-8 space-y-4">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            
+            {/* Mobile Header: Dropdown for Tabs */}
+             <div className="sm:hidden mb-4">
+                <Select value={activeTab} onValueChange={setActiveTab}>
+                    <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select a category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {tabOptions.map(option => (
+                             <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            </div>
+            
+            {/* Desktop Header: Tab List */}
+             <div className="hidden sm:block mb-4">
+              <TabsList>
+                {tabOptions.map(option => (
+                     <TabsTrigger key={option.value} value={option.value}>{option.label}</TabsTrigger>
+                ))}
               </TabsList>
-              <ScrollBar orientation="horizontal" />
-            </ScrollArea>
-             <div className="flex w-full flex-col sm:flex-row items-stretch gap-2">
+            </div>
+            
+             {/* Action Bar */}
+             <div className="flex flex-col sm:flex-row items-stretch gap-2">
                 <Button className="w-full sm:w-auto" onClick={() => setIsReceiveStockOpen(true)}><Truck className="mr-2 h-4 w-4" /> Receive Stock</Button>
                 <div className="flex w-full sm:w-auto sm:ml-auto items-stretch gap-2">
                   <Button variant="outline" className="flex-1" asChild>
@@ -463,6 +489,8 @@ export default function InventoryPage() {
                   </DropdownMenu>
                 </div>
             </div>
+            
+             {/* Filter Bar */}
             <div className='flex flex-col sm:flex-row gap-4'>
               <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -485,7 +513,6 @@ export default function InventoryPage() {
                   </DropdownMenu>
               </div>
             </div>
-          </div>
 
           <div className="mt-6 space-y-8">
             <TabsContent value="professional" className="m-0 space-y-6">
@@ -496,48 +523,39 @@ export default function InventoryPage() {
                   <Accordion type="single" collapsible defaultValue="color" className="w-full">
                       <AccordionItem value="color">
                           <AccordionTrigger className='text-xl font-bold hover:no-underline'>Color</AccordionTrigger>
-                          <AccordionContent className="pt-4">
-                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                                  {professionalColor.map((item) => <ProductCard key={item.id} item={item} />)}
-                              </div>
+                          <AccordionContent className="pt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                              {professionalColor.map((item) => <ProductCard key={item.id} item={item} />)}
                           </AccordionContent>
                       </AccordionItem>
                   </Accordion>
                   <Accordion type="single" collapsible className="w-full">
                       <AccordionItem value="styling">
                            <AccordionTrigger className='text-xl font-bold hover:no-underline'>Styling</AccordionTrigger>
-                           <AccordionContent className="pt-4">
-                               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                                   {professionalStyling.map((item) => <ProductCard key={item.id} item={item} />)}
-                               </div>
+                           <AccordionContent className="pt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                               {professionalStyling.map((item) => <ProductCard key={item.id} item={item} />)}
                            </AccordionContent>
                       </AccordionItem>
                   </Accordion>
                   <Accordion type="single" collapsible className="w-full">
                       <AccordionItem value="care">
                            <AccordionTrigger className='text-xl font-bold hover:no-underline'>Care</AccordionTrigger>
-                           <AccordionContent className="pt-4">
-                               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                                   {professionalCare.map((item) => <ProductCard key={item.id} item={item} />)}
-                               </div>
+                           <AccordionContent className="pt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                               {professionalCare.map((item) => <ProductCard key={item.id} item={item} />)}
                            </AccordionContent>
                       </AccordionItem>
                   </Accordion>
                    <Accordion type="single" collapsible className="w-full">
                       <AccordionItem value="tools">
                            <AccordionTrigger className='text-xl font-bold hover:no-underline'>Tools</AccordionTrigger>
-                           <AccordionContent className="pt-4">
-                               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                                   {professionalTools.map((item) => <ProductCard key={item.id} item={item} />)}
-                               </div>
+                           <AccordionContent className="pt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                               {professionalTools.map((item) => <ProductCard key={item.id} item={item} />)}
                            </AccordionContent>
                       </AccordionItem>
                   </Accordion>
                 </>
               )}
             </TabsContent>
-            <TabsContent value="retail" className="m-0">
-               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <TabsContent value="retail" className="m-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {retailItems.length > 0 ? (
                   retailItems.map((item) => <ProductCard key={item.id} item={item} />)
                 ) : (
@@ -545,10 +563,8 @@ export default function InventoryPage() {
                     <EmptyState message="No retail items yet. Add one to get started." />
                   </div>
                 )}
-              </div>
             </TabsContent>
-            <TabsContent value="overhead" className="m-0">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <TabsContent value="overhead" className="m-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {overheadItems.length > 0 ? (
                   overheadItems.map((item) => <ProductCard key={item.id} item={item} />)
                 ) : (
@@ -556,10 +572,8 @@ export default function InventoryPage() {
                     <EmptyState message="No overhead items yet. Add one to get started." />
                   </div>
                 )}
-              </div>
             </TabsContent>
-            <TabsContent value="equipment" className="m-0">
-               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <TabsContent value="equipment" className="m-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {equipmentItems.length > 0 ? (
                   equipmentItems.map((item) => <ProductCard key={item.id} item={item} />)
                 ) : (
@@ -567,7 +581,6 @@ export default function InventoryPage() {
                     <EmptyState message="No equipment items yet. Add one to get started." />
                   </div>
                 )}
-              </div>
             </TabsContent>
             <TabsContent value="locations" className="m-0 space-y-6">
               <div className="flex items-center justify-between">
