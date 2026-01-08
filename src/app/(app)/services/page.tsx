@@ -85,7 +85,7 @@ const InlineProfitTester = ({ service, tmhr }: { service: Service, tmhr: number 
         </div>
       </div>
        <div className='text-[10px] text-muted-foreground space-y-0.5 text-center'>
-          <p>Break-Even: ${profitability.breakEvenPoint?.toFixed(2)} (Time: ${profitability.timeCost?.toFixed(2)} + Products: ${profitability.productCost?.toFixed(2)})</p>
+          <p>Break-Even: ${profitability.breakEvenPoint?.toFixed(2)}</p>
        </div>
     </div>
   );
@@ -265,12 +265,10 @@ export default function ServicesPage() {
     return acc;
   }, {} as Record<string, Service[]>), [addOnServices]);
   
-  const initialCategories = useMemo(() => {
-    const allCategories = initialServices.map(s => s.category).filter((c): c is string => !!c);
-    return [...new Set(allCategories)];
-  }, []);
-
-  const [serviceCategories, setServiceCategories] = useState(initialCategories);
+  const [serviceCategories, setServiceCategories] = useState(() => {
+      const allCategories = initialServices.map(s => s.category).filter((c): c is string => !!c);
+      return [...new Set(allCategories)];
+  });
 
   const handleNewCategory = (newCategory: string) => {
     if (!serviceCategories.includes(newCategory)) {
@@ -280,6 +278,10 @@ export default function ServicesPage() {
   
   const handleAddNewService = (newService: Service) => {
     setServices(prev => [...prev, newService]);
+    toast({
+        title: "Service Created",
+        description: `${newService.name} has been added to your library.`
+    })
   };
 
   const handleUpdateService = (updatedService: Service) => {
@@ -380,5 +382,4 @@ export default function ServicesPage() {
       )}
     </div>
   );
-
-    
+}
