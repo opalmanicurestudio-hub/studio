@@ -23,10 +23,10 @@ import {
   Sparkles,
   Settings,
   DollarSign,
-  ArrowRightLeft,
   FileText,
   Landmark,
   Wallet,
+  BookOpen,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -63,10 +63,10 @@ const navItems = [
 ];
 
 const financialNavItems = [
-    { href: '/financials', icon: Wallet, label: 'Financial Foundation' },
+    { href: '/financials', icon: Wallet, label: 'Financials' },
     { href: '/payday', icon: DollarSign, label: 'Payday' },
     { href: '/bills', icon: Landmark, label: 'Bills' },
-    { href: '/transactions', icon: ArrowRightLeft, label: 'Transactions' },
+    { href: '/ledger', icon: BookOpen, label: 'Ledger' },
 ]
 
 export function AppSidebar() {

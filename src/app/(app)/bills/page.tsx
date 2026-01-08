@@ -49,7 +49,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-import { bills, type Bill } from '@/lib/data';
+import { billDefinitions, type BillDefinition } from '@/lib/financial-data';
 
 const kpiData = {
   monthlyTotal: 4500,
@@ -101,7 +101,7 @@ const BillFilters = () => {
 };
 
 
-const BillTableRow = ({ bill }: { bill: Bill }) => (
+const BillTableRow = ({ bill }: { bill: BillDefinition }) => (
     <TableRow>
         <TableCell className="font-medium">{bill.name}</TableCell>
         <TableCell>${bill.amount.toFixed(2)}</TableCell>
@@ -123,7 +123,7 @@ const BillTableRow = ({ bill }: { bill: Bill }) => (
     </TableRow>
 );
 
-const BillCard = ({ bill }: { bill: Bill }) => (
+const BillCard = ({ bill }: { bill: BillDefinition }) => (
     <Card>
         <CardContent className="p-4 space-y-3">
             <div className="flex items-start justify-between gap-4">
@@ -243,7 +243,7 @@ export default function BillsPage() {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {bills.map((bill) => (
+                            {billDefinitions.map((bill) => (
                                <BillTableRow key={bill.id} bill={bill} />
                             ))}
                         </TableBody>
@@ -251,7 +251,7 @@ export default function BillsPage() {
                     </CardContent>
                 </Card>
                 <div className="space-y-4 md:hidden">
-                     {bills.map((bill) => (
+                     {billDefinitions.map((bill) => (
                         <BillCard key={bill.id} bill={bill} />
                     ))}
                 </div>

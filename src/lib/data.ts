@@ -1,4 +1,4 @@
-
+import { BillDefinition, billDefinitions } from './financial-data';
 
 export type Client = {
   id: string;
@@ -52,39 +52,8 @@ export type Quote = {
   total: number;
 };
 
-export type Bill = {
-  id: string;
-  name: string;
-  amount: number;
-  dueDay: number;
-  context: 'Business' | 'Personal';
-  category: string;
-  paymentUrl?: string;
-  lateByDay?: number;
-  lateFee?: number;
-}
-
-export const bills: Bill[] = [
-  // Personal Bills
-  { id: 'p1', name: 'Rent/Mortgage', amount: 2000, dueDay: 1, context: 'Personal', category: 'Housing' },
-  { id: 'p2', name: 'Property Taxes', amount: 0, dueDay: 15, context: 'Personal', category: 'Housing' },
-  { id: 'p3', name: 'HOA Fees', amount: 0, dueDay: 1, context: 'Personal', category: 'Housing' },
-  { id: 'p4', name: 'Insurance', amount: 150, dueDay: 10, context: 'Personal', category: 'Housing' },
-  { id: 'p5', name: 'Electric', amount: 100, dueDay: 20, context: 'Personal', category: 'Utilities' },
-  { id: 'p6', name: 'Water', amount: 50, dueDay: 20, context: 'Personal', category: 'Utilities' },
-  { id: 'p7', name: 'Gas', amount: 30, dueDay: 20, context: 'Personal', category: 'Utilities' },
-  { id: 'p8', name: 'Waste Management', amount: 25, dueDay: 20, context: 'Personal', category: 'Utilities' },
-  { id: 'p9', name: 'Internet Bill', amount: 80, dueDay: 5, context: 'Personal', category: 'Internet & Phone' },
-  { id: 'p10', name: 'Cell Phone Bill', amount: 90, dueDay: 15, context: 'Personal', category: 'Internet & Phone' },
-  { id: 'p11', name: 'Car Payment', amount: 350, dueDay: 25, context: 'Personal', category: 'Transportation' },
-  { id: 'p12', name: 'Car Insurance', amount: 150, dueDay: 15, context: 'Personal', category: 'Transportation' },
-  { id: 'p13', name: 'Student Loans', amount: 400, dueDay: 25, context: 'Personal', category: 'Debt Repayment' },
-
-  // Business Bills
-  { id: 'b1', name: 'Studio Rent', amount: 1200, dueDay: 1, context: 'Business', category: 'Rent & Facility' },
-  { id: 'b2', name: 'Booking Software', amount: 49, dueDay: 5, context: 'Business', category: 'Software & Systems' },
-  { id: 'b3', name: 'Liability Insurance', amount: 100, dueDay: 20, context: 'Business', category: 'Rent & Facility' },
-];
+export type Bill = BillDefinition;
+export const bills: Bill[] = billDefinitions;
 
 
 export const clients: Client[] = [
