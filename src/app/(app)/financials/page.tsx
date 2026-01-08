@@ -60,7 +60,7 @@ import {
   Receipt,
   Package,
 } from 'lucide-react';
-import { type Bill, bills } from '@/lib/data';
+import { bills } from '@/lib/data';
 
 
 const BillItemCard = ({
@@ -130,19 +130,19 @@ const BillEditor = ({
               </div>
             </AccordionTrigger>
             <AccordionContent className="pt-4">
-              <div className="sm:hidden grid grid-cols-1 gap-4">
-                {category.bills.map((bill) => (
-                  <BillItemCard key={bill.title} title={bill.title} />
-                ))}
-              </div>
-              <ScrollArea className="hidden sm:block">
-                <div className="flex space-x-4 pb-4">
-                  {category.bills.map((bill) => (
-                    <BillItemCard key={bill.title} title={bill.title} />
-                  ))}
+                <div className="sm:hidden grid grid-cols-1 gap-4">
+                    {category.bills.map((bill) => (
+                      <BillItemCard key={bill.title} title={bill.title} />
+                    ))}
                 </div>
-                <ScrollBar orientation="horizontal" />
-              </ScrollArea>
+                <ScrollArea className="hidden sm:block">
+                    <div className="flex space-x-4 pb-4">
+                    {category.bills.map((bill) => (
+                        <BillItemCard key={bill.title} title={bill.title} />
+                    ))}
+                    </div>
+                    <ScrollBar orientation="horizontal" />
+                </ScrollArea>
             </AccordionContent>
           </AccordionItem>
         ))}
@@ -155,7 +155,7 @@ const BillEditor = ({
             </AccordionTrigger>
             <AccordionContent className="pt-4">
                 <div className="flex flex-col sm:flex-row items-center gap-4">
-                    <div className="sm:hidden grid grid-cols-1 gap-4 w-full">
+                    <div className="grid grid-cols-1 gap-4 w-full sm:hidden">
                          <BillItemCard title="Custom Expense" isCustom />
                     </div>
                     <ScrollArea className="w-full hidden sm:block">
@@ -187,12 +187,22 @@ const lifestyleCategories = [
   {
     name: 'Housing',
     icon: <Home className="w-5 h-5 text-primary" />,
-    bills: [{ title: 'Rent/Mortgage' }, { title: 'Property Taxes' }, { title: 'HOA Fees' }, { title: 'Insurance' }],
+    bills: [
+      { title: "Rent/Mortgage" },
+      { title: "Property Taxes" },
+      { title: "HOA Fees" },
+      { title: "Insurance (Homeowner's/Renter's)" },
+    ],
   },
   {
     name: 'Utilities',
     icon: <Receipt className="w-5 h-5 text-primary" />,
-    bills: [{ title: 'Electric' }, { title: 'Water' }, { title: 'Gas' }, { title: 'Waste Management' }],
+    bills: [
+      { title: "Electric" },
+      { title: "Water" },
+      { title: "Gas" },
+      { title: "Waste Management" },
+    ],
   },
    {
     name: 'Internet & Phone',
@@ -202,7 +212,12 @@ const lifestyleCategories = [
   {
     name: 'Streaming & Subscriptions',
     icon: <Film className="w-5 h-5 text-primary" />,
-    bills: [{ title: 'Netflix' }, { title: 'Spotify' }, { title: 'News Subscription' }, { title: 'Cloud Storage' }],
+    bills: [
+      { title: "Netflix" },
+      { title: "Spotify" },
+      { title: "News Subscription" },
+      { title: "Cloud Storage (iCloud, Google Drive, etc.)" },
+    ],
   },
   {
     name: 'Food',
@@ -212,22 +227,40 @@ const lifestyleCategories = [
   {
     name: 'Transportation',
     icon: <Car className="w-5 h-5 text-primary" />,
-    bills: [{ title: 'Car Payment' }, { title: 'Car Insurance' }, { title: 'Gas/Fuel' }, { title: 'Public Transit' }],
+    bills: [
+      { title: "Car Payment" },
+      { title: "Car Insurance" },
+      { title: "Gas/Fuel" },
+      { title: "Public Transit" },
+    ],
   },
   {
     name: 'Health & Wellness',
     icon: <Heart className="w-5 h-5 text-primary" />,
-    bills: [{ title: 'Health Insurance' }, { title: 'Gym Membership' }, { title: 'Therapy/Counseling' }, { title: 'Medication' }],
+    bills: [
+      { title: "Personal Health Insurance" },
+      { title: "Gym Membership" },
+      { title: "Therapy/Counseling" },
+      { title: "Medication" },
+    ],
   },
   {
     name: 'Debt Repayment',
     icon: <CreditCard className="w-5 h-5 text-primary" />,
-    bills: [{ title: 'Student Loans' }, { title: 'Credit Card Payments' }, { title: 'Buy Now, Pay Later' }],
+    bills: [
+      { title: "Student Loans" },
+      { title: "Credit Card Payments" },
+      { title: "Buy Now, Pay Later (e.g., Klarna, Afterpay)" },
+    ],
   },
   {
     name: 'Family & Childcare',
     icon: <Baby className="w-5 h-5 text-primary" />,
-    bills: [{ title: 'Childcare / Daycare' }, { title: 'Kids\' Activities' }, { title: 'Child Support' }],
+    bills: [
+      { title: "Childcare / Daycare" },
+      { title: "Kids' Activities" },
+      { title: "Child Support" },
+    ],
   },
   {
     name: 'Pets',
@@ -237,7 +270,12 @@ const lifestyleCategories = [
   {
     name: 'Personal Spending',
     icon: <Sparkles className="w-5 h-5 text-primary" />,
-    bills: [{ title: 'Shopping' }, { title: 'Entertainment' }, { title: 'Hobbies & Recreation' }, { title: 'Personal Care' }],
+    bills: [
+      { title: "Shopping (Clothes, etc.)" },
+      { title: "Entertainment (Movies, Concerts, etc.)" },
+      { title: "Hobbies & Recreation" },
+      { title: "Personal Care (Haircuts, etc. that you don't do yourself)" },
+    ],
   },
   {
     name: 'Gifts & Donations',
@@ -247,7 +285,10 @@ const lifestyleCategories = [
   {
     name: 'Financial Goals',
     icon: <PiggyBank className="w-5 h-5 text-primary" />,
-    bills: [{ title: 'Personal Savings' }, { title: 'Retirement' }],
+    bills: [
+      { title: "Personal Savings" },
+      { title: "Retirement (IRA/401k contributions)" },
+    ],
   },
 ];
 
@@ -255,17 +296,29 @@ const businessCategories = [
    { 
      name: "Rent & Facility", 
      icon: <Building className="w-5 h-5 text-primary"/>, 
-     bills: [{title: "Studio Rent/Mortgage"}, {title: "Business Insurance"}]
+     bills: [
+       {title: "Studio Rent/Mortgage"}, 
+       {title: "Business Insurance (Liability, Property)"}
+      ]
    },
    {
      name: "Utilities",
      icon: <Receipt className="w-5 h-5 text-primary"/>,
      bills: [{title: "Electric"}, {title: "Water"}, {title: "Gas"}, {title: "Waste Management"}],
    },
+   {
+    name: "Capital Equipment",
+    icon: <Briefcase className="w-5 h-5 text-primary" />,
+    bills: [], // This is auto-populated from inventory
+  },
    { 
      name: "Software & Systems", 
      icon: <Monitor className="w-5 h-5 text-primary"/>, 
-     bills: [{title: "Booking Software"}, {title: "Website Hosting"}, {title: "Email Marketing"}]
+     bills: [
+       {title: "Booking Software (e.g., ClarityFlow itself, Acuity, Square)"},
+       {title: "Website Hosting"}, 
+       {title: "Email Marketing (e.g., Mailchimp, ConvertKit)"}
+      ]
    },
    {
     name: "Tech & Comms",
@@ -280,7 +333,7 @@ const businessCategories = [
    {
     name: "Marketing & Growth",
     icon: <Megaphone className="w-5 h-5 text-primary"/>,
-    bills: [{title: "Social Media Ads"}, {title: "Print Materials"}]
+    bills: [{title: "Social Media Ads"}, {title: "Print Materials (Business Cards, Flyers)"}]
    },
    {
     name: "Retail & Marketing Materials",
@@ -392,13 +445,19 @@ const TmhrBreakdownCard = () => (
         </CardHeader>
         <CardContent className="space-y-4">
              <div className="grid grid-cols-2 gap-4">
-                <Select defaultValue="default">
+                <Select defaultValue="default-lifestyle">
                     <SelectTrigger><SelectValue/></SelectTrigger>
-                    <SelectContent><SelectItem value="default">Default Lifestyle</SelectItem></SelectContent>
+                    <SelectContent>
+                      <SelectItem value="default-lifestyle">Default Lifestyle</SelectItem>
+                      <SelectItem value="lean-lifestyle">Lean Year Lifestyle</SelectItem>
+                    </SelectContent>
                 </Select>
-                <Select defaultValue="default">
+                <Select defaultValue="default-schedule">
                     <SelectTrigger><SelectValue/></SelectTrigger>
-                    <SelectContent><SelectItem value="default">Default Schedule</SelectItem></SelectContent>
+                    <SelectContent>
+                      <SelectItem value="default-schedule">Standard 35hr/wk</SelectItem>
+                      <SelectItem value="aggressive-schedule">Aggressive 45hr/wk</SelectItem>
+                      </SelectContent>
                 </Select>
             </div>
             <Card className="bg-primary/10 border-primary/20 text-center p-6">
@@ -465,3 +524,5 @@ export default function FinancialFoundationPage() {
     </div>
   );
 }
+
+    
