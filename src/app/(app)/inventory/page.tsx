@@ -45,16 +45,16 @@ import Link from 'next/link';
 
 const ProductCard = ({ item }: { item: InventoryItem }) => {
     return (
-        <Card className="w-full shrink-0">
+        <Card className="w-full sm:w-80 shrink-0">
             <CardContent className="p-4 space-y-4">
                 <div className="flex items-start justify-between gap-4">
-                    <div className='flex items-start gap-3'>
+                    <div className='flex items-start gap-3 flex-1'>
                         <div className='w-14 h-14 bg-muted rounded-md flex-shrink-0'>
                             <Image src={item.id ? `https://picsum.photos/seed/inv${item.id}/100/100` : ''} alt={item.name} width={56} height={56} className='rounded-md' data-ai-hint="product photo"/>
                         </div>
                         <div className='flex-1'>
                             <p className="font-semibold text-base leading-snug">{item.name}</p>
-                            <p className="text-sm text-muted-foreground">{item.type}</p>
+                            <p className="text-sm text-muted-foreground">{item.category}</p>
                         </div>
                     </div>
                      <DropdownMenu>
