@@ -23,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { PlusCircle, Info, Trash2 } from 'lucide-react';
+import { PlusCircle, Info, Trash2, Check } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
@@ -32,7 +32,23 @@ import { AddLocationDialog, type Location, type LocationType } from './AddLocati
 
 export type ProductType = 'professional' | 'retail' | 'both';
 
-const Step1_BasicDetails = ({ productType, setProductType }: { productType: ProductType, setProductType: (type: ProductType) => void }) => (
+const Step1_BasicDetails = ({ productType, setProductType }: { productType: ProductType, setProductType: (type: ProductType) => void }) => {
+    const [categories, setCategories] = useState(['Color', 'Styling', 'Care']);
+    const [selectedCategory, setSelectedCategory] = useState('');
+    const [isAddingCategory, setIsAddingCategory] = useState(false);
+    const [newCategoryName, setNewCategoryName] = useState('');
+
+    const handleAddNewCategory = () => {
+        if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
+            const newCategory = newCategoryName.trim();
+            setCategories(prev => [...prev, newCategory]);
+            setSelectedCategory(newCategory);
+            setNewCategoryName('');
+            setIsAddingCategory(false);
+        }
+    };
+    
+    return (
   <div className="grid gap-4 py-4">
     <div className="space-y-2">
       <Label htmlFor="product-name">Product Name</Label>
@@ -61,19 +77,33 @@ const Step1_BasicDetails = ({ productType, setProductType }: { productType: Prod
     </div>
     <div className="space-y-2">
         <Label htmlFor="category">Category</Label>
-        <div className="flex gap-2">
-            <Select>
-                <SelectTrigger>
-                    <SelectValue placeholder="Select a category" />
-                </SelectTrigger>
-                <SelectContent>
-                    <SelectItem value="color">Color</SelectItem>
-                    <SelectItem value="styling">Styling</SelectItem>
-                    <SelectItem value="care">Care</SelectItem>
-                </SelectContent>
-            </Select>
-            <Button variant="outline" size="icon"><PlusCircle className="h-4 w-4" /></Button>
-        </div>
+        {isAddingCategory ? (
+            <div className="flex gap-2">
+                <Input
+                    placeholder="Enter new category name..."
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()}
+                />
+                <Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button>
+            </div>
+        ) : (
+            <div className="flex gap-2">
+                <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                    <SelectTrigger>
+                        <SelectValue placeholder="Select a category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {categories.map(cat => (
+                            <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+                <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button">
+                    <PlusCircle className="h-4 w-4" />
+                </Button>
+            </div>
+        )}
     </div>
      <div className="space-y-2">
         <Label>Image</Label>
@@ -84,7 +114,8 @@ const Step1_BasicDetails = ({ productType, setProductType }: { productType: Prod
       <Textarea id="internal-notes" placeholder="Private notes or usage instructions..." />
     </div>
   </div>
-);
+    );
+};
 
 const Step2_CostingPricing = ({ productType }: { productType: ProductType }) => {
     const [costingMethod, setCostingMethod] = useState('by-size');
@@ -389,7 +420,6 @@ export const AddProductDialog = ({
             open={isAddLocationDialogOpen} 
             onOpenChange={onAddLocationDialogOpenChange}
             onSave={onAddNewLocation}
-            locations={locations}
             locationTypes={locationTypes}
             onAddNewLocationType={onAddNewLocationType}
         />
@@ -398,3 +428,5 @@ export const AddProductDialog = ({
     </Dialog>
   );
 };
+
+    

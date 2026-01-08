@@ -22,14 +22,30 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { PlusCircle, Package, Hammer, Trash2, QrCode } from 'lucide-react';
+import { PlusCircle, Package, Hammer, Trash2, QrCode, Check } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Slider } from '@/components/ui/slider';
 
 
-const Step1_Basics = () => (
+const Step1_Basics = () => {
+    const [categories, setCategories] = useState(['Haircuts', 'Coloring']);
+    const [selectedCategory, setSelectedCategory] = useState('');
+    const [isAddingCategory, setIsAddingCategory] = useState(false);
+    const [newCategoryName, setNewCategoryName] = useState('');
+
+    const handleAddNewCategory = () => {
+        if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
+            const newCategory = newCategoryName.trim();
+            setCategories(prev => [...prev, newCategory]);
+            setSelectedCategory(newCategory);
+            setNewCategoryName('');
+            setIsAddingCategory(false);
+        }
+    };
+    
+    return (
     <div className="grid gap-6 py-4">
         <div className="space-y-2">
             <Label htmlFor="service-name">Service Name</Label>
@@ -37,18 +53,31 @@ const Step1_Basics = () => (
         </div>
         <div className="space-y-2">
             <Label htmlFor="category">Category</Label>
-            <div className="flex gap-2">
-                <Select>
-                    <SelectTrigger>
-                        <SelectValue placeholder="Select a category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="haircuts">Haircuts</SelectItem>
-                        <SelectItem value="coloring">Coloring</SelectItem>
-                    </SelectContent>
-                </Select>
-                <Button variant="outline"><PlusCircle className="mr-2 h-4 w-4" /> New</Button>
-            </div>
+            {isAddingCategory ? (
+                <div className="flex gap-2">
+                    <Input
+                        placeholder="Enter new category name..."
+                        value={newCategoryName}
+                        onChange={(e) => setNewCategoryName(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()}
+                    />
+                    <Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button>
+                </div>
+            ) : (
+                <div className="flex gap-2">
+                    <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                        <SelectTrigger>
+                            <SelectValue placeholder="Select a category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {categories.map(cat => (
+                                <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <Button variant="outline" onClick={() => setIsAddingCategory(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> New</Button>
+                </div>
+            )}
         </div>
         <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
@@ -88,7 +117,8 @@ const Step1_Basics = () => (
             </Card>
         </div>
     </div>
-);
+    );
+};
 
 const Step2_Formula = () => (
     <div className="grid gap-6 py-4">
@@ -323,3 +353,5 @@ export const AddServiceDialog = ({ open, onOpenChange }: { open: boolean, onOpen
     </Dialog>
   );
 };
+
+    
