@@ -499,11 +499,11 @@ const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal }: { lifestyleTotal: 
     <Card>
         <CardHeader>
             <CardTitle>Financial Snapshot</CardTitle>
-            <CardDescription>Select your profiles to see the magic.</CardDescription>
+            <CardDescription>Your True Minimum Hourly Rate (TMHR)</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
             <Card className="bg-primary/10 border-primary/20 text-center p-6">
-                <p className="text-sm text-primary font-semibold">True Minimum Hourly Rate</p>
+                <p className="text-sm text-primary font-semibold">TMHR</p>
                 <p className="text-6xl font-bold text-primary">${tmhr.toFixed(2)}</p>
             </Card>
             <div className="space-y-2 text-sm text-muted-foreground">
@@ -580,7 +580,7 @@ export default function FinancialFoundationPage() {
 
     const handleEditToggle = () => {
         if (!isEditing) {
-            setBackupProfiles(JSON.parse(JSON.stringify(profiles)));
+            setBackupProfiles(deepCopyTemplate(profiles as any) as any);
             setIsEditing(true);
         } else {
             // This would be where a save to backend would happen
@@ -639,7 +639,7 @@ export default function FinancialFoundationPage() {
                     <TabsTrigger value="schedule">3. Schedule</TabsTrigger>
                 </TabsList>
                 
-                <div className="grid lg:grid-cols-[280px_1fr] xl:grid-cols-[340px_1fr] gap-8 items-start mt-6">
+                <div className="grid lg:grid-cols-3 xl:grid-cols-4 gap-8 items-start mt-6">
                     <div className="hidden lg:block lg:col-span-1">
                         <FinancialProfileManager 
                             activeTab={activeTab} 
@@ -650,7 +650,24 @@ export default function FinancialFoundationPage() {
                             setRenamingProfileId={setRenamingProfileId}
                         />
                     </div>
-                    <div className="lg:col-span-1">
+                    <div className="lg:col-span-2 xl:col-span-3">
+                         <div className="lg:hidden mb-6">
+                            <Accordion type="single" collapsible>
+                                <AccordionItem value="profiles">
+                                    <AccordionTrigger>Manage Profiles</AccordionTrigger>
+                                    <AccordionContent>
+                                        <FinancialProfileManager 
+                                            activeTab={activeTab} 
+                                            profiles={profiles}
+                                            setProfiles={setProfiles}
+                                            isEditing={isEditing}
+                                            renamingProfileId={renamingProfileId}
+                                            setRenamingProfileId={setRenamingProfileId}
+                                        />
+                                    </AccordionContent>
+                                </AccordionItem>
+                            </Accordion>
+                        </div>
                         <TabsContent value="lifestyle" className="m-0">
                            <LifestyleTab
                              isEditing={isEditing}
@@ -672,7 +689,7 @@ export default function FinancialFoundationPage() {
                 </div>
             </Tabs>
             
-            <Separator className="my-8" />
+            <Separator className="my-12" />
             
             <div className="mt-8 space-y-6 max-w-md mx-auto">
                 <TmhrBreakdownCard lifestyleTotal={lifestyleTotal} businessTotal={businessTotal} />
@@ -682,5 +699,3 @@ export default function FinancialFoundationPage() {
     </div>
   );
 }
-
-    
