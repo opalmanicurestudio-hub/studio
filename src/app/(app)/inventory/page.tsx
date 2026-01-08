@@ -360,7 +360,7 @@ export default function InventoryPage() {
   const retailItems: InventoryItem[] = [];
   const overheadItems: InventoryItem[] = [];
   const equipmentItems: InventoryItem[] = [];
-  const locations: any[] = [{ id: 'loc-1', name: 'Back Room - Shelf A', description: 'Top shelf for backstock color tubes.'}];
+  const locations: any[] = [];
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
@@ -409,19 +409,18 @@ export default function InventoryPage() {
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Inventory Hub" />
-      <main className="flex-1 p-4 md:p-8">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <main className="flex-1 p-4 md:p-8 space-y-4">
+        <Tabs defaultValue="professional" className="w-full space-y-4">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <ScrollArea className="w-full whitespace-nowrap md:w-auto">
-              <Tabs defaultValue="professional" className='w-full'>
-                <TabsList className="inline-grid w-max grid-cols-5 md:w-auto">
-                  <TabsTrigger value="professional">Professional</TabsTrigger>
-                  <TabsTrigger value="retail">Retail</TabsTrigger>
-                  <TabsTrigger value="overhead">Overhead</TabsTrigger>
-                  <TabsTrigger value="equipment">Equipment</TabsTrigger>
-                  <TabsTrigger value="locations">Locations</TabsTrigger>
-                </TabsList>
-                <ScrollBar orientation="horizontal" className="md:hidden" />
-              </Tabs>
+              <TabsList className="inline-grid w-max grid-cols-5 md:w-auto">
+                <TabsTrigger value="professional">Professional</TabsTrigger>
+                <TabsTrigger value="retail">Retail</TabsTrigger>
+                <TabsTrigger value="overhead">Overhead</TabsTrigger>
+                <TabsTrigger value="equipment">Equipment</TabsTrigger>
+                <TabsTrigger value="locations">Locations</TabsTrigger>
+              </TabsList>
+              <ScrollBar orientation="horizontal" className="md:hidden" />
             </ScrollArea>
              <div className="flex w-full flex-col items-stretch gap-2 md:w-auto md:flex-row">
                 <Button className="w-full md:w-auto" onClick={() => setIsReceiveStockOpen(true)}><Truck className="mr-2 h-4 w-4" /> Receive Stock</Button>
@@ -446,7 +445,7 @@ export default function InventoryPage() {
             </div>
           </div>
             
-          <div className='flex flex-col md:flex-row gap-4 mt-4'>
+          <div className='flex flex-col md:flex-row gap-4'>
              <div className="relative w-full md:flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input placeholder="Search inventory..." className="pl-9" />
@@ -469,68 +468,67 @@ export default function InventoryPage() {
             </div>
           </div>
 
-          <Tabs defaultValue="professional" className="w-full">
-            <div className="mt-6 space-y-4">
-              <TabsContent value="professional" className="m-0 space-y-4">
-                {professionalColor.length === 0 && professionalCare.length === 0 && professionalStyling.length === 0 ? (
-                  <EmptyState message="No professional products yet. Add one to get started." />
-                ) : (
-                  <>
-                    <ProductShelf title="Color" items={professionalColor} />
-                    <ProductShelf title="Care" items={professionalCare} />
-                    <ProductShelf title="Styling" items={professionalStyling} />
-                  </>
-                )}
-              </TabsContent>
-              <TabsContent value="retail" className="m-0">
-                {retailItems.length === 0 ? (
-                  <EmptyState message="No retail items yet. Add one to get started." />
-                ) : (
-                  <ProductShelf title="All Retail" items={retailItems} />
-                )}
-              </TabsContent>
-              <TabsContent value="overhead" className="m-0">
-                {overheadItems.length === 0 ? (
-                  <EmptyState message="No overhead items yet. Add one to get started." />
-                ) : (
-                  <ProductShelf title="All Overhead" items={overheadItems} />
-                )}
-              </TabsContent>
-              <TabsContent value="equipment" className="m-0">
-                {equipmentItems.length === 0 ? (
-                  <EmptyState message="No equipment items yet. Add one to get started." />
-                ) : (
-                  <ProductShelf title="All Equipment" items={equipmentItems} />
-                )}
-              </TabsContent>
-              <TabsContent value="locations" className="m-0 space-y-6">
-                <div className="flex items-center justify-between">
-                    <div>
-                        <h2 className="text-2xl font-bold">Storage Locations</h2>
-                        <p className="text-muted-foreground">A map of all your physical storage areas.</p>
-                    </div>
-                    <Button onClick={() => setIsAddLocationOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> New Location</Button>
-                </div>
-                 {locations.length === 0 ? (
-                    <EmptyState message="No storage locations defined yet. Add one to get started." />
-                 ) : (
-                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {locations.map(location => (
-                            <Card key={location.id}>
-                                <CardHeader>
-                                    <CardTitle className="text-lg">{location.name}</CardTitle>
-                                    {location.description && <CardDescription>{location.description}</CardDescription>}
-                                </CardHeader>
-                                <CardFooter className="flex gap-2">
-                                    <Button variant="outline" size="sm"><Edit className="mr-2 h-3 w-3"/> Edit</Button>
-                                    <Button variant="outline" size="sm" className="text-destructive"><Trash2 className="mr-2 h-3 w-3"/> Delete</Button>
-                                </CardFooter>
-                            </Card>
-                        ))}
-                     </div>
-                 )}
-              </TabsContent>
-            </div>
+          <div className="mt-2 space-y-4">
+            <TabsContent value="professional" className="m-0 space-y-4">
+              {professionalColor.length === 0 && professionalCare.length === 0 && professionalStyling.length === 0 ? (
+                <EmptyState message="No professional products yet. Add one to get started." />
+              ) : (
+                <>
+                  <ProductShelf title="Color" items={professionalColor} />
+                  <ProductShelf title="Care" items={professionalCare} />
+                  <ProductShelf title="Styling" items={professionalStyling} />
+                </>
+              )}
+            </TabsContent>
+            <TabsContent value="retail" className="m-0">
+              {retailItems.length === 0 ? (
+                <EmptyState message="No retail items yet. Add one to get started." />
+              ) : (
+                <ProductShelf title="All Retail" items={retailItems} />
+              )}
+            </TabsContent>
+            <TabsContent value="overhead" className="m-0">
+              {overheadItems.length === 0 ? (
+                <EmptyState message="No overhead items yet. Add one to get started." />
+              ) : (
+                <ProductShelf title="All Overhead" items={overheadItems} />
+              )}
+            </TabsContent>
+            <TabsContent value="equipment" className="m-0">
+              {equipmentItems.length === 0 ? (
+                <EmptyState message="No equipment items yet. Add one to get started." />
+              ) : (
+                <ProductShelf title="All Equipment" items={equipmentItems} />
+              )}
+            </TabsContent>
+            <TabsContent value="locations" className="m-0 space-y-6">
+              <div className="flex items-center justify-between">
+                  <div>
+                      <h2 className="text-2xl font-bold">Storage Locations</h2>
+                      <p className="text-muted-foreground">A map of all your physical storage areas.</p>
+                  </div>
+                  <Button onClick={() => setIsAddLocationOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> New Location</Button>
+              </div>
+               {locations.length === 0 ? (
+                  <EmptyState message="No storage locations defined yet. Add one to get started." />
+               ) : (
+                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {locations.map(location => (
+                          <Card key={location.id}>
+                              <CardHeader>
+                                  <CardTitle className="text-lg">{location.name}</CardTitle>
+                                  {location.description && <CardDescription>{location.description}</CardDescription>}
+                              </CardHeader>
+                              <CardFooter className="flex gap-2">
+                                  <Button variant="outline" size="sm"><Edit className="mr-2 h-3 w-3"/> Edit</Button>
+                                  <Button variant="outline" size="sm" className="text-destructive"><Trash2 className="mr-2 h-3 w-3"/> Delete</Button>
+                              </CardFooter>
+                          </Card>
+                      ))}
+                   </div>
+               )}
+            </TabsContent>
+          </div>
          </Tabs>
       </main>
 
