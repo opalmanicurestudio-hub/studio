@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -7,7 +8,7 @@ import {
   CardContent,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Clock, DollarSign, Sparkles, Box, List, Pencil } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Clock, DollarSign, Sparkles, Box, List, Pencil, Search, SlidersHorizontal } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,6 +30,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { Input } from '@/components/ui/input';
 
 
 const TMHR = 45; // True Minimum Hourly Rate (mock)
@@ -206,19 +208,32 @@ export default function ServicesPage() {
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Services" />
       <main className="flex-1 p-4 md:p-8">
-        <Tabs defaultValue="services">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-              <TabsList className="grid w-full grid-cols-2 sm:w-auto">
-                <TabsTrigger value="services">Services</TabsTrigger>
-                <TabsTrigger value="add-ons">Add-ons</TabsTrigger>
-              </TabsList>
-            <div className="ml-auto flex items-center gap-2">
-              <Button size="sm">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+            <div>
+                <h1 className="text-3xl font-bold">Service Library</h1>
+                <p className="text-muted-foreground">Your menu builder and profitability calculator.</p>
+            </div>
+            <Button>
                 <PlusCircle className="mr-2 h-4 w-4" />
                 New Service
-              </Button>
+            </Button>
+        </div>
+
+        <div className='flex flex-col md:flex-row gap-4 mb-6'>
+            <div className="relative w-full md:flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input placeholder="Search services..." className="pl-9" />
             </div>
-          </div>
+            <div className='flex items-center gap-2 w-full md:w-auto'>
+                <Button variant="outline" className='w-full'><SlidersHorizontal className="mr-2 h-4 w-4" /> Filters</Button>
+            </div>
+        </div>
+
+        <Tabs defaultValue="services">
+            <TabsList className="grid w-full grid-cols-2 sm:w-auto">
+                <TabsTrigger value="services">Services</TabsTrigger>
+                <TabsTrigger value="add-ons">Add-ons</TabsTrigger>
+            </TabsList>
           <TabsContent value="services" className="mt-6 space-y-8">
             {Object.keys(servicesByCategory).length > 0 ? (
                 Object.entries(servicesByCategory).map(([category, services]) => (
