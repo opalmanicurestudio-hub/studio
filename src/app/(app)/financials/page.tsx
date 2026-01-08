@@ -157,6 +157,16 @@ const businessCategoriesTemplate = [
    { name: "Miscellaneous", icon: <Sparkles className="w-5 h-5 text-primary"/>, bills: [{title: "Bank Fees", amount: 0, isCustom: true}] }
 ];
 
+// Function to deep copy templates while preserving React elements
+const deepCopyTemplate = (template: any[]) => {
+  return template.map(category => ({
+    ...category,
+    icon: category.icon, // Keep the icon as a React element
+    bills: category.bills.map((bill: any) => ({ ...bill }))
+  }));
+};
+
+
 const BillEditor = ({
   categories,
   isEditing,
@@ -361,9 +371,9 @@ const FinancialProfileManager = ({
     
     let newProfileData;
     if (activeTab === 'lifestyle') {
-      newProfileData = { categories: JSON.parse(JSON.stringify(lifestyleCategoriesTemplate)) };
+      newProfileData = { categories: deepCopyTemplate(lifestyleCategoriesTemplate) };
     } else if (activeTab === 'business') {
-      newProfileData = { categories: JSON.parse(JSON.stringify(businessCategoriesTemplate)) };
+      newProfileData = { categories: deepCopyTemplate(businessCategoriesTemplate) };
     } else {
         newProfileData = {};
     }
@@ -493,10 +503,10 @@ export default function FinancialFoundationPage() {
     
     const [profiles, setProfiles] = useState({
       lifestyleProfiles: [
-        { id: 'ls1', name: 'Default Lifestyle', isActive: true, isPro: false, categories: JSON.parse(JSON.stringify(lifestyleCategoriesTemplate)) },
+        { id: 'ls1', name: 'Default Lifestyle', isActive: true, isPro: false, categories: deepCopyTemplate(lifestyleCategoriesTemplate) },
       ],
       businessProfiles: [
-        { id: 'bs1', name: 'Default Business', isActive: true, isPro: false, categories: JSON.parse(JSON.stringify(businessCategoriesTemplate)) },
+        { id: 'bs1', name: 'Default Business', isActive: true, isPro: false, categories: deepCopyTemplate(businessCategoriesTemplate) },
       ],
       scheduleProfiles: [
         { id: 'sc1', name: 'Standard 35hr/wk', isActive: true, isPublic: true },
@@ -511,11 +521,10 @@ export default function FinancialFoundationPage() {
 
     const handleBillChange = useCallback((profileType: 'lifestyle' | 'business', categoryName: string, billTitle: string, newAmount: number) => {
         const profileKey = `${profileType}Profiles` as const;
-        const activeProfileId = profiles[profileKey].find(p => p.isActive)!.id;
 
         setProfiles(prev => {
             const newProfiles = prev[profileKey].map(p => {
-                if (p.id === activeProfileId) {
+                if (p.isActive) {
                     const newCategories = p.categories.map(cat => {
                         if (cat.name === categoryName) {
                             const newBills = cat.bills.map(bill => {
@@ -535,7 +544,7 @@ export default function FinancialFoundationPage() {
 
             return { ...prev, [profileKey]: newProfiles };
         });
-    }, [profiles]);
+    }, []);
 
     const handleEditToggle = () => {
         if (!isEditing) {
@@ -639,3 +648,5 @@ export default function FinancialFoundationPage() {
     </div>
   );
 }
+
+    
