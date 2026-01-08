@@ -34,17 +34,45 @@ import { SelectEquipmentDialog } from './SelectEquipmentDialog';
 import { SelectAddOnsDialog } from './SelectAddOnsDialog';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { useMemo } from 'react';
+
+
+const serviceSchema = z.object({
+    name: z.string().min(1, 'Service name is required'),
+    categoryId: z.string().optional(),
+    duration: z.number().min(1, 'Duration must be at least 1 minute'),
+    padBefore: z.number().optional(),
+    padAfter: z.number().optional(),
+    description: z.string().optional(),
+    imageUrl: z.string().optional(),
+    isPrivate: z.boolean().optional(),
+    
+    products: z.array(z.any()).optional(),
+    equipment: z.array(z.any()).optional(),
+    addOns: z.array(z.any()).optional(),
+    
+    depositType: z.enum(['none', 'deposit', 'full']),
+    depositAmount: z.number().optional(),
+    
+    pricingStrategy: z.enum(['manual', 'auto']),
+    price: z.number().optional(),
+    margin: z.number().optional(),
+});
+
+type ServiceFormData = z.infer<typeof serviceSchema>;
 
 
 const Step1_Basics = ({ 
-    onImageUpload, 
     categories, 
     onNewCategory 
 }: { 
-    onImageUpload: (url: string) => void;
     categories: string[];
     onNewCategory: (category: string) => void;
 }) => {
+    const { register, control, formState: { errors } } = useFormContext<ServiceFormData>();
     const [selectedCategory, setSelectedCategory] = useState('');
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
@@ -63,7 +91,8 @@ const Step1_Basics = ({
     <div className="grid gap-6 py-4">
         <div className="space-y-2">
             <Label htmlFor="service-name">Service Name</Label>
-            <Input id="service-name" placeholder="e.g., Signature Haircut" />
+            <Input id="service-name" placeholder="e.g., Signature Haircut" {...register('name')} />
+             {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
         </div>
         <div className="space-y-2">
             <Label htmlFor="category">Category</Label>
@@ -79,16 +108,23 @@ const Step1_Basics = ({
                 </div>
             ) : (
                 <div className="flex gap-2">
-                    <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-                        <SelectTrigger>
-                            <SelectValue placeholder="Select a category" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {categories.map(cat => (
-                                <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
+                    <Controller
+                        name="categoryId"
+                        control={control}
+                        render={({ field }) => (
+                             <Select onValueChange={field.onChange} value={field.value}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select a category" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {categories.map(cat => (
+                                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        )}
+                    />
+                   
                     <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> New</Button>
                 </div>
             )}
@@ -96,31 +132,44 @@ const Step1_Basics = ({
         <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
                 <Label htmlFor="duration">Duration (min)</Label>
-                <Input id="duration" type="number" placeholder="60" />
+                <Input id="duration" type="number" placeholder="60" {...register('duration', { valueAsNumber: true })}/>
+                {errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}
             </div>
             <div className="space-y-2">
                 <Label htmlFor="pad-before">Pad Before (min)</Label>
-                <Input id="pad-before" type="number" placeholder="0" />
+                <Input id="pad-before" type="number" placeholder="0" {...register('padBefore', { valueAsNumber: true })} />
             </div>
             <div className="space-y-2">
                 <Label htmlFor="pad-after">Pad After (min)</Label>
-                <Input id="pad-after" type="number" placeholder="15" />
+                <Input id="pad-after" type="number" placeholder="15" {...register('padAfter', { valueAsNumber: true })} />
             </div>
         </div>
         <div className="space-y-2">
             <Label htmlFor="description">Description</Label>
-            <Textarea id="description" placeholder="Describe the service for your booking page..." />
+            <Textarea id="description" placeholder="Describe the service for your booking page..." {...register('description')} />
         </div>
         <div className="space-y-2">
             <Label>Service Image</Label>
-            <ImageUpload onImageUploaded={onImageUpload} />
+             <Controller
+                name="imageUrl"
+                control={control}
+                render={({ field }) => (
+                    <ImageUpload onImageUploaded={field.onChange} />
+                )}
+            />
         </div>
         <div className="flex items-center justify-between p-4 border rounded-lg">
             <div className='space-y-1'>
                 <Label htmlFor="private-service">Private Service</Label>
                 <p className='text-sm text-muted-foreground'>Hide from public booking page.</p>
             </div>
-            <Switch id="private-service" />
+            <Controller
+                name="isPrivate"
+                control={control}
+                render={({ field }) => (
+                    <Switch id="private-service" checked={field.value} onCheckedChange={field.onChange} />
+                )}
+            />
         </div>
          <div className="space-y-2">
             <Label>Required Consent Forms</Label>
@@ -134,52 +183,41 @@ const Step1_Basics = ({
     );
 };
 
-const Step2_Formula = ({
-    selectedProducts,
-    onProductsChange,
-    selectedEquipment,
-    onEquipmentChange,
-    selectedAddOns,
-    onAddOnsChange,
-    onScanClick,
-}: {
-    selectedProducts: InventoryItem[];
-    onProductsChange: (products: InventoryItem[]) => void;
-    selectedEquipment: InventoryItem[];
-    onEquipmentChange: (equipment: InventoryItem[]) => void;
-    selectedAddOns: Service[];
-    onAddOnsChange: (addOns: Service[]) => void;
-    onScanClick: () => void;
-}) => {
+const Step2_Formula = ({ onScanClick }: { onScanClick: () => void; }) => {
+    const { control, watch, setValue } = useFormContext<ServiceFormData>();
+    const selectedProducts = watch('products') || [];
+    const selectedEquipment = watch('equipment') || [];
+    const selectedAddOns = watch('addOns') || [];
+
     const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
     const [isEquipmentSelectorOpen, setIsEquipmentSelectorOpen] = useState(false);
     const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
 
     const handleProductSelect = (products: InventoryItem[]) => {
-        onProductsChange(products);
+        setValue('products', products);
         setIsProductBrowserOpen(false);
     };
     
     const handleEquipmentSelect = (equipment: InventoryItem[]) => {
-        onEquipmentChange(equipment);
+        setValue('equipment', equipment);
         setIsEquipmentSelectorOpen(false);
     };
     
     const handleAddOnSelect = (addOns: Service[]) => {
-        onAddOnsChange(addOns);
+        setValue('addOns', addOns);
         setIsAddOnSelectorOpen(false);
     };
 
     const removeProduct = (productId: string) => {
-        onProductsChange(selectedProducts.filter(p => p.id !== productId));
+        setValue('products', selectedProducts.filter(p => p.id !== productId));
     };
 
     const removeEquipment = (equipmentId: string) => {
-        onEquipmentChange(selectedEquipment.filter(e => e.id !== equipmentId));
+        setValue('equipment', selectedEquipment.filter(e => e.id !== equipmentId));
     };
     
     const removeAddOn = (addOnId: string) => {
-        onAddOnsChange(selectedAddOns.filter(a => a.id !== addOnId));
+        setValue('addOns', selectedAddOns.filter(a => a.id !== addOnId));
     };
 
     return (
@@ -212,8 +250,8 @@ const Step2_Formula = ({
                     </Card>
                  )}
                 <div className='flex gap-2'>
-                    <Button variant="outline" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> Browse Library</Button>
-                    <Button variant="outline" onClick={onScanClick}><QrCode className="mr-2 h-4 w-4" /> Scan to Add</Button>
+                    <Button variant="outline" onClick={() => setIsProductBrowserOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Browse Library</Button>
+                    <Button variant="outline" onClick={onScanClick} type="button"><QrCode className="mr-2 h-4 w-4" /> Scan to Add</Button>
                 </div>
             </div>
         </div>
@@ -243,7 +281,7 @@ const Step2_Formula = ({
                         </CardContent>
                     </Card>
                 )}
-                <Button variant="outline" onClick={() => setIsEquipmentSelectorOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> Select Equipment</Button>
+                <Button variant="outline" onClick={() => setIsEquipmentSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Equipment</Button>
             </div>
         </div>
          <div className="space-y-4">
@@ -272,7 +310,7 @@ const Step2_Formula = ({
                         </CardContent>
                     </Card>
                 )}
-                <Button variant="outline" onClick={() => setIsAddOnSelectorOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button>
+                <Button variant="outline" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button>
             </div>
         </div>
     </div>
@@ -302,30 +340,39 @@ const Step2_Formula = ({
 };
 
 const Step3_Deposits = () => {
-    const [depositType, setDepositType] = useState('none');
+    const { control, register } = useFormContext<ServiceFormData>();
+    const depositType = watch('depositType');
     
     return (
         <div className="grid gap-6 py-4">
              <div className="space-y-2">
                 <Label>Deposit Requirement</Label>
-                <RadioGroup
-                    value={depositType}
-                    onValueChange={setDepositType}
-                    className="grid grid-cols-3 gap-2"
-                >
-                    <div>
-                    <RadioGroupItem value="none" id="none" className="peer sr-only" />
-                    <Label htmlFor="none" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">None</Label>
-                    </div>
-                    <div>
-                    <RadioGroupItem value="deposit" id="deposit" className="peer sr-only" />
-                    <Label htmlFor="deposit" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Deposit</Label>
-                    </div>
-                    <div>
-                    <RadioGroupItem value="full" id="full" className="peer sr-only" />
-                    <Label htmlFor="full" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Pay in Full</Label>
-                    </div>
-                </RadioGroup>
+                <Controller
+                    name="depositType"
+                    control={control}
+                    defaultValue="none"
+                    render={({ field }) => (
+                         <RadioGroup
+                            onValueChange={field.onChange}
+                            defaultValue={field.value}
+                            className="grid grid-cols-3 gap-2"
+                        >
+                            <div>
+                                <RadioGroupItem value="none" id="none" className="peer sr-only" />
+                                <Label htmlFor="none" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">None</Label>
+                            </div>
+                            <div>
+                                <RadioGroupItem value="deposit" id="deposit" className="peer sr-only" />
+                                <Label htmlFor="deposit" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Deposit</Label>
+                            </div>
+                            <div>
+                                <RadioGroupItem value="full" id="full" className="peer sr-only" />
+                                <Label htmlFor="full" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Pay in Full</Label>
+                            </div>
+                        </RadioGroup>
+                    )}
+                />
+               
             </div>
 
             {depositType === 'deposit' && (
@@ -346,7 +393,7 @@ const Step3_Deposits = () => {
                         </div>
                         <div className="space-y-2">
                             <Label>Deposit Amount</Label>
-                            <Input type="number" placeholder="25.00" />
+                            <Input type="number" placeholder="25.00" {...register('depositAmount', { valueAsNumber: true })} />
                         </div>
                     </CardContent>
                 </Card>
@@ -355,34 +402,85 @@ const Step3_Deposits = () => {
     );
 };
 
-const Step4_Pricing = () => {
-    const [pricingStrategy, setPricingStrategy] = useState('manual');
-    const [margin, setMargin] = useState(60);
+const PricingForm = ({ control }: { control: Control<ServiceFormData> }) => {
+    const { watch, setValue } = useFormContext();
+    const [tmhr, setTmhr] = useState(0);
+
+    useEffect(() => {
+        const storedTmhr = localStorage.getItem('tmhr');
+        if (storedTmhr) {
+            setTmhr(parseFloat(storedTmhr));
+        }
+    }, []);
+
+    const pricingStrategy = watch('pricingStrategy');
+    const margin = watch('margin', 60);
+    const manualPrice = watch('price');
+    const duration = watch('duration', 0);
+    const selectedProducts = watch('products', []);
+    const selectedEquipment = watch('equipment', []);
+    
+    const timeCost = useMemo(() => (duration / 60) * tmhr, [duration, tmhr]);
+    const productCost = useMemo(() => selectedProducts.reduce((acc: number, p: any) => acc + (p.costPerUnit || 0), 0), [selectedProducts]);
+    
+    const equipmentDepreciation = useMemo(() => {
+        return selectedEquipment.reduce((acc: any, eq: any) => {
+            const lifespanInMinutes = (eq.lifespanYears || 5) * 365 * 8 * 60; // Assuming 8hr work day
+            const costPerMinute = (eq.cost || 0) / lifespanInMinutes;
+            return acc + (costPerMinute * duration);
+        }, 0);
+    }, [selectedEquipment, duration]);
+
+    const breakEvenCost = timeCost + productCost + equipmentDepreciation;
+
+    const finalPrice = useMemo(() => {
+        if (pricingStrategy === 'manual') {
+            return manualPrice || 0;
+        }
+        if (breakEvenCost > 0 && margin > 0 && (1 - (margin / 100)) > 0) {
+            return breakEvenCost / (1 - (margin / 100));
+        }
+        return breakEvenCost; // if margin is 0 or 100, price equals cost
+    }, [pricingStrategy, manualPrice, breakEvenCost, margin]);
+    
+    const netProfit = finalPrice - breakEvenCost;
+    const profitMargin = finalPrice > 0 ? (netProfit / finalPrice) * 100 : 0;
+
+    useEffect(() => {
+        setValue('price', finalPrice);
+    }, [finalPrice, setValue]);
 
     return (
         <div className="grid gap-6 py-4">
             <div className="space-y-2">
                 <Label>Pricing Strategy</Label>
-                <RadioGroup
-                    value={pricingStrategy}
-                    onValueChange={setPricingStrategy}
-                    className="grid grid-cols-2 gap-2"
-                >
-                    <div>
-                        <RadioGroupItem value="manual" id="manual" className="peer sr-only" />
-                        <Label htmlFor="manual" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Manual</Label>
-                    </div>
-                    <div>
-                        <RadioGroupItem value="auto" id="auto" className="peer sr-only" />
-                        <Label htmlFor="auto" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Auto (Margin-Based)</Label>
-                    </div>
-                </RadioGroup>
+                 <Controller
+                    name="pricingStrategy"
+                    control={control}
+                    defaultValue="manual"
+                    render={({ field }) => (
+                        <RadioGroup
+                            onValueChange={field.onChange}
+                            defaultValue={field.value}
+                            className="grid grid-cols-2 gap-2"
+                        >
+                            <div>
+                                <RadioGroupItem value="manual" id="manual" className="peer sr-only" />
+                                <Label htmlFor="manual" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Manual</Label>
+                            </div>
+                            <div>
+                                <RadioGroupItem value="auto" id="auto" className="peer sr-only" />
+                                <Label htmlFor="auto" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Auto (Margin-Based)</Label>
+                            </div>
+                        </RadioGroup>
+                    )}
+                />
             </div>
             
             {pricingStrategy === 'manual' ? (
                 <div className="space-y-2">
                     <Label htmlFor="final-price">Final Price</Label>
-                    <Input id="final-price" type="number" placeholder="100.00" />
+                    <Input id="final-price" type="number" placeholder="100.00" {...control.register('price', { valueAsNumber: true })} />
                 </div>
             ) : (
                 <div className="space-y-4">
@@ -390,12 +488,19 @@ const Step4_Pricing = () => {
                         <Label>Desired Profit Margin</Label>
                         <span className="text-2xl font-bold text-primary">{margin}%</span>
                     </div>
-                    <Slider
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={[margin]}
-                        onValueChange={(value) => setMargin(value[0])}
+                     <Controller
+                        name="margin"
+                        control={control}
+                        defaultValue={60}
+                        render={({ field: { onChange, ...fieldProps } }) => (
+                           <Slider
+                                min={0}
+                                max={100}
+                                step={1}
+                                onValueChange={(value) => onChange(value[0])}
+                                {...fieldProps}
+                            />
+                        )}
                     />
                 </div>
             )}
@@ -406,24 +511,24 @@ const Step4_Pricing = () => {
                     <div className="flex justify-between items-center p-4 rounded-lg bg-primary/10">
                         <div>
                         <p className="text-sm text-primary/80">Final Price</p>
-                        <p className="text-2xl font-bold text-primary">$100.00</p>
+                        <p className="text-2xl font-bold text-primary">${finalPrice.toFixed(2)}</p>
                         </div>
                     </div>
                      <div className="space-y-2 text-sm text-muted-foreground">
                         <div className="flex justify-between">
                             <span>Break-Even Cost:</span>
-                            <span className="font-mono text-destructive">$35.00</span>
+                            <span className="font-mono text-destructive">${breakEvenCost.toFixed(2)}</span>
                         </div>
                         <div className="flex justify-between font-medium border-t pt-2 mt-2">
                             <span>Net Profit:</span>
-                            <span className="text-primary">$65.00</span>
+                            <span className="text-primary">${netProfit.toFixed(2)}</span>
                         </div>
                          <div className="flex justify-between text-sm text-muted-foreground">
                             <span>Profit Margin:</span>
-                            <span className="text-primary">65.0%</span>
+                            <span className="text-primary">{profitMargin.toFixed(1)}%</span>
                         </div>
                     </div>
-                     <Progress value={65} className="h-2 text-green-500" />
+                     <Progress value={profitMargin} className="h-2 text-green-500" />
                 </CardContent>
             </Card>
 
@@ -436,33 +541,63 @@ export const AddServiceDialog = ({
     onOpenChange,
     categories,
     onNewCategory,
+}: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    categories: string[];
+    onNewCategory: (category: string) => void;
 }) => {
   const [step, setStep] = useState(1);
-  const [imageUrl, setImageUrl] = useState(null);
-  const [selectedProducts, setSelectedProducts] = useState([]);
-  const [selectedEquipment, setSelectedEquipment] = useState([]);
-  const [selectedAddOns, setSelectedAddOns] = useState([]);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
-  const [hasCameraPermission, setHasCameraPermission] = useState(undefined);
-  const videoRef = useRef(null);
+  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const { toast } = useToast();
+  
+  const methods = useForm<ServiceFormData>({
+    resolver: zodResolver(serviceSchema),
+    defaultValues: {
+        duration: 60,
+        padAfter: 15,
+        isPrivate: false,
+        products: [],
+        equipment: [],
+        addOns: [],
+        depositType: 'none',
+        pricingStrategy: 'manual',
+        margin: 60,
+    }
+  });
+
+  const { control } = methods;
   
   const totalSteps = 4;
   
-  const handleOpenChange = (isOpen) => {
+  const handleOpenChange = (isOpen: boolean) => {
     onOpenChange(isOpen);
     if (!isOpen) {
         setTimeout(() => {
           setStep(1);
-          setImageUrl(null);
-          setSelectedProducts([]);
-          setSelectedEquipment([]);
-          setSelectedAddOns([]);
+          methods.reset();
         }, 300);
     }
   }
 
-  const handleNext = () => step < totalSteps && setStep(step + 1);
+  const onSubmit = (data: ServiceFormData) => {
+      console.log('Form Submitted', data);
+      handleOpenChange(false);
+      toast({
+          title: "Service Created",
+          description: `${data.name} has been added to your library.`
+      })
+  }
+
+  const handleNext = async () => {
+    const isValid = await methods.trigger(['name', 'duration']);
+    if (isValid && step < totalSteps) {
+      setStep(step + 1);
+    }
+  };
+
   const handleBack = () => step > 1 && setStep(step - 1);
 
    useEffect(() => {
@@ -488,7 +623,7 @@ export const AddServiceDialog = ({
       getCameraPermission();
     } else {
         if (videoRef.current && videoRef.current.srcObject) {
-            const stream = videoRef.current.srcObject;
+            const stream = videoRef.current.srcObject as MediaStream;
             stream.getTracks().forEach(track => track.stop());
             videoRef.current.srcObject = null;
         }
@@ -499,46 +634,42 @@ export const AddServiceDialog = ({
     <>
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-xl">
-        <DialogHeader>
-          <DialogTitle>Add New Service</DialogTitle>
-          <DialogDescription>
-            Create a new service for your menu. Follow the steps to ensure accurate pricing.
-          </DialogDescription>
-        </DialogHeader>
+        <FormProvider {...methods}>
+        <form onSubmit={methods.handleSubmit(onSubmit)}>
+            <DialogHeader>
+            <DialogTitle>Add New Service</DialogTitle>
+            <DialogDescription>
+                Create a new service for your menu. Follow the steps to ensure accurate pricing.
+            </DialogDescription>
+            </DialogHeader>
 
-        <div className="py-4 space-y-4">
-          <Progress value={(step / totalSteps) * 100} />
-           <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
-                {step === 1 && <Step1_Basics onImageUpload={setImageUrl} categories={categories} onNewCategory={onNewCategory} />}
-                {step === 2 && <Step2_Formula 
-                    selectedProducts={selectedProducts}
-                    onProductsChange={setSelectedProducts}
-                    selectedEquipment={selectedEquipment}
-                    onEquipmentChange={setSelectedEquipment}
-                    selectedAddOns={selectedAddOns}
-                    onAddOnsChange={setSelectedAddOns}
-                    onScanClick={() => setIsScannerOpen(true)}
-                />}
-                {step === 3 && <Step3_Deposits />}
-                {step === 4 && <Step4_Pricing />}
-           </div>
-        </div>
+            <div className="py-4 space-y-4">
+            <Progress value={(step / totalSteps) * 100} />
+            <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
+                    {step === 1 && <Step1_Basics categories={categories} onNewCategory={onNewCategory} />}
+                    {step === 2 && <Step2_Formula onScanClick={() => setIsScannerOpen(true)} />}
+                    {step === 3 && <Step3_Deposits />}
+                    {step === 4 && <PricingForm control={control} />}
+            </div>
+            </div>
 
-        <DialogFooter>
-          <div className='flex justify-between w-full'>
-              <div>
-                {step > 1 && <Button variant="outline" onClick={handleBack}>Back</Button>}
-              </div>
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={() => handleOpenChange(false)}>Cancel</Button>
-                {step < totalSteps ? (
-                    <Button onClick={handleNext}>Next</Button>
-                ) : (
-                    <Button>Save Service</Button>
-                )}
-              </div>
-          </div>
-        </DialogFooter>
+            <DialogFooter>
+            <div className='flex justify-between w-full'>
+                <div>
+                    {step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}
+                </div>
+                <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => handleOpenChange(false)} type="button">Cancel</Button>
+                    {step < totalSteps ? (
+                        <Button onClick={handleNext} type="button">Next</Button>
+                    ) : (
+                        <Button type="submit">Save Service</Button>
+                    )}
+                </div>
+            </div>
+            </DialogFooter>
+        </form>
+        </FormProvider>
       </DialogContent>
     </Dialog>
     <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
@@ -565,7 +696,7 @@ export const AddServiceDialog = ({
             )}
           </div>
            <DialogFooter className="p-4 pt-0">
-                <Button variant="outline" onClick={() => setIsScannerOpen(false)}>Cancel</Button>
+                <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
