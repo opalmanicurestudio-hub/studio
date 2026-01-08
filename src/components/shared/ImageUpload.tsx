@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Upload, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
 
 interface ImageUploadProps {
   onImageUploaded: (dataUrl: string) => void;
@@ -90,12 +91,9 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
       />
       {imagePreview ? (
         <div className="relative w-32 h-32">
-          <Avatar className="w-32 h-32 border-2 border-dashed">
-            <AvatarImage src={imagePreview} alt="Image preview" className="object-cover" />
-            <AvatarFallback>
-              <Upload className="w-8 h-8 text-muted-foreground" />
-            </AvatarFallback>
-          </Avatar>
+          <div className="w-32 h-32 rounded-md border-2 border-dashed flex items-center justify-center overflow-hidden">
+            <img src={imagePreview} alt="Image preview" className="object-cover w-full h-full" />
+          </div>
           <Button
             type="button"
             variant="destructive"
