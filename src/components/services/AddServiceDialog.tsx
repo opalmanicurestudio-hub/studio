@@ -257,7 +257,8 @@ const Step2_Formula = ({
         initialSelected={selectedEquipment}
     />
     </>
-);
+    );
+};
 
 const Step3_Deposits = () => {
     const [depositType, setDepositType] = useState('none');
@@ -465,5 +466,3 @@ export const AddServiceDialog = ({
     </Dialog>
   );
 };
-
-    
