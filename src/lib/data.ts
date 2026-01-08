@@ -1,5 +1,4 @@
 
-
 import { BillDefinition, billDefinitions } from './financial-data';
 
 export type Client = {
@@ -31,18 +30,26 @@ export type Service = {
   description?: string;
 };
 
+export type Batch = {
+  id: string;
+  stock: number;
+  costPerUnit: number;
+  receivedDate: string; // ISO date string
+  expirationDate?: string; // ISO date string
+};
+
 export type InventoryItem = {
   id: string;
   name: string;
   type: 'professional' | 'retail' | 'equipment' | 'overhead';
   category: string;
-  stock: number;
-  costPerUnit: number;
+  totalStock: number;
   supplier: string;
   lifespanYears?: number;
   isExperimentActive?: boolean;
   experimentUses?: number;
   estimatedUses?: number;
+  batches: Batch[];
 };
 
 export type Appointment = {
@@ -76,6 +83,19 @@ export const clients: Client[] = [
   { id: 'cli-5', name: 'Sofia Chen', email: 'sofia@example.com', phone: '212-555-0165', avatarUrl: 'https://picsum.photos/seed/105/100/100', lifetimeValue: 4500.00, lastAppointment: '2024-05-18T09:30:00.000Z' },
 ];
 
+export const inventory: InventoryItem[] = [
+  { id: 'inv-1', name: 'Nail File', type: 'professional', category: 'Tools', totalStock: 50, supplier: 'ProNailSupply', batches: [{id: 'b1-1', stock: 50, costPerUnit: 0.25, receivedDate: '2024-05-01'}] },
+  { id: 'inv-2', name: 'Cuticle Oil', type: 'professional', category: 'Care', totalStock: 100, supplier: 'ProNailSupply', batches: [{id: 'b2-1', stock: 100, costPerUnit: 0.15, receivedDate: '2024-05-01'}] },
+  { id: 'inv-3', name: 'Base Coat Polish', type: 'professional', category: 'Color', totalStock: 30, supplier: 'ColorWorld', isExperimentActive: true, experimentUses: 22, estimatedUses: 30, batches: [{id: 'b3-1', stock: 30, costPerUnit: 0.50, receivedDate: '2024-05-01'}] },
+  { id: 'inv-4', name: 'Top Coat Polish', type: 'professional', category: 'Color', totalStock: 30, supplier: 'ColorWorld', batches: [{id: 'b4-1', stock: 30, costPerUnit: 0.50, receivedDate: '2024-05-01'}] },
+  { id: 'inv-5', name: 'Red Nail Polish', type: 'professional', category: 'Color', totalStock: 15, supplier: 'ColorWorld', batches: [{id: 'b5-1', stock: 15, costPerUnit: 0.80, receivedDate: '2024-05-01'}] },
+  { id: 'inv-6', name: 'Lotion', type: 'professional', category: 'Care', totalStock: 100, supplier: 'BeautyCare', batches: [{id: 'b6-1', stock: 100, costPerUnit: 0.30, receivedDate: '2024-05-01'}] },
+  { id: 'inv-7', name: 'UV Gel Lamp', type: 'equipment', category: 'Tools', totalStock: 2, supplier: 'EquipPro', lifespanYears: 3, batches: [{id: 'b7-1', stock: 2, costPerUnit: 150.00, receivedDate: '2024-01-15'}] },
+  { id: 'inv-8', name: 'Disinfectant Wipes', type: 'overhead', category: 'Cleaning', totalStock: 5, supplier: 'CleanSupplies', batches: [{id: 'b8-1', stock: 5, costPerUnit: 10.00, receivedDate: '2024-06-01'}] },
+  { id: 'inv-9', name: 'Retail Shine Serum', type: 'retail', category: 'Styling', totalStock: 12, supplier: 'BeautyCare', batches: [{id: 'b9-1', stock: 12, costPerUnit: 8.50, receivedDate: '2024-06-01'}] },
+  { id: 'inv-10', name: 'Pro Color Tube 5N', type: 'professional', category: 'Color', totalStock: 20, supplier: 'ColorWorld', isExperimentActive: false, experimentUses: 0, estimatedUses: 25, batches: [{id: 'b10-1', stock: 20, costPerUnit: 7.00, receivedDate: '2024-06-01'}] },
+];
+
 export const services: Service[] = [
   { 
     id: 'svc-1', 
@@ -89,29 +109,10 @@ export const services: Service[] = [
     profit: 41.50,
     margin: 92.2,
     imageUrl: 'https://picsum.photos/seed/svc1/200/200',
-    products: [
-      { id: 'inv-1', name: 'Nail File', type: 'professional', category: 'Tools', stock: 50, costPerUnit: 0.25, supplier: 'ProNailSupply' },
-      { id: 'inv-2', name: 'Cuticle Oil', type: 'professional', category: 'Care', stock: 100, costPerUnit: 0.15, supplier: 'ProNailSupply' },
-      { id: 'inv-3', name: 'Base Coat Polish', type: 'professional', category: 'Color', stock: 30, costPerUnit: 0.50, supplier: 'ColorWorld', isExperimentActive: true, experimentUses: 22, estimatedUses: 30 },
-      { id: 'inv-4', name: 'Top Coat Polish', type: 'professional', category: 'Color', stock: 30, costPerUnit: 0.50, supplier: 'ColorWorld' },
-      { id: 'inv-5', name: 'Red Nail Polish', type: 'professional', category: 'Color', stock: 15, costPerUnit: 0.80, supplier: 'ColorWorld' },
-      { id: 'inv-6', name: 'Lotion', type: 'professional', category: 'Care', stock: 100, costPerUnit: 0.30, supplier: 'BeautyCare' },
-    ]
+    products: inventory.filter(i => ['inv-1', 'inv-2', 'inv-3', 'inv-4', 'inv-5', 'inv-6'].includes(i.id))
   },
 ];
 
-export const inventory: InventoryItem[] = [
-  { id: 'inv-1', name: 'Nail File', type: 'professional', category: 'Tools', stock: 50, costPerUnit: 0.25, supplier: 'ProNailSupply' },
-  { id: 'inv-2', name: 'Cuticle Oil', type: 'professional', category: 'Care', stock: 100, costPerUnit: 0.15, supplier: 'ProNailSupply' },
-  { id: 'inv-3', name: 'Base Coat Polish', type: 'professional', category: 'Color', stock: 30, costPerUnit: 0.50, supplier: 'ColorWorld', isExperimentActive: true, experimentUses: 22, estimatedUses: 30 },
-  { id: 'inv-4', name: 'Top Coat Polish', type: 'professional', category: 'Color', stock: 30, costPerUnit: 0.50, supplier: 'ColorWorld' },
-  { id: 'inv-5', name: 'Red Nail Polish', type: 'professional', category: 'Color', stock: 15, costPerUnit: 0.80, supplier: 'ColorWorld' },
-  { id: 'inv-6', name: 'Lotion', type: 'professional', category: 'Care', stock: 100, costPerUnit: 0.30, supplier: 'BeautyCare' },
-  { id: 'inv-7', name: 'UV Gel Lamp', type: 'equipment', category: 'Tools', stock: 2, costPerUnit: 150.00, supplier: 'EquipPro', lifespanYears: 3 },
-  { id: 'inv-8', name: 'Disinfectant Wipes', type: 'overhead', category: 'Cleaning', stock: 5, costPerUnit: 10.00, supplier: 'CleanSupplies' },
-  { id: 'inv-9', name: 'Retail Shine Serum', type: 'retail', category: 'Styling', stock: 12, costPerUnit: 8.50, supplier: 'BeautyCare' },
-  { id: 'inv-10', name: 'Pro Color Tube 5N', type: 'professional', category: 'Color', stock: 20, costPerUnit: 7.00, supplier: 'ColorWorld', isExperimentActive: false, experimentUses: 0, estimatedUses: 25 },
-];
 
 export const appointments: Appointment[] = [
   { id: 'apt-1', clientId: 'cli-1', serviceId: 'svc-1', startTime: new Date('2024-07-20T10:00:00'), endTime: new Date('2024-07-20T10:45:00'), status: 'confirmed' },

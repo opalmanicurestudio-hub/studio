@@ -36,8 +36,8 @@ export const EndCostPerUseTestDialog: React.FC<EndCostPerUseTestDialogProps> = (
   const estimatedUses = product.estimatedUses || 1;
   const actualUses = product.experimentUses || 0;
   
-  // This landed cost would come from a batch or shipment record in a real app
-  const landedCost = product.costPerUnit * estimatedUses; 
+  // In a real app, this would find the specific batch under experiment
+  const landedCost = product.batches[0]?.costPerUnit * estimatedUses; 
 
   const oldCostPerUse = landedCost / estimatedUses;
   const newCostPerUse = actualUses > 0 ? landedCost / actualUses : 0;
@@ -46,7 +46,7 @@ export const EndCostPerUseTestDialog: React.FC<EndCostPerUseTestDialogProps> = (
     onUpdateCost(product.id, newCostPerUse);
     toast({
         title: "Experiment Complete!",
-        description: `Cost-per-use for ${product.name} updated to $${newCostPerUse.toFixed(3)}.`
+        description: `Cost-per-use for ${product.name} updated to $${newCostPerUse.toFixed(3)}.`,
     });
     onOpenChange(false);
   }

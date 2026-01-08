@@ -11,7 +11,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, File, MoreHorizontal, Database, Camera, AlertTriangle, Truck, Search, SlidersHorizontal, QrCode, Package, Hammer, Beaker, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer } from 'lucide-react';
+import { PlusCircle, File, MoreHorizontal, Database, Camera, AlertTriangle, Truck, Search, SlidersHorizontal, QrCode, Package, Hammer, Beaker, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, BellRing } from 'lucide-react';
 import { type InventoryItem, inventory as initialInventory } from '@/lib/data';
 import {
   DropdownMenu,
@@ -40,6 +40,8 @@ import { AddProductDialog } from '@/components/inventory/AddProductDialog';
 import { EditProductDialog } from '@/components/inventory/EditProductDialog';
 import { AddLocationDialog, type Location } from '@/components/inventory/AddLocationDialog';
 import { EndCostPerUseTestDialog } from '@/components/inventory/EndCostPerUseTestDialog';
+import { WriteOffDialog } from '@/components/inventory/WriteOffDialog';
+import { ManageSpoilageDialog } from '@/components/inventory/ManageSpoilageDialog';
 import { Textarea } from '@/components/ui/textarea';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
@@ -48,7 +50,7 @@ import { cn } from '@/lib/utils';
 import { Carousel, CarouselContent, CarouselItem } from '@/components/ui/carousel';
 
 
-const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void }) => {
+const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (item: InventoryItem) => void }) => {
     return (
         <Card className={cn("w-full transition-all duration-200 hover:shadow-xl hover:-translate-y-1", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
             <CardContent className="p-3 space-y-3">
@@ -82,7 +84,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment }: { it
                                 </DropdownMenuItem>
                             )
                         )}
-                        <DropdownMenuItem><AlertTriangle className="mr-2 h-4 w-4" /> Write-off / Damage</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onWriteOff(item)}><PackageX className="mr-2 h-4 w-4" /> Write-off / Damage</DropdownMenuItem>
                          <DropdownMenuItem><QrCode className="mr-2 h-4 w-4" /> Reorder</DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Delete</DropdownMenuItem>
@@ -105,7 +107,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment }: { it
                 <Card className='bg-muted/50'>
                     <CardContent className='p-2 text-center'>
                         <p className='text-xs text-muted-foreground'>Total On Hand</p>
-                        <p className='text-2xl font-bold'>{item.stock}</p>
+                        <p className='text-2xl font-bold'>{item.totalStock}</p>
                         {item.isExperimentActive ? (
                              <p className='text-xs text-purple-500 font-medium'>
                                 {item.experimentUses} uses logged
@@ -124,7 +126,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment }: { it
                 <Accordion type="single" collapsible className="w-full">
                     <AccordionItem value="batches" className='border-0'>
                         <AccordionTrigger className='p-2 text-xs text-muted-foreground justify-center gap-2 hover:no-underline rounded-md hover:bg-muted/50 h-8'>
-                             <Database className='w-3 h-3' /> Batches (1)
+                             <Database className='w-3 h-3' /> Batches ({item.batches.length})
                         </AccordionTrigger>
                         <AccordionContent className='pt-2'>
                             <p className='text-xs text-muted-foreground'>Batch details would go here.</p>
@@ -408,6 +410,8 @@ export default function InventoryPage() {
   const [isAddLocationOpen, setIsAddLocationOpen] = useState(false);
   const [isAddLocationFromProductOpen, setIsAddLocationFromProductOpen] = useState(false);
   const [isEndExperimentOpen, setIsEndExperimentOpen] = useState(false);
+  const [isWriteOffOpen, setIsWriteOffOpen] = useState(false);
+  const [isManageSpoilageOpen, setIsManageSpoilageOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<InventoryItem | null>(null);
   
   const isMobile = useIsMobile();
@@ -466,11 +470,46 @@ export default function InventoryPage() {
     setSelectedProduct(product);
     setIsEndExperimentOpen(true);
   };
+  
+  const handleOpenWriteOff = (product: InventoryItem) => {
+    setSelectedProduct(product);
+    setIsWriteOffOpen(true);
+  };
+
+  const handleWriteOff = (productId: string, batchId: string, quantity: number, reason: string) => {
+     setInventory(prevInventory => {
+        const newInventory = [...prevInventory];
+        const productIndex = newInventory.findIndex(p => p.id === productId);
+        if (productIndex === -1) return prevInventory;
+
+        const product = { ...newInventory[productIndex] };
+        const batchIndex = product.batches.findIndex(b => b.id === batchId);
+        if (batchIndex === -1) return prevInventory;
+
+        const batch = { ...product.batches[batchIndex] };
+        const cost = batch.costPerUnit * quantity;
+
+        batch.stock -= quantity;
+        product.totalStock -= quantity;
+        
+        product.batches[batchIndex] = batch;
+        newInventory[productIndex] = product;
+        
+        toast({
+            title: "Inventory Written Off",
+            description: `${quantity} unit(s) of ${product.name} written off as ${reason}. Expense of $${cost.toFixed(2)} logged.`
+        });
+        
+        console.log(`LOGGED EXPENSE: ${quantity} x ${product.name} for $${cost.toFixed(2)} due to ${reason}`);
+
+        return newInventory;
+    });
+  };
 
   const handleUpdateCost = (productId: string, newCost: number) => {
     setInventory(prev => prev.map(p => 
       p.id === productId 
-      ? { ...p, costPerUnit: newCost, isExperimentActive: false, experimentUses: 0 } 
+      ? { ...p, batches: p.batches.map(b => ({...b, costPerUnit: newCost})), isExperimentActive: false, experimentUses: 0 } 
       : p
     ));
   };
@@ -521,7 +560,7 @@ export default function InventoryPage() {
                                 <CarouselContent className="-ml-4">
                                     {professionalColor.map((item) => (
                                         <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                                            <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/></div>
+                                            <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
                                         </CarouselItem>
                                     ))}
                                 </CarouselContent>
@@ -537,7 +576,7 @@ export default function InventoryPage() {
                                 <CarouselContent className="-ml-4">
                                     {professionalStyling.map((item) => (
                                         <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                                            <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/></div>
+                                            <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
                                         </CarouselItem>
                                     ))}
                                 </CarouselContent>
@@ -553,7 +592,7 @@ export default function InventoryPage() {
                                 <CarouselContent className="-ml-4">
                                     {professionalCare.map((item) => (
                                         <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                                            <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/></div>
+                                            <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
                                         </CarouselItem>
                                     ))}
                                 </CarouselContent>
@@ -569,7 +608,7 @@ export default function InventoryPage() {
                                 <CarouselContent className="-ml-4">
                                     {professionalTools.map((item) => (
                                         <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                                            <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/></div>
+                                            <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
                                         </CarouselItem>
                                     ))}
                                 </CarouselContent>
@@ -586,7 +625,7 @@ export default function InventoryPage() {
               <CarouselContent className="-ml-4">
                   {retailItems.map((item) => (
                     <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                          <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/></div>
+                          <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
                     </CarouselItem>
                   ))}
               </CarouselContent>
@@ -601,7 +640,7 @@ export default function InventoryPage() {
               <CarouselContent className="-ml-4">
                   {overheadItems.map((item) => (
                     <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                      <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/></div>
+                      <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
                     </CarouselItem>
                   ))}
               </CarouselContent>
@@ -616,7 +655,7 @@ export default function InventoryPage() {
               <CarouselContent className="-ml-4">
                   {equipmentItems.map((item) => (
                     <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                      <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/></div>
+                      <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
                     </CarouselItem>
                   ))}
               </CarouselContent>
@@ -670,6 +709,7 @@ export default function InventoryPage() {
                     <Input placeholder="Search inventory..." className="pl-9" />
                 </div>
                 <div className='flex items-center gap-2 w-full sm:w-auto'>
+                    <Button variant="outline" className='flex-1 sm:flex-initial' onClick={() => setIsManageSpoilageOpen(true)}><BellRing className="mr-2 h-4 w-4" /> Spoilage</Button>
                     <Button variant="outline" className='flex-1 sm:flex-initial' onClick={() => setIsScannerOpen(true)}>
                         <QrCode className="mr-2 h-4 w-4" />
                         Scan
@@ -738,9 +778,152 @@ export default function InventoryPage() {
             </div>
         </div>
         
-        <div className="mt-6 space-y-8">
-            {renderContent()}
-        </div>
+        {activeTab === 'professional' && (
+          (professionalColor.length === 0 && professionalCare.length === 0 && professionalStyling.length === 0 && professionalTools.length === 0) ? (
+            <EmptyState message="No professional products yet. Add one to get started." />
+          ) : (
+            <div className="m-0 space-y-6">
+                <Accordion type="single" collapsible defaultValue="color" className="w-full">
+                    <AccordionItem value="color">
+                        <AccordionTrigger className='text-xl font-bold hover:no-underline'>Color</AccordionTrigger>
+                        <AccordionContent className="pl-4">
+                             <Carousel opts={{ align: "start" }} className="w-full">
+                                <CarouselContent className="-ml-4">
+                                    {professionalColor.map((item) => (
+                                        <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
+                                            <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
+                                        </CarouselItem>
+                                    ))}
+                                </CarouselContent>
+                             </Carousel>
+                        </AccordionContent>
+                    </AccordionItem>
+                </Accordion>
+                <Accordion type="single" collapsible className="w-full">
+                    <AccordionItem value="styling">
+                         <AccordionTrigger className='text-xl font-bold hover:no-underline'>Styling</AccordionTrigger>
+                         <AccordionContent className="pl-4">
+                            <Carousel opts={{ align: "start" }} className="w-full">
+                                <CarouselContent className="-ml-4">
+                                    {professionalStyling.map((item) => (
+                                        <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
+                                            <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
+                                        </CarouselItem>
+                                    ))}
+                                </CarouselContent>
+                            </Carousel>
+                         </AccordionContent>
+                    </AccordionItem>
+                </Accordion>
+                <Accordion type="single" collapsible className="w-full">
+                    <AccordionItem value="care">
+                         <AccordionTrigger className='text-xl font-bold hover:no-underline'>Care</AccordionTrigger>
+                         <AccordionContent className="pl-4">
+                            <Carousel opts={{ align: "start" }} className="w-full">
+                                <CarouselContent className="-ml-4">
+                                    {professionalCare.map((item) => (
+                                        <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
+                                            <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
+                                        </CarouselItem>
+                                    ))}
+                                </CarouselContent>
+                            </Carousel>
+                         </AccordionContent>
+                    </AccordionItem>
+                </Accordion>
+                 <Accordion type="single" collapsible className="w-full">
+                    <AccordionItem value="tools">
+                         <AccordionTrigger className='text-xl font-bold hover:no-underline'>Tools</AccordionTrigger>
+                         <AccordionContent className="pl-4">
+                            <Carousel opts={{ align: "start" }} className="w-full">
+                                <CarouselContent className="-ml-4">
+                                    {professionalTools.map((item) => (
+                                        <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
+                                            <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
+                                        </CarouselItem>
+                                    ))}
+                                </CarouselContent>
+                            </Carousel>
+                         </AccordionContent>
+                    </AccordionItem>
+                </Accordion>
+            </div>
+          )
+        )}
+        {activeTab === 'retail' && (retailItems.length > 0 ? (
+          <div className="pl-4">
+            <Carousel opts={{ align: "start" }} className="w-full">
+              <CarouselContent className="-ml-4">
+                  {retailItems.map((item) => (
+                    <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
+                          <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
+                    </CarouselItem>
+                  ))}
+              </CarouselContent>
+            </Carousel>
+          </div>
+        ) : (
+          <EmptyState message="No retail items yet. Add one to get started." />
+        ))}
+        {activeTab === 'overhead' && (overheadItems.length > 0 ? (
+          <div className="pl-4">
+            <Carousel opts={{ align: "start" }} className="w-full">
+              <CarouselContent className="-ml-4">
+                  {overheadItems.map((item) => (
+                    <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
+                      <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
+                    </CarouselItem>
+                  ))}
+              </CarouselContent>
+            </Carousel>
+          </div>
+        ) : (
+          <EmptyState message="No overhead items yet. Add one to get started." />
+        ))}
+        {activeTab === 'equipment' && (equipmentItems.length > 0 ? (
+          <div className="pl-4">
+            <Carousel opts={{ align: "start" }} className="w-full">
+              <CarouselContent className="-ml-4">
+                  {equipmentItems.map((item) => (
+                    <CarouselItem key={item.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
+                      <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
+                    </CarouselItem>
+                  ))}
+              </CarouselContent>
+            </Carousel>
+          </div>
+        ) : (
+          <EmptyState message="No equipment items yet. Add one to get started." />
+        ))}
+        {activeTab === 'locations' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+                <div>
+                    <h2 className="text-2xl font-bold">Storage Locations</h2>
+                    <p className="text-muted-foreground">A map of all your physical storage areas.</p>
+                </div>
+                <Button onClick={() => setIsAddLocationOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> New Location</Button>
+            </div>
+             {locations.length === 0 ? (
+                <EmptyState message="No storage locations defined yet. Add one to get started." />
+             ) : (
+                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {locations.map(location => (
+                        <Card key={location.id}>
+                            <CardHeader>
+                                <CardTitle className="text-lg">{location.name}</CardTitle>
+                                {location.description && <CardDescription>{location.description}</CardDescription>}
+                            </CardHeader>
+                            <CardFooter className="flex gap-2">
+                                <Button variant="outline" size="sm"><Edit className="mr-2 h-3 w-3"/> Edit</Button>
+                                <Button variant="outline" size="sm" className="text-destructive"><Trash2 className="mr-2 h-3 w-3"/> Delete</Button>
+                            </CardFooter>
+                        </Card>
+                    ))}
+                 </div>
+             )}
+          </div>
+        )}
       </main>
 
        <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
@@ -806,6 +989,20 @@ export default function InventoryPage() {
             onUpdateCost={handleUpdateCost}
           />
       )}
+      {selectedProduct && (
+        <WriteOffDialog
+          open={isWriteOffOpen}
+          onOpenChange={setIsWriteOffOpen}
+          product={selectedProduct}
+          onConfirm={handleWriteOff}
+        />
+      )}
+      <ManageSpoilageDialog
+        open={isManageSpoilageOpen}
+        onOpenChange={setIsManageSpoilageOpen}
+        inventory={inventory}
+        onConfirm={handleWriteOff}
+      />
       <AddEquipmentDialog open={isAddEquipmentOpen} onOpenChange={setIsAddEquipmentOpen} />
       <AddOverheadDialog open={isAddOverheadOpen} onOpenChange={setIsAddOverheadOpen} />
       <CreateBundleDialog open={isCreateBundleOpen} onOpenChange={setIsCreateBundleOpen} />
