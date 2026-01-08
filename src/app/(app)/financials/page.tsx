@@ -54,7 +54,7 @@ const BillItemCard = ({
   title: string;
   isCustom?: boolean;
 }) => (
-  <Card className="w-72 shrink-0">
+  <Card className="w-full shrink-0 sm:w-72">
     <CardContent className="p-3">
       <div className="space-y-2">
         {isCustom ? (
@@ -112,13 +112,13 @@ const BillEditor = ({
             </AccordionTrigger>
             <AccordionContent className="pt-4">
                 <div className="flex items-center gap-4">
-                    <ScrollArea>
+                    <ScrollArea className="w-full">
                         <div className="flex space-x-4 pb-4">
                              <BillItemCard title="Custom Expense" isCustom />
                         </div>
                         <ScrollBar orientation="horizontal" />
                     </ScrollArea>
-                    <Button variant="outline" size="icon"><PlusCircle className="w-4 h-4" /></Button>
+                    <Button variant="outline" size="icon" className="shrink-0"><PlusCircle className="w-4 h-4" /></Button>
                 </div>
             </AccordionContent>
           </AccordionItem>
@@ -258,7 +258,7 @@ const ScheduleTab = () => (
 )
 
 const TmhrBreakdownCard = () => (
-    <Card className="sticky top-24">
+    <Card className="lg:sticky top-24">
         <CardHeader>
             <CardTitle>Your Financial Snapshot</CardTitle>
             <CardDescription>Select your profiles to see the magic.</CardDescription>
@@ -341,3 +341,5 @@ export default function FinancialFoundationPage() {
     </div>
   );
 }
+
+    
