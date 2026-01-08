@@ -12,7 +12,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, File, MoreHorizontal, Database, Camera, AlertTriangle, Truck, Search, SlidersHorizontal, QrCode, Package, Hammer, Beaker, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer } from 'lucide-react';
-import { type InventoryItem, inventory } from '@/lib/data';
+import { type InventoryItem, inventory as initialInventory } from '@/lib/data';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,6 +37,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { AddProductDialog } from '@/components/inventory/AddProductDialog';
+import { EditProductDialog } from '@/components/inventory/EditProductDialog';
 import { AddLocationDialog, type Location } from '@/components/inventory/AddLocationDialog';
 import { Textarea } from '@/components/ui/textarea';
 import Link from 'next/link';
@@ -44,7 +45,7 @@ import { Badge } from '@/components/ui/badge';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 
-const ProductCard = ({ item }: { item: InventoryItem }) => {
+const ProductCard = ({ item, onEdit }: { item: InventoryItem, onEdit: (item: InventoryItem) => void }) => {
     return (
         <Card className="w-full">
             <CardContent className="p-4 space-y-4">
@@ -66,7 +67,7 @@ const ProductCard = ({ item }: { item: InventoryItem }) => {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem><Pencil className="mr-2 h-4 w-4" /> Edit</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onEdit(item)}><Pencil className="mr-2 h-4 w-4" /> Edit</DropdownMenuItem>
                         <DropdownMenuItem><Rocket className="mr-2 h-4 w-4" /> Start/End Experiment</DropdownMenuItem>
                         <DropdownMenuItem><AlertTriangle className="mr-2 h-4 w-4" /> Write-off / Damage</DropdownMenuItem>
                          <DropdownMenuItem><QrCode className="mr-2 h-4 w-4" /> Reorder</DropdownMenuItem>
@@ -337,6 +338,8 @@ const tabOptions = [
 
 
 export default function InventoryPage() {
+  const [inventory, setInventory] = useState(initialInventory);
+  
   const professionalColor: InventoryItem[] = inventory.filter(
     (item) => item.type === 'professional' && item.category === 'Color'
   );
@@ -374,11 +377,13 @@ export default function InventoryPage() {
 
   const [isReceiveStockOpen, setIsReceiveStockOpen] = useState(false);
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
+  const [isEditProductOpen, setIsEditProductOpen] = useState(false);
   const [isAddEquipmentOpen, setIsAddEquipmentOpen] = useState(false);
   const [isAddOverheadOpen, setIsAddOverheadOpen] = useState(false);
   const [isCreateBundleOpen, setIsCreateBundleOpen] = useState(false);
   const [isAddLocationOpen, setIsAddLocationOpen] = useState(false);
   const [isAddLocationFromProductOpen, setIsAddLocationFromProductOpen] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<InventoryItem | null>(null);
   
   const isMobile = useIsMobile();
   const [activeTab, setActiveTab] = useState('professional');
@@ -386,7 +391,7 @@ export default function InventoryPage() {
   const productCategories = useMemo(() => {
     const categories = inventory.map(i => i.category).filter(Boolean) as string[];
     return [...new Set(categories)];
-  }, []);
+  }, [inventory]);
 
   const handleAddNewLocation = (newLocation: Omit<Location, 'id'>) => {
     const locationWithId = { ...newLocation, id: `loc-${Date.now()}` };
@@ -403,9 +408,22 @@ export default function InventoryPage() {
   };
 
   const handleNewProductCategory = (category: string) => {
-    // In a real app, you might want to update a central category list
+    // In a real app, this would update a central category list if it's not already present
     console.log("New product category added:", category);
   }
+
+  const handleUpdateProduct = (updatedProduct: InventoryItem) => {
+    setInventory(prev => prev.map(p => p.id === updatedProduct.id ? updatedProduct : p));
+    toast({
+        title: "Product Updated",
+        description: `${updatedProduct.name} has been updated successfully.`
+    })
+  };
+
+  const handleOpenEditDialog = (product: InventoryItem) => {
+    setSelectedProduct(product);
+    setIsEditProductOpen(true);
+  };
 
 
   useEffect(() => {
@@ -524,7 +542,7 @@ export default function InventoryPage() {
                       <AccordionItem value="color">
                           <AccordionTrigger className='text-xl font-bold hover:no-underline'>Color</AccordionTrigger>
                           <AccordionContent className="pt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                              {professionalColor.map((item) => <ProductCard key={item.id} item={item} />)}
+                              {professionalColor.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} />)}
                           </AccordionContent>
                       </AccordionItem>
                   </Accordion>
@@ -532,7 +550,7 @@ export default function InventoryPage() {
                       <AccordionItem value="styling">
                            <AccordionTrigger className='text-xl font-bold hover:no-underline'>Styling</AccordionTrigger>
                            <AccordionContent className="pt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                               {professionalStyling.map((item) => <ProductCard key={item.id} item={item} />)}
+                               {professionalStyling.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} />)}
                            </AccordionContent>
                       </AccordionItem>
                   </Accordion>
@@ -540,7 +558,7 @@ export default function InventoryPage() {
                       <AccordionItem value="care">
                            <AccordionTrigger className='text-xl font-bold hover:no-underline'>Care</AccordionTrigger>
                            <AccordionContent className="pt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                               {professionalCare.map((item) => <ProductCard key={item.id} item={item} />)}
+                               {professionalCare.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} />)}
                            </AccordionContent>
                       </AccordionItem>
                   </Accordion>
@@ -548,7 +566,7 @@ export default function InventoryPage() {
                       <AccordionItem value="tools">
                            <AccordionTrigger className='text-xl font-bold hover:no-underline'>Tools</AccordionTrigger>
                            <AccordionContent className="pt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                               {professionalTools.map((item) => <ProductCard key={item.id} item={item} />)}
+                               {professionalTools.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} />)}
                            </AccordionContent>
                       </AccordionItem>
                   </Accordion>
@@ -557,7 +575,7 @@ export default function InventoryPage() {
             </TabsContent>
             <TabsContent value="retail" className="m-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {retailItems.length > 0 ? (
-                  retailItems.map((item) => <ProductCard key={item.id} item={item} />)
+                  retailItems.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} />)
                 ) : (
                   <div className="col-span-full">
                     <EmptyState message="No retail items yet. Add one to get started." />
@@ -566,7 +584,7 @@ export default function InventoryPage() {
             </TabsContent>
             <TabsContent value="overhead" className="m-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {overheadItems.length > 0 ? (
-                  overheadItems.map((item) => <ProductCard key={item.id} item={item} />)
+                  overheadItems.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} />)
                 ) : (
                   <div className="col-span-full">
                     <EmptyState message="No overhead items yet. Add one to get started." />
@@ -575,7 +593,7 @@ export default function InventoryPage() {
             </TabsContent>
             <TabsContent value="equipment" className="m-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {equipmentItems.length > 0 ? (
-                  equipmentItems.map((item) => <ProductCard key={item.id} item={item} />)
+                  equipmentItems.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} />)
                 ) : (
                   <div className="col-span-full">
                     <EmptyState message="No equipment items yet. Add one to get started." />
@@ -655,6 +673,19 @@ export default function InventoryPage() {
         categories={productCategories}
         onNewCategory={handleNewProductCategory}
       />
+      {selectedProduct && (
+        <EditProductDialog
+            open={isEditProductOpen}
+            onOpenChange={setIsEditProductOpen}
+            product={selectedProduct}
+            onProductUpdated={handleUpdateProduct}
+            locations={locations}
+            locationTypes={locationTypes}
+            categories={productCategories}
+            onNewCategory={handleNewProductCategory}
+            onAddNewLocationType={handleAddNewLocationType}
+        />
+      )}
       <AddEquipmentDialog open={isAddEquipmentOpen} onOpenChange={setIsAddEquipmentOpen} />
       <AddOverheadDialog open={isAddOverheadOpen} onOpenChange={setIsAddOverheadOpen} />
       <CreateBundleDialog open={isCreateBundleOpen} onOpenChange={setIsCreateBundleOpen} />
