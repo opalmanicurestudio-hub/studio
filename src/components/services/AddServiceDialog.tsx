@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -22,15 +22,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { PlusCircle, Package, Hammer, Trash2, QrCode, Check } from 'lucide-react';
+import { PlusCircle, Package, Hammer, Trash2, QrCode, Check, AlertTriangle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Slider } from '@/components/ui/slider';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { inventory, type InventoryItem } from '@/lib/data';
+import { inventory, services as allServices, type Service, type InventoryItem } from '@/lib/data';
 import { BrowseProductsDialog } from './BrowseProductsDialog';
 import { SelectEquipmentDialog } from './SelectEquipmentDialog';
+import { SelectAddOnsDialog } from './SelectAddOnsDialog';
+import { useToast } from '@/hooks/use-toast';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 
 const Step1_Basics = ({ 
@@ -86,7 +89,7 @@ const Step1_Basics = ({
                             ))}
                         </SelectContent>
                     </Select>
-                    <Button variant="outline" onClick={() => setIsAddingCategory(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> New</Button>
+                    <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> New</Button>
                 </div>
             )}
         </div>
@@ -136,14 +139,21 @@ const Step2_Formula = ({
     onProductsChange,
     selectedEquipment,
     onEquipmentChange,
+    selectedAddOns,
+    onAddOnsChange,
+    onScanClick,
 }: {
     selectedProducts: InventoryItem[];
     onProductsChange: (products: InventoryItem[]) => void;
     selectedEquipment: InventoryItem[];
     onEquipmentChange: (equipment: InventoryItem[]) => void;
+    selectedAddOns: Service[];
+    onAddOnsChange: (addOns: Service[]) => void;
+    onScanClick: () => void;
 }) => {
     const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
     const [isEquipmentSelectorOpen, setIsEquipmentSelectorOpen] = useState(false);
+    const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
 
     const handleProductSelect = (products: InventoryItem[]) => {
         onProductsChange(products);
@@ -154,6 +164,11 @@ const Step2_Formula = ({
         onEquipmentChange(equipment);
         setIsEquipmentSelectorOpen(false);
     };
+    
+    const handleAddOnSelect = (addOns: Service[]) => {
+        onAddOnsChange(addOns);
+        setIsAddOnSelectorOpen(false);
+    };
 
     const removeProduct = (productId: string) => {
         onProductsChange(selectedProducts.filter(p => p.id !== productId));
@@ -161,6 +176,10 @@ const Step2_Formula = ({
 
     const removeEquipment = (equipmentId: string) => {
         onEquipmentChange(selectedEquipment.filter(e => e.id !== equipmentId));
+    };
+    
+    const removeAddOn = (addOnId: string) => {
+        onAddOnsChange(selectedAddOns.filter(a => a.id !== addOnId));
     };
 
     return (
@@ -194,7 +213,7 @@ const Step2_Formula = ({
                  )}
                 <div className='flex gap-2'>
                     <Button variant="outline" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> Browse Library</Button>
-                    <Button variant="outline"><QrCode className="mr-2 h-4 w-4" /> Scan to Add</Button>
+                    <Button variant="outline" onClick={onScanClick}><QrCode className="mr-2 h-4 w-4" /> Scan to Add</Button>
                 </div>
             </div>
         </div>
@@ -233,12 +252,27 @@ const Step2_Formula = ({
                     <PlusCircle className="w-5 h-5 text-primary" />
                     <Label className="text-lg font-semibold">Compatible Add-ons</Label>
                 </div>
-                 <Card>
-                    <CardContent className="p-4 text-center text-sm text-muted-foreground">
-                        No add-ons selected.
-                    </CardContent>
-                </Card>
-                <Button variant="outline"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button>
+                 {selectedAddOns.length > 0 ? (
+                    <Card>
+                         <CardContent className="p-2 space-y-2">
+                            {selectedAddOns.map(item => (
+                                <div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50">
+                                    <span className="text-sm font-medium">{item.name}</span>
+                                    <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}>
+                                        <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            ))}
+                        </CardContent>
+                    </Card>
+                ) : (
+                    <Card>
+                        <CardContent className="p-4 text-center text-sm text-muted-foreground">
+                            No add-ons selected.
+                        </CardContent>
+                    </Card>
+                )}
+                <Button variant="outline" onClick={() => setIsAddOnSelectorOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button>
             </div>
         </div>
     </div>
@@ -255,6 +289,13 @@ const Step2_Formula = ({
         onSelect={handleEquipmentSelect}
         allEquipment={inventory.filter(i => i.type === 'equipment')}
         initialSelected={selectedEquipment}
+    />
+    <SelectAddOnsDialog
+        open={isAddOnSelectorOpen}
+        onOpenChange={setIsAddOnSelectorOpen}
+        onSelect={handleAddOnSelect}
+        allAddOns={allServices.filter(s => s.type === 'addon')}
+        initialSelected={selectedAddOns}
     />
     </>
     );
@@ -395,19 +436,20 @@ export const AddServiceDialog = ({
     onOpenChange,
     categories,
     onNewCategory,
-}: { 
-    open: boolean; 
-    onOpenChange: (open: boolean) => void;
-    categories: string[];
-    onNewCategory: (category: string) => void;
 }) => {
   const [step, setStep] = useState(1);
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [selectedProducts, setSelectedProducts] = useState<InventoryItem[]>([]);
-  const [selectedEquipment, setSelectedEquipment] = useState<InventoryItem[]>([]);
+  const [imageUrl, setImageUrl] = useState(null);
+  const [selectedProducts, setSelectedProducts] = useState([]);
+  const [selectedEquipment, setSelectedEquipment] = useState([]);
+  const [selectedAddOns, setSelectedAddOns] = useState([]);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [hasCameraPermission, setHasCameraPermission] = useState(undefined);
+  const videoRef = useRef(null);
+  const { toast } = useToast();
+  
   const totalSteps = 4;
   
-  const handleOpenChange = (isOpen: boolean) => {
+  const handleOpenChange = (isOpen) => {
     onOpenChange(isOpen);
     if (!isOpen) {
         setTimeout(() => {
@@ -415,6 +457,7 @@ export const AddServiceDialog = ({
           setImageUrl(null);
           setSelectedProducts([]);
           setSelectedEquipment([]);
+          setSelectedAddOns([]);
         }, 300);
     }
   }
@@ -422,7 +465,38 @@ export const AddServiceDialog = ({
   const handleNext = () => step < totalSteps && setStep(step + 1);
   const handleBack = () => step > 1 && setStep(step - 1);
 
+   useEffect(() => {
+    if (isScannerOpen) {
+      const getCameraPermission = async () => {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+          setHasCameraPermission(true);
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+          }
+        } catch (error) {
+          console.error('Error accessing camera:', error);
+          setHasCameraPermission(false);
+          toast({
+            variant: 'destructive',
+            title: 'Camera Access Denied',
+            description: 'Please enable camera permissions in your browser settings to use the scanner.',
+          });
+          setIsScannerOpen(false);
+        }
+      };
+      getCameraPermission();
+    } else {
+        if (videoRef.current && videoRef.current.srcObject) {
+            const stream = videoRef.current.srcObject;
+            stream.getTracks().forEach(track => track.stop());
+            videoRef.current.srcObject = null;
+        }
+    }
+  }, [isScannerOpen, toast]);
+
   return (
+    <>
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
@@ -441,6 +515,9 @@ export const AddServiceDialog = ({
                     onProductsChange={setSelectedProducts}
                     selectedEquipment={selectedEquipment}
                     onEquipmentChange={setSelectedEquipment}
+                    selectedAddOns={selectedAddOns}
+                    onAddOnsChange={setSelectedAddOns}
+                    onScanClick={() => setIsScannerOpen(true)}
                 />}
                 {step === 3 && <Step3_Deposits />}
                 {step === 4 && <Step4_Pricing />}
@@ -464,5 +541,34 @@ export const AddServiceDialog = ({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
+        <DialogContent className="sm:max-w-md p-0">
+          <DialogHeader className="p-4 pb-0">
+            <DialogTitle>Scan Product</DialogTitle>
+            <DialogDescription>
+              Position the product's barcode or QR code inside the frame.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="p-4 relative">
+             <video ref={videoRef} className="w-full aspect-square rounded-md bg-muted" autoPlay muted playsInline />
+             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
+            </div>
+            {hasCameraPermission === false && (
+                <Alert variant="destructive" className="mt-4">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Camera Access Required</AlertTitle>
+                    <AlertDescription>
+                        Please allow camera access to use the scanner. You may need to change permissions in your browser settings.
+                    </AlertDescription>
+                </Alert>
+            )}
+          </div>
+           <DialogFooter className="p-4 pt-0">
+                <Button variant="outline" onClick={() => setIsScannerOpen(false)}>Cancel</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 };
