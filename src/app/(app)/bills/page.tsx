@@ -101,11 +101,19 @@ const BillFilters = () => {
 };
 
 
-const BillTableRow = ({ bill }: { bill: BillDefinition }) => (
+const BillTableRow = ({ bill }: { bill: BillDefinition }) => {
+    const getDueText = () => {
+        if (bill.billingCycle === 'monthly') {
+            return `The ${bill.dueDay} of each month`;
+        }
+        return `Recurs ${bill.billingCycle}`;
+    }
+
+    return (
     <TableRow>
         <TableCell className="font-medium">{bill.name}</TableCell>
         <TableCell>${bill.amount.toFixed(2)}</TableCell>
-        <TableCell>The {bill.dueDay} of each month</TableCell>
+        <TableCell>{getDueText()}</TableCell>
         <TableCell>
             <Badge
                 variant={bill.context === 'Business' ? 'secondary' : 'outline'}
@@ -121,15 +129,23 @@ const BillTableRow = ({ bill }: { bill: BillDefinition }) => (
              <Button variant="outline" size="sm">Log Payment</Button>
         </TableCell>
     </TableRow>
-);
+    )
+};
 
-const BillCard = ({ bill }: { bill: BillDefinition }) => (
+const BillCard = ({ bill }: { bill: BillDefinition }) => {
+    const getDueText = () => {
+        if (bill.billingCycle === 'monthly') {
+            return `Due on the ${bill.dueDay} of each month`;
+        }
+        return `Recurs ${bill.billingCycle}`;
+    }
+    return (
     <Card>
         <CardContent className="p-4 space-y-3">
             <div className="flex items-start justify-between gap-4">
                 <div>
                     <p className="font-semibold">{bill.name}</p>
-                    <p className="text-sm text-muted-foreground">Due on the {bill.dueDay} of each month</p>
+                    <p className="text-sm text-muted-foreground">{getDueText()}</p>
                 </div>
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -160,7 +176,8 @@ const BillCard = ({ bill }: { bill: BillDefinition }) => (
             <Button variant="secondary" className="w-full">Log Payment</Button>
         </CardFooter>
     </Card>
-);
+    )
+};
 
 
 export default function BillsPage() {
