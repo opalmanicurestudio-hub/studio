@@ -183,9 +183,6 @@ export default function BillsPage() {
               A dashboard for all your recurring business and personal expenses.
             </p>
           </div>
-          <Button>
-            <PlusCircle className="mr-2" /> Add New Bill
-          </Button>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
