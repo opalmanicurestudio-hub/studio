@@ -182,19 +182,16 @@ export default function ServicesPage() {
     setIsProfitTesterOpen(true);
   };
 
-  const { profit, margin } = useMemo(() => {
-    if (!selectedService) return { profit: 0, margin: 0 };
+  const profitability = useMemo(() => {
+    if (!selectedService) return { profit: 0, margin: 0, breakEvenPoint: 0, timeCost: 0 };
     
-    // Time Cost is based on the service's duration and the user's TMHR
     const timeCost = (selectedService.duration / 60) * tmhr;
     
-    // Product cost is already pre-calculated in the service.cost field in mock data
-    // but in a real scenario would be sum of used inventory items.
-    // For this calculation, let's derive it by subtracting profit and time cost from price.
-    // This isn't perfect but allows the tester to work with existing mock data.
+    // In a real app, productCost would be a sum of inventory items.
+    // For this mock data, we derive it from the final price and profit.
     const productCost = selectedService.price - selectedService.profit - ((selectedService.duration / 60) * tmhr);
     
-    const breakEvenPoint = timeCost + productCost;
+    const breakEvenPoint = timeCost + (productCost > 0 ? productCost : 0);
 
     const profitValue = testPrice - breakEvenPoint;
     const marginValue = testPrice > 0 ? (profitValue / testPrice) * 100 : 0;
@@ -224,7 +221,7 @@ export default function ServicesPage() {
   }, {} as Record<string, Service[]>), [addOnServices]);
   
   const serviceCategories = useMemo(() => {
-    const allCategories = services.map(s => s.category).filter(Boolean);
+    const allCategories = services.map(s => s.category).filter((c): c is string => !!c);
     return [...new Set(allCategories)];
   }, []);
 
@@ -309,7 +306,7 @@ export default function ServicesPage() {
               </div>
               <Slider
                 id="price-slider"
-                min={profit.breakEvenPoint || 0}
+                min={profitability.breakEvenPoint || 0}
                 max={(selectedService ? selectedService.price : 0) * 2 + 50}
                 step={1}
                 value={[testPrice]}
@@ -319,16 +316,16 @@ export default function ServicesPage() {
             <div className="grid grid-cols-2 gap-4 rounded-lg bg-muted/50 p-4">
               <div className="text-center">
                 <p className="text-sm text-muted-foreground">Potential Profit</p>
-                <p className={`text-2xl font-bold ${profit >= 0 ? 'text-green-500' : 'text-destructive'}`}>${profit.profit.toFixed(2)}</p>
+                <p className={`text-2xl font-bold ${profitability.profit >= 0 ? 'text-green-500' : 'text-destructive'}`}>${profitability.profit.toFixed(2)}</p>
               </div>
               <div className="text-center">
                 <p className="text-sm text-muted-foreground">Profit Margin</p>
-                <p className={`text-2xl font-bold ${margin >= 0 ? 'text-green-500' : 'text-destructive'}`}>{margin.toFixed(1)}%</p>
+                <p className={`text-2xl font-bold ${profitability.margin >= 0 ? 'text-green-500' : 'text-destructive'}`}>{profitability.margin.toFixed(1)}%</p>
               </div>
             </div>
              <div className='text-xs text-muted-foreground space-y-1 text-center'>
-                <p>Break-Even Point (Time + Products): ${profit.breakEvenPoint?.toFixed(2) || '0.00'}</p>
-                <p>Time Cost ({selectedService?.duration} min): ${profit.timeCost?.toFixed(2) || '0.00'}</p>
+                <p>Break-Even Point (Time + Products): ${profitability.breakEvenPoint?.toFixed(2) || '0.00'}</p>
+                <p>Time Cost ({selectedService?.duration} min): ${profitability.timeCost?.toFixed(2) || '0.00'}</p>
              </div>
           </div>
           <DialogFooter>
@@ -350,4 +347,3 @@ export default function ServicesPage() {
       />
     </div>
   );
-}
