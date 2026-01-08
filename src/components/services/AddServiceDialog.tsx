@@ -71,7 +71,7 @@ const Step1_Basics = ({
     categories: string[];
     onNewCategory: (category: string) => void;
 }) => {
-    const { register, control, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
+    const { register, control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
     const categoryId = watch('categoryId');
@@ -124,7 +124,7 @@ const Step1_Basics = ({
                         )}
                     />
                    
-                    <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> New</Button>
+                    <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"><PlusCircle className="h-4 w-4" /></Button>
                 </div>
             )}
         </div>
@@ -402,7 +402,7 @@ const Step3_Deposits = () => {
 };
 
 const PricingForm = () => {
-    const { control, watch, setValue, register } = useFormContext<ServiceFormData>();
+    const { control, watch, register, setValue } = useFormContext<ServiceFormData>();
     const [tmhr, setTmhr] = useState(0);
 
     useEffect(() => {
@@ -569,8 +569,6 @@ export const AddServiceDialog = ({
         margin: 60,
     }
   });
-
-  const { control, watch } = methods;
   
   const totalSteps = 4;
   
