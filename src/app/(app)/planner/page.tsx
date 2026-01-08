@@ -1,21 +1,23 @@
 
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
-import { appointments, clients, services } from '@/lib/data';
+import { appointments as initialAppointments, clients, services, inventory, type InventoryItem, type Service } from '@/lib/data';
 import { format, addDays, subDays, startOfWeek, setHours, startOfDay } from 'date-fns';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Carousel, CarouselContent, CarouselItem, type CarouselApi } from '@/components/ui/carousel';
 import { cn } from '@/lib/utils';
 import React from 'react';
 import { Badge } from '@/components/ui/badge';
+import { useToast } from '@/hooks/use-toast';
 
 
-const DayTimeline = ({ date, appointmentsForDay }: { date: Date; appointmentsForDay: any[] }) => {
+const DayTimeline = ({ date, appointmentsForDay, onUpdateAppointmentStatus, onMarkCompleted }: { date: Date; appointmentsForDay: any[]; onUpdateAppointmentStatus: (id: string, status: 'confirmed' | 'completed' | 'canceled') => void; onMarkCompleted: (service: Service) => void; }) => {
   const hours = Array.from({ length: 13 }, (_, i) => i + 8); // 8am to 8pm
 
   const getPosition = (time: Date) => {
@@ -109,6 +111,12 @@ const DayTimeline = ({ date, appointmentsForDay }: { date: Date; appointmentsFor
                     <div className="text-[10px] text-current/60 mt-1">
                       {format(apt.startTime, 'h:mm a')} - {format(apt.endTime, 'h:mm a')} ({duration} min)
                     </div>
+                    {apt.status === 'confirmed' && (
+                        <div className='mt-auto pt-2 grid grid-cols-2 gap-1'>
+                             <Button size="xs" variant="ghost" className="h-6 text-xs" onClick={() => onUpdateAppointmentStatus(apt.id, 'canceled')}>Cancel</Button>
+                             <Button size="xs" className="h-6 text-xs" onClick={() => onMarkCompleted(service)}>Complete</Button>
+                        </div>
+                    )}
                     {apt.status === 'completed' && (
                         <div className='mt-auto pt-2 grid grid-cols-3 gap-1 text-[10px] border-t border-current/10'>
                             <div><span className='text-current/60'>Price:</span> ${service.price.toFixed(2)}</div>
@@ -145,11 +153,46 @@ export default function PlannerPage() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [api, setApi] = React.useState<CarouselApi>()
   const [current, setCurrent] = React.useState(new Date().getDay())
+  const [appointments, setAppointments] = useState(initialAppointments);
+  const { toast } = useToast();
 
   const weekDays = useMemo(() => {
     const start = startOfWeek(currentDate, { weekStartsOn: 0 });
     return Array.from({ length: 7 }, (_, i) => addDays(start, i));
   }, [currentDate]);
+
+  const updateAppointmentStatus = useCallback((id: string, status: 'confirmed' | 'completed' | 'canceled') => {
+    setAppointments(prev => prev.map(apt => apt.id === id ? { ...apt, status } : apt));
+  }, []);
+
+  const markCompletedAndTrackUses = useCallback((service: Service) => {
+    // Find the appointment that uses this service and is 'confirmed'
+    const appointmentToComplete = appointments.find(apt => apt.serviceId === service.id && apt.status === 'confirmed');
+    if (!appointmentToComplete) return;
+
+    updateAppointmentStatus(appointmentToComplete.id, 'completed');
+    
+    let experimentsUpdated = 0;
+    (service.products || []).forEach(productInService => {
+      // Since we don't have a shared state management, we can't directly update inventory here.
+      // This part would typically involve dispatching an action to a global store (like Redux/Zustand)
+      // or calling a context method that updates the main inventory state.
+      // For now, we'll just log it.
+      const productInInventory = inventory.find(p => p.id === productInService.id);
+      if (productInInventory?.isExperimentActive) {
+          console.log(`Incrementing experiment uses for ${productInInventory.name}`);
+          experimentsUpdated++;
+          // In a real app: updateInventoryItem(productInInventory.id, { experimentUses: (productInInventory.experimentUses || 0) + 1 });
+      }
+    });
+    
+    toast({
+        title: "Appointment Completed",
+        description: `The appointment has been marked as completed. ${experimentsUpdated > 0 ? `${experimentsUpdated} cost experiment(s) updated.` : ''}`
+    })
+
+  }, [appointments, updateAppointmentStatus, toast]);
+
 
   React.useEffect(() => {
     if (!api) return;
@@ -204,6 +247,8 @@ export default function PlannerPage() {
                 key={date.toString()}
                 date={date}
                 appointmentsForDay={appointmentsForDay}
+                onUpdateAppointmentStatus={updateAppointmentStatus}
+                onMarkCompleted={markCompletedAndTrackUses}
               />
             );
           })}
@@ -220,6 +265,8 @@ export default function PlannerPage() {
                          <DayTimeline
                             date={date}
                             appointmentsForDay={appointmentsForDay}
+                            onUpdateAppointmentStatus={updateAppointmentStatus}
+                            onMarkCompleted={markCompletedAndTrackUses}
                          />
                       </CarouselItem>
                     );
@@ -234,7 +281,3 @@ export default function PlannerPage() {
     </div>
   );
 }
-
-    
-
-    

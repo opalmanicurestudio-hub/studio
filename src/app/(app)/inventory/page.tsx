@@ -1,3 +1,4 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -39,15 +40,17 @@ import {
 import { AddProductDialog } from '@/components/inventory/AddProductDialog';
 import { EditProductDialog } from '@/components/inventory/EditProductDialog';
 import { AddLocationDialog, type Location } from '@/components/inventory/AddLocationDialog';
+import { EndCostPerUseTestDialog } from '@/components/inventory/EndCostPerUseTestDialog';
 import { Textarea } from '@/components/ui/textarea';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { cn } from '@/lib/utils';
 
 
-const ProductCard = ({ item, onEdit }: { item: InventoryItem, onEdit: (item: InventoryItem) => void }) => {
+const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void }) => {
     return (
-        <Card className="w-full">
+        <Card className={cn("w-full transition-all", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
             <CardContent className="p-4 space-y-4">
                 <div className="flex items-start justify-between gap-4">
                     <div className='flex items-start gap-3 flex-1'>
@@ -68,7 +71,17 @@ const ProductCard = ({ item, onEdit }: { item: InventoryItem, onEdit: (item: Inv
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => onEdit(item)}><Pencil className="mr-2 h-4 w-4" /> Edit</DropdownMenuItem>
-                        <DropdownMenuItem><Rocket className="mr-2 h-4 w-4" /> Start/End Experiment</DropdownMenuItem>
+                        {item.type === 'professional' && (
+                            item.isExperimentActive ? (
+                                <DropdownMenuItem onClick={() => onEndExperiment(item)}>
+                                    <CheckCircle className="mr-2 h-4 w-4" /> End Experiment
+                                </DropdownMenuItem>
+                            ) : (
+                                <DropdownMenuItem onClick={() => onToggleExperiment(item)}>
+                                    <Rocket className="mr-2 h-4 w-4" /> Start Experiment
+                                </DropdownMenuItem>
+                            )
+                        )}
                         <DropdownMenuItem><AlertTriangle className="mr-2 h-4 w-4" /> Write-off / Damage</DropdownMenuItem>
                          <DropdownMenuItem><QrCode className="mr-2 h-4 w-4" /> Reorder</DropdownMenuItem>
                         <DropdownMenuSeparator />
@@ -82,13 +95,24 @@ const ProductCard = ({ item, onEdit }: { item: InventoryItem, onEdit: (item: Inv
                         <MapPin className="h-3 w-3" />
                         Back Room
                     </Badge>
+                     {item.isExperimentActive && (
+                        <Badge variant="secondary" className="flex items-center gap-1.5 bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300">
+                            <FlaskConical className="h-3 w-3" /> Experiment Active
+                        </Badge>
+                     )}
                 </div>
                 
                 <Card className='bg-muted/50'>
                     <CardContent className='p-3 text-center'>
                         <p className='text-xs text-muted-foreground'>Total On Hand</p>
                         <p className='text-3xl font-bold'>{item.stock}</p>
-                        <p className='text-xs text-muted-foreground'>30 uses left in open container</p>
+                        {item.isExperimentActive ? (
+                             <p className='text-xs text-purple-500 font-medium'>
+                                {item.experimentUses} uses logged in current experiment
+                            </p>
+                        ) : (
+                             <p className='text-xs text-muted-foreground'>30 uses left in open container</p>
+                        )}
                     </CardContent>
                 </Card>
 
@@ -383,6 +407,7 @@ export default function InventoryPage() {
   const [isCreateBundleOpen, setIsCreateBundleOpen] = useState(false);
   const [isAddLocationOpen, setIsAddLocationOpen] = useState(false);
   const [isAddLocationFromProductOpen, setIsAddLocationFromProductOpen] = useState(false);
+  const [isEndExperimentOpen, setIsEndExperimentOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<InventoryItem | null>(null);
   
   const isMobile = useIsMobile();
@@ -424,6 +449,31 @@ export default function InventoryPage() {
     setSelectedProduct(product);
     setIsEditProductOpen(true);
   };
+  
+  const handleToggleExperiment = (product: InventoryItem) => {
+    setInventory(prev => prev.map(p => 
+      p.id === product.id 
+      ? { ...p, isExperimentActive: !p.isExperimentActive, experimentUses: p.isExperimentActive ? p.experimentUses : 0 } 
+      : p
+    ));
+    toast({
+        title: `Experiment ${product.isExperimentActive ? 'Stopped' : 'Started'}`,
+        description: `Cost-per-use tracking for ${product.name} has been ${product.isExperimentActive ? 'stopped' : 'started'}.`,
+    })
+  };
+  
+  const handleEndExperiment = (product: InventoryItem) => {
+    setSelectedProduct(product);
+    setIsEndExperimentOpen(true);
+  };
+
+  const handleUpdateCost = (productId: string, newCost: number) => {
+    setInventory(prev => prev.map(p => 
+      p.id === productId 
+      ? { ...p, costPerUnit: newCost, isExperimentActive: false, experimentUses: 0 } 
+      : p
+    ));
+  };
 
 
   useEffect(() => {
@@ -460,77 +510,72 @@ export default function InventoryPage() {
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Inventory Hub" />
       <main className="flex-1 p-4 md:p-8 space-y-4">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            
-            {/* Mobile Header: Dropdown for Tabs */}
-             <div className="sm:hidden mb-4">
-                <Select value={activeTab} onValueChange={setActiveTab}>
-                    <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select a category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {tabOptions.map(option => (
-                             <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className='flex items-center gap-2'>
+                {isMobile ? (
+                    <Select value={activeTab} onValueChange={setActiveTab}>
+                        <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Select a category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {tabOptions.map(option => (
+                                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                ) : (
+                    <Tabs value={activeTab} onValueChange={setActiveTab}>
+                        <TabsList>
+                            {tabOptions.map(option => (
+                                <TabsTrigger key={option.value} value={option.value}>{option.label}</TabsTrigger>
+                            ))}
+                        </TabsList>
+                    </Tabs>
+                )}
             </div>
-            
-            {/* Desktop Header: Tab List */}
-             <div className="hidden sm:block mb-4">
-              <TabsList>
-                {tabOptions.map(option => (
-                     <TabsTrigger key={option.value} value={option.value}>{option.label}</TabsTrigger>
-                ))}
-              </TabsList>
+            <div className="flex w-full sm:w-auto items-center gap-2">
+                <Button className="w-full" onClick={() => setIsReceiveStockOpen(true)}><Truck className="mr-2 h-4 w-4" /> Receive Stock</Button>
+                <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="w-full"><PlusCircle className="mr-2 h-4 w-4" /> New</Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => setIsAddProductOpen(true)}><Package className="mr-2 h-4 w-4" /> Add Product</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setIsAddEquipmentOpen(true)}><Hammer className="mr-2 h-4 w-4" /> Add Equipment</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setIsAddOverheadOpen(true)}><Beaker className="mr-2 h-4 w-4" /> Add Overhead Item</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setIsCreateBundleOpen(true)}><FlaskConical className="mr-2 h-4 w-4" /> Create Bundle</DropdownMenuItem>
+                </DropdownMenuContent>
+                </DropdownMenu>
             </div>
-            
-             {/* Action Bar */}
-             <div className="flex flex-col sm:flex-row items-stretch gap-2">
-                <Button className="w-full sm:w-auto" onClick={() => setIsReceiveStockOpen(true)}><Truck className="mr-2 h-4 w-4" /> Receive Stock</Button>
-                <div className="flex w-full sm:w-auto sm:ml-auto items-stretch gap-2">
-                  <Button variant="outline" className="flex-1" asChild>
+        </div>
+        
+        <div className='flex flex-col sm:flex-row gap-2'>
+            <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input placeholder="Search inventory..." className="pl-9" />
+            </div>
+            <div className='flex items-center gap-2'>
+                <Button variant="outline" className='flex-1 sm:flex-initial' onClick={() => setIsScannerOpen(true)}>
+                    <QrCode className="mr-2 h-4 w-4" />
+                    Scan
+                </Button>
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className='flex-1 sm:flex-initial'><SlidersHorizontal className="mr-2 h-4 w-4" /> Filters</Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                    <DropdownMenuItem>Filter by Status</DropdownMenuItem>
+                    <DropdownMenuItem>Filter by Category</DropdownMenuItem>
+                    <DropdownMenuItem>Filter by Vendor</DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+                 <Button variant="outline" className="flex-1 sm:flex-initial" asChild>
                     <Link href="/inventory/labels">
                       <Printer className="mr-2 h-4 w-4" /> Labels
                     </Link>
                   </Button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                       <Button variant="outline" className="flex-1"><PlusCircle className="mr-2 h-4 w-4" /> New</Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => setIsAddProductOpen(true)}><Package className="mr-2 h-4 w-4" /> Add Product</DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setIsAddEquipmentOpen(true)}><Hammer className="mr-2 h-4 w-4" /> Add Equipment</DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setIsAddOverheadOpen(true)}><Beaker className="mr-2 h-4 w-4" /> Add Overhead Item</DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setIsCreateBundleOpen(true)}><FlaskConical className="mr-2 h-4 w-4" /> Create Bundle</DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
             </div>
-            
-             {/* Filter Bar */}
-            <div className='flex flex-col sm:flex-row gap-4'>
-              <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input placeholder="Search inventory..." className="pl-9" />
-              </div>
-              <div className='flex items-center gap-2'>
-                <Button variant="outline" className='flex-1 sm:flex-initial' onClick={() => setIsScannerOpen(true)}>
-                  <QrCode className="mr-2 h-4 w-4" />
-                  Scan
-                </Button>
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="outline" className='flex-1 sm:flex-initial'><SlidersHorizontal className="mr-2 h-4 w-4" /> Filters</Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem>Filter by Status</DropdownMenuItem>
-                      <DropdownMenuItem>Filter by Category</DropdownMenuItem>
-                      <DropdownMenuItem>Filter by Vendor</DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-              </div>
-            </div>
+        </div>
 
           <div className="mt-6 space-y-8">
             <TabsContent value="professional" className="m-0 space-y-6">
@@ -542,7 +587,7 @@ export default function InventoryPage() {
                       <AccordionItem value="color">
                           <AccordionTrigger className='text-xl font-bold hover:no-underline'>Color</AccordionTrigger>
                           <AccordionContent className="pt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                              {professionalColor.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} />)}
+                              {professionalColor.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/>)}
                           </AccordionContent>
                       </AccordionItem>
                   </Accordion>
@@ -550,7 +595,7 @@ export default function InventoryPage() {
                       <AccordionItem value="styling">
                            <AccordionTrigger className='text-xl font-bold hover:no-underline'>Styling</AccordionTrigger>
                            <AccordionContent className="pt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                               {professionalStyling.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} />)}
+                               {professionalStyling.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/>)}
                            </AccordionContent>
                       </AccordionItem>
                   </Accordion>
@@ -558,7 +603,7 @@ export default function InventoryPage() {
                       <AccordionItem value="care">
                            <AccordionTrigger className='text-xl font-bold hover:no-underline'>Care</AccordionTrigger>
                            <AccordionContent className="pt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                               {professionalCare.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} />)}
+                               {professionalCare.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/>)}
                            </AccordionContent>
                       </AccordionItem>
                   </Accordion>
@@ -566,7 +611,7 @@ export default function InventoryPage() {
                       <AccordionItem value="tools">
                            <AccordionTrigger className='text-xl font-bold hover:no-underline'>Tools</AccordionTrigger>
                            <AccordionContent className="pt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                               {professionalTools.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} />)}
+                               {professionalTools.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/>)}
                            </AccordionContent>
                       </AccordionItem>
                   </Accordion>
@@ -575,7 +620,7 @@ export default function InventoryPage() {
             </TabsContent>
             <TabsContent value="retail" className="m-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {retailItems.length > 0 ? (
-                  retailItems.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} />)
+                  retailItems.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/>)
                 ) : (
                   <div className="col-span-full">
                     <EmptyState message="No retail items yet. Add one to get started." />
@@ -584,7 +629,7 @@ export default function InventoryPage() {
             </TabsContent>
             <TabsContent value="overhead" className="m-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {overheadItems.length > 0 ? (
-                  overheadItems.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} />)
+                  overheadItems.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/>)
                 ) : (
                   <div className="col-span-full">
                     <EmptyState message="No overhead items yet. Add one to get started." />
@@ -593,7 +638,7 @@ export default function InventoryPage() {
             </TabsContent>
             <TabsContent value="equipment" className="m-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {equipmentItems.length > 0 ? (
-                  equipmentItems.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} />)
+                  equipmentItems.map((item) => <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment}/>)
                 ) : (
                   <div className="col-span-full">
                     <EmptyState message="No equipment items yet. Add one to get started." />
@@ -628,7 +673,6 @@ export default function InventoryPage() {
                )}
             </TabsContent>
           </div>
-         </Tabs>
       </main>
 
        <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
@@ -685,6 +729,14 @@ export default function InventoryPage() {
             onNewCategory={handleNewProductCategory}
             onAddNewLocationType={handleAddNewLocationType}
         />
+      )}
+      {selectedProduct && (
+          <EndCostPerUseTestDialog
+            open={isEndExperimentOpen}
+            onOpenChange={setIsEndExperimentOpen}
+            product={selectedProduct}
+            onUpdateCost={handleUpdateCost}
+          />
       )}
       <AddEquipmentDialog open={isAddEquipmentOpen} onOpenChange={setIsAddEquipmentOpen} />
       <AddOverheadDialog open={isAddOverheadOpen} onOpenChange={setIsAddOverheadOpen} />

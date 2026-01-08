@@ -40,6 +40,9 @@ export type InventoryItem = {
   costPerUnit: number;
   supplier: string;
   lifespanYears?: number;
+  isExperimentActive?: boolean;
+  experimentUses?: number;
+  estimatedUses?: number;
 };
 
 export type Appointment = {
@@ -89,7 +92,7 @@ export const services: Service[] = [
     products: [
       { id: 'inv-1', name: 'Nail File', type: 'professional', category: 'Tools', stock: 50, costPerUnit: 0.25, supplier: 'ProNailSupply' },
       { id: 'inv-2', name: 'Cuticle Oil', type: 'professional', category: 'Care', stock: 100, costPerUnit: 0.15, supplier: 'ProNailSupply' },
-      { id: 'inv-3', name: 'Base Coat Polish', type: 'professional', category: 'Color', stock: 30, costPerUnit: 0.50, supplier: 'ColorWorld' },
+      { id: 'inv-3', name: 'Base Coat Polish', type: 'professional', category: 'Color', stock: 30, costPerUnit: 0.50, supplier: 'ColorWorld', isExperimentActive: true, experimentUses: 22, estimatedUses: 30 },
       { id: 'inv-4', name: 'Top Coat Polish', type: 'professional', category: 'Color', stock: 30, costPerUnit: 0.50, supplier: 'ColorWorld' },
       { id: 'inv-5', name: 'Red Nail Polish', type: 'professional', category: 'Color', stock: 15, costPerUnit: 0.80, supplier: 'ColorWorld' },
       { id: 'inv-6', name: 'Lotion', type: 'professional', category: 'Care', stock: 100, costPerUnit: 0.30, supplier: 'BeautyCare' },
@@ -100,14 +103,14 @@ export const services: Service[] = [
 export const inventory: InventoryItem[] = [
   { id: 'inv-1', name: 'Nail File', type: 'professional', category: 'Tools', stock: 50, costPerUnit: 0.25, supplier: 'ProNailSupply' },
   { id: 'inv-2', name: 'Cuticle Oil', type: 'professional', category: 'Care', stock: 100, costPerUnit: 0.15, supplier: 'ProNailSupply' },
-  { id: 'inv-3', name: 'Base Coat Polish', type: 'professional', category: 'Color', stock: 30, costPerUnit: 0.50, supplier: 'ColorWorld' },
+  { id: 'inv-3', name: 'Base Coat Polish', type: 'professional', category: 'Color', stock: 30, costPerUnit: 0.50, supplier: 'ColorWorld', isExperimentActive: true, experimentUses: 22, estimatedUses: 30 },
   { id: 'inv-4', name: 'Top Coat Polish', type: 'professional', category: 'Color', stock: 30, costPerUnit: 0.50, supplier: 'ColorWorld' },
   { id: 'inv-5', name: 'Red Nail Polish', type: 'professional', category: 'Color', stock: 15, costPerUnit: 0.80, supplier: 'ColorWorld' },
   { id: 'inv-6', name: 'Lotion', type: 'professional', category: 'Care', stock: 100, costPerUnit: 0.30, supplier: 'BeautyCare' },
   { id: 'inv-7', name: 'UV Gel Lamp', type: 'equipment', category: 'Tools', stock: 2, costPerUnit: 150.00, supplier: 'EquipPro', lifespanYears: 3 },
   { id: 'inv-8', name: 'Disinfectant Wipes', type: 'overhead', category: 'Cleaning', stock: 5, costPerUnit: 10.00, supplier: 'CleanSupplies' },
   { id: 'inv-9', name: 'Retail Shine Serum', type: 'retail', category: 'Styling', stock: 12, costPerUnit: 8.50, supplier: 'BeautyCare' },
-  { id: 'inv-10', name: 'Pro Color Tube 5N', type: 'professional', category: 'Color', stock: 20, costPerUnit: 7.00, supplier: 'ColorWorld' },
+  { id: 'inv-10', name: 'Pro Color Tube 5N', type: 'professional', category: 'Color', stock: 20, costPerUnit: 7.00, supplier: 'ColorWorld', isExperimentActive: false, experimentUses: 0, estimatedUses: 25 },
 ];
 
 export const appointments: Appointment[] = [
@@ -124,5 +127,3 @@ export const quotes: Quote[] = [
   { id: 'q-3', quoteNumber: 'Q-003', clientId: 'cli-1', eventName: 'Corporate Headshots', date: '2024-06-10', status: 'declined', total: 800.00 },
   { id: 'q-4', quoteNumber: 'Q-004', clientId: 'cli-2', eventName: 'Music Video Shoot', date: '2024-06-12', status: 'draft', total: 2600.00 },
 ];
-
-    
