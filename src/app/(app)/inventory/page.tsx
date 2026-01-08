@@ -1,4 +1,3 @@
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -12,7 +11,7 @@ import {
 } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, File, MoreHorizontal, Database, Camera, AlertTriangle, Truck, Search, SlidersHorizontal, QrCode, Package, Hammer, Beaker, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin } from 'lucide-react';
+import { PlusCircle, File, MoreHorizontal, Database, Camera, AlertTriangle, Truck, Search, SlidersHorizontal, QrCode, Package, Hammer, Beaker, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer } from 'lucide-react';
 import { type InventoryItem } from '@/lib/data';
 import {
   DropdownMenu,
@@ -39,6 +38,7 @@ import {
 } from '@/components/ui/select';
 import { AddProductDialog } from '@/components/inventory/AddProductDialog';
 import { Textarea } from '@/components/ui/textarea';
+import Link from 'next/link';
 
 
 const ProductCard = ({ item }: { item: InventoryItem }) => {
@@ -439,23 +439,30 @@ export default function InventoryPage() {
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Inventory Hub" />
       <main className="flex-1 p-4 md:p-8">
-         <Tabs defaultValue="professional" className='w-full'>
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-              <ScrollArea className="w-full whitespace-nowrap sm:w-auto">
-                <TabsList className="inline-grid w-max grid-cols-5 sm:w-auto">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <ScrollArea className="w-full whitespace-nowrap md:w-auto">
+              <Tabs defaultValue="professional" className='w-full'>
+                <TabsList className="inline-grid w-max grid-cols-5 md:w-auto">
                   <TabsTrigger value="professional">Professional</TabsTrigger>
                   <TabsTrigger value="retail">Retail</TabsTrigger>
                   <TabsTrigger value="overhead">Overhead</TabsTrigger>
                   <TabsTrigger value="equipment">Equipment</TabsTrigger>
                   <TabsTrigger value="locations">Locations</TabsTrigger>
                 </TabsList>
-                <ScrollBar orientation="horizontal" className="sm:hidden" />
-              </ScrollArea>
-              <div className="ml-auto w-full sm:w-auto flex flex-col sm:flex-row items-center gap-2">
-                  <Button className="w-full sm:w-auto" onClick={() => setIsReceiveStockOpen(true)}><Truck className="mr-2 h-4 w-4" /> Receive Stock</Button>
+                <ScrollBar orientation="horizontal" className="md:hidden" />
+              </Tabs>
+            </ScrollArea>
+             <div className="flex w-full flex-col items-stretch gap-2 md:w-auto md:flex-row">
+                <Button className="w-full md:w-auto" onClick={() => setIsReceiveStockOpen(true)}><Truck className="mr-2 h-4 w-4" /> Receive Stock</Button>
+                <div className="flex w-full items-stretch gap-2 md:w-auto">
+                  <Button variant="outline" className="w-full" asChild>
+                    <Link href="/inventory/labels">
+                      <Printer className="mr-2 h-4 w-4" /> Print Labels
+                    </Link>
+                  </Button>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                       <Button variant="outline" className="w-full sm:w-auto"><PlusCircle className="mr-2 h-4 w-4" /> Add New</Button>
+                       <Button variant="outline" className="w-full"><PlusCircle className="mr-2 h-4 w-4" /> Add New</Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onClick={() => setIsAddProductOpen(true)}><Package className="mr-2 h-4 w-4" /> Add Product</DropdownMenuItem>
@@ -464,32 +471,34 @@ export default function InventoryPage() {
                       <DropdownMenuItem onClick={() => setIsCreateBundleOpen(true)}><FlaskConical className="mr-2 h-4 w-4" /> Create Bundle</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
-              </div>
+                </div>
             </div>
+          </div>
             
-            <div className='flex flex-col md:flex-row gap-4 mt-4'>
-               <div className="relative w-full md:flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input placeholder="Search inventory..." className="pl-9" />
-              </div>
-              <div className='flex items-center gap-2 w-full md:w-auto'>
-                <Button variant="outline" className='w-full' onClick={() => setIsScannerOpen(true)}>
-                  <QrCode className="mr-2 h-4 w-4" />
-                  Scan
-                </Button>
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                       <Button variant="outline" className='w-full'><SlidersHorizontal className="mr-2 h-4 w-4" /> Filters</Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem>Filter by Status</DropdownMenuItem>
-                      <DropdownMenuItem>Filter by Category</DropdownMenuItem>
-                       <DropdownMenuItem>Filter by Vendor</DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-              </div>
+          <div className='flex flex-col md:flex-row gap-4 mt-4'>
+             <div className="relative w-full md:flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input placeholder="Search inventory..." className="pl-9" />
             </div>
+            <div className='flex items-center gap-2 w-full md:w-auto'>
+              <Button variant="outline" className='flex-1 md:flex-initial' onClick={() => setIsScannerOpen(true)}>
+                <QrCode className="mr-2 h-4 w-4" />
+                Scan
+              </Button>
+              <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                     <Button variant="outline" className='flex-1 md:flex-initial'><SlidersHorizontal className="mr-2 h-4 w-4" /> Filters</Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem>Filter by Status</DropdownMenuItem>
+                    <DropdownMenuItem>Filter by Category</DropdownMenuItem>
+                     <DropdownMenuItem>Filter by Vendor</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+            </div>
+          </div>
 
+          <Tabs defaultValue="professional" className="w-full">
             <div className="mt-6 space-y-4">
               <TabsContent value="professional" className="m-0 space-y-4">
                   <ProductShelf title="Color" items={professionalColor} />
@@ -586,4 +595,3 @@ export default function InventoryPage() {
     </div>
   );
 }
-
