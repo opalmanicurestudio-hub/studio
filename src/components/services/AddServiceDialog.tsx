@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { PlusCircle, Package, Hammer, Trash2, QrCode, Check, AlertTriangle } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Slider } from '@/components/ui/slider';
@@ -446,8 +446,10 @@ const PricingForm = () => {
     const profitMargin = finalPrice > 0 ? (netProfit / finalPrice) * 100 : 0;
 
     useEffect(() => {
-        setValue('price', finalPrice);
-    }, [finalPrice, setValue]);
+        if (pricingStrategy === 'auto') {
+            setValue('price', finalPrice);
+        }
+    }, [finalPrice, setValue, pricingStrategy]);
 
     return (
         <div className="grid gap-6 py-4">
@@ -621,7 +623,13 @@ export const AddServiceDialog = ({
   }
 
   const handleNext = async () => {
-    const isValid = await methods.trigger(['name', 'duration']);
+    const fieldsToValidate: (keyof ServiceFormData)[] = [];
+    if (step === 1) {
+        fieldsToValidate.push('name', 'duration');
+    }
+    
+    const isValid = fieldsToValidate.length > 0 ? await methods.trigger(fieldsToValidate) : true;
+    
     if (isValid && step < totalSteps) {
       setStep(step + 1);
     }
