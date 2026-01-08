@@ -1,3 +1,4 @@
+
 import { BillDefinition, billDefinitions } from './financial-data';
 
 export type Client = {
@@ -199,8 +200,8 @@ export const inventory: InventoryItem[] = [
 
 export const appointments: Appointment[] = Array.from({ length: 21 }, (_, i) => {
     let dayOffset = Math.floor(i / 3);
-    const hour = 9 + Math.floor(Math.random() * 8); // 9am to 5pm
-    const minute = Math.random() > 0.5 ? 30 : 0;
+    const hour = 9 + (i % 8); // 9am to 4pm, deterministic
+    const minute = (i % 2) * 30; // Alternates between 0 and 30
     
     const client = clients[i % clients.length];
     let service = services[i % services.length];
