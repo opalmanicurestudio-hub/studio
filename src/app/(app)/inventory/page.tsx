@@ -360,11 +360,7 @@ export default function InventoryPage() {
   const retailItems: InventoryItem[] = [];
   const overheadItems: InventoryItem[] = [];
   const equipmentItems: InventoryItem[] = [];
-  const locations = [
-      { id: 'loc1', name: 'Color Bar - Shelf A', description: 'Primary storage for all hair color tubes and developers.'},
-      { id: 'loc2', name: 'Back Room - Rack 2', description: 'Overflow and bulk storage.'},
-      { id: 'loc3', name: 'Styling Station 1 - Top Drawer', description: ''},
-  ];
+  const locations: any[] = [];
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
@@ -477,7 +473,7 @@ export default function InventoryPage() {
             <div className="mt-6 space-y-4">
               <TabsContent value="professional" className="m-0 space-y-4">
                 {professionalColor.length === 0 && professionalCare.length === 0 && professionalStyling.length === 0 ? (
-                  <EmptyState message="No professional products yet." />
+                  <EmptyState message="No professional products yet. Add one to get started." />
                 ) : (
                   <>
                     <ProductShelf title="Color" items={professionalColor} />
@@ -488,21 +484,21 @@ export default function InventoryPage() {
               </TabsContent>
               <TabsContent value="retail" className="m-0">
                 {retailItems.length === 0 ? (
-                  <EmptyState message="No retail items yet." />
+                  <EmptyState message="No retail items yet. Add one to get started." />
                 ) : (
                   <ProductShelf title="All Retail" items={retailItems} />
                 )}
               </TabsContent>
               <TabsContent value="overhead" className="m-0">
                 {overheadItems.length === 0 ? (
-                  <EmptyState message="No overhead items yet." />
+                  <EmptyState message="No overhead items yet. Add one to get started." />
                 ) : (
                   <ProductShelf title="All Overhead" items={overheadItems} />
                 )}
               </TabsContent>
               <TabsContent value="equipment" className="m-0">
                 {equipmentItems.length === 0 ? (
-                  <EmptyState message="No equipment items yet." />
+                  <EmptyState message="No equipment items yet. Add one to get started." />
                 ) : (
                   <ProductShelf title="All Equipment" items={equipmentItems} />
                 )}
@@ -515,20 +511,24 @@ export default function InventoryPage() {
                     </div>
                     <Button onClick={() => setIsAddLocationOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> New Location</Button>
                 </div>
-                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {locations.map(location => (
-                        <Card key={location.id}>
-                            <CardHeader>
-                                <CardTitle className="text-lg">{location.name}</CardTitle>
-                                {location.description && <CardDescription>{location.description}</CardDescription>}
-                            </CardHeader>
-                            <CardFooter className="flex gap-2">
-                                <Button variant="outline" size="sm"><Edit className="mr-2 h-3 w-3"/> Edit</Button>
-                                <Button variant="outline" size="sm" className="text-destructive"><Trash2 className="mr-2 h-3 w-3"/> Delete</Button>
-                            </CardFooter>
-                        </Card>
-                    ))}
-                 </div>
+                 {locations.length === 0 ? (
+                    <EmptyState message="No storage locations defined yet. Add one to get started." />
+                 ) : (
+                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {locations.map(location => (
+                            <Card key={location.id}>
+                                <CardHeader>
+                                    <CardTitle className="text-lg">{location.name}</CardTitle>
+                                    {location.description && <CardDescription>{location.description}</CardDescription>}
+                                </CardHeader>
+                                <CardFooter className="flex gap-2">
+                                    <Button variant="outline" size="sm"><Edit className="mr-2 h-3 w-3"/> Edit</Button>
+                                    <Button variant="outline" size="sm" className="text-destructive"><Trash2 className="mr-2 h-3 w-3"/> Delete</Button>
+                                </CardFooter>
+                            </Card>
+                        ))}
+                     </div>
+                 )}
               </TabsContent>
             </div>
          </Tabs>
