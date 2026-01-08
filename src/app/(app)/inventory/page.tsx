@@ -456,7 +456,7 @@ export default function InventoryPage() {
         <Tabs defaultValue="professional" className="w-full space-y-4">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <ScrollArea className="w-full whitespace-nowrap md:w-auto">
-              <TabsList className="inline-grid w-max grid-cols-5 md:w-auto">
+              <TabsList className="inline-flex w-full">
                 <TabsTrigger value="professional">Professional</TabsTrigger>
                 <TabsTrigger value="retail">Retail</TabsTrigger>
                 <TabsTrigger value="overhead">Overhead</TabsTrigger>
@@ -468,14 +468,14 @@ export default function InventoryPage() {
              <div className="flex w-full flex-col items-stretch gap-2 md:w-auto md:flex-row">
                 <Button className="w-full md:w-auto" onClick={() => setIsReceiveStockOpen(true)}><Truck className="mr-2 h-4 w-4" /> Receive Stock</Button>
                 <div className="flex w-full items-stretch gap-2 md:w-auto">
-                  <Button variant="outline" className="w-full" asChild>
+                  <Button variant="outline" className="flex-1" asChild>
                     <Link href="/inventory/labels">
                       <Printer className="mr-2 h-4 w-4" /> Print Labels
                     </Link>
                   </Button>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                       <Button variant="outline" className="w-full"><PlusCircle className="mr-2 h-4 w-4" /> Add New</Button>
+                       <Button variant="outline" className="flex-1"><PlusCircle className="mr-2 h-4 w-4" /> Add New</Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onClick={() => setIsAddProductOpen(true)}><Package className="mr-2 h-4 w-4" /> Add Product</DropdownMenuItem>
