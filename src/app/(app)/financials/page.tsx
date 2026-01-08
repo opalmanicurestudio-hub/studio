@@ -59,10 +59,10 @@ import {
   Globe,
   Calculator,
   Info,
+  Check,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 
 const BillItemCard = ({
   bill,
@@ -157,7 +157,6 @@ const businessCategoriesTemplate = [
    { name: "Miscellaneous", icon: <Sparkles className="w-5 h-5 text-primary"/>, bills: [{title: "Bank Fees", amount: 0, isCustom: true}] }
 ];
 
-// Function to deep copy templates while preserving React elements
 const deepCopyTemplate = (template: any[]) => {
   return template.map(category => ({
     ...category,
@@ -348,11 +347,11 @@ const ScheduleTab = ({ isEditing }: { isEditing: boolean }) => (
                 <CardContent className="grid md:grid-cols-2 gap-6">
                     <div className="space-y-2">
                         <Label>Vacation Days / Year</Label>
-                        <Input type="number" defaultValue="10" disabled={!isEditing} />
+                        <Input type="number" defaultValue="0" disabled={!isEditing} />
                     </div>
                      <div className="space-y-2">
                         <Label>Statutory Holidays / Year</Label>
-                        <Input type="number" defaultValue="8" disabled={!isEditing} />
+                        <Input type="number" defaultValue="0" disabled={!isEditing} />
                     </div>
                 </CardContent>
             </Card>
@@ -377,6 +376,7 @@ const FinancialProfileManager = ({
 }) => {
   const profileKey = `${activeTab}Profiles`;
   const currentProfiles = profiles[profileKey];
+  const [tempName, setTempName] = useState('');
   
   const getActiveProfileId = () => currentProfiles.find((p:any) => p.isActive)?.id;
 
@@ -418,15 +418,23 @@ const FinancialProfileManager = ({
     }))
   }
 
-  const handleRename = (id: string, newName: string) => {
+  const handleStartRename = (profile: any) => {
+    setRenamingProfileId(profile.id);
+    setTempName(profile.name);
+  };
+
+  const handleConfirmRename = () => {
+    if (!renamingProfileId) return;
     setProfiles((prev: any) => ({
       ...prev,
       [profileKey]: prev[profileKey].map((p: any) => 
-        p.id === id ? { ...p, name: newName } : p
+        p.id === renamingProfileId ? { ...p, name: tempName } : p
       ),
     }));
     setRenamingProfileId(null);
+    setTempName('');
   };
+
 
   return (
     <Card className="lg:sticky top-24">
@@ -439,16 +447,21 @@ const FinancialProfileManager = ({
           {currentProfiles.map((profile:any) => (
             <div key={profile.id} className="group/item relative">
               {renamingProfileId === profile.id ? (
-                <Input
-                  defaultValue={profile.name}
-                  autoFocus
-                  onBlur={(e) => handleRename(profile.id, e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleRename(profile.id, e.currentTarget.value);
-                    if (e.key === 'Escape') setRenamingProfileId(null);
-                  }}
-                  className="w-full h-auto py-2 px-3 text-base"
-                />
+                 <div className="flex items-center gap-1 p-1">
+                    <Input
+                      value={tempName}
+                      autoFocus
+                      onChange={(e) => setTempName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleConfirmRename();
+                        if (e.key === 'Escape') setRenamingProfileId(null);
+                      }}
+                      className="w-full h-8"
+                    />
+                    <Button size="icon" className="h-8 w-8" onClick={handleConfirmRename}>
+                        <Check className="h-4 w-4" />
+                    </Button>
+                </div>
               ) : (
                 <Button
                   variant={profile.isActive ? 'secondary' : 'ghost'}
@@ -474,7 +487,7 @@ const FinancialProfileManager = ({
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => setRenamingProfileId(profile.id)}>Rename</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleStartRename(profile)}>Rename</DropdownMenuItem>
                         <DropdownMenuItem>Duplicate</DropdownMenuItem>
                         {activeTab === 'schedule' && <DropdownMenuItem>Set as Public</DropdownMenuItem>}
                         <DropdownMenuItem className="text-destructive" disabled={currentProfiles.length <= 1}>Delete</DropdownMenuItem>
@@ -649,16 +662,37 @@ export default function FinancialFoundationPage() {
                     <TabsTrigger value="schedule">3. Schedule</TabsTrigger>
                 </TabsList>
                 
-                <div className="grid lg:grid-cols-3 xl:grid-cols-4 gap-8 items-start mt-6">
-                    <div className="lg:col-span-1 lg:sticky top-24 space-y-6">
-                        <FinancialProfileManager 
-                            activeTab={activeTab} 
-                            profiles={profiles}
-                            setProfiles={setProfiles}
-                            isEditing={isEditing}
-                            renamingProfileId={renamingProfileId}
-                            setRenamingProfileId={setRenamingProfileId}
-                        />
+                 <div className="grid lg:grid-cols-3 xl:grid-cols-4 gap-8 items-start mt-6">
+                    <div className="lg:col-span-1 space-y-6">
+                       <Card className="block md:hidden">
+                          <Accordion type="single" collapsible>
+                            <AccordionItem value="profile-manager" className="border-b-0">
+                              <AccordionTrigger className='text-lg font-semibold p-4'>
+                                 <span className="capitalize">{activeTab} Profiles</span>
+                              </AccordionTrigger>
+                              <AccordionContent className='p-0'>
+                                <FinancialProfileManager 
+                                    activeTab={activeTab} 
+                                    profiles={profiles}
+                                    setProfiles={setProfiles}
+                                    isEditing={isEditing}
+                                    renamingProfileId={renamingProfileId}
+                                    setRenamingProfileId={setRenamingProfileId}
+                                />
+                              </AccordionContent>
+                            </AccordionItem>
+                          </Accordion>
+                       </Card>
+                       <div className="hidden md:block">
+                           <FinancialProfileManager 
+                                activeTab={activeTab} 
+                                profiles={profiles}
+                                setProfiles={setProfiles}
+                                isEditing={isEditing}
+                                renamingProfileId={renamingProfileId}
+                                setRenamingProfileId={setRenamingProfileId}
+                            />
+                       </div>
                     </div>
                     <div className="lg:col-span-2 xl:col-span-3">
                         <TabsContent value="lifestyle" className="m-0">
@@ -692,3 +726,5 @@ export default function FinancialFoundationPage() {
     </div>
   );
 }
+
+    
