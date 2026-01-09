@@ -676,6 +676,9 @@ export default function InventoryPage() {
   }, [inventory]);
 
   const lastAddedLocationRef = useRef<Location | null>(null);
+  const receivedItemsRef = useRef<ShipmentItem[] | null>(null);
+  const previousInventory = useRef<InventoryItem[]>(inventory);
+  const writtenOffProductRef = useRef<{ name: string; quantity: number; reason: string; cost: number } | null>(null);
   
   const handleAddNewLocation = (newLocation: Omit<Location, 'id'>) => {
     const locationWithId = { ...newLocation, id: `loc-${Date.now()}` };
@@ -684,8 +687,6 @@ export default function InventoryPage() {
     setIsAddLocationOpen(false);
     setIsAddLocationFromProductOpen(false);
   };
-
-  const receivedItemsRef = useRef<ShipmentItem[] | null>(null);
   
   const handleReceiveStock = (items: ShipmentItem[], landedCosts: Record<string, number>) => {
     receivedItemsRef.current = items;
@@ -727,27 +728,13 @@ export default function InventoryPage() {
         });
         lastAddedLocationRef.current = null;
     }
-  }, [locations, toast]);
-  
-  useEffect(() => {
-      if (receivedItemsRef.current) {
-          toast({
-              title: "Stock Received",
-              description: `${receivedItemsRef.current.length} item(s) have been added to your inventory.`
-          });
-          receivedItemsRef.current = null;
-      }
-  }, [inventory, toast]);
-
-  const previousInventory = useRef<InventoryItem[]>();
-  const writtenOffProductRef = useRef<{ name: string; quantity: number; reason: string; cost: number } | null>(null);
-
-  useEffect(() => {
-    if (!previousInventory.current) {
-        previousInventory.current = inventory;
-        return;
+    if (receivedItemsRef.current) {
+        toast({
+            title: "Stock Received",
+            description: `${receivedItemsRef.current.length} item(s) have been added to your inventory.`
+        });
+        receivedItemsRef.current = null;
     }
-
     const toggledProduct = inventory.find(currentProduct => {
         const prevProduct = previousInventory.current?.find(p => p.id === currentProduct.id);
         return prevProduct && prevProduct.isExperimentActive !== currentProduct.isExperimentActive;
@@ -770,8 +757,8 @@ export default function InventoryPage() {
     }
     
     previousInventory.current = inventory;
-  }, [inventory, toast]);
-  
+  }, [inventory, locations, toast]);
+
   const handleAddNewLocationType = (newType: string) => {
     const newLocationType = { id: `lt-${Date.now()}`, name: newType };
     setLocationTypes(prev => [...prev, newLocationType]);
@@ -841,8 +828,11 @@ export default function InventoryPage() {
         product.totalStock -= quantity;
         
         if (batch.stock <= 0 && (reason === 'Expired' || reason === 'Damaged')) {
-            product.partialContainerUses = 0;
-            product.partialContainerSize = 0;
+            if (product.costingMethod === 'uses') {
+              product.partialContainerUses = 0;
+            } else if (product.costingMethod === 'size') {
+              product.partialContainerSize = 0;
+            }
         }
 
         product.batches[batchIndex] = batch;
@@ -913,12 +903,13 @@ export default function InventoryPage() {
     setIsLogUseOpen(true);
   };
   
-  const handleLogUseConfirm = (productId: string, quantity: number, notes: string) => {
+  const handleLogUseConfirm = (productId: string, quantity: number, notes: string): { success: boolean, message: string } => {
+    let result = { success: false, message: 'An unknown error occurred.' };
     setInventory(prevInventory => {
         const newInventory = [...prevInventory];
         const productIndex = newInventory.findIndex(p => p.id === productId);
         if (productIndex === -1) {
-            toast({ variant: 'destructive', title: 'Error', description: 'Product not found.' });
+            result = { success: false, message: 'Product not found.' };
             return prevInventory;
         }
         
@@ -936,7 +927,7 @@ export default function InventoryPage() {
                 }
                 while (usesToFulfill > 0) {
                     if (product.totalStock <= 0) {
-                        toast({ variant: 'destructive', title: 'Out of Stock', description: `Not enough stock for ${product.name}.` });
+                        result = { success: false, message: `Not enough stock for ${product.name}.` };
                         return prevInventory;
                     }
                     product.totalStock -= 1;
@@ -961,7 +952,7 @@ export default function InventoryPage() {
                 }
                  while (sizeToFulfill > 0) {
                     if (product.totalStock <= 0) {
-                        toast({ variant: 'destructive', title: 'Out of Stock', description: `Not enough stock for ${product.name}.` });
+                        result = { success: false, message: `Not enough stock for ${product.name}.` };
                         return prevInventory;
                     }
                     product.totalStock -= 1;
@@ -978,7 +969,7 @@ export default function InventoryPage() {
              if (product.totalStock >= quantity) {
                 product.totalStock -= quantity;
             } else {
-                toast({ variant: 'destructive', title: 'Out of Stock', description: `Not enough stock for ${product.name}.` });
+                result = { success: false, message: `Not enough stock for ${product.name}.` };
                 return prevInventory;
             }
         }
@@ -997,11 +988,12 @@ export default function InventoryPage() {
             unit: product.costingMethod === 'uses' ? 'use' : product.unit || 'unit',
             reason: notes || 'Manual Use Log'
         });
-
-        toast({ title: 'Use Logged', description: `${quantity} ${product.costingMethod === 'uses' ? 'use(s)' : (product.unit || 'unit(s)')} of ${product.name} deducted.` });
+        
+        result = { success: true, message: `${quantity} ${product.costingMethod === 'uses' ? 'use(s)' : (product.unit || 'unit(s)')} of ${product.name} deducted.` };
 
         return newInventory;
     });
+    return result;
 };
   
   const ProductShelf = ({ title, items }: { title: string, items: InventoryItem[] }) => {
@@ -1429,3 +1421,4 @@ export default function InventoryPage() {
     </div>
   );
 }
+

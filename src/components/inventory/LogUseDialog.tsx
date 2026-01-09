@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -18,6 +19,7 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { cn } from '@/lib/utils';
+import { useToast } from '@/hooks/use-toast';
 
 const useSchema = z.object({
   quantity: z.coerce.number().min(0.1, 'Quantity must be greater than 0.'),
@@ -30,7 +32,7 @@ interface LogUseDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   product: InventoryItem;
-  onConfirm: (productId: string, quantity: number, notes: string) => void;
+  onConfirm: (productId: string, quantity: number, notes: string) => { success: boolean, message: string };
 }
 
 export const LogUseDialog: React.FC<LogUseDialogProps> = ({
@@ -50,6 +52,7 @@ export const LogUseDialog: React.FC<LogUseDialogProps> = ({
       quantity: 1,
     }
   });
+  const { toast } = useToast();
 
   useEffect(() => {
     if (open) {
@@ -58,8 +61,21 @@ export const LogUseDialog: React.FC<LogUseDialogProps> = ({
   }, [open, reset]);
 
   const handleFormSubmit = (data: UseFormData) => {
-    onConfirm(product.id, data.quantity, data.reason || 'Manual Use Log');
-    onOpenChange(false);
+    const result = onConfirm(product.id, data.quantity, data.reason || 'Manual Use Log');
+    
+    if (result.success) {
+        toast({
+            title: 'Use Logged',
+            description: result.message,
+        });
+        onOpenChange(false);
+    } else {
+        toast({
+            variant: 'destructive',
+            title: 'Error',
+            description: result.message,
+        });
+    }
   };
 
   const unitLabel = product.costingMethod === 'uses' ? 'Uses' : product.unit || 'units';
