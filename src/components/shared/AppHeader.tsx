@@ -1,3 +1,4 @@
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { Bell, LifeBuoy, LogOut, Settings, User } from 'lucide-react';
+import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 
 type AppHeaderProps = {
   title: string;

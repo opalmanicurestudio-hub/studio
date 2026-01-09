@@ -12,7 +12,9 @@ import {
   SidebarContent,
   SidebarSeparator,
   SidebarGroup,
-  SidebarGroupLabel
+  SidebarGroupLabel,
+  SidebarProvider,
+  SidebarRail,
 } from '@/components/ui/sidebar';
 import {
   LayoutDashboard,
@@ -30,7 +32,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 
-const ClarityFlowLogo = () => (
+export const ClarityFlowLogo = () => (
     <svg
       width="32"
       height="32"
@@ -84,7 +86,8 @@ export function AppSidebar() {
   }
 
   return (
-    <Sidebar>
+    <Sidebar collapsible="icon">
+      <SidebarRail />
       <SidebarHeader>
         <div className="flex items-center gap-2">
             <ClarityFlowLogo />
