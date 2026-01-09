@@ -12,7 +12,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Edit, PlusCircle, Trash2, User, Wrench, DollarSign, FlaskConical } from 'lucide-react';
+import { ArrowLeft, Edit, PlusCircle, Trash2, User, Wrench, DollarSign, FlaskConical, Calendar as CalendarIcon } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -33,6 +33,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ImageUpload } from '@/components/shared/ImageUpload';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { cn } from '@/lib/utils';
 
 const LogMaintenanceDialog = ({
   open,
@@ -45,15 +48,16 @@ const LogMaintenanceDialog = ({
 }) => {
   const [description, setDescription] = useState('');
   const [cost, setCost] = useState(0);
-  const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [date, setDate] = useState<Date | undefined>(new Date());
   const [imageUrl, setImageUrl] = useState('');
 
   const handleSave = () => {
-    onSave({ date, description, cost, imageUrl });
+    if (!date) return;
+    onSave({ date: date.toISOString(), description, cost, imageUrl });
     onOpenChange(false);
     setDescription('');
     setCost(0);
-    setDate(format(new Date(), 'yyyy-MM-dd'));
+    setDate(new Date());
     setImageUrl('');
   };
 
@@ -67,7 +71,29 @@ const LogMaintenanceDialog = ({
         <div className="grid gap-6 py-4">
           <div className="space-y-2">
             <Label htmlFor="maintenance-date">Date</Label>
-            <Input id="maintenance-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  id="maintenance-date"
+                  variant={"outline"}
+                  className={cn(
+                    "w-full justify-start text-left font-normal",
+                    !date && "text-muted-foreground"
+                  )}
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {date ? format(date, "PPP") : <span>Pick a date</span>}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0">
+                <Calendar
+                  mode="single"
+                  selected={date}
+                  onSelect={setDate}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
           </div>
           <div className="space-y-2">
             <Label htmlFor="maintenance-description">Description</Label>
