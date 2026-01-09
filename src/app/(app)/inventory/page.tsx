@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, File, MoreHorizontal, Database, Camera, AlertTriangle, Truck, Search, SlidersHorizontal, QrCode, Package, Hammer, Beaker, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, BellRing, TrendingUp, DollarSign, BarChart, LineChart, FileText } from 'lucide-react';
-import { type InventoryItem, inventory as initialInventory } from '@/lib/data';
+import { type InventoryItem, type Batch, inventory as initialInventory, stockCorrections as initialStockCorrections, type StockCorrection } from '@/lib/data';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -48,7 +48,7 @@ import { Badge } from '@/components/ui/badge';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 import { Carousel, CarouselContent, CarouselItem } from '@/components/ui/carousel';
-import { isPast, parseISO, differenceInYears } from 'date-fns';
+import { isPast, parseISO, differenceInYears, format } from 'date-fns';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 
@@ -58,7 +58,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
         const hasExpiredBatch = item.batches.some(b => b.expirationDate && isPast(parseISO(b.expirationDate)));
         if (hasExpiredBatch) return { label: 'Expired', className: 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-400 dark:border-red-600/30' };
         if (item.totalStock <= 0) return { label: 'Out of Stock', className: 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-400 dark:border-red-600/30' };
-        if (item.totalStock <= (item.reorderPoint || 5)) return { label: 'Low Stock', className: 'bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-400 dark:border-yellow-600/30' };
+        if (item.reorderPoint && item.totalStock <= item.reorderPoint) return { label: 'Low Stock', className: 'bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-400 dark:border-yellow-600/30' };
         return { label: 'In Stock', className: 'bg-green-100 text-green-800 border-green-200 dark:bg-green-900/40 dark:text-green-400 dark:border-green-600/30' };
     }, [item]);
     
@@ -153,7 +153,14 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                              <Database className='w-3 h-3' /> Batches ({item.batches.length})
                         </AccordionTrigger>
                         <AccordionContent className='pt-2'>
-                            <p className='text-xs text-muted-foreground'>Batch details would go here.</p>
+                             <div className="space-y-1 text-xs text-muted-foreground">
+                                {item.batches.map(batch => (
+                                    <div key={batch.id} className="flex justify-between">
+                                        <span>{batch.stock} units @ ${batch.costPerUnit.toFixed(2)}</span>
+                                        <span className="text-right">{format(new Date(batch.receivedDate), 'MMM d, yyyy')}</span>
+                                    </div>
+                                ))}
+                            </div>
                         </AccordionContent>
                     </AccordionItem>
                 </Accordion>
@@ -170,9 +177,72 @@ const EmptyState = ({ message }: { message: string }) => (
     </Card>
 );
 
-const ReceiveStockDialog = ({ open, onOpenChange }: { open: boolean, onOpenChange: (open: boolean) => void }) => {
+type ShipmentItem = InventoryItem & {
+    shipmentQuantity: number;
+    shipmentCost: number;
+};
+
+const ReceiveStockDialog = ({ open, onOpenChange, allProducts, onReceiveStock }: { open: boolean, onOpenChange: (open: boolean) => void, allProducts: InventoryItem[], onReceiveStock: (items: ShipmentItem[], landedCosts: Record<string, number>) => void }) => {
+    const [step, setStep] = useState(1);
+    const [shipmentItems, setShipmentItems] = useState<ShipmentItem[]>([]);
+    const [isProductSelectorOpen, setIsProductSelectorOpen] = useState(false);
+    const [shippingCost, setShippingCost] = useState(0);
+    const [taxes, setTaxes] = useState(0);
+    const [otherFees, setOtherFees] = useState(0);
+
+    const handleClose = () => {
+        onOpenChange(false);
+        setTimeout(() => {
+            setStep(1);
+            setShipmentItems([]);
+            setShippingCost(0);
+            setTaxes(0);
+            setOtherFees(0);
+        }, 300);
+    }
+    
+    const handleProductSelect = (selectedProducts: InventoryItem[]) => {
+        const newShipmentItems: ShipmentItem[] = selectedProducts.map(p => ({
+            ...p,
+            shipmentQuantity: 1,
+            shipmentCost: p.costPerUnit || 0,
+        }));
+        setShipmentItems(newShipmentItems);
+        setIsProductSelectorOpen(false);
+    }
+
+    const updateItem = (id: string, field: 'shipmentQuantity' | 'shipmentCost', value: number) => {
+        setShipmentItems(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
+    }
+    
+    const subtotal = useMemo(() => shipmentItems.reduce((acc, item) => acc + item.shipmentCost, 0), [shipmentItems]);
+    const totalCost = subtotal + shippingCost + taxes + otherFees;
+
+    const landedCosts = useMemo(() => {
+        const costs: Record<string, number> = {};
+        if (subtotal === 0) return costs;
+
+        const additionalCostRatio = (totalCost - subtotal) / subtotal;
+        
+        shipmentItems.forEach(item => {
+            const itemSubtotalCost = item.shipmentCost;
+            const additionalCostForItem = itemSubtotalCost * additionalCostRatio;
+            const landedCostPerUnit = (itemSubtotalCost + additionalCostForItem) / item.shipmentQuantity;
+            costs[item.id] = landedCostPerUnit;
+        });
+
+        return costs;
+    }, [shipmentItems, totalCost, subtotal]);
+
+    const handleConfirm = () => {
+        onReceiveStock(shipmentItems, landedCosts);
+        handleClose();
+    }
+
+
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
+        <>
+        <Dialog open={open} onOpenChange={handleClose}>
             <DialogContent className="sm:max-w-2xl">
                 <DialogHeader>
                     <DialogTitle>Receive Stock</DialogTitle>
@@ -202,10 +272,22 @@ const ReceiveStockDialog = ({ open, onOpenChange }: { open: boolean, onOpenChang
                             <CardTitle>Items in Shipment</CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-4">
-                            <div className='p-4 border rounded-md'>
-                                <p className="text-sm text-muted-foreground mb-4">No items added yet. Add products from your library.</p>
-                                <Button variant="outline"><PlusCircle className="mr-2 h-4 w-4" /> Add Items</Button>
-                            </div>
+                            {shipmentItems.length > 0 ? (
+                                <div className="space-y-3">
+                                {shipmentItems.map(item => (
+                                    <div key={item.id} className="grid grid-cols-[1fr,80px,100px] gap-2 items-center">
+                                        <p className="text-sm font-medium truncate">{item.name}</p>
+                                        <Input type="number" value={item.shipmentQuantity} onChange={e => updateItem(item.id, 'shipmentQuantity', parseInt(e.target.value))} className="h-8 text-sm" />
+                                        <Input type="number" value={item.shipmentCost} onChange={e => updateItem(item.id, 'shipmentCost', parseFloat(e.target.value))} className="h-8 text-sm pl-6" />
+                                    </div>
+                                ))}
+                                </div>
+                            ) : (
+                                <div className='p-4 border rounded-md'>
+                                    <p className="text-sm text-muted-foreground mb-4">No items added yet. Add products from your library.</p>
+                                </div>
+                            )}
+                             <Button variant="outline" onClick={() => setIsProductSelectorOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> Add Items</Button>
                         </CardContent>
                     </Card>
                      <Card>
@@ -213,28 +295,63 @@ const ReceiveStockDialog = ({ open, onOpenChange }: { open: boolean, onOpenChang
                             <CardTitle>Landed Cost Calculator</CardTitle>
                             <CardDescription>Add shipping, taxes, or other fees from the invoice to calculate the true cost per item.</CardDescription>
                         </CardHeader>
-                        <CardContent className="grid grid-cols-3 gap-4">
-                             <div className="space-y-2">
-                                <Label htmlFor="shipping-cost">Shipping</Label>
-                                <Input id="shipping-cost" type="number" placeholder="0.00" />
+                        <CardContent className="space-y-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="shipping-cost">Shipping</Label>
+                                    <Input id="shipping-cost" type="number" placeholder="0.00" value={shippingCost} onChange={e => setShippingCost(parseFloat(e.target.value) || 0)} />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="tax-cost">Taxes</Label>
+                                    <Input id="tax-cost" type="number" placeholder="0.00" value={taxes} onChange={e => setTaxes(parseFloat(e.target.value) || 0)} />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="other-fees">Other Fees</Label>
+                                    <Input id="other-fees" type="number" placeholder="0.00" value={otherFees} onChange={e => setOtherFees(parseFloat(e.target.value) || 0)} />
+                                </div>
                             </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="tax-cost">Taxes</Label>
-                                <Input id="tax-cost" type="number" placeholder="0.00" />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="other-fees">Other Fees</Label>
-                                <Input id="other-fees" type="number" placeholder="0.00" />
-                            </div>
+                            <CardFooter className="p-0 pt-4">
+                                <div className="w-full bg-muted/50 rounded-md p-4 space-y-2">
+                                    <div className="flex justify-between text-sm"><span>Subtotal:</span><span>${subtotal.toFixed(2)}</span></div>
+                                    <div className="flex justify-between text-sm"><span>Additional Costs:</span><span>${(totalCost - subtotal).toFixed(2)}</span></div>
+                                    <div className="flex justify-between font-bold text-base border-t pt-2"><span>Total Shipment Cost:</span><span>${totalCost.toFixed(2)}</span></div>
+                                </div>
+                            </CardFooter>
                         </CardContent>
                     </Card>
+                    {shipmentItems.length > 0 && (
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Landed Cost per Item</CardTitle>
+                            </CardHeader>
+                             <CardContent className="space-y-2">
+                                {shipmentItems.map(item => (
+                                    <div key={item.id} className="flex justify-between text-sm p-2 bg-muted/50 rounded-md">
+                                        <span>{item.name}</span>
+                                        <span className="font-mono font-semibold">${landedCosts[item.id]?.toFixed(2) || '0.00'} / unit</span>
+                                    </div>
+                                ))}
+                             </CardContent>
+                        </Card>
+                    )}
                 </div>
                 <DialogFooter>
-                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                    <Button>Save Shipment &amp; Update Stock</Button>
+                    <Button variant="outline" onClick={handleClose}>Cancel</Button>
+                    <Button onClick={handleConfirm} disabled={shipmentItems.length === 0}>Save Shipment &amp; Update Stock</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
+        <Dialog open={isProductSelectorOpen} onOpenChange={setIsProductSelectorOpen}>
+             <DialogContent>
+                 <DialogHeader>
+                    <DialogTitle>Select Products for Shipment</DialogTitle>
+                 </DialogHeader>
+                 <div className="p-4">
+                     <Button onClick={() => handleProductSelect(allProducts)}>Select All</Button>
+                 </div>
+             </DialogContent>
+        </Dialog>
+        </>
     );
 };
 
@@ -389,6 +506,7 @@ const tabOptions = [
 
 export default function InventoryPage() {
   const [inventory, setInventory] = useState(initialInventory);
+  const [stockCorrections, setStockCorrections] = useState(initialStockCorrections);
   
   const { professionalValue, retailValue, overheadValue, equipmentValue, totalValue } = useMemo(() => {
     let professional = 0;
@@ -661,6 +779,45 @@ export default function InventoryPage() {
         }
     }
   }, [isScannerOpen, toast]);
+
+  const handleReceiveStock = (items: ShipmentItem[], landedCosts: Record<string, number>) => {
+    setInventory(prevInventory => {
+      const newInventory = [...prevInventory];
+      const newCorrections: StockCorrection[] = [];
+
+      items.forEach(item => {
+        const productIndex = newInventory.findIndex(p => p.id === item.id);
+        if (productIndex !== -1) {
+          const newBatch: Batch = {
+            id: `batch-${Date.now()}-${item.id}`,
+            stock: item.shipmentQuantity,
+            costPerUnit: landedCosts[item.id] || item.costPerUnit || 0,
+            receivedDate: new Date().toISOString(),
+          };
+
+          newInventory[productIndex].batches.push(newBatch);
+          newInventory[productIndex].totalStock += item.shipmentQuantity;
+          
+          newCorrections.push({
+            id: `sc-${Date.now()}-${item.id}`,
+            productId: item.id,
+            date: new Date().toISOString(),
+            change: item.shipmentQuantity,
+            unit: newInventory[productIndex].unit || 'unit',
+            reason: 'Shipment Received'
+          });
+        }
+      });
+
+      setStockCorrections(prev => [...prev, ...newCorrections]);
+      return newInventory;
+    });
+
+    toast({
+        title: "Stock Received",
+        description: `${items.length} product(s) have been updated.`
+    });
+  };
   
   const ProductShelf = ({ title, items }: { title: string, items: InventoryItem[] }) => {
     if (items.length === 0) return null;
@@ -997,7 +1154,7 @@ export default function InventoryPage() {
         </DialogContent>
       </Dialog>
 
-      <ReceiveStockDialog open={isReceiveStockOpen} onOpenChange={setIsReceiveStockOpen} />
+      <ReceiveStockDialog open={isReceiveStockOpen} onOpenChange={setIsReceiveStockOpen} allProducts={inventory} onReceiveStock={handleReceiveStock} />
       <AddProductDialog 
         open={isAddProductOpen} 
         onOpenChange={setIsAddProductOpen}
@@ -1059,5 +1216,3 @@ export default function InventoryPage() {
     </div>
   );
 }
-
-    

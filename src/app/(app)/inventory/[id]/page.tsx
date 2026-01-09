@@ -1,4 +1,6 @@
 
+'use server';
+
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -43,24 +45,14 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
   const servicesUsingProduct = services.filter(s => s.products?.some(p => p.id === product.id));
   const productStockCorrections = stockCorrections.filter(sc => sc.productId === product.id).sort((a,b) => parseISO(b.date).getTime() - parseISO(a.date).getTime());
 
-  const stockValue = product.totalStock * (product.costPerUnit || 0);
+  const stockValue = (product.totalStock || 0) * (product.costPerUnit || 0);
 
-  const ledgerWithRunningStock = useMemo(() => {
-    let runningStock = product.totalStock; // Start with the current total stock
-    const sortedCorrections = [...productStockCorrections].sort((a, b) => parseISO(a.date).getTime() - parseISO(b.date).getTime());
-    
-    // We need to calculate the stock at the time of each correction.
-    // To do this, we calculate the total change from all corrections *after* the current one.
-    const correctionsWithStock = sortedCorrections.map((correction, index) => {
-        // Sum all changes that happened *after* this one
-        const futureChanges = sortedCorrections.slice(index + 1).reduce((acc, corr) => acc + corr.change, 0);
-        // The stock at the time of THIS correction was the current stock minus all future changes.
-        const stockAfter = product.totalStock - futureChanges;
-        return { ...correction, stockAfter };
-    }).sort((a, b) => parseISO(b.date).getTime() - parseISO(a.date).getTime());
-
-    return correctionsWithStock;
-  }, [productStockCorrections, product.totalStock]);
+  const ledgerWithRunningStock = productStockCorrections.reduce((acc, correction) => {
+    const previousStock = acc.length > 0 ? acc[acc.length - 1].stockAfter : product.totalStock + correction.change;
+    const stockAfter = previousStock - correction.change;
+    acc.push({ ...correction, stockAfter });
+    return acc;
+  }, [] as (StockCorrection & { stockAfter: number })[]).reverse();
 
 
   return (
@@ -333,5 +325,3 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
     </div>
   );
 }
-
-    
