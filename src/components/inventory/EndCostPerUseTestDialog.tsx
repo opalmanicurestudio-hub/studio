@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React from 'react';
@@ -21,14 +22,14 @@ interface EndCostPerUseTestDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   product: InventoryItem;
-  onUpdateCost: (productId: string, newCost: number) => void;
+  onConfirm: (results: { actualLifespanMonths: number; totalMaintenanceCost: number }) => void;
 }
 
 export const EndCostPerUseTestDialog: React.FC<EndCostPerUseTestDialogProps> = ({
   open,
   onOpenChange,
   product,
-  onUpdateCost,
+  onConfirm,
 }) => {
   const { toast } = useToast();
 
@@ -36,16 +37,21 @@ export const EndCostPerUseTestDialog: React.FC<EndCostPerUseTestDialogProps> = (
   
   if (product.type === 'equipment') {
       const purchaseDate = product.batches[0]?.receivedDate ? parseISO(product.batches[0].receivedDate) : new Date();
-      const actualYearsInService = differenceInYears(new Date(), purchaseDate);
       const actualMonthsInService = differenceInMonths(new Date(), purchaseDate);
-      const estimatedLifespan = product.lifespanYears || 0;
+      const estimatedLifespanMonths = (product.lifespanYears || 0) * 12;
+
+      const purchaseCost = product.costPerUnit || 0;
+      const totalMaintenanceCost = (product.maintenanceHistory || []).reduce((acc, log) => acc + log.cost, 0);
+
+      const estimatedCostPerMonth = estimatedLifespanMonths > 0 ? purchaseCost / estimatedLifespanMonths : 0;
+      const actualCostPerMonth = actualMonthsInService > 0 ? (purchaseCost + totalMaintenanceCost) / actualMonthsInService : 0;
+
 
       const handleConfirm = () => {
-         // In a real app, you might just stop the experiment flag
-         // For now, we'll just show a toast.
+         onConfirm({ actualLifespanMonths: actualMonthsInService, totalMaintenanceCost });
          toast({
             title: "Equipment Experiment Complete!",
-            description: `${product.name} was in service for ${actualMonthsInService} months.`,
+            description: `${product.name} was in service for ${actualMonthsInService} months. Results saved.`,
         });
         onOpenChange(false);
       }
@@ -63,23 +69,35 @@ export const EndCostPerUseTestDialog: React.FC<EndCostPerUseTestDialogProps> = (
                 </DialogDescription>
                 </DialogHeader>
                 <div className="py-4 space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
                         <Card className="bg-muted/50">
                         <CardHeader>
-                            <CardTitle className="text-base">Estimated Lifespan</CardTitle>
+                            <CardTitle className="text-base">Estimate</CardTitle>
                         </CardHeader>
-                        <CardContent className="text-center">
-                            <p className="text-3xl font-bold">{estimatedLifespan}</p>
-                            <p className="text-sm text-muted-foreground">years</p>
+                        <CardContent className="text-center space-y-4">
+                            <div>
+                                <p className="text-3xl font-bold">{product.lifespanYears || 0}</p>
+                                <p className="text-sm text-muted-foreground">years</p>
+                            </div>
+                             <div>
+                                <p className="text-lg font-bold">${estimatedCostPerMonth.toFixed(2)}</p>
+                                <p className="text-xs text-muted-foreground">Est. Cost / Month</p>
+                            </div>
                         </CardContent>
                         </Card>
                         <Card className="border-purple-500/50 shadow-lg shadow-purple-500/10">
                         <CardHeader>
-                            <CardTitle className="text-base text-purple-500">Actual Time in Service</CardTitle>
+                            <CardTitle className="text-base text-purple-500">Actual Results</CardTitle>
                         </CardHeader>
-                        <CardContent className="text-center">
-                            <p className="text-3xl font-bold text-purple-500">{actualMonthsInService}</p>
-                            <p className="text-sm text-muted-foreground">months</p>
+                        <CardContent className="text-center space-y-4">
+                            <div>
+                                <p className="text-3xl font-bold text-purple-500">{actualMonthsInService}</p>
+                                <p className="text-sm text-muted-foreground">months in service</p>
+                            </div>
+                            <div>
+                                <p className="text-lg font-bold text-purple-500">${actualCostPerMonth.toFixed(2)}</p>
+                                <p className="text-xs text-muted-foreground">Actual Cost / Month</p>
+                            </div>
                         </CardContent>
                         </Card>
                     </div>
@@ -89,7 +107,7 @@ export const EndCostPerUseTestDialog: React.FC<EndCostPerUseTestDialogProps> = (
                         Cancel
                     </Button>
                     <Button onClick={handleConfirm}>
-                        End Test
+                        Save & End Test
                     </Button>
                 </DialogFooter>
             </DialogContent>
@@ -106,8 +124,8 @@ export const EndCostPerUseTestDialog: React.FC<EndCostPerUseTestDialogProps> = (
   const oldCostPerUse = landedCost / estimatedUses;
   const newCostPerUse = actualUses > 0 ? landedCost / actualUses : 0;
   
-  const handleConfirm = () => {
-    onUpdateCost(product.id, newCostPerUse);
+  const handleConfirmProduct = () => {
+    // onUpdateCost(product.id, newCostPerUse); // This is now handled by the parent
     toast({
         title: "Experiment Complete!",
         description: `Cost-per-use for ${product.name} updated to $${newCostPerUse.toFixed(3)}.`,
@@ -163,7 +181,7 @@ export const EndCostPerUseTestDialog: React.FC<EndCostPerUseTestDialogProps> = (
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleConfirm}>
+          <Button onClick={handleConfirmProduct}>
             Update Cost & End Test
           </Button>
         </DialogFooter>
@@ -171,3 +189,5 @@ export const EndCostPerUseTestDialog: React.FC<EndCostPerUseTestDialogProps> = (
     </Dialog>
   );
 };
+
+    

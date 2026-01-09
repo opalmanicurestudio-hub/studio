@@ -56,6 +56,7 @@ export type InventoryItem = {
   supplier: string;
   supplierUrl?: string;
   lifespanYears?: number;
+  actualLifespanMonths?: number;
   costPerUnit?: number; // Landed cost of one full container
   reorderPoint?: number;
   imageUrl?: string;
@@ -179,5 +180,7 @@ export const stockCorrections: StockCorrection[] = [
     { id: 'sc-4', productId: 'inv-3', date: '2024-07-18T12:00:00Z', change: 30, unit: 'uses', reason: 'Shipment #SH-001' },
     { id: 'sc-5', productId: 'inv-5', date: '2024-07-17T15:30:00Z', change: -1, unit: 'use', reason: 'Internal Use/Test' },
 ];
+
+    
 
     

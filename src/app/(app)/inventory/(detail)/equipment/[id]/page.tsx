@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -19,7 +20,7 @@ import { useParams } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import Image from 'next/image';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { format, differenceInMonths, parseISO } from 'date-fns';
+import { format, differenceInMonths, parseISO, differenceInYears } from 'date-fns';
 import { type MaintenanceRecord, services, appointments, clients } from '@/lib/data';
 import {
   Dialog,
@@ -183,15 +184,20 @@ export default function EquipmentDetailPage() {
         setIsEndExperimentOpen(true);
     } else {
         setInventory(prev => prev.map(item => 
-            item.id === equipment.id ? { ...item, isExperimentActive: true } : item
+            item.id === equipment.id ? { ...item, isExperimentActive: true, actualLifespanMonths: undefined } : item
         ));
     }
   }
 
-  const handleEndExperimentConfirmed = () => {
+  const handleEndExperimentConfirmed = (results: { actualLifespanMonths: number; totalMaintenanceCost: number }) => {
     if (!equipment) return;
     setInventory(prev => prev.map(item => 
-        item.id === equipment.id ? { ...item, isExperimentActive: false } : item
+        item.id === equipment.id ? { 
+            ...item, 
+            isExperimentActive: false,
+            actualLifespanMonths: results.actualLifespanMonths,
+            // Optionally store totalMaintenanceCostAtExperimentEnd if schema supports it
+        } : item
     ));
     setIsEndExperimentOpen(false);
   };
@@ -296,6 +302,12 @@ export default function EquipmentDetailPage() {
                         <span className="font-medium">Time in Service:</span>
                         <span className="font-mono">{serviceMonths} months</span>
                     </div>
+                     {equipment.actualLifespanMonths !== undefined && !equipment.isExperimentActive && (
+                        <div className="flex justify-between p-3 bg-blue-500/10 rounded-md border border-blue-500/20">
+                            <span className="font-medium text-blue-700 dark:text-blue-300">Last Test Result:</span>
+                            <span className="font-mono text-blue-700 dark:text-blue-300">{equipment.actualLifespanMonths} months</span>
+                        </div>
+                     )}
                     <Button variant="outline" className="w-full" onClick={handleToggleExperiment}>
                         {equipment.isExperimentActive ? <><CheckCircle className="mr-2"/>End Lifespan Test</> : <><Rocket className="mr-2"/>Start Lifespan Test</>}
                     </Button>
@@ -401,9 +413,11 @@ export default function EquipmentDetailPage() {
             open={isEndExperimentOpen} 
             onOpenChange={setIsEndExperimentOpen}
             product={equipment}
-            onUpdateCost={() => handleEndExperimentConfirmed()}
+            onConfirm={handleEndExperimentConfirmed}
         />}
       </main>
     </div>
   );
 }
+
+    
