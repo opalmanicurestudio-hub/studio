@@ -95,9 +95,14 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                         )}
                         <DropdownMenuItem onClick={() => onWriteOff(item)}><PackageX className="mr-2 h-4 w-4" /> Write-off / Damage</DropdownMenuItem>
                         <DropdownMenuSeparator />
+                        <DropdownMenuItem asChild>
+                           <Link href="/inventory/labels">
+                                <QrCode className="mr-2 h-4 w-4" /> Print Label
+                           </Link>
+                        </DropdownMenuItem>
                         <DropdownMenuItem asChild disabled={!item.supplierUrl}>
                            <Link href={item.supplierUrl || '#'} target="_blank" rel="noopener noreferrer">
-                                <QrCode className="mr-2 h-4 w-4" /> Reorder
+                                <Truck className="mr-2 h-4 w-4" /> Reorder from Supplier
                            </Link>
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
