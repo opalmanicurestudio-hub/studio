@@ -43,6 +43,7 @@ import { AddLocationDialog, type Location } from '@/components/inventory/AddLoca
 import { EndCostPerUseTestDialog } from '@/components/inventory/EndCostPerUseTestDialog';
 import { WriteOffDialog } from '@/components/inventory/WriteOffDialog';
 import { ManageSpoilageDialog } from '@/components/inventory/ManageSpoilageDialog';
+import { LogUseDialog } from '@/components/inventory/LogUseDialog';
 import { Textarea } from '@/components/ui/textarea';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
@@ -176,7 +177,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                 <div className='space-y-2'>
                     <Badge variant="secondary" className={cn("w-full justify-center h-6", stockStatus.className)}>{stockStatus.label}</Badge>
                     {item.type === 'professional' && (
-                        <Button variant='outline' size="sm" className='w-full h-8' onClick={() => onLogUse(item)}>Log 1 Use</Button>
+                        <Button variant='outline' size="sm" className='w-full h-8' onClick={() => onLogUse(item)}>Log Use</Button>
                     )}
                 </div>
                 
@@ -538,7 +539,7 @@ const tabOptions = [
 
 
 export default function InventoryPage() {
-  const { inventory, setInventory, addStockCorrection } = useInventory();
+  const { inventory, setInventory, addStockCorrection, stockCorrections } = useInventory();
   const { toast } = useToast();
   
   const { professionalValue, retailValue, overheadValue, equipmentValue, totalValue } = useMemo(() => {
@@ -657,6 +658,7 @@ export default function InventoryPage() {
   const [isEndExperimentOpen, setIsEndExperimentOpen] = useState(false);
   const [isWriteOffOpen, setIsWriteOffOpen] = useState(false);
   const [isManageSpoilageOpen, setIsManageSpoilageOpen] = useState(false);
+  const [isLogUseOpen, setIsLogUseOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<InventoryItem | null>(null);
   
   const isMobile = useIsMobile();
@@ -906,37 +908,83 @@ export default function InventoryPage() {
     }
   }, [isScannerOpen, toast]);
 
-  const handleLogUse = (productToUpdate: InventoryItem) => {
+  const handleOpenLogUse = (product: InventoryItem) => {
+    setSelectedProduct(product);
+    setIsLogUseOpen(true);
+  };
+  
+  const handleLogUseConfirm = (productId: string, quantity: number, notes: string) => {
     setInventory(prevInventory => {
         const newInventory = [...prevInventory];
-        const productIndex = newInventory.findIndex(p => p.id === productToUpdate.id);
+        const productIndex = newInventory.findIndex(p => p.id === productId);
         if (productIndex === -1) {
             toast({ variant: 'destructive', title: 'Error', description: 'Product not found.' });
             return prevInventory;
         }
         
         const product = { ...newInventory[productIndex] };
-        const quantityNeeded = 1; 
-
-        if (product.costingMethod !== 'uses') {
-            toast({ variant: 'destructive', title: 'Not Applicable', description: `Manual use logging is only for products costed 'by uses'.` });
-            return prevInventory;
-        }
         
-        product.partialContainerUses = product.partialContainerUses ?? 0;
-        
-        if (product.partialContainerUses >= quantityNeeded) {
-            product.partialContainerUses -= quantityNeeded;
-        } else if (product.totalStock > 0) {
-            product.totalStock -= 1;
-            product.partialContainerUses = (product.estimatedUses || 1) - quantityNeeded;
+        if (product.costingMethod === 'uses') {
+             product.partialContainerUses = product.partialContainerUses ?? 0;
+            if (product.partialContainerUses >= quantity) {
+                product.partialContainerUses -= quantity;
+            } else {
+                 let usesToFulfill = quantity;
+                if (product.partialContainerUses > 0) {
+                    usesToFulfill -= product.partialContainerUses;
+                    product.partialContainerUses = 0;
+                }
+                while (usesToFulfill > 0) {
+                    if (product.totalStock <= 0) {
+                        toast({ variant: 'destructive', title: 'Out of Stock', description: `Not enough stock for ${product.name}.` });
+                        return prevInventory;
+                    }
+                    product.totalStock -= 1;
+                    const usesPerContainer = product.estimatedUses || 1;
+                    if (usesPerContainer >= usesToFulfill) {
+                        product.partialContainerUses = usesPerContainer - usesToFulfill;
+                        usesToFulfill = 0;
+                    } else {
+                        usesToFulfill -= usesPerContainer;
+                    }
+                }
+            }
+        } else if (product.costingMethod === 'size') {
+            product.partialContainerSize = product.partialContainerSize ?? 0;
+             if (product.partialContainerSize >= quantity) {
+                product.partialContainerSize -= quantity;
+            } else {
+                let sizeToFulfill = quantity;
+                if (product.partialContainerSize > 0) {
+                    sizeToFulfill -= product.partialContainerSize;
+                    product.partialContainerSize = 0;
+                }
+                 while (sizeToFulfill > 0) {
+                    if (product.totalStock <= 0) {
+                        toast({ variant: 'destructive', title: 'Out of Stock', description: `Not enough stock for ${product.name}.` });
+                        return prevInventory;
+                    }
+                    product.totalStock -= 1;
+                    const sizePerContainer = product.size || 0;
+                    if (sizePerContainer >= sizeToFulfill) {
+                        product.partialContainerSize = sizePerContainer - sizeToFulfill;
+                        sizeToFulfill = 0;
+                    } else {
+                        sizeToFulfill -= sizePerContainer;
+                    }
+                }
+            }
         } else {
-            toast({ variant: 'destructive', title: 'Out of Stock', description: `Cannot log use for ${product.name}.` });
-            return prevInventory;
+             if (product.totalStock >= quantity) {
+                product.totalStock -= quantity;
+            } else {
+                toast({ variant: 'destructive', title: 'Out of Stock', description: `Not enough stock for ${product.name}.` });
+                return prevInventory;
+            }
         }
         
         if (product.isExperimentActive) {
-            product.experimentUses = (product.experimentUses || 0) + 1;
+            product.experimentUses = (product.experimentUses || 0) + quantity;
         }
         
         newInventory[productIndex] = product;
@@ -945,12 +993,12 @@ export default function InventoryPage() {
             id: `sc-manual-${Date.now()}`,
             productId: product.id,
             date: new Date().toISOString(),
-            change: -quantityNeeded,
-            unit: 'use',
-            reason: 'Manual Use Log'
+            change: -quantity,
+            unit: product.costingMethod === 'uses' ? 'use' : product.unit || 'unit',
+            reason: notes || 'Manual Use Log'
         });
 
-        toast({ title: 'Use Logged', description: `1 use of ${product.name} deducted.` });
+        toast({ title: 'Use Logged', description: `${quantity} ${product.costingMethod === 'uses' ? 'use(s)' : (product.unit || 'unit(s)')} of ${product.name} deducted.` });
 
         return newInventory;
     });
@@ -966,7 +1014,7 @@ export default function InventoryPage() {
                 <div className="flex w-max space-x-4 pb-4">
                     {items.map((item) => (
                         <div key={item.id} className='w-72'>
-                             <ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleLogUse} />
+                             <ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
                         </div>
                     ))}
                 </div>
@@ -1070,7 +1118,7 @@ export default function InventoryPage() {
   }, [selectedProduct]);
 
   const kpiSection = useMemo(() => (
-    isMobile ? (
+    isMobile && isClient ? (
         <Carousel className="w-full">
             <CarouselContent className="-ml-2">
                 {kpiCards.map((card, index) => (
@@ -1085,7 +1133,7 @@ export default function InventoryPage() {
             {kpiCards}
         </div>
     )
-  ), [isMobile, kpiCards]);
+  ), [isMobile, isClient, kpiCards]);
   
   if (!isClient) {
     return (
@@ -1195,7 +1243,7 @@ export default function InventoryPage() {
                 ) : (
                     filteredItems.length > 0 ? (
                         filteredItems.map(item => (
-                            <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleLogUse} />
+                            <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
                         ))
                     ) : (
                         <div className="col-span-2">
@@ -1342,6 +1390,7 @@ export default function InventoryPage() {
             product={selectedProduct}
             onConfirm={(results) => handleEndExperimentConfirmed(selectedProduct.id, results)}
             usageHistory={usageHistoryForSelectedProduct}
+            stockCorrections={stockCorrections}
           />
       )}
       {selectedProduct && (
@@ -1351,6 +1400,14 @@ export default function InventoryPage() {
           product={selectedProduct}
           onConfirm={handleWriteOff}
         />
+      )}
+      {selectedProduct && (
+          <LogUseDialog 
+            open={isLogUseOpen}
+            onOpenChange={setIsLogUseOpen}
+            product={selectedProduct}
+            onConfirm={handleLogUseConfirm}
+          />
       )}
       <ManageSpoilageDialog
         open={isManageSpoilageOpen}
