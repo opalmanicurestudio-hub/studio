@@ -40,8 +40,8 @@ const CorrectionIcon = ({ reason }: { reason: string }) => {
 }
 
 
-export default function ProductDetailPage() {
-  const { id } = useParams<{ id: string }>();
+export default async function ProductDetailPage({ params }: { params: { id: string } }) {
+  const { id } = params;
   const { inventory, stockCorrections } = useInventory();
   
   const product = inventory.find((p) => p.id === id);
@@ -51,7 +51,7 @@ export default function ProductDetailPage() {
         <div className="flex min-h-screen w-full flex-col">
             <AppHeader title="Product Details" />
             <main className="flex-1 p-4 md:p-8 space-y-6">
-                <div>Loading product...</div>
+                <div>Product not found.</div>
             </main>
         </div>
     )
@@ -63,81 +63,65 @@ export default function ProductDetailPage() {
   const stockValue = (product.totalStock || 0) * (product.costPerUnit || 0);
 
   const ledgerWithRunningStock = useMemo(() => {
-    if (!product) return [];
+    if (!product || productStockCorrections.length === 0) return productStockCorrections;
   
-    // Find the absolute initial state before any corrections
-    const allCorrections = [...productStockCorrections].reverse(); // Oldest first
-  
-    // Find initial batch
-    const initialBatch = product.batches.sort((a, b) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime())[0];
-  
-    let runningTotalStock = initialBatch ? initialBatch.stock : 0;
-    let runningPartialUses = product.costingMethod === 'uses' ? (product.estimatedUses || 0) * runningTotalStock : undefined;
-    let runningPartialSize = product.costingMethod === 'size' ? (product.size || 0) * runningTotalStock : undefined;
-  
-    // We need to find the state at the time of the *first* correction.
-    // Let's replay from the beginning of time (of this product).
+    const correctionsOldestFirst = [...productStockCorrections].reverse();
     
-    // This is a simplified replay. A more robust solution might store snapshots.
-    const initialTotalStock = product.batches.reduce((acc, batch) => acc + batch.stock, 0);
-    const totalChange = allCorrections.reduce((acc, corr) => acc + corr.change, 0);
+    // Calculate the total change from all corrections
+    const totalChange = correctionsOldestFirst.reduce((sum, corr) => sum + corr.change, 0);
 
-    const result = allCorrections.map(correction => {
-        let stockAfter;
-        let partialAfter;
+    // Calculate initial state by reversing the changes from the current state
+    let initialStock = product.totalStock;
+    let initialPartial = product.partialContainerUses ?? product.partialContainerSize ?? 0;
 
+    if (product.costingMethod === 'uses') {
+        const usesPerContainer = product.estimatedUses || 1;
+        let totalUsesChange = totalChange; // change is already in 'uses'
+        
+        let currentTotalUses = (product.totalStock * usesPerContainer) + (product.partialContainerUses || 0);
+        let initialTotalUses = currentTotalUses - totalUsesChange;
+
+        initialStock = Math.floor(initialTotalUses / usesPerContainer);
+        initialPartial = initialTotalUses % usesPerContainer;
+    } else if (product.costingMethod === 'size') {
+        const sizePerContainer = product.size || 1;
+        let totalSizeChange = totalChange; // change is in size units
+
+        let currentTotalSize = (product.totalStock * sizePerContainer) + (product.partialContainerSize || 0);
+        let initialTotalSize = currentTotalSize - totalSizeChange;
+        
+        initialStock = Math.floor(initialTotalSize / sizePerContainer);
+        initialPartial = initialTotalSize % sizePerContainer;
+
+    } else { // For items not tracked by use/size
+        initialStock = product.totalStock - totalChange;
+    }
+    
+    let runningStock = initialStock;
+    let runningPartial = initialPartial;
+  
+    const result = correctionsOldestFirst.map(correction => {
         if (product.costingMethod === 'uses') {
-             if (runningPartialUses === undefined) runningPartialUses = 0;
-             const usesPerContainer = product.estimatedUses || 1;
-             
-             // This assumes `change` is in 'uses' if it's a use-based product
-             const changeInUses = correction.change;
-             
-             if (changeInUses > 0) { // Receiving stock
-                 runningTotalStock += changeInUses / usesPerContainer;
-             } else { //Deducting stock
-                let usesToDeduct = Math.abs(changeInUses);
-                runningPartialUses -= usesToDeduct;
-
-                while (runningPartialUses < 0) {
-                    runningTotalStock -= 1;
-                    runningPartialUses += usesPerContainer;
-                }
-             }
-
-             stockAfter = runningTotalStock;
-             partialAfter = runningPartialUses;
-
+            const usesPerContainer = product.estimatedUses || 1;
+            let totalUses = (runningStock * usesPerContainer) + runningPartial + correction.change;
+            runningStock = Math.floor(totalUses / usesPerContainer);
+            runningPartial = totalUses % usesPerContainer;
         } else if (product.costingMethod === 'size') {
-            if (runningPartialSize === undefined) runningPartialSize = 0;
             const sizePerContainer = product.size || 1;
-
-            const changeInSize = correction.change;
-            if (changeInSize > 0) {
-                runningTotalStock += changeInSize / sizePerContainer;
-            } else {
-                let sizeToDeduct = Math.abs(changeInSize);
-                runningPartialSize -= sizeToDeduct;
-                while (runningPartialSize < 0) {
-                    runningTotalStock -= 1;
-                    runningPartialSize += sizePerContainer;
-                }
-            }
-            stockAfter = runningTotalStock;
-            partialAfter = runningPartialSize;
-
-        } else { // For items not tracked by use/size
-            runningTotalStock += correction.change;
-            stockAfter = runningTotalStock;
+            let totalSize = (runningStock * sizePerContainer) + runningPartial + correction.change;
+            runningStock = Math.floor(totalSize / sizePerContainer);
+            runningPartial = totalSize % sizePerContainer;
+        } else {
+            runningStock += correction.change;
         }
 
         return { 
             ...correction, 
-            stockAfter, 
-            partialAfter 
+            stockAfter: runningStock, 
+            partialAfter: runningPartial,
         };
     });
-
+  
     return result.reverse(); // Newest first for display
   }, [product, productStockCorrections]);
 
@@ -351,8 +335,8 @@ export default function ProductDetailPage() {
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {productStockCorrections.length > 0 ? (
-                                                productStockCorrections.map((correction) => {
+                                            {ledgerWithRunningStock.length > 0 ? (
+                                                ledgerWithRunningStock.map((correction) => {
                                                     let stockAfterDisplay = `${(correction as any).stockAfter?.toFixed(0) || 'N/A'}`;
                                                     if (product.costingMethod === 'uses') {
                                                         stockAfterDisplay = `${Math.floor((correction as any).stockAfter) || 0} full, ${((correction as any).partialAfter || 0)} uses`;
@@ -421,4 +405,3 @@ export default function ProductDetailPage() {
     </div>
   );
 }
-
