@@ -85,6 +85,16 @@ export type Quote = {
   total: number;
 };
 
+export type StockCorrection = {
+  id: string;
+  productId: string;
+  date: string; // ISO date string
+  change: number; // e.g., -20 for 20ml used, 1 for 1 new container
+  unit: string;
+  reason: string; // e.g., 'Appointment #123', 'Manual Count', 'Spoilage'
+};
+
+
 export type Bill = BillDefinition;
 export const bills: Bill[] = billDefinitions;
 
@@ -98,16 +108,16 @@ export const clients: Client[] = [
 ];
 
 export const inventory: InventoryItem[] = [
-  { id: 'inv-1', name: 'Nail File', type: 'professional', category: 'Tools', totalStock: 50, reorderPoint: 20, supplier: 'ProNailSupply', supplierUrl: 'https://www.nails-r-us.com/pro-files', batches: [{id: 'b1-1', stock: 50, costPerUnit: 0.25, receivedDate: '2024-05-01'}], costingMethod: 'uses', estimatedUses: 1, partialContainerUses: 50 },
+  { id: 'inv-1', name: 'Nail File', type: 'professional', category: 'Tools', totalStock: 50, reorderPoint: 20, supplier: 'ProNailSupply', supplierUrl: 'https://www.nails-r-us.com/pro-files', batches: [{id: 'b1-1', stock: 50, costPerUnit: 0.25, receivedDate: '2024-05-01'}], costingMethod: 'uses', estimatedUses: 1, partialContainerUses: 50, unit: 'uses' },
   { id: 'inv-2', name: 'Cuticle Oil', type: 'professional', category: 'Care', totalStock: 1, reorderPoint: 25, supplier: 'ProNailSupply', batches: [{id: 'b2-1', stock: 1, costPerUnit: 15.00, receivedDate: '2024-05-01'}], costingMethod: 'size', size: 500, unit: 'ml', partialContainerSize: 350 },
-  { id: 'inv-3', name: 'Base Coat Polish', type: 'professional', category: 'Color', totalStock: 30, reorderPoint: 10, supplier: 'ColorWorld', isExperimentActive: true, experimentUses: 22, estimatedUses: 30, batches: [{id: 'b3-1', stock: 30, costPerUnit: 0.50, receivedDate: '2024-05-01'}], costingMethod: 'uses', partialContainerUses: 8 },
-  { id: 'inv-4', name: 'Top Coat Polish', type: 'professional', category: 'Color', totalStock: 30, reorderPoint: 10, supplier: 'ColorWorld', batches: [{id: 'b4-1', stock: 30, costPerUnit: 0.50, receivedDate: '2024-05-01'}], costingMethod: 'uses', partialContainerUses: 30 },
-  { id: 'inv-5', name: 'Red Nail Polish', type: 'professional', category: 'Color', totalStock: 15, reorderPoint: 5, supplier: 'ColorWorld', batches: [{id: 'b5-1', stock: 15, costPerUnit: 0.80, receivedDate: '2024-05-01', expirationDate: '2024-06-30'}], costingMethod: 'uses', partialContainerUses: 15 },
+  { id: 'inv-3', name: 'Base Coat Polish', type: 'professional', category: 'Color', totalStock: 30, reorderPoint: 10, supplier: 'ColorWorld', isExperimentActive: true, experimentUses: 22, estimatedUses: 30, batches: [{id: 'b3-1', stock: 30, costPerUnit: 0.50, receivedDate: '2024-05-01'}], costingMethod: 'uses', partialContainerUses: 8, unit: 'uses' },
+  { id: 'inv-4', name: 'Top Coat Polish', type: 'professional', category: 'Color', totalStock: 30, reorderPoint: 10, supplier: 'ColorWorld', batches: [{id: 'b4-1', stock: 30, costPerUnit: 0.50, receivedDate: '2024-05-01'}], costingMethod: 'uses', partialContainerUses: 30, unit: 'uses' },
+  { id: 'inv-5', name: 'Red Nail Polish', type: 'professional', category: 'Color', totalStock: 15, reorderPoint: 5, supplier: 'ColorWorld', batches: [{id: 'b5-1', stock: 15, costPerUnit: 0.80, receivedDate: '2024-05-01', expirationDate: '2024-06-30'}], costingMethod: 'uses', partialContainerUses: 15, unit: 'uses' },
   { id: 'inv-6', name: 'Lotion', type: 'professional', category: 'Care', totalStock: 0, reorderPoint: 20, supplier: 'BeautyCare', batches: [{id: 'b6-1', stock: 0, costPerUnit: 30.00, receivedDate: '2024-05-01'}], costingMethod: 'size', size: 1000, unit: 'ml', partialContainerSize: 50 },
   { id: 'inv-7', name: 'UV Gel Lamp', type: 'equipment', category: 'Tools', totalStock: 2, supplier: 'EquipPro', lifespanYears: 3, batches: [{id: 'b7-1', stock: 2, costPerUnit: 150.00, receivedDate: '2022-01-15'}] },
   { id: 'inv-8', name: 'Disinfectant Wipes', type: 'overhead', category: 'Cleaning', totalStock: 5, reorderPoint: 2, supplier: 'CleanSupplies', batches: [{id: 'b8-1', stock: 5, costPerUnit: 10.00, receivedDate: '2024-06-01'}] },
   { id: 'inv-9', name: 'Retail Shine Serum', type: 'retail', category: 'Styling', totalStock: 12, reorderPoint: 5, supplier: 'BeautyCare', batches: [{id: 'b9-1', stock: 12, costPerUnit: 8.50, receivedDate: '2024-06-01'}] },
-  { id: 'inv-10', name: 'Pro Color Tube 5N', type: 'professional', category: 'Color', totalStock: 2, reorderPoint: 5, supplier: 'ColorWorld', isExperimentActive: false, experimentUses: 0, estimatedUses: 25, batches: [{id: 'b10-1', stock: 2, costPerUnit: 7.00, receivedDate: '2024-06-01'}], costingMethod: 'uses', partialContainerUses: 25 },
+  { id: 'inv-10', name: 'Pro Color Tube 5N', type: 'professional', category: 'Color', totalStock: 2, reorderPoint: 5, supplier: 'ColorWorld', isExperimentActive: false, experimentUses: 0, estimatedUses: 25, batches: [{id: 'b10-1', stock: 2, costPerUnit: 7.00, receivedDate: '2024-06-01'}], costingMethod: 'uses', partialContainerUses: 25, unit: 'uses' },
 ];
 
 export const services: Service[] = [
@@ -149,3 +159,13 @@ export const quotes: Quote[] = [
   { id: 'q-3', quoteNumber: 'Q-003', clientId: 'cli-1', eventName: 'Corporate Headshots', date: '2024-06-10', status: 'declined', total: 800.00 },
   { id: 'q-4', quoteNumber: 'Q-004', clientId: 'cli-2', eventName: 'Music Video Shoot', date: '2024-06-12', status: 'draft', total: 2600.00 },
 ];
+
+export const stockCorrections: StockCorrection[] = [
+    { id: 'sc-1', productId: 'inv-3', date: '2024-07-20T11:50:00Z', change: -1, unit: 'use', reason: 'Appointment #apt-2' },
+    { id: 'sc-2', productId: 'inv-2', date: '2024-07-20T11:50:00Z', change: -5, unit: 'ml', reason: 'Appointment #apt-2' },
+    { id: 'sc-3', productId: 'inv-9', date: '2024-07-19T18:00:00Z', change: -1, unit: 'unit', reason: 'Retail Sale' },
+    { id: 'sc-4', productId: 'inv-3', date: '2024-07-18T12:00:00Z', change: 30, unit: 'uses', reason: 'Shipment #SH-001' },
+    { id: 'sc-5', productId: 'inv-5', date: '2024-07-17T15:30:00Z', change: -1, unit: 'use', reason: 'Internal Use/Test' },
+];
+
+    

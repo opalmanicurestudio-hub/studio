@@ -1,3 +1,4 @@
+
 /**
  * # Firestore Security Rules
  *
@@ -237,5 +238,16 @@ service cloud.firestore {
     match /tenants/{tenantId}/transactions/{transactionId} {
         allow read, write: if isTenantOwner(tenantId);
     }
+
+    /**
+     * @description Rules for stock corrections. This data is private.
+     * @path /tenants/{tenantId}/stockCorrections/{correctionId}
+     * @principle Enforces strict data privacy for a tenant's inventory audit trail.
+     */
+    match /tenants/{tenantId}/stockCorrections/{correctionId} {
+        allow read, write: if isTenantOwner(tenantId);
+    }
   }
 }
+
+    

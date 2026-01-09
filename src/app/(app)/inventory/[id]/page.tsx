@@ -1,4 +1,6 @@
 
+'use client';
+
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -8,8 +10,8 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Edit, DollarSign, Package, AlertCircle, ShoppingCart, BarChart, FileText, Clock, Database, Book, QrCode, Tag, Truck } from 'lucide-react';
-import { inventory, services } from '@/lib/data';
+import { ArrowLeft, Edit, DollarSign, Package, AlertCircle, ShoppingCart, BarChart, FileText, Clock, Database, Book, QrCode, Tag, Truck, TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
+import { inventory, services, stockCorrections, type StockCorrection } from '@/lib/data';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -24,6 +26,13 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { format, isPast, parseISO } from 'date-fns';
+import { cn } from '@/lib/utils';
+
+const CorrectionIcon = ({ reason }: { reason: string }) => {
+    if (reason.startsWith('Appointment')) return <TrendingDown className="h-4 w-4 text-red-500" />;
+    if (reason.startsWith('Shipment')) return <TrendingUp className="h-4 w-4 text-green-500" />;
+    return <RefreshCw className="h-4 w-4 text-gray-500" />;
+}
 
 export default function ProductDetailPage({ params }: { params: { id: string } }) {
   const product = inventory.find((p) => p.id === params.id);
@@ -33,6 +42,7 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
   }
   
   const servicesUsingProduct = services.filter(s => s.products?.some(p => p.id === product.id));
+  const productStockCorrections = stockCorrections.filter(sc => sc.productId === product.id).sort((a,b) => parseISO(b.date).getTime() - parseISO(a.date).getTime());
 
   const stockValue = product.totalStock * (product.costPerUnit || 0);
 
@@ -214,21 +224,58 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
                                     <div>
                                         <h4 className="font-medium mb-2">Used In Services</h4>
                                         <div className="space-y-2">
-                                            {servicesUsingProduct.map(service => (
-                                                <div key={service.id} className="p-2 bg-muted/50 rounded-md text-sm">{service.name}</div>
-                                            ))}
+                                            {servicesUsingProduct.length > 0 ? (
+                                                servicesUsingProduct.map(service => (
+                                                    <div key={service.id} className="p-2 bg-muted/50 rounded-md text-sm">{service.name}</div>
+                                                ))
+                                            ) : (
+                                                <p className="text-xs text-center text-muted-foreground py-4">Not used in any services yet.</p>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
                             )}
                         </TabsContent>
                         <TabsContent value="history">
-                            <Tabs defaultValue="batches">
+                            <Tabs defaultValue="ledger">
                                 <TabsList className="grid w-full grid-cols-3">
-                                    <TabsTrigger value="batches"><Database className="w-4 h-4 mr-2"/>Batches</TabsTrigger>
                                     <TabsTrigger value="ledger"><Book className="w-4 h-4 mr-2"/>Ledger</TabsTrigger>
+                                    <TabsTrigger value="batches"><Database className="w-4 h-4 mr-2"/>Batches</TabsTrigger>
                                     <TabsTrigger value="notes"><FileText className="w-4 h-4 mr-2"/>Notes</TabsTrigger>
                                 </TabsList>
+                                <TabsContent value="ledger" className="mt-4">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Date</TableHead>
+                                                <TableHead>Reason</TableHead>
+                                                <TableHead className='text-right'>Change</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {productStockCorrections.length > 0 ? (
+                                                productStockCorrections.map((correction) => (
+                                                    <TableRow key={correction.id}>
+                                                        <TableCell>{format(parseISO(correction.date), 'MMM d, yyyy')}</TableCell>
+                                                        <TableCell>
+                                                            <div className="flex items-center gap-2">
+                                                                <CorrectionIcon reason={correction.reason} />
+                                                                <span>{correction.reason}</span>
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell className={cn('text-right font-mono', correction.change > 0 ? 'text-green-500' : 'text-red-500')}>
+                                                            {correction.change > 0 ? '+' : ''}{correction.change} {correction.unit}
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))
+                                            ) : (
+                                                <TableRow>
+                                                    <TableCell colSpan={3} className="text-center text-muted-foreground py-8">No inventory movements recorded yet.</TableCell>
+                                                </TableRow>
+                                            )}
+                                        </TableBody>
+                                    </Table>
+                                </TabsContent>
                                 <TabsContent value="batches" className="mt-4">
                                     <Table>
                                         <TableHeader>
@@ -251,9 +298,6 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
                                         </TableBody>
                                     </Table>
                                 </TabsContent>
-                                <TabsContent value="ledger" className="mt-4">
-                                     <p className="text-sm text-center text-muted-foreground py-8">Inventory ledger coming soon.</p>
-                                </TabsContent>
                                 <TabsContent value="notes" className="mt-4">
                                      <p className="text-sm text-center text-muted-foreground py-8">Internal notes coming soon.</p>
                                 </TabsContent>
@@ -268,3 +312,5 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
     </div>
   );
 }
+
+    
