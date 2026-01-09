@@ -728,6 +728,16 @@ export default function InventoryPage() {
     }
   }, [activeTab, inventory, retailItems, overheadItems, equipmentItems]);
 
+  if (isMobile === undefined) {
+    return (
+      <div className="flex min-h-screen w-full flex-col">
+        <AppHeader title="Inventory Hub" />
+        <main className="flex-1 p-4 md:p-8 space-y-6">
+           {/* Render a skeleton or loading state */}
+        </main>
+      </div>
+    )
+  }
 
   return (
     <div className="flex min-h-screen w-full flex-col">
