@@ -746,15 +746,6 @@ export default function InventoryPage() {
         return;
     }
 
-    if (writtenOffProductRef.current) {
-        const { name, quantity, reason, cost } = writtenOffProductRef.current;
-        toast({
-            title: "Inventory Written Off",
-            description: `${quantity} unit(s) of ${name} written off as ${reason}. Expense of $${cost.toFixed(2)} logged.`
-        });
-        writtenOffProductRef.current = null;
-    }
-
     const toggledProduct = inventory.find(currentProduct => {
         const prevProduct = previousInventory.current?.find(p => p.id === currentProduct.id);
         return prevProduct && prevProduct.isExperimentActive !== currentProduct.isExperimentActive;
@@ -767,6 +758,15 @@ export default function InventoryPage() {
         });
     }
 
+    if (writtenOffProductRef.current) {
+        const { name, quantity, reason, cost } = writtenOffProductRef.current;
+        toast({
+            title: "Inventory Written Off",
+            description: `${quantity} unit(s) of ${name} written off as ${reason}. Expense of $${cost.toFixed(2)} logged.`
+        });
+        writtenOffProductRef.current = null;
+    }
+    
     previousInventory.current = inventory;
   }, [inventory, toast]);
   
@@ -838,6 +838,12 @@ export default function InventoryPage() {
         batch.stock -= quantity;
         product.totalStock -= quantity;
         
+        // If writing off from the currently "open" partial container, reset partials
+        if (batch.stock === 0) {
+            product.partialContainerUses = 0;
+            product.partialContainerSize = 0;
+        }
+
         product.batches[batchIndex] = batch;
         newInventory[productIndex] = product;
         
@@ -1064,6 +1070,10 @@ export default function InventoryPage() {
       }));
   }, [selectedProduct]);
 
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+  
   if (!isClient) {
     return (
       <div className="flex min-h-screen w-full flex-col">
@@ -1363,3 +1373,4 @@ export default function InventoryPage() {
     </div>
   );
 }
+
