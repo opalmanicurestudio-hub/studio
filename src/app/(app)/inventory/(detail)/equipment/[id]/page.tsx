@@ -13,7 +13,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Edit, PlusCircle, Trash2, User, Wrench, DollarSign, FlaskConical, Calendar as CalendarIcon, Rocket, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Edit, PlusCircle, Trash2, User, Wrench, DollarSign, FlaskConical, Calendar as CalendarIcon, Rocket, CheckCircle, Percent, TrendingUp } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -21,7 +21,7 @@ import { Badge } from '@/components/ui/badge';
 import Image from 'next/image';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { format, differenceInMonths, parseISO, differenceInYears } from 'date-fns';
-import { type MaintenanceRecord, services, appointments, clients } from '@/lib/data';
+import { type MaintenanceRecord, services, appointments, clients, type LifespanTestResult } from '@/lib/data';
 import {
   Dialog,
   DialogContent,
@@ -202,18 +202,19 @@ export default function EquipmentDetailPage() {
         setIsEndExperimentOpen(true);
     } else {
         setInventory(prev => prev.map(item => 
-            item.id === equipment.id ? { ...item, isExperimentActive: true, actualLifespanMonths: undefined } : item
+            item.id === equipment.id ? { ...item, isExperimentActive: true, lastTestResult: undefined } : item
         ));
     }
   }
 
-  const handleEndExperimentConfirmed = (results: { actualLifespanMonths: number; totalMaintenanceCost: number }) => {
+  const handleEndExperimentConfirmed = (results: LifespanTestResult) => {
     if (!equipment) return;
     setInventory(prev => prev.map(item => 
         item.id === equipment.id ? { 
             ...item, 
             isExperimentActive: false,
-            actualLifespanMonths: results.actualLifespanMonths,
+            lastTestResult: results,
+            actualLifespanMonths: results.actualLifespanMonths, // Keep for backward compatibility if needed elsewhere
         } : item
     ));
     setIsEndExperimentOpen(false);
@@ -297,18 +298,27 @@ export default function EquipmentDetailPage() {
                     <CardTitle>Lifespan Test</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                    <div className="flex justify-between p-3 bg-muted/50 rounded-md">
+                     <div className="flex justify-between p-3 bg-muted/50 rounded-md">
                         <span className="font-medium">Time in Service:</span>
                         <span className="font-mono">{serviceMonths} months</span>
                     </div>
-                     {equipment.actualLifespanMonths !== undefined && !equipment.isExperimentActive && (
-                        <div className="flex justify-between p-3 bg-blue-500/10 rounded-md border border-blue-500/20">
-                            <span className="font-medium text-blue-700 dark:text-blue-300">Last Test Result:</span>
-                            <span className="font-mono text-blue-700 dark:text-blue-300">{equipment.actualLifespanMonths} months</span>
-                        </div>
+                     {equipment.lastTestResult && !equipment.isExperimentActive && (
+                        <Card className="border-blue-500/30">
+                            <CardHeader className="pb-2">
+                                <CardTitle className="text-base flex items-center gap-2 text-blue-600 dark:text-blue-400">
+                                    <CheckCircle className="h-5 w-5" /> Last Test Results
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent className="text-sm space-y-2">
+                                <div className="flex justify-between"><span className="text-muted-foreground">Actual Lifespan:</span> <span className="font-semibold">{equipment.lastTestResult.actualLifespanMonths} months</span></div>
+                                <div className="flex justify-between"><span className="text-muted-foreground">Total Revenue:</span> <span className="font-semibold">${equipment.lastTestResult.totalRevenue.toFixed(2)}</span></div>
+                                <div className="flex justify-between"><span className="text-muted-foreground">Total Maintenance:</span> <span className="font-semibold">${equipment.lastTestResult.totalMaintenanceCost.toFixed(2)}</span></div>
+                                <div className="flex justify-between font-bold text-base pt-1 border-t"><span className="text-blue-600 dark:text-blue-400">ROI:</span> <span className="text-blue-600 dark:text-blue-400">{equipment.lastTestResult.roi.toFixed(1)}%</span></div>
+                            </CardContent>
+                        </Card>
                      )}
                     <Button variant="outline" className="w-full" onClick={handleToggleExperiment}>
-                        {equipment.isExperimentActive ? <><CheckCircle className="mr-2"/>End Lifespan Test</> : <><Rocket className="mr-2"/>Start Lifespan Test</>}
+                        {equipment.isExperimentActive ? <><CheckCircle className="mr-2"/>End Lifespan Test</> : <><Rocket className="mr-2"/>Start New Lifespan Test</>}
                     </Button>
                 </CardContent>
              </Card>

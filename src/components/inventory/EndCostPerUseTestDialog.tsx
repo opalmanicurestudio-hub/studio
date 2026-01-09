@@ -12,8 +12,8 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { FlaskConical, TrendingUp, TrendingDown, Percent } from 'lucide-react';
-import { type Appointment, type InventoryItem, type Service } from '@/lib/data';
+import { FlaskConical, TrendingUp, TrendingDown, Percent, DollarSign } from 'lucide-react';
+import { type Appointment, type InventoryItem, type Service, type LifespanTestResult } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { differenceInMonths, parseISO } from 'date-fns';
 
@@ -21,7 +21,7 @@ interface EndCostPerUseTestDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   product: InventoryItem;
-  onConfirm: (results: { actualLifespanMonths: number; totalMaintenanceCost: number }) => void;
+  onConfirm: (results: LifespanTestResult) => void;
   usageHistory?: {
     apt: Appointment;
     client: any;
@@ -79,7 +79,12 @@ export const EndCostPerUseTestDialog: React.FC<EndCostPerUseTestDialogProps> = (
   
   if (product.type === 'equipment') {
       const handleConfirm = () => {
-         onConfirm({ actualLifespanMonths: actualMonthsInService, totalMaintenanceCost });
+         onConfirm({ 
+            actualLifespanMonths: actualMonthsInService, 
+            totalMaintenanceCost,
+            totalRevenue,
+            roi,
+        });
          toast({
             title: "Equipment Experiment Complete!",
             description: `${product.name} was in service for ${actualMonthsInService} months. Results saved.`,
@@ -169,8 +174,10 @@ export const EndCostPerUseTestDialog: React.FC<EndCostPerUseTestDialogProps> = (
   
   const handleConfirmProduct = () => {
     onConfirm({
-        actualLifespanMonths: actualUses,
-        totalMaintenanceCost: 0 
+        actualLifespanMonths: actualUses, // Using this field to store uses for product
+        totalMaintenanceCost: 0,
+        totalRevenue: 0, // Not applicable for consumable products
+        roi: 0 // Not applicable for consumable products
     });
     toast({
         title: "Experiment Complete!",

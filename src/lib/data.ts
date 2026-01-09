@@ -47,6 +47,13 @@ export type Batch = {
   expirationDate?: string; // ISO date string
 };
 
+export type LifespanTestResult = {
+  actualLifespanMonths: number;
+  totalMaintenanceCost: number;
+  totalRevenue: number;
+  roi: number;
+};
+
 export type InventoryItem = {
   id: string;
   name: string;
@@ -57,6 +64,7 @@ export type InventoryItem = {
   supplierUrl?: string;
   lifespanYears?: number;
   actualLifespanMonths?: number;
+  lastTestResult?: LifespanTestResult;
   costPerUnit?: number; // Landed cost of one full container
   reorderPoint?: number;
   imageUrl?: string;
