@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -89,8 +89,19 @@ const EmptyState = ({ onAddClient }: { onAddClient: () => void }) => (
 export default function ClientsPage() {
   const [isAddClientOpen, setIsAddClientOpen] = useState(false);
   const [isMergeClientsOpen, setIsMergeClientsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  
+  const filteredClients = useMemo(() => {
+    return clients
+      .filter(client => 
+        client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        client.email.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+      .sort((a,b) => new Date(b.lastAppointment).getTime() - new Date(a.lastAppointment).getTime());
+  }, [searchTerm]);
   
   const hasClients = clients.length > 0;
+  const hasFilteredClients = filteredClients.length > 0;
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -106,7 +117,12 @@ export default function ClientsPage() {
                 <div className="flex flex-col sm:flex-row items-center gap-4">
                     <div className="relative w-full sm:max-w-xs">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input placeholder="Search by name or email..." className="pl-9" />
+                        <Input 
+                            placeholder="Search by name or email..." 
+                            className="pl-9"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                         />
                     </div>
                     <div className="ml-auto flex w-full flex-col sm:flex-row sm:w-auto items-center gap-2">
                         <Button variant="outline" className='w-full sm:w-auto'><FileDown className="mr-2 h-4 w-4" /> Export</Button>
@@ -116,14 +132,18 @@ export default function ClientsPage() {
                 </div>
             </CardHeader>
             <CardContent>
-                 {hasClients ? (
+                 {!hasClients ? (
+                    <EmptyState onAddClient={() => setIsAddClientOpen(true)} />
+                 ) : !hasFilteredClients ? (
+                    <div className="text-center py-20 px-6">
+                        <p className="text-muted-foreground">No clients found for &quot;{searchTerm}&quot;.</p>
+                    </div>
+                 ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                        {[...clients].sort((a,b) => new Date(b.lastAppointment).getTime() - new Date(a.lastAppointment).getTime()).map((client) => (
+                        {filteredClients.map((client) => (
                             <ClientCard key={client.id} client={client} />
                         ))}
                     </div>
-                 ) : (
-                    <EmptyState onAddClient={() => setIsAddClientOpen(true)} />
                  )}
             </CardContent>
         </Card>

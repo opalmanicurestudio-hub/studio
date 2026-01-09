@@ -1,7 +1,7 @@
 
 'use client';
 
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -57,8 +57,20 @@ const kpiData = {
   pastDue: 250,
 };
 
+type StatusFilter = 'all' | 'due-today' | 'past-due' | 'paid';
+type ContextFilter = 'all' | 'Business' | 'Personal';
 
-const BillFilters = () => {
+const BillFilters = ({
+  onStatusChange,
+  onContextChange,
+  status,
+  context,
+}: {
+  onStatusChange: (status: StatusFilter) => void;
+  onContextChange: (context: ContextFilter) => void;
+  status: StatusFilter;
+  context: ContextFilter;
+}) => {
   return (
     <Card className="h-fit sticky top-24">
       <CardHeader>
@@ -66,34 +78,35 @@ const BillFilters = () => {
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2">
-            <Label>Status</Label>
-            <Select>
-                <SelectTrigger>
-                    <SelectValue placeholder="All Statuses" />
-                </SelectTrigger>
-                <SelectContent>
-                    <SelectItem value="due-today">Due Today</SelectItem>
-                    <SelectItem value="past-due">Past Due</SelectItem>
-                    <SelectItem value="paid">Paid</SelectItem>
-                </SelectContent>
-            </Select>
+          <Label>Status</Label>
+          <Select value={status} onValueChange={(value) => onStatusChange(value as StatusFilter)}>
+            <SelectTrigger>
+              <SelectValue placeholder="All Statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Statuses</SelectItem>
+              <SelectItem value="due-today">Due Today</SelectItem>
+              <SelectItem value="past-due">Past Due</SelectItem>
+              <SelectItem value="paid">Paid</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-         <div className="space-y-2">
-            <Label>Context</Label>
-            <RadioGroup defaultValue="all" className="grid grid-cols-3 gap-2">
-                <div>
-                    <RadioGroupItem value="all" id="all" className="peer sr-only" />
-                    <Label htmlFor="all" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">All</Label>
-                </div>
-                <div>
-                    <RadioGroupItem value="business" id="business" className="peer sr-only" />
-                    <Label htmlFor="business" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Business</Label>
-                </div>
-                <div>
-                    <RadioGroupItem value="personal" id="personal" className="peer sr-only" />
-                    <Label htmlFor="personal" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Personal</Label>
-                </div>
-            </RadioGroup>
+        <div className="space-y-2">
+          <Label>Context</Label>
+          <RadioGroup value={context} onValueChange={(value) => onContextChange(value as ContextFilter)} className="grid grid-cols-3 gap-2">
+            <div>
+              <RadioGroupItem value="all" id="all" className="peer sr-only" />
+              <Label htmlFor="all" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">All</Label>
+            </div>
+            <div>
+              <RadioGroupItem value="Business" id="business" className="peer sr-only" />
+              <Label htmlFor="business" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Business</Label>
+            </div>
+            <div>
+              <RadioGroupItem value="Personal" id="personal" className="peer sr-only" />
+              <Label htmlFor="personal" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Personal</Label>
+            </div>
+          </RadioGroup>
         </div>
       </CardContent>
     </Card>
@@ -181,6 +194,18 @@ const BillCard = ({ bill }: { bill: BillDefinition }) => {
 
 
 export default function BillsPage() {
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [contextFilter, setContextFilter] = useState<ContextFilter>('all');
+
+  const filteredBills = useMemo(() => {
+    return billDefinitions.filter(bill => {
+      const contextMatch = contextFilter === 'all' || bill.context === contextFilter;
+      // Note: Status logic is placeholder as we don't have bill instances yet.
+      const statusMatch = statusFilter === 'all' || (statusFilter === 'past-due' && bill.name.includes('Insurance'));
+      return contextMatch && statusMatch;
+    });
+  }, [contextFilter, statusFilter]);
+
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Bills" />
@@ -232,7 +257,12 @@ export default function BillsPage() {
                 <AccordionItem value="filters">
                     <AccordionTrigger>Filter Bills</AccordionTrigger>
                     <AccordionContent>
-                        <BillFilters />
+                        <BillFilters 
+                            onStatusChange={setStatusFilter} 
+                            onContextChange={setContextFilter} 
+                            status={statusFilter}
+                            context={contextFilter}
+                        />
                     </AccordionContent>
                 </AccordionItem>
             </Accordion>
@@ -240,7 +270,12 @@ export default function BillsPage() {
 
         <div className="grid md:grid-cols-3 lg:grid-cols-4 gap-8">
             <div className="hidden md:block md:col-span-1 lg:col-span-1">
-                <BillFilters />
+                <BillFilters 
+                    onStatusChange={setStatusFilter} 
+                    onContextChange={setContextFilter}
+                    status={statusFilter}
+                    context={contextFilter}
+                />
             </div>
              <div className="md:col-span-2 lg:col-span-3">
                 <Card className="hidden md:block">
@@ -260,7 +295,7 @@ export default function BillsPage() {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {billDefinitions.map((bill) => (
+                            {filteredBills.map((bill) => (
                                <BillTableRow key={bill.id} bill={bill} />
                             ))}
                         </TableBody>
@@ -268,7 +303,7 @@ export default function BillsPage() {
                     </CardContent>
                 </Card>
                 <div className="space-y-4 md:hidden">
-                     {billDefinitions.map((bill) => (
+                     {filteredBills.map((bill) => (
                         <BillCard key={bill.id} bill={bill} />
                     ))}
                 </div>
