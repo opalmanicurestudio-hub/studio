@@ -12,7 +12,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Edit, PlusCircle, Trash2, User, Wrench } from 'lucide-react';
+import { ArrowLeft, Edit, PlusCircle, Trash2, User, Wrench, DollarSign, FlaskConical } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -80,13 +80,17 @@ const LogMaintenanceDialog = ({
           </div>
           <div className="space-y-2">
             <Label htmlFor="maintenance-cost">Cost</Label>
-            <Input
-              id="maintenance-cost"
-              type="number"
-              value={cost}
-              onChange={(e) => setCost(parseFloat(e.target.value) || 0)}
-              placeholder="0.00"
-            />
+            <div className="relative">
+                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                id="maintenance-cost"
+                type="number"
+                value={cost || ''}
+                onChange={(e) => setCost(parseFloat(e.target.value) || 0)}
+                placeholder="0.00"
+                className="pl-8"
+                />
+            </div>
           </div>
            <div className="space-y-2">
             <Label>Photo Evidence</Label>
