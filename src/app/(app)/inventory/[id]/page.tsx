@@ -1,6 +1,4 @@
 
-'use client';
-
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -312,5 +310,3 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
     </div>
   );
 }
-
-    
