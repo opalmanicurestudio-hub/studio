@@ -19,7 +19,7 @@ import { useParams } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import Image from 'next/image';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { format, differenceInMonths } from 'date-fns';
+import { format, differenceInMonths, parseISO } from 'date-fns';
 import { type MaintenanceRecord, services, appointments, clients } from '@/lib/data';
 import {
   Dialog,
@@ -112,7 +112,7 @@ export default function EquipmentDetailPage() {
     const lifespanMonths = (equipment.lifespanYears || 5) * 12;
     const monthlyDepreciation = lifespanMonths > 0 ? purchaseCost / lifespanMonths : 0;
     
-    const purchaseDate = equipment.batches[0]?.receivedDate ? new Date(equipment.batches[0].receivedDate) : new Date();
+    const purchaseDate = equipment.batches[0]?.receivedDate ? parseISO(equipment.batches[0].receivedDate) : new Date();
     const monthsInService = differenceInMonths(new Date(), purchaseDate);
     
     const calculatedAccumulatedDepreciation = Math.min(monthlyDepreciation * monthsInService, purchaseCost);
@@ -262,7 +262,7 @@ export default function EquipmentDetailPage() {
                             {equipment.maintenanceHistory && equipment.maintenanceHistory.length > 0 ? (
                                 equipment.maintenanceHistory.map(log => (
                                     <TableRow key={log.id}>
-                                        <TableCell>{format(new Date(log.date), 'MMM d, yyyy')}</TableCell>
+                                        <TableCell>{format(parseISO(log.date), 'MMM d, yyyy')}</TableCell>
                                         <TableCell>{log.description}</TableCell>
                                         <TableCell className="text-right">${log.cost.toFixed(2)}</TableCell>
                                         <TableCell>
