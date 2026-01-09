@@ -510,6 +510,7 @@ const tabOptions = [
 export default function InventoryPage() {
   const [inventory, setInventory] = useState(initialInventory);
   const [stockCorrections, setStockCorrections] = useState(initialStockCorrections);
+  const { toast } = useToast();
   
   const { professionalValue, retailValue, overheadValue, equipmentValue, totalValue } = useMemo(() => {
     let professional = 0;
@@ -615,7 +616,6 @@ export default function InventoryPage() {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const { toast } = useToast();
   const lastAddedLocationRef = useRef<Location | null>(null);
 
   const [isReceiveStockOpen, setIsReceiveStockOpen] = useState(false);
@@ -639,15 +639,32 @@ export default function InventoryPage() {
     return [...new Set(categories)];
   }, [inventory]);
 
+  const prevLocationsLength = useRef(locations.length);
+  const prevStockCorrectionsLength = useRef(stockCorrections.length);
+  const receivedItemsRef = useRef<ShipmentItem[] | null>(null);
+
   useEffect(() => {
-    if (lastAddedLocationRef.current) {
+    if (locations.length > prevLocationsLength.current && lastAddedLocationRef.current) {
         toast({
             title: "Location Added",
             description: `${lastAddedLocationRef.current.name} has been created.`
         });
         lastAddedLocationRef.current = null; // Reset after showing toast
     }
+    prevLocationsLength.current = locations.length;
   }, [locations, toast]);
+  
+  useEffect(() => {
+    if (stockCorrections.length > prevStockCorrectionsLength.current && receivedItemsRef.current) {
+         toast({
+            title: "Stock Received",
+            description: `${receivedItemsRef.current.length} product(s) have been updated.`
+        });
+        receivedItemsRef.current = null; // Reset
+    }
+     prevStockCorrectionsLength.current = stockCorrections.length;
+  }, [stockCorrections, toast]);
+
 
   const handleAddNewLocation = (newLocation: Omit<Location, 'id'>) => {
     const locationWithId = { ...newLocation, id: `loc-${Date.now()}` };
@@ -795,6 +812,7 @@ export default function InventoryPage() {
   }, [isScannerOpen, toast]);
 
   const handleReceiveStock = (items: ShipmentItem[], landedCosts: Record<string, number>) => {
+    receivedItemsRef.current = items;
     setInventory(prevInventory => {
       const newInventory = [...prevInventory];
       const newCorrections: StockCorrection[] = [];
@@ -825,11 +843,6 @@ export default function InventoryPage() {
 
       setStockCorrections(prev => [...prev, ...newCorrections]);
       return newInventory;
-    });
-
-    toast({
-        title: "Stock Received",
-        description: `${items.length} product(s) have been updated.`
     });
   };
 
