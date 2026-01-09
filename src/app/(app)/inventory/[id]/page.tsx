@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/table';
 import { format, isPast, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { useMemo } from 'react';
 
 const CorrectionIcon = ({ reason }: { reason: string }) => {
     if (reason.startsWith('Appointment')) return <TrendingDown className="h-4 w-4 text-red-500" />;
@@ -43,6 +44,24 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
   const productStockCorrections = stockCorrections.filter(sc => sc.productId === product.id).sort((a,b) => parseISO(b.date).getTime() - parseISO(a.date).getTime());
 
   const stockValue = product.totalStock * (product.costPerUnit || 0);
+
+  const ledgerWithRunningStock = useMemo(() => {
+    let runningStock = product.totalStock; // Start with the current total stock
+    const sortedCorrections = [...productStockCorrections].sort((a, b) => parseISO(a.date).getTime() - parseISO(b.date).getTime());
+    
+    // We need to calculate the stock at the time of each correction.
+    // To do this, we calculate the total change from all corrections *after* the current one.
+    const correctionsWithStock = sortedCorrections.map((correction, index) => {
+        // Sum all changes that happened *after* this one
+        const futureChanges = sortedCorrections.slice(index + 1).reduce((acc, corr) => acc + corr.change, 0);
+        // The stock at the time of THIS correction was the current stock minus all future changes.
+        const stockAfter = product.totalStock - futureChanges;
+        return { ...correction, stockAfter };
+    }).sort((a, b) => parseISO(b.date).getTime() - parseISO(a.date).getTime());
+
+    return correctionsWithStock;
+  }, [productStockCorrections, product.totalStock]);
+
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -248,13 +267,14 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
                                                 <TableHead>Date</TableHead>
                                                 <TableHead>Reason</TableHead>
                                                 <TableHead className='text-right'>Change</TableHead>
+                                                <TableHead className='text-right'>Stock After</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {productStockCorrections.length > 0 ? (
-                                                productStockCorrections.map((correction) => (
+                                            {ledgerWithRunningStock.length > 0 ? (
+                                                ledgerWithRunningStock.map((correction) => (
                                                     <TableRow key={correction.id}>
-                                                        <TableCell>{format(parseISO(correction.date), 'MMM d, yyyy')}</TableCell>
+                                                        <TableCell>{format(parseISO(correction.date), 'MMM d, yyyy h:mm a')}</TableCell>
                                                         <TableCell>
                                                             <div className="flex items-center gap-2">
                                                                 <CorrectionIcon reason={correction.reason} />
@@ -264,11 +284,14 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
                                                         <TableCell className={cn('text-right font-mono', correction.change > 0 ? 'text-green-500' : 'text-red-500')}>
                                                             {correction.change > 0 ? '+' : ''}{correction.change} {correction.unit}
                                                         </TableCell>
+                                                         <TableCell className="text-right font-mono">
+                                                            {correction.stockAfter.toFixed(2)} {correction.unit}
+                                                        </TableCell>
                                                     </TableRow>
                                                 ))
                                             ) : (
                                                 <TableRow>
-                                                    <TableCell colSpan={3} className="text-center text-muted-foreground py-8">No inventory movements recorded yet.</TableCell>
+                                                    <TableCell colSpan={4} className="text-center text-muted-foreground py-8">No inventory movements recorded yet.</TableCell>
                                                 </TableRow>
                                             )}
                                         </TableBody>
@@ -310,3 +333,5 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
     </div>
   );
 }
+
+    
