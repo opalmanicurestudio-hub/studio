@@ -58,7 +58,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
     const stockStatus = useMemo(() => {
         const hasExpiredBatch = item.batches.some(b => b.expirationDate && isPast(parseISO(b.expirationDate)));
         if (hasExpiredBatch) return { label: 'Expired', className: 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-400 dark:border-red-600/30' };
-        if (item.totalStock <= 0) return { label: 'Out of Stock', className: 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-400 dark:border-red-600/30' };
+        if (item.totalStock <= 0 && (item.partialContainerUses === undefined || item.partialContainerUses === 0) && (item.partialContainerSize === undefined || item.partialContainerSize === 0) ) return { label: 'Out of Stock', className: 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-400 dark:border-red-600/30' };
         if (item.reorderPoint && item.totalStock <= item.reorderPoint) return { label: 'Low Stock', className: 'bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-400 dark:border-yellow-600/30' };
         return { label: 'In Stock', className: 'bg-green-100 text-green-800 border-green-200 dark:bg-green-900/40 dark:text-green-400 dark:border-green-600/30' };
     }, [item]);
@@ -855,60 +855,51 @@ export default function InventoryPage() {
 
   const handleLogUse = (productToUpdate: InventoryItem) => {
     setInventory(prevInventory => {
-      const newInventory = [...prevInventory];
-      const productIndex = newInventory.findIndex(p => p.id === productToUpdate.id);
-      if (productIndex === -1) return prevInventory;
-      
-      const product = { ...newInventory[productIndex] };
-      const quantityNeeded = 1; 
-
-      let newCorrection: StockCorrection | null = null;
-      let changeDescription = '';
-
-      if (product.costingMethod === 'uses') {
-        product.partialContainerUses = product.partialContainerUses ?? product.estimatedUses ?? 0;
+        const newInventory = [...prevInventory];
+        const productIndex = newInventory.findIndex(p => p.id === productToUpdate.id);
+        if (productIndex === -1) return prevInventory;
         
-        if (product.partialContainerUses >= quantityNeeded) {
+        const product = { ...newInventory[productIndex] };
+        const quantityNeeded = 1; 
+
+        if (product.costingMethod !== 'uses') {
+            toast({ variant: 'destructive', title: 'Not Applicable', description: `Manual use logging is only for products costed 'by uses'.` });
+            return prevInventory;
+        }
+        
+        product.partialContainerUses = product.partialContainerUses ?? 0;
+        
+        if (product.partialContainerUses > 0) {
             product.partialContainerUses -= quantityNeeded;
+        } else if (product.totalStock > 0) {
+            product.totalStock -= 1;
+            product.partialContainerUses = (product.estimatedUses || 0) - quantityNeeded;
         } else {
-            if (product.totalStock > 0) {
-                product.totalStock -= 1;
-                product.partialContainerUses += (product.estimatedUses || 0) - quantityNeeded;
-            } else {
-                toast({ variant: 'destructive', title: 'Out of Stock', description: `Cannot log use for ${product.name}.` });
-                return prevInventory;
-            }
-        }
-        if (product.isExperimentActive) {
-          product.experimentUses = (product.experimentUses || 0) + 1;
+            toast({ variant: 'destructive', title: 'Out of Stock', description: `Cannot log use for ${product.name}.` });
+            return prevInventory;
         }
         
-        newCorrection = {
-          id: `sc-manual-${Date.now()}`,
-          productId: product.id,
-          date: new Date().toISOString(),
-          change: -quantityNeeded,
-          unit: 'use',
-          reason: 'Manual Use Log'
+        if (product.isExperimentActive) {
+            product.experimentUses = (product.experimentUses || 0) + 1;
+        }
+
+        const newCorrection: StockCorrection = {
+            id: `sc-manual-${Date.now()}`,
+            productId: product.id,
+            date: new Date().toISOString(),
+            change: -quantityNeeded,
+            unit: 'use',
+            reason: 'Manual Use Log'
         };
-        changeDescription = `1 use`;
 
-      } else {
-        toast({ variant: 'destructive', title: 'Not Applicable', description: `Manual use logging is only for products costed 'by uses'.` });
-        return prevInventory;
-      }
-      
-      newInventory[productIndex] = product;
-      
-      if (newCorrection) {
-        setStockCorrections(prev => [...prev, newCorrection!]);
-      }
-      
-      toast({ title: 'Use Logged', description: `${changeDescription} of ${product.name} deducted.` });
+        newInventory[productIndex] = product;
+        setStockCorrections(prev => [...prev, newCorrection]);
+        
+        toast({ title: 'Use Logged', description: `1 use of ${product.name} deducted.` });
 
-      return newInventory;
+        return newInventory;
     });
-  };
+};
   
   const ProductShelf = ({ title, items }: { title: string, items: InventoryItem[] }) => {
     if (items.length === 0) return null;
