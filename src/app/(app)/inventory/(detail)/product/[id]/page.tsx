@@ -11,7 +11,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Edit, DollarSign, Package, AlertCircle, ShoppingCart, BarChart, FileText, Clock, Database, Book, QrCode, Tag, Truck, TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Edit, DollarSign, Package, AlertCircle, ShoppingCart, BarChart, FileText, Clock, Database, Book, QrCode, Tag, Truck, TrendingUp, TrendingDown, RefreshCw, Percent } from 'lucide-react';
 import { services } from '@/lib/data';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -127,6 +127,31 @@ export default function ProductDetailPage() {
     return result.reverse(); 
   }, [product, stockCorrections]);
 
+
+  // Mock retail data for demonstration
+  const retailPerformance = useMemo(() => {
+    if (product.type !== 'retail') return null;
+
+    const landedCost = product.costPerUnit || 0;
+    const retailPrice = landedCost * 1.75; // Mock 75% markup
+    const profitPerUnit = retailPrice - landedCost;
+    
+    // Mock sales data
+    const unitsSold = 53;
+    const totalPurchased = unitsSold + product.totalStock;
+    const sellThroughRate = totalPurchased > 0 ? (unitsSold / totalPurchased) * 100 : 0;
+    const totalProfit = unitsSold * profitPerUnit;
+
+    return {
+        landedCost,
+        retailPrice,
+        profitPerUnit,
+        profitMargin: retailPrice > 0 ? (profitPerUnit / retailPrice) * 100 : 0,
+        unitsSold,
+        sellThroughRate,
+        totalProfit,
+    };
+  }, [product]);
 
 
   return (
@@ -244,7 +269,7 @@ export default function ProductDetailPage() {
                 <BarChart className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                <div className="text-2xl font-bold">$450.00</div>
+                <div className="text-2xl font-bold">${(retailPerformance?.totalProfit || 0).toFixed(2)}</div>
                 </CardContent>
             </Card>
           )}
@@ -253,13 +278,27 @@ export default function ProductDetailPage() {
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
              <Card className="lg:col-span-1">
                 <CardHeader>
-                    <CardTitle>Costing Analysis</CardTitle>
+                    <CardTitle>Cost & Price Analysis</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                     <div className="flex justify-between p-2 bg-muted/50 rounded-md"><span>Landed Cost / Item:</span><span className="font-mono">${(product.costPerUnit || 0).toFixed(2)}</span></div>
-                    <div className="flex justify-between p-2 bg-muted/50 rounded-md"><span>Restocking Markup:</span><span className="font-mono">5%</span></div>
-                    <div className="flex justify-between p-2 bg-muted/50 rounded-md"><span>Raw Cost/Use:</span><span className="font-mono">$0.23</span></div>
-                    <div className="flex justify-between p-3 bg-primary/10 rounded-md font-bold"><span>Final Cost/Use:</span><span className="font-mono text-primary">$0.25</span></div>
+                    
+                    {product.type === 'professional' ? (
+                        <>
+                            <div className="flex justify-between p-2 bg-muted/50 rounded-md"><span>Restocking Markup:</span><span className="font-mono">5%</span></div>
+                            <div className="flex justify-between p-2 bg-muted/50 rounded-md"><span>Raw Cost/Use:</span><span className="font-mono">$0.23</span></div>
+                            <div className="flex justify-between p-3 bg-primary/10 rounded-md font-bold"><span>Final Cost/Use:</span><span className="font-mono text-primary">$0.25</span></div>
+                        </>
+                    ): (
+                         <>
+                            <div className="flex justify-between p-2 bg-muted/50 rounded-md"><span>Retail Price (MSRP):</span><span className="font-mono">${(retailPerformance?.retailPrice || 0).toFixed(2)}</span></div>
+                            <div className="flex justify-between p-3 bg-primary/10 rounded-md font-bold"><span>Profit per Unit:</span><span className="font-mono text-primary">${(retailPerformance?.profitPerUnit || 0).toFixed(2)}</span></div>
+                            <div className="flex justify-between p-2 bg-muted/50 rounded-md items-center">
+                                <span>Profit Margin:</span>
+                                <Badge variant="secondary" className="text-base">{(retailPerformance?.profitMargin || 0).toFixed(1)}%</Badge>
+                            </div>
+                        </>
+                    )}
                 </CardContent>
              </Card>
              <Card className="lg:col-span-2">
@@ -272,23 +311,23 @@ export default function ProductDetailPage() {
                     </CardHeader>
                     <CardContent>
                         <TabsContent value="performance">
-                            {product.type === 'retail' && (
+                            {product.type === 'retail' && retailPerformance && (
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="p-3 bg-muted/50 rounded-md">
-                                        <p className="text-sm text-muted-foreground">Units Sold (YTD)</p>
-                                        <p className="text-xl font-bold">53</p>
+                                        <p className="text-sm text-muted-foreground flex items-center gap-2"><TrendingUp className="w-4 h-4" /> Units Sold (YTD)</p>
+                                        <p className="text-2xl font-bold">{retailPerformance.unitsSold}</p>
                                     </div>
                                     <div className="p-3 bg-muted/50 rounded-md">
-                                        <p className="text-sm text-muted-foreground">Sell-Through Rate</p>
-                                        <p className="text-xl font-bold">88%</p>
+                                        <p className="text-sm text-muted-foreground flex items-center gap-2"><Percent className="w-4 h-4" /> Sell-Through Rate</p>
+                                        <p className="text-2xl font-bold">{retailPerformance.sellThroughRate.toFixed(1)}%</p>
                                     </div>
                                     <div className="p-3 bg-muted/50 rounded-md">
-                                        <p className="text-sm text-muted-foreground">Profit per Unit</p>
-                                        <p className="text-xl font-bold">$8.50</p>
+                                        <p className="text-sm text-muted-foreground flex items-center gap-2"><DollarSign className="w-4 h-4" /> Profit per Unit</p>
+                                        <p className="text-2xl font-bold text-primary">${retailPerformance.profitPerUnit.toFixed(2)}</p>
                                     </div>
                                     <div className="p-3 bg-muted/50 rounded-md">
-                                        <p className="text-sm text-muted-foreground">Total Profit (YTD)</p>
-                                        <p className="text-xl font-bold">$450.50</p>
+                                        <p className="text-sm text-muted-foreground flex items-center gap-2"><BarChart className="w-4 h-4" /> Total Profit (YTD)</p>
+                                        <p className="text-2xl font-bold text-primary">${retailPerformance.totalProfit.toFixed(2)}</p>
                                     </div>
                                 </div>
                             )}
