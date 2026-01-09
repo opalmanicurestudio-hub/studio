@@ -735,6 +735,33 @@ export default function InventoryPage() {
           receivedItemsRef.current = null;
       }
   }, [inventory, toast]);
+
+  const previousInventory = useRef<InventoryItem[]>();
+
+  useEffect(() => {
+    // On mount, set the initial inventory to the previous state
+    previousInventory.current = inventory;
+  }, []);
+
+  useEffect(() => {
+    if (!previousInventory.current) return;
+    
+    // Find a product where isExperimentActive was just changed
+    const toggledProduct = inventory.find(currentProduct => {
+        const prevProduct = previousInventory.current?.find(p => p.id === currentProduct.id);
+        return prevProduct && prevProduct.isExperimentActive !== currentProduct.isExperimentActive;
+    });
+
+    if (toggledProduct) {
+        toast({
+            title: `Experiment ${toggledProduct.isExperimentActive ? 'Started' : 'Stopped'}`,
+            description: `Cost-per-use tracking for ${toggledProduct.name} has been ${toggledProduct.isExperimentActive ? 'started' : 'stopped'}.`,
+        });
+    }
+
+    // Update the ref for the next render
+    previousInventory.current = inventory;
+  }, [inventory, toast]);
   
   const handleAddNewLocationType = (newType: string) => {
     const newLocationType = { id: `lt-${Date.now()}`, name: newType };
@@ -765,10 +792,6 @@ export default function InventoryPage() {
       ? { ...p, isExperimentActive: !p.isExperimentActive, experimentUses: p.isExperimentActive ? p.experimentUses : 0 } 
       : p
     ));
-    toast({
-        title: `Experiment ${product.isExperimentActive ? 'Stopped' : 'Started'}`,
-        description: `Cost-per-use tracking for ${product.name} has been ${product.isExperimentActive ? 'stopped' : 'started'}.`,
-    })
   };
   
   const handleEndExperiment = (product: InventoryItem) => {
