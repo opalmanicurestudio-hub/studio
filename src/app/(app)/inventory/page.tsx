@@ -660,6 +660,11 @@ export default function InventoryPage() {
   const [selectedProduct, setSelectedProduct] = useState<InventoryItem | null>(null);
   
   const isMobile = useIsMobile();
+  const [isClient, setIsClient] = useState(false);
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
   const [activeTab, setActiveTab] = useState('professional');
 
   const productCategories = useMemo(() => {
@@ -771,11 +776,12 @@ export default function InventoryPage() {
     setIsEndExperimentOpen(true);
   };
 
-  const handleEndExperimentConfirmed = (productId: string, results: { actualLifespanMonths: number; totalMaintenanceCost: number }) => {
+  const handleEndExperimentConfirmed = (productId: string, results: { actualLifespanMonths: number; totalMaintenanceCost: number; totalRevenue: number; roi: number; }) => {
     setInventory(prev => prev.map(item => 
         item.id === productId ? { 
             ...item, 
             isExperimentActive: false,
+            lastTestResult: results,
             actualLifespanMonths: results.actualLifespanMonths,
         } : item
     ));
@@ -1031,7 +1037,7 @@ export default function InventoryPage() {
       }));
   }, [selectedProduct]);
 
-  if (isMobile === undefined) {
+  if (!isClient) {
     return (
       <div className="flex min-h-screen w-full flex-col">
         <AppHeader title="Inventory Hub" />
