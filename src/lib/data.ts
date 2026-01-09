@@ -18,6 +18,7 @@ export type MaintenanceRecord = {
   date: string; // ISO date string
   description: string;
   cost: number;
+  imageUrl?: string;
 };
 
 export type Service = {

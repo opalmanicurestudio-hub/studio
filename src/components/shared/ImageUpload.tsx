@@ -77,6 +77,7 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
 
   const handleRemoveImage = (e: React.MouseEvent) => {
     e.stopPropagation();
+    e.preventDefault();
     setImagePreview(null);
     onImageUploaded('');
     if (fileInputRef.current) {
@@ -119,5 +120,3 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
     </div>
   );
 };
-
-    

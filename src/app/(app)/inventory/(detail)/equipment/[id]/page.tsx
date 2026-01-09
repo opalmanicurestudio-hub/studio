@@ -32,6 +32,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { ImageUpload } from '@/components/shared/ImageUpload';
 
 const LogMaintenanceDialog = ({
   open,
@@ -45,23 +46,25 @@ const LogMaintenanceDialog = ({
   const [description, setDescription] = useState('');
   const [cost, setCost] = useState(0);
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [imageUrl, setImageUrl] = useState('');
 
   const handleSave = () => {
-    onSave({ date, description, cost });
+    onSave({ date, description, cost, imageUrl });
     onOpenChange(false);
     setDescription('');
     setCost(0);
     setDate(format(new Date(), 'yyyy-MM-dd'));
+    setImageUrl('');
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Log Maintenance</DialogTitle>
           <DialogDescription>Record a new maintenance or repair event.</DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4 py-4">
+        <div className="grid gap-6 py-4">
           <div className="space-y-2">
             <Label htmlFor="maintenance-date">Date</Label>
             <Input id="maintenance-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
@@ -84,6 +87,10 @@ const LogMaintenanceDialog = ({
               onChange={(e) => setCost(parseFloat(e.target.value) || 0)}
               placeholder="0.00"
             />
+          </div>
+           <div className="space-y-2">
+            <Label>Photo Evidence</Label>
+            <ImageUpload onImageUploaded={setImageUrl} />
           </div>
         </div>
         <DialogFooter>
@@ -136,6 +143,13 @@ export default function EquipmentDetailPage() {
         item.id === equipment.id ? { ...item, maintenanceHistory: updatedHistory } : item
     ));
   };
+
+  const handleToggleExperiment = () => {
+    if (!equipment) return;
+    setInventory(prev => prev.map(item => 
+        item.id === equipment.id ? { ...item, isExperimentActive: !item.isExperimentActive } : item
+    ));
+  }
   
   const usageHistory = useMemo(() => {
     if (!equipment) return [];
@@ -232,7 +246,7 @@ export default function EquipmentDetailPage() {
                         <span className="font-medium">Time in Service:</span>
                         <span className="font-mono">{serviceMonths} months</span>
                     </div>
-                    <Button variant="outline" className="w-full">
+                    <Button variant="outline" className="w-full" onClick={handleToggleExperiment}>
                         {equipment.isExperimentActive ? 'End Lifespan Test' : 'Start Lifespan Test'}
                     </Button>
                 </CardContent>
