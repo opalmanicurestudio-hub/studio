@@ -11,7 +11,7 @@ import {
   CardFooter
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Clock, DollarSign, Sparkles, Box, List, Pencil, Info, ShoppingCart, Hammer, BarChart, Users, TrendingUp } from 'lucide-react';
+import { ArrowLeft, Clock, DollarSign, Sparkles, Box, List, Pencil, Info, ShoppingCart, Hammer, BarChart, Users, TrendingUp, MapPin } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { services as initialServices, type Service, inventory as allInventory, type InventoryItem, appointments, clients } from '@/lib/data';
@@ -130,21 +130,31 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
         <div className="space-y-2">
             <h4 className="font-medium flex items-center gap-2"><ShoppingCart className="w-4 h-4 text-muted-foreground"/>Product Costs</h4>
             {productCosts.length > 0 ? productCosts.map(p => (
-                <div key={p.id} className="flex justify-between items-center bg-muted/50 p-3 rounded-md">
-                    <div>
-                        <p className="font-medium">{p.name}</p>
-                        <p className="text-xs text-muted-foreground">{p.location}</p>
+                 <div key={p.id} className="flex items-center justify-between bg-muted/50 p-2 rounded-md">
+                    <div className='flex items-center gap-2'>
+                        <div className="w-8 h-8 bg-background rounded-sm flex-shrink-0">
+                            <Image src={p.imageUrl || `https://picsum.photos/seed/inv${p.id}/100/100`} alt={p.name} width={32} height={32} className='rounded-sm object-cover h-full w-full' />
+                        </div>
+                        <div className="flex flex-col">
+                            <span className="font-medium text-xs">{p.name}</span>
+                            <span className='text-xs text-muted-foreground flex items-center gap-1'><MapPin className="w-2.5 h-2.5"/>{p.location}</span>
+                        </div>
                     </div>
-                    <span className="font-semibold">${(p.cost || 0).toFixed(2)}</span>
+                    <span className="font-semibold text-xs">${(p.cost || 0).toFixed(2)}</span>
                 </div>
             )) : <p className="text-xs text-muted-foreground text-center p-2">No products in formula.</p>}
         </div>
         <div className="space-y-2">
             <h4 className="font-medium flex items-center gap-2"><Hammer className="w-4 h-4 text-muted-foreground"/>Equipment Depreciation</h4>
             {equipmentCosts.length > 0 ? equipmentCosts.map(e => (
-                <div key={e.id} className="flex justify-between items-center bg-muted/50 p-3 rounded-md">
-                    <span>{e.name}</span>
-                    <span className="font-semibold">${e.cost.toFixed(2)}</span>
+                 <div key={e.id} className="flex items-center justify-between bg-muted/50 p-2 rounded-md">
+                    <div className='flex items-center gap-2'>
+                        <div className="w-8 h-8 bg-background rounded-sm flex-shrink-0">
+                            <Image src={e.imageUrl || `https://picsum.photos/seed/inv${e.id}/100/100`} alt={e.name} width={32} height={32} className='rounded-sm object-cover h-full w-full' />
+                        </div>
+                        <span className="font-medium text-xs">{e.name}</span>
+                    </div>
+                    <span className="font-semibold text-xs">${e.cost.toFixed(2)}</span>
                 </div>
             )) : <p className="text-xs text-muted-foreground text-center p-2">No equipment in formula.</p>}
         </div>
