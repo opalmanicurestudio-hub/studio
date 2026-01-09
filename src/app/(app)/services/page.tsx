@@ -165,7 +165,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr }: { service: Service, o
     <Card className="overflow-hidden w-full max-w-sm shrink-0 transition-all duration-200 hover:shadow-xl hover:-translate-y-1">
       <CardContent className="p-3 space-y-3">
         <div className="flex items-start gap-3">
-          <div className="w-20 h-20 bg-muted rounded-md flex-shrink-0">
+          <Link href={`/services/${service.id}`} className="w-20 h-20 bg-muted rounded-md flex-shrink-0">
              <Image 
                 src={service.imageUrl || `https://picsum.photos/seed/svc${service.id}/200/200`} 
                 alt={service.name} 
@@ -174,10 +174,10 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr }: { service: Service, o
                 className='rounded-md object-cover h-full w-full' 
                 data-ai-hint="manicure nails" 
             />
-          </div>
+          </Link>
           <div className="flex-1 space-y-1">
             <div className="flex justify-between items-start">
-              <h3 className="font-semibold text-base">{service.name}</h3>
+              <Link href={`/services/${service.id}`} className="font-semibold text-base hover:underline">{service.name}</Link>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button aria-haspopup="true" size="icon" variant="ghost" className='-mt-1 h-8 w-8 flex-shrink-0'>
