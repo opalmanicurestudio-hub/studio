@@ -44,7 +44,6 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     const displayCorrections: { name: string; change: string }[] = [];
     const newCorrections: StockCorrection[] = [];
     
-    // Deep clone inventory to simulate changes without mutating state
     let tempInventory = JSON.parse(JSON.stringify(inventory)) as InventoryItem[];
 
     if (!service || !service.products) {
@@ -59,32 +58,35 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         }
 
         const product = tempInventory[productIndex];
-        let quantityNeeded = productInService.quantityUsed;
+        const quantityNeeded = productInService.quantityUsed;
+
+        const createCorrection = (change: number, unit: string, reasonSuffix = '') => {
+             newCorrections.push({
+                id: `sc-${Date.now()}-${Math.random()}`,
+                productId: product.id,
+                date: new Date().toISOString(),
+                change: -change, // always a deduction
+                unit: unit,
+                reason: `Appointment #${appointment.id.slice(-4)}${reasonSuffix}`
+            });
+        };
 
         if (product.costingMethod === 'uses') {
             if (product.partialContainerUses === undefined) product.partialContainerUses = 0;
             
-            const createCorrection = (change: number) => {
-                 newCorrections.push({
-                    id: `sc-${Date.now()}-${Math.random()}`,
-                    productId: product.id,
-                    date: new Date().toISOString(),
-                    change: -change,
-                    unit: 'use',
-                    reason: `Appointment #${appointment.id.slice(-4)}`
-                });
-            };
-
             if (product.partialContainerUses >= quantityNeeded) {
+                // Sufficient uses in the current partial container
                 product.partialContainerUses -= quantityNeeded;
                 displayCorrections.push({ name: product.name, change: `-${quantityNeeded} uses` });
-                createCorrection(quantityNeeded);
+                createCorrection(quantityNeeded, 'use');
             } else {
+                // Not enough in partial, need to roll over
                 let usesToFulfill = quantityNeeded;
+                
                 if (product.partialContainerUses > 0) {
                     usesToFulfill -= product.partialContainerUses;
                     displayCorrections.push({ name: product.name, change: `-${product.partialContainerUses} uses (emptied)` });
-                    createCorrection(product.partialContainerUses);
+                    createCorrection(product.partialContainerUses, 'use', ' (empty partial)');
                     product.partialContainerUses = 0;
                 }
 
@@ -95,66 +97,61 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                     }
                     product.totalStock -= 1; // "Open" a new container
                     const usesPerContainer = product.estimatedUses || 1;
-                    product.partialContainerUses = usesPerContainer;
                     
-                    if (product.partialContainerUses >= usesToFulfill) {
-                        product.partialContainerUses -= usesToFulfill;
+                    if (usesPerContainer >= usesToFulfill) {
+                        product.partialContainerUses = usesPerContainer - usesToFulfill;
                         displayCorrections.push({ name: product.name, change: `-1 container, -${usesToFulfill} uses` });
-                        createCorrection(usesToFulfill);
+                        createCorrection(1, 'container');
+                        createCorrection(usesToFulfill, 'use');
                         usesToFulfill = 0;
                     } else {
                         displayCorrections.push({ name: product.name, change: `-1 container (emptied)` });
-                        createCorrection(product.partialContainerUses);
-                        usesToFulfill -= product.partialContainerUses;
+                        createCorrection(1, 'container', ' (emptied new)');
+                        createCorrection(usesPerContainer, 'use', ' (emptied new)');
+                        usesToFulfill -= usesPerContainer;
                         product.partialContainerUses = 0;
                     }
                 }
             }
         } else if (product.costingMethod === 'size') {
-             const createCorrection = (change: number) => {
-                 newCorrections.push({
-                    id: `sc-${Date.now()}-${Math.random()}`,
-                    productId: product.id,
-                    date: new Date().toISOString(),
-                    change: -change,
-                    unit: product.unit || '',
-                    reason: `Appointment #${appointment.id.slice(-4)}`
-                });
-            };
-
+            const unit = product.unit || 'unit';
             if (product.partialContainerSize === undefined) product.partialContainerSize = 0;
 
             if (product.partialContainerSize >= quantityNeeded) {
+                // Sufficient size in the current partial container
                 product.partialContainerSize -= quantityNeeded;
-                displayCorrections.push({ name: product.name, change: `-${quantityNeeded}${product.unit || ''}` });
-                createCorrection(quantityNeeded);
+                displayCorrections.push({ name: product.name, change: `-${quantityNeeded.toFixed(2)}${unit}` });
+                createCorrection(quantityNeeded, unit);
             } else {
+                // Not enough in partial, need to roll over
                 let sizeToFulfill = quantityNeeded;
                 if (product.partialContainerSize > 0) {
-                    sizeToFulfill -= product.partialContainerSize;
-                    displayCorrections.push({ name: product.name, change: `-${product.partialContainerSize}${product.unit || ''} (emptied)` });
-                    createCorrection(product.partialContainerSize);
+                    const deduction = product.partialContainerSize;
+                    sizeToFulfill -= deduction;
+                    displayCorrections.push({ name: product.name, change: `-${deduction.toFixed(2)}${unit} (emptied)` });
+                    createCorrection(deduction, unit, ' (empty partial)');
                     product.partialContainerSize = 0;
                 }
 
                 while(sizeToFulfill > 0) {
                     if (product.totalStock <= 0) {
-                        warnings.push(`Insufficient stock for ${product.name}. Cannot fulfill ${sizeToFulfill} more ${product.unit || ''}.`);
+                        warnings.push(`Insufficient stock for ${product.name}. Cannot fulfill ${sizeToFulfill.toFixed(2)} more ${unit}.`);
                         break;
                     }
-                    product.totalStock -= 1;
+                    product.totalStock -= 1; // "Open" a new container
                     const sizePerContainer = product.size || 0;
-                    product.partialContainerSize = sizePerContainer;
-
-                    if (product.partialContainerSize >= sizeToFulfill) {
-                        product.partialContainerSize -= sizeToFulfill;
-                        displayCorrections.push({ name: product.name, change: `-1 container, -${sizeToFulfill}${product.unit || ''}` });
-                        createCorrection(sizeToFulfill);
+                    
+                    if (sizePerContainer >= sizeToFulfill) {
+                        product.partialContainerSize = sizePerContainer - sizeToFulfill;
+                        displayCorrections.push({ name: product.name, change: `-1 container, -${sizeToFulfill.toFixed(2)}${unit}` });
+                        createCorrection(1, 'container');
+                        createCorrection(sizeToFulfill, unit);
                         sizeToFulfill = 0;
                     } else {
                         displayCorrections.push({ name: product.name, change: `-1 container (emptied)` });
-                        createCorrection(product.partialContainerSize);
-                        sizeToFulfill -= product.partialContainerSize;
+                        createCorrection(1, 'container', ' (emptied new)');
+                        createCorrection(sizePerContainer, unit, ' (emptied new)');
+                        sizeToFulfill -= sizePerContainer;
                         product.partialContainerSize = 0;
                     }
                 }
