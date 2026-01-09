@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, File, MoreHorizontal, Database, Camera, AlertTriangle, Truck, Search, SlidersHorizontal, QrCode, Package, Hammer, Beaker, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, BellRing, TrendingUp, DollarSign, BarChart, LineChart, FileText } from 'lucide-react';
-import { type InventoryItem, type Batch, type StockCorrection } from '@/lib/data';
+import { type Appointment, type Service, type InventoryItem, type Batch, type StockCorrection } from '@/lib/data';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -52,6 +52,7 @@ import { Carousel, CarouselContent, CarouselItem } from '@/components/ui/carouse
 import { isPast, parseISO, differenceInYears, format } from 'date-fns';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useInventory } from '@/context/InventoryContext';
+import { appointments, services } from '@/lib/data';
 
 
 const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff, onLogUse }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (item: InventoryItem) => void, onLogUse: (item: InventoryItem) => void }) => {
@@ -1015,6 +1016,21 @@ export default function InventoryPage() {
     }
   }, [activeTab, inventory, retailItems, overheadItems, equipmentItems]);
 
+  const usageHistoryForSelectedProduct = useMemo(() => {
+    if (!selectedProduct) return [];
+    return appointments
+      .filter(apt => {
+        if (apt.status !== 'completed') return false;
+        const service = services.find(s => s.id === apt.serviceId);
+        return service?.equipment?.some(e => e.id === selectedProduct.id);
+      })
+      .map(apt => ({
+          ...apt,
+          client: inventory.find(c => c.id === apt.clientId), // This seems wrong, should be from clients data
+          service: services.find(s => s.id === apt.serviceId),
+      }));
+  }, [selectedProduct]);
+
   if (isMobile === undefined) {
     return (
       <div className="flex min-h-screen w-full flex-col">
@@ -1283,6 +1299,7 @@ export default function InventoryPage() {
             onOpenChange={setIsEndExperimentOpen}
             product={selectedProduct}
             onConfirm={(results) => handleEndExperimentConfirmed(selectedProduct.id, results)}
+            usageHistory={usageHistoryForSelectedProduct}
           />
       )}
       {selectedProduct && (

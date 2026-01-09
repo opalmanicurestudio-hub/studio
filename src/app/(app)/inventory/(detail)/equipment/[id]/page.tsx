@@ -166,6 +166,24 @@ export default function EquipmentDetailPage() {
         serviceMonths: monthsInService,
     };
   }, [equipment]);
+  
+  const usageHistory = useMemo(() => {
+    if (!equipment) return [];
+    
+    return appointments
+      .filter(apt => {
+        if (apt.status !== 'completed') return false;
+        const service = services.find(s => s.id === apt.serviceId);
+        return service?.equipment?.some(e => e.id === equipment.id);
+      })
+      .map(apt => ({
+          ...apt,
+          client: clients.find(c => c.id === apt.clientId),
+          service: services.find(s => s.id === apt.serviceId),
+      }))
+      .sort((a,b) => b.endTime.getTime() - a.endTime.getTime());
+
+  }, [equipment]);
 
   const handleSaveMaintenance = (entry: Omit<MaintenanceRecord, 'id'>) => {
     if (!equipment) return;
@@ -196,30 +214,11 @@ export default function EquipmentDetailPage() {
             ...item, 
             isExperimentActive: false,
             actualLifespanMonths: results.actualLifespanMonths,
-            // Optionally store totalMaintenanceCostAtExperimentEnd if schema supports it
         } : item
     ));
     setIsEndExperimentOpen(false);
   };
   
-  const usageHistory = useMemo(() => {
-    if (!equipment) return [];
-    
-    return appointments
-      .filter(apt => {
-        if (apt.status !== 'completed') return false;
-        const service = services.find(s => s.id === apt.serviceId);
-        return service?.equipment?.some(e => e.id === equipment.id);
-      })
-      .map(apt => ({
-          ...apt,
-          client: clients.find(c => c.id === apt.clientId),
-          service: services.find(s => s.id === apt.serviceId),
-      }))
-      .sort((a,b) => b.endTime.getTime() - a.endTime.getTime());
-
-  }, [equipment]);
-
   if (!equipment) {
     return (
         <div className="flex min-h-screen w-full flex-col">
@@ -414,10 +413,9 @@ export default function EquipmentDetailPage() {
             onOpenChange={setIsEndExperimentOpen}
             product={equipment}
             onConfirm={handleEndExperimentConfirmed}
+            usageHistory={usageHistory}
         />}
       </main>
     </div>
   );
 }
-
-    
