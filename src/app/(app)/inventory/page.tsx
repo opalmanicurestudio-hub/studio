@@ -11,7 +11,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, File, MoreHorizontal, Database, Camera, AlertTriangle, Truck, Search, SlidersHorizontal, QrCode, Package, Hammer, Beaker, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, BellRing, TrendingUp, DollarSign, BarChart, LineChart } from 'lucide-react';
+import { PlusCircle, File, MoreHorizontal, Database, Camera, AlertTriangle, Truck, Search, SlidersHorizontal, QrCode, Package, Hammer, Beaker, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, BellRing, TrendingUp, DollarSign, BarChart, LineChart, FileText } from 'lucide-react';
 import { type InventoryItem, inventory as initialInventory } from '@/lib/data';
 import {
   DropdownMenu,
@@ -81,6 +81,11 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        <DropdownMenuItem asChild>
+                           <Link href={`/inventory/${item.id}`}>
+                                <FileText className="mr-2 h-4 w-4" /> View Details
+                           </Link>
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => onEdit(item)}><Pencil className="mr-2 h-4 w-4" /> Edit</DropdownMenuItem>
                         {item.type === 'professional' && (
                             item.isExperimentActive ? (
@@ -1054,3 +1059,5 @@ export default function InventoryPage() {
     </div>
   );
 }
+
+    
