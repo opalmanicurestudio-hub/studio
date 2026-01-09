@@ -40,7 +40,7 @@ const CorrectionIcon = ({ reason }: { reason: string }) => {
 }
 
 
-export default async function ProductDetailPage({ params }: { params: { id: string } }) {
+export default function ProductDetailPage({ params }: { params: { id: string } }) {
   const { id } = params;
   const { inventory, stockCorrections } = useInventory();
   
