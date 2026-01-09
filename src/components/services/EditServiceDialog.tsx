@@ -597,7 +597,7 @@ export const EditServiceDialog = ({
       }
   }, [service, methods.reset])
   
-  const totalSteps = 4;
+  const totalSteps = isAddon ? 3 : 4;
   
   const handleOpenChange = (isOpen: boolean) => {
     onOpenChange(isOpen);
@@ -695,6 +695,21 @@ export const EditServiceDialog = ({
     }
   }, [isScannerOpen, toast]);
 
+  const getStepContent = () => {
+    const stepMap = [
+      <Step1_Basics key="step1" categories={categories} onNewCategory={onNewCategory} />,
+      <Step2_Formula key="step2" onScanClick={() => setIsScannerOpen(true)} />,
+    ];
+    
+    if (!isAddon) {
+      stepMap.push(<Step3_Deposits key="step3" />);
+    }
+    
+    stepMap.push(<PricingForm key="step4" />);
+    
+    return stepMap[step - 1];
+  }
+
   return (
     <>
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -711,10 +726,7 @@ export const EditServiceDialog = ({
             <div className="py-4 space-y-4">
             <Progress value={(step / totalSteps) * 100} />
             <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
-                    {step === 1 && <Step1_Basics categories={categories} onNewCategory={onNewCategory} />}
-                    {step === 2 && <Step2_Formula onScanClick={() => setIsScannerOpen(true)} />}
-                    {step === 3 && <Step3_Deposits />}
-                    {step === 4 && <PricingForm />}
+                {getStepContent()}
             </div>
             </div>
 
