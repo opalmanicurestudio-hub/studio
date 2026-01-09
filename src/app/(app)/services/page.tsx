@@ -12,7 +12,7 @@ import {
   CardDescription
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Clock, DollarSign, Sparkles, Box, List, Pencil, Search, SlidersHorizontal, Info, ShoppingCart, Hammer, FileText } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Clock, DollarSign, Sparkles, Box, List, Pencil, Search, SlidersHorizontal, Info, ShoppingCart, Hammer, FileText, BarChart, Users, TrendingUp } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
-import { services as initialServices, type Service, inventory as allInventory, type InventoryItem } from '@/lib/data';
+import { services as initialServices, type Service, inventory as allInventory, type InventoryItem, appointments } from '@/lib/data';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
@@ -160,6 +160,18 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
 const ServiceCard = ({ service, onEditServiceOpen, tmhr }: { service: Service, onEditServiceOpen: (service: Service) => void, tmhr: number }) => {
   const profitPercentage = service.price > 0 ? (service.profit / service.price) * 100 : 0;
   const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
+  
+  const performance = useMemo(() => {
+    const bookings = appointments.filter(apt => apt.serviceId === service.id && apt.status === 'completed');
+    const totalRevenue = bookings.length * service.price;
+    const uniqueClients = new Set(bookings.map(apt => apt.clientId)).size;
+    return {
+        totalBookings: bookings.length,
+        totalRevenue,
+        uniqueClients
+    };
+  }, [service.id, service.price]);
+
 
   return (
     <Card className="overflow-hidden w-full max-w-sm shrink-0 transition-all duration-200 hover:shadow-xl hover:-translate-y-1">
@@ -186,12 +198,6 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr }: { service: Service, o
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem asChild>
-                    <Link href={`/services/${service.id}`}>
-                      <FileText className="mr-2 h-4 w-4" />
-                      View Details
-                    </Link>
-                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => onEditServiceOpen(service)}>
                     <Pencil className="mr-2 h-4 w-4" />
                     Edit
@@ -226,7 +232,30 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr }: { service: Service, o
         </div>
 
         <Accordion type="multiple" className="w-full">
-            <AccordionItem value="profit-tester" className="border-b-0">
+            <AccordionItem value="performance" className="border-b-0">
+                <AccordionTrigger className='p-3 text-sm font-medium hover:no-underline rounded-md bg-muted/50'>
+                    <div className='flex items-center gap-2'>
+                        <BarChart className='w-4 h-4 text-primary' /> Performance
+                    </div>
+                </AccordionTrigger>
+                <AccordionContent className='pt-4 text-sm'>
+                    <div className='grid grid-cols-3 gap-2'>
+                        <div className='text-center p-2 rounded-md bg-background'>
+                            <p className='text-xs text-muted-foreground'>Bookings</p>
+                            <p className='font-bold text-lg'>{performance.totalBookings}</p>
+                        </div>
+                        <div className='text-center p-2 rounded-md bg-background'>
+                            <p className='text-xs text-muted-foreground'>Revenue</p>
+                            <p className='font-bold text-base'>${performance.totalRevenue.toFixed(2)}</p>
+                        </div>
+                         <div className='text-center p-2 rounded-md bg-background'>
+                            <p className='text-xs text-muted-foreground'>Clients</p>
+                            <p className='font-bold text-lg'>{performance.uniqueClients}</p>
+                        </div>
+                    </div>
+                </AccordionContent>
+            </AccordionItem>
+             <AccordionItem value="profit-tester" className="border-b-0 mt-2">
                 <AccordionTrigger className='p-3 text-sm font-medium hover:no-underline rounded-md bg-muted/50'>
                     <div className='flex items-center gap-2'>
                         <Sparkles className='w-4 h-4 text-primary' /> Profit Tester
@@ -234,16 +263,6 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr }: { service: Service, o
                 </AccordionTrigger>
                 <AccordionContent className='pt-4'>
                     <InlineProfitTester service={service} tmhr={tmhr} />
-                </AccordionContent>
-            </AccordionItem>
-             <AccordionItem value="cost-breakdown" className="border-b-0 mt-2">
-                <AccordionTrigger className='p-3 text-sm font-medium hover:no-underline rounded-md bg-muted/50'>
-                     <div className='flex items-center gap-2'>
-                        <Box className='w-4 h-4 text-primary' /> Cost Breakdown
-                    </div>
-                </AccordionTrigger>
-                <AccordionContent className='p-4'>
-                    <CostBreakdown service={service} tmhr={tmhr} />
                 </AccordionContent>
             </AccordionItem>
         </Accordion>
