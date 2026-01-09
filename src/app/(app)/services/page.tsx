@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -21,7 +20,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
-import { services as initialServices, type Service, inventory as allInventory, type InventoryItem, appointments } from '@/lib/data';
+import { services as initialServices, type Service, inventory as allInventory, type InventoryItem, type Appointment } from '@/lib/data';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
@@ -31,6 +30,8 @@ import { AddServiceDialog } from '@/components/services/AddServiceDialog';
 import { EditServiceDialog } from '@/components/services/EditServiceDialog';
 import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast';
+import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
+import { collection } from 'firebase/firestore';
 
 const InlineProfitTester = ({ service, tmhr }: { service: Service, tmhr: number }) => {
   const [testPrice, setTestPrice] = useState(service.price);
@@ -167,11 +168,12 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
 };
 
 
-const ServiceCard = ({ service, onEditServiceOpen, tmhr }: { service: Service, onEditServiceOpen: (service: Service) => void, tmhr: number }) => {
+const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments }: { service: Service, onEditServiceOpen: (service: Service) => void, tmhr: number, appointments: Appointment[] | null }) => {
   const profitPercentage = service.price > 0 ? (service.profit / service.price) * 100 : 0;
   const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
   
   const performance = useMemo(() => {
+    if (!appointments) return { totalBookings: 0, totalRevenue: 0, uniqueClients: 0 };
     const bookings = appointments.filter(apt => apt.serviceId === service.id && apt.status === 'completed');
     const totalRevenue = bookings.length * service.price;
     const uniqueClients = new Set(bookings.map(apt => apt.clientId)).size;
@@ -180,7 +182,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr }: { service: Service, o
         totalRevenue,
         uniqueClients
     };
-  }, [service.id, service.price]);
+  }, [service.id, service.price, appointments]);
 
 
   return (
@@ -292,7 +294,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr }: { service: Service, o
   );
 };
 
-const ServiceCategory = ({ title, services, onEditServiceOpen, tmhr }: { title: string, services: Service[], onEditServiceOpen: (service: Service) => void, tmhr: number }) => {
+const ServiceCategory = ({ title, services, onEditServiceOpen, tmhr, appointments }: { title: string, services: Service[], onEditServiceOpen: (service: Service) => void, tmhr: number, appointments: Appointment[] | null }) => {
     return (
         <Accordion type="single" collapsible defaultValue="item-1">
             <AccordionItem value="item-1">
@@ -302,7 +304,7 @@ const ServiceCategory = ({ title, services, onEditServiceOpen, tmhr }: { title: 
                 <AccordionContent>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pt-4">
                         {services.map((service) => (
-                            <ServiceCard key={service.id} service={service} onEditServiceOpen={onEditServiceOpen} tmhr={tmhr} />
+                            <ServiceCard key={service.id} service={service} onEditServiceOpen={onEditServiceOpen} tmhr={tmhr} appointments={appointments} />
                         ))}
                     </div>
                 </AccordionContent>
@@ -339,6 +341,16 @@ export default function ServicesPage() {
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [tmhr, setTmhr] = useState(0);
   const { toast } = useToast();
+
+  const { firestore, user, isUserLoading } = useFirebase();
+  const tenantId = 'tenant-abc';
+  const appointmentsQuery = useMemoFirebase(() => {
+    if (isUserLoading || !user || !firestore) return null;
+    return collection(firestore, 'tenants', tenantId, 'appointments');
+  }, [firestore, user, isUserLoading, tenantId]);
+
+  const { data: appointments, isLoading: areAppointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
+
 
   useEffect(() => {
     // This code now runs only on the client, after the initial render.
@@ -454,14 +466,14 @@ export default function ServicesPage() {
           <TabsContent value="services" className="mt-6 space-y-8">
             {Object.keys(servicesByCategory).length > 0 ? (
                 Object.entries(servicesByCategory).map(([category, services]) => (
-                    <ServiceCategory key={category} title={category} services={services} onEditServiceOpen={handleOpenEditService} tmhr={tmhr} />
+                    <ServiceCategory key={category} title={category} services={services} onEditServiceOpen={handleOpenEditService} tmhr={tmhr} appointments={appointments} />
                 ))
             ) : <EmptyState onAddNewService={() => setIsAddServiceDialogOpen(true)} />}
           </TabsContent>
            <TabsContent value="add-ons" className="mt-6 space-y-8">
              {Object.keys(addOnsByCategory).length > 0 ? (
                 Object.entries(addOnsByCategory).map(([category, services]) => (
-                    <ServiceCategory key={category} title={category} services={services} onEditServiceOpen={handleOpenEditService} tmhr={tmhr} />
+                    <ServiceCategory key={category} title={category} services={services} onEditServiceOpen={handleOpenEditService} tmhr={tmhr} appointments={appointments} />
                 ))
              ) : (
                 <Card>
@@ -494,3 +506,4 @@ export default function ServicesPage() {
     </div>
   );
 }
+
