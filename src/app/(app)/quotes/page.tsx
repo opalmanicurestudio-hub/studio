@@ -39,7 +39,7 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { clients, quotes, type Quote } from '@/lib/data';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 
@@ -67,12 +67,15 @@ const QuoteTableRow = ({ quote }: { quote: Quote }) => {
   const client = clients.find((c) => c.id === quote.clientId);
   const statusInfo = statusConfig[quote.status];
 
+  // By using parseISO, we treat the date string as UTC, avoiding timezone shifts.
+  const quoteDate = parseISO(quote.date);
+
   return (
     <TableRow>
       <TableCell className="font-medium">{quote.quoteNumber}</TableCell>
       <TableCell>{client?.name || 'N/A'}</TableCell>
       <TableCell>{quote.eventName}</TableCell>
-      <TableCell>{format(new Date(quote.date), 'MMM d, yyyy')}</TableCell>
+      <TableCell>{format(quoteDate, 'MMM d, yyyy')}</TableCell>
       <TableCell>
         <Badge variant="secondary" className={cn('capitalize', statusInfo.className)}>
           {statusInfo.label}
