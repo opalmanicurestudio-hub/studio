@@ -153,8 +153,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                                     </p>
                                 </div>
                             </div>
-                        ) : (
-                            item.type === 'retail' ? (
+                        ) : item.type === 'retail' ? (
                                 <div>
                                     <p className='text-xs text-muted-foreground'>Total Stock</p>
                                     <p className='text-3xl font-bold'>{item.totalStock}</p>
@@ -164,8 +163,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                                     <p className='text-xs text-muted-foreground'>Total Stock</p>
                                     <p className='text-3xl font-bold'>{item.totalStock}</p>
                                 </div>
-                            )
-                        )}
+                            )}
                          {item.isExperimentActive && item.type === 'professional' && (
                             <p className='text-xs text-purple-500 font-medium mt-1'>
                                 {item.experimentUses} uses logged in experiment
@@ -678,17 +676,6 @@ export default function InventoryPage() {
     setIsAddLocationFromProductOpen(false);
   };
 
-  useEffect(() => {
-    if (lastAddedLocationRef.current) {
-        toast({
-            title: "Location Added",
-            description: `"${lastAddedLocationRef.current.name}" has been added to your locations.`
-        });
-        // Reset the ref after showing the toast
-        lastAddedLocationRef.current = null;
-    }
-  }, [locations, toast]);
-
   const receivedItemsRef = useRef<ShipmentItem[] | null>(null);
   
   const handleReceiveStock = (items: ShipmentItem[], landedCosts: Record<string, number>) => {
@@ -722,6 +709,26 @@ export default function InventoryPage() {
       return newInventory;
     });
   };
+
+  useEffect(() => {
+    if (lastAddedLocationRef.current) {
+        toast({
+            title: "Location Added",
+            description: `"${lastAddedLocationRef.current.name}" has been added to your locations.`
+        });
+        lastAddedLocationRef.current = null;
+    }
+  }, [locations, toast]);
+  
+  useEffect(() => {
+      if (receivedItemsRef.current) {
+          toast({
+              title: "Stock Received",
+              description: `${receivedItemsRef.current.length} item(s) have been added to your inventory.`
+          });
+          receivedItemsRef.current = null;
+      }
+  }, [inventory, toast]);
   
   const handleAddNewLocationType = (newType: string) => {
     const newLocationType = { id: `lt-${Date.now()}`, name: newType };
