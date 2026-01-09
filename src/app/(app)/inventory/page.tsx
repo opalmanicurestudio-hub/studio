@@ -62,6 +62,8 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
         if (item.reorderPoint && item.totalStock <= item.reorderPoint) return { label: 'Low Stock', className: 'bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-400 dark:border-yellow-600/30' };
         return { label: 'In Stock', className: 'bg-green-100 text-green-800 border-green-200 dark:bg-green-900/40 dark:text-green-400 dark:border-green-600/30' };
     }, [item]);
+
+    const activeBatches = useMemo(() => item.batches.filter(b => b.stock > 0), [item.batches]);
     
     return (
         <Card className={cn("w-full transition-all duration-200 hover:shadow-xl hover:-translate-y-1", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
@@ -151,16 +153,16 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                 <Accordion type="single" collapsible className="w-full">
                     <AccordionItem value="batches" className='border-0'>
                         <AccordionTrigger className='p-2 text-xs text-muted-foreground justify-center gap-2 hover:no-underline rounded-md hover:bg-muted/50 h-8'>
-                             <Database className='w-3 h-3' /> Batches ({item.batches.length})
+                             <Database className='w-3 h-3' /> Batches ({activeBatches.length})
                         </AccordionTrigger>
                         <AccordionContent className='pt-2'>
                              <div className="space-y-1 text-xs text-muted-foreground">
-                                {item.batches.map(batch => (
+                                {activeBatches.length > 0 ? activeBatches.map(batch => (
                                     <div key={batch.id} className="flex justify-between">
                                         <span>{batch.stock} units @ ${batch.costPerUnit.toFixed(2)}</span>
                                         <span className="text-right">{format(new Date(batch.receivedDate), 'MMM d, yyyy')}</span>
                                     </div>
-                                ))}
+                                )) : <p className="text-center text-xs">No active batches.</p>}
                             </div>
                         </AccordionContent>
                     </AccordionItem>
