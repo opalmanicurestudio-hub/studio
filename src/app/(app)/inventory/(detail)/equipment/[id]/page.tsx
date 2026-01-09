@@ -1,6 +1,7 @@
 
 'use client';
 
+import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -11,19 +12,96 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Edit, DollarSign, Calendar, BarChart, FileText, Clock, Wrench, PlusCircle, Trash2 } from 'lucide-react';
+import { ArrowLeft, Edit, PlusCircle, Trash2, User, Wrench } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import Image from 'next/image';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { format, differenceInYears, differenceInMonths } from 'date-fns';
-import { useMemo } from 'react';
+import { format, differenceInMonths } from 'date-fns';
+import { type MaintenanceRecord, services, appointments, clients } from '@/lib/data';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+
+const LogMaintenanceDialog = ({
+  open,
+  onOpenChange,
+  onSave,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSave: (entry: Omit<MaintenanceRecord, 'id'>) => void;
+}) => {
+  const [description, setDescription] = useState('');
+  const [cost, setCost] = useState(0);
+  const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+
+  const handleSave = () => {
+    onSave({ date, description, cost });
+    onOpenChange(false);
+    setDescription('');
+    setCost(0);
+    setDate(format(new Date(), 'yyyy-MM-dd'));
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Log Maintenance</DialogTitle>
+          <DialogDescription>Record a new maintenance or repair event.</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="space-y-2">
+            <Label htmlFor="maintenance-date">Date</Label>
+            <Input id="maintenance-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="maintenance-description">Description</Label>
+            <Textarea
+              id="maintenance-description"
+              placeholder="e.g., Replaced UV bulb, Calibrated sensors"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="maintenance-cost">Cost</Label>
+            <Input
+              id="maintenance-cost"
+              type="number"
+              value={cost}
+              onChange={(e) => setCost(parseFloat(e.target.value) || 0)}
+              placeholder="0.00"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleSave}>Save Entry</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 
 export default function EquipmentDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { inventory } = useInventory();
+  const { inventory, setInventory } = useInventory();
+  const [isLogMaintenanceOpen, setIsLogMaintenanceOpen] = useState(false);
   
   const equipment = inventory.find((p) => p.id === id && p.type === 'equipment');
 
@@ -47,6 +125,34 @@ export default function EquipmentDetailPage() {
         bookValue: calculatedBookValue,
         serviceMonths: monthsInService,
     };
+  }, [equipment]);
+
+  const handleSaveMaintenance = (entry: Omit<MaintenanceRecord, 'id'>) => {
+    if (!equipment) return;
+    const newRecord: MaintenanceRecord = { ...entry, id: `maint-${Date.now()}` };
+    const updatedHistory = [...(equipment.maintenanceHistory || []), newRecord];
+    
+    setInventory(prev => prev.map(item => 
+        item.id === equipment.id ? { ...item, maintenanceHistory: updatedHistory } : item
+    ));
+  };
+  
+  const usageHistory = useMemo(() => {
+    if (!equipment) return [];
+    
+    return appointments
+      .filter(apt => {
+        if (apt.status !== 'completed') return false;
+        const service = services.find(s => s.id === apt.serviceId);
+        return service?.equipment?.some(e => e.id === equipment.id);
+      })
+      .map(apt => ({
+          ...apt,
+          client: clients.find(c => c.id === apt.clientId),
+          service: services.find(s => s.id === apt.serviceId),
+      }))
+      .sort((a,b) => b.endTime.getTime() - a.endTime.getTime());
+
   }, [equipment]);
 
   if (!equipment) {
@@ -133,14 +239,14 @@ export default function EquipmentDetailPage() {
              </Card>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-1">
+        <div className="grid gap-6 md:grid-cols-2">
             <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
                     <div>
                         <CardTitle>Maintenance History</CardTitle>
                         <CardDescription>Log of all repairs and maintenance.</CardDescription>
                     </div>
-                    <Button variant="outline"><PlusCircle className="mr-2 h-4 w-4"/>Log Maintenance</Button>
+                    <Button variant="outline" onClick={() => setIsLogMaintenanceOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Log Maintenance</Button>
                 </CardHeader>
                 <CardContent>
                      <Table>
@@ -153,11 +259,26 @@ export default function EquipmentDetailPage() {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            <TableRow>
-                                <TableCell colSpan={4} className="text-center text-muted-foreground h-24">
-                                No maintenance history logged.
-                                </TableCell>
-                            </TableRow>
+                            {equipment.maintenanceHistory && equipment.maintenanceHistory.length > 0 ? (
+                                equipment.maintenanceHistory.map(log => (
+                                    <TableRow key={log.id}>
+                                        <TableCell>{format(new Date(log.date), 'MMM d, yyyy')}</TableCell>
+                                        <TableCell>{log.description}</TableCell>
+                                        <TableCell className="text-right">${log.cost.toFixed(2)}</TableCell>
+                                        <TableCell>
+                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive">
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                        </TableCell>
+                                    </TableRow>
+                                ))
+                            ) : (
+                                <TableRow>
+                                    <TableCell colSpan={4} className="text-center text-muted-foreground h-24">
+                                        No maintenance history logged.
+                                    </TableCell>
+                                </TableRow>
+                            )}
                         </TableBody>
                     </Table>
                 </CardContent>
@@ -168,11 +289,50 @@ export default function EquipmentDetailPage() {
                     <CardDescription>Track services this equipment was used in.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                     <p className="text-sm text-muted-foreground text-center py-12">Usage tracking is coming soon.</p>
+                      <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Date</TableHead>
+                                <TableHead>Client</TableHead>
+                                <TableHead>Service</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {usageHistory.length > 0 ? (
+                                usageHistory.map(apt => (
+                                    <TableRow key={apt.id}>
+                                        <TableCell>{format(apt.endTime, 'MMM d, yyyy')}</TableCell>
+                                        <TableCell>
+                                            <div className='flex items-center gap-2'>
+                                                 <User className="h-4 w-4 text-muted-foreground"/>
+                                                 {apt.client?.name || 'N/A'}
+                                            </div>
+                                        </TableCell>
+                                        <TableCell>
+                                            <div className='flex items-center gap-2'>
+                                                <Wrench className="h-4 w-4 text-muted-foreground"/>
+                                                {apt.service?.name || 'N/A'}
+                                            </div>
+                                        </TableCell>
+                                    </TableRow>
+                                ))
+                            ) : (
+                                <TableRow>
+                                    <TableCell colSpan={3} className="text-center text-muted-foreground h-24">
+                                        No usage history recorded.
+                                    </TableCell>
+                                </TableRow>
+                            )}
+                        </TableBody>
+                    </Table>
                 </CardContent>
             </Card>
         </div>
-
+        <LogMaintenanceDialog 
+            open={isLogMaintenanceOpen} 
+            onOpenChange={setIsLogMaintenanceOpen}
+            onSave={handleSaveMaintenance}
+        />
       </main>
     </div>
   );

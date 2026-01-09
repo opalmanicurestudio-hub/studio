@@ -13,6 +13,13 @@ export type Client = {
   notes?: string;
 };
 
+export type MaintenanceRecord = {
+  id: string;
+  date: string; // ISO date string
+  description: string;
+  cost: number;
+};
+
 export type Service = {
   id: string;
   name:string;
@@ -64,6 +71,7 @@ export type InventoryItem = {
   isExperimentActive?: boolean;
   experimentUses?: number;
   batches: Batch[];
+  maintenanceHistory?: MaintenanceRecord[];
 };
 
 export type Appointment = {
@@ -114,7 +122,7 @@ export const inventory: InventoryItem[] = [
   { id: 'inv-4', name: 'Top Coat Polish', type: 'professional', category: 'Color', totalStock: 30, reorderPoint: 10, supplier: 'ColorWorld', batches: [{id: 'b4-1', stock: 30, costPerUnit: 0.50, receivedDate: '2024-05-01'}], costingMethod: 'uses', partialContainerUses: 30, unit: 'uses' },
   { id: 'inv-5', name: 'Red Nail Polish', type: 'professional', category: 'Color', totalStock: 15, reorderPoint: 5, supplier: 'ColorWorld', batches: [{id: 'b5-1', stock: 15, costPerUnit: 0.80, receivedDate: '2024-05-01', expirationDate: '2024-06-30'}], costingMethod: 'uses', partialContainerUses: 15, unit: 'uses' },
   { id: 'inv-6', name: 'Lotion', type: 'professional', category: 'Care', totalStock: 0, reorderPoint: 20, supplier: 'BeautyCare', batches: [{id: 'b6-1', stock: 0, costPerUnit: 30.00, receivedDate: '2024-05-01'}], costingMethod: 'size', size: 1000, unit: 'ml', partialContainerSize: 50 },
-  { id: 'inv-7', name: 'UV Gel Lamp', type: 'equipment', category: 'Tools', totalStock: 2, supplier: 'EquipPro', lifespanYears: 3, batches: [{id: 'b7-1', stock: 2, costPerUnit: 150.00, receivedDate: '2022-01-15'}] },
+  { id: 'inv-7', name: 'UV Gel Lamp', type: 'equipment', category: 'Tools', totalStock: 2, supplier: 'EquipPro', lifespanYears: 3, batches: [{id: 'b7-1', stock: 2, costPerUnit: 150.00, receivedDate: '2022-01-15'}], maintenanceHistory: [{ id: 'maint-1', date: '2023-08-01', description: 'Replaced UV bulb', cost: 25.00 }] },
   { id: 'inv-8', name: 'Disinfectant Wipes', type: 'overhead', category: 'Cleaning', totalStock: 5, reorderPoint: 2, supplier: 'CleanSupplies', batches: [{id: 'b8-1', stock: 5, costPerUnit: 10.00, receivedDate: '2024-06-01'}] },
   { id: 'inv-9', name: 'Retail Shine Serum', type: 'retail', category: 'Styling', totalStock: 12, reorderPoint: 5, supplier: 'BeautyCare', batches: [{id: 'b9-1', stock: 12, costPerUnit: 8.50, receivedDate: '2024-06-01'}] },
   { id: 'inv-10', name: 'Pro Color Tube 5N', type: 'professional', category: 'Color', totalStock: 2, reorderPoint: 5, supplier: 'ColorWorld', isExperimentActive: false, experimentUses: 0, estimatedUses: 25, batches: [{id: 'b10-1', stock: 2, costPerUnit: 7.00, receivedDate: '2024-06-01'}], costingMethod: 'uses', partialContainerUses: 25, unit: 'uses' },
@@ -140,6 +148,9 @@ export const services: Service[] = [
       { ...inventory.find(i => i.id === 'inv-4')!, quantityUsed: 1 },
       { ...inventory.find(i => i.id === 'inv-5')!, quantityUsed: 1 },
       { ...inventory.find(i => i.id === 'inv-6')!, quantityUsed: 10 }, // 10ml
+    ],
+    equipment: [
+        inventory.find(i => i.id === 'inv-7')!
     ]
   },
 ];
