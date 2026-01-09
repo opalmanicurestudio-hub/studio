@@ -134,23 +134,30 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                 
                 <Card className='bg-muted/50'>
                     <CardContent className='p-2 text-center'>
-                        <div className="grid grid-cols-2 divide-x">
-                            <div>
-                                <p className='text-xs text-muted-foreground'>Full Units</p>
-                                <p className='text-2xl font-bold'>{item.totalStock}</p>
+                       {item.type === 'professional' ? (
+                            <div className="grid grid-cols-2 divide-x">
+                                <div>
+                                    <p className='text-xs text-muted-foreground'>Full Units</p>
+                                    <p className='text-2xl font-bold'>{item.totalStock}</p>
+                                </div>
+                                <div>
+                                    <p className='text-xs text-muted-foreground'>
+                                        {item.costingMethod === 'uses' ? 'Uses Left' : 'Size Left'}
+                                    </p>
+                                    <p className='text-2xl font-bold'>
+                                        {item.costingMethod === 'uses'
+                                            ? item.partialContainerUses || 0
+                                            : `${item.partialContainerSize || 0}${item.unit || ''}`
+                                        }
+                                    </p>
+                                </div>
                             </div>
-                            <div>
-                                <p className='text-xs text-muted-foreground'>
-                                    {item.costingMethod === 'uses' ? 'Uses Left' : 'Size Left'}
-                                </p>
-                                <p className='text-2xl font-bold'>
-                                    {item.costingMethod === 'uses'
-                                        ? item.partialContainerUses || 0
-                                        : `${item.partialContainerSize || 0}${item.unit || ''}`
-                                    }
-                                </p>
+                        ) : (
+                             <div>
+                                <p className='text-xs text-muted-foreground'>Total Stock</p>
+                                <p className='text-3xl font-bold'>{item.totalStock}</p>
                             </div>
-                        </div>
+                        )}
                          {item.isExperimentActive && (
                             <p className='text-xs text-purple-500 font-medium mt-1'>
                                 {item.experimentUses} uses logged in experiment
@@ -161,7 +168,9 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
 
                 <div className='space-y-2'>
                     <Badge variant="secondary" className={cn("w-full justify-center h-6", stockStatus.className)}>{stockStatus.label}</Badge>
-                    <Button variant='outline' size="sm" className='w-full h-8' onClick={() => onLogUse(item)} disabled={item.type !== 'professional'}>Log 1 Use</Button>
+                    {item.type === 'professional' && (
+                        <Button variant='outline' size="sm" className='w-full h-8' onClick={() => onLogUse(item)}>Log 1 Use</Button>
+                    )}
                 </div>
                 
                 <Accordion type="single" collapsible className="w-full">
@@ -654,6 +663,14 @@ export default function InventoryPage() {
   const lastAddedLocationRef = useRef<Location | null>(null);
   const receivedItemsRef = useRef<ShipmentItem[] | null>(null);
   
+  const handleAddNewLocation = (newLocation: Omit<Location, 'id'>) => {
+    const locationWithId = { ...newLocation, id: `loc-${Date.now()}` };
+    setLocations(prev => [...prev, locationWithId]);
+    lastAddedLocationRef.current = locationWithId;
+    setIsAddLocationOpen(false);
+    setIsAddLocationFromProductOpen(false);
+  };
+  
   useEffect(() => {
     if (lastAddedLocationRef.current) {
         toast({
@@ -664,6 +681,38 @@ export default function InventoryPage() {
     }
   }, [locations, toast]);
   
+  const handleReceiveStock = (items: ShipmentItem[], landedCosts: Record<string, number>) => {
+    receivedItemsRef.current = items;
+    setInventory(prevInventory => {
+      const newInventory = [...prevInventory];
+      
+      items.forEach(item => {
+        const productIndex = newInventory.findIndex(p => p.id === item.id);
+        if (productIndex !== -1) {
+          const newBatch: Batch = {
+            id: `batch-${Date.now()}-${item.id}`,
+            stock: item.shipmentQuantity,
+            costPerUnit: landedCosts[item.id] || item.costPerUnit || 0,
+            receivedDate: new Date().toISOString(),
+          };
+
+          newInventory[productIndex].batches.push(newBatch);
+          newInventory[productIndex].totalStock += item.shipmentQuantity;
+          
+          addStockCorrection({
+            id: `sc-${Date.now()}-${item.id}`,
+            productId: item.id,
+            date: new Date().toISOString(),
+            change: item.shipmentQuantity,
+            unit: newInventory[productIndex].unit || 'unit',
+            reason: 'Shipment Received'
+          });
+        }
+      });
+      return newInventory;
+    });
+  };
+
   useEffect(() => {
     if (receivedItemsRef.current) {
          toast({
@@ -673,14 +722,6 @@ export default function InventoryPage() {
         receivedItemsRef.current = null;
     }
   }, [inventory, addStockCorrection, toast]);
-
-  const handleAddNewLocation = (newLocation: Omit<Location, 'id'>) => {
-    const locationWithId = { ...newLocation, id: `loc-${Date.now()}` };
-    setLocations(prev => [...prev, locationWithId]);
-    lastAddedLocationRef.current = locationWithId;
-    setIsAddLocationOpen(false);
-    setIsAddLocationFromProductOpen(false);
-  }
 
   const handleAddNewLocationType = (newType: string) => {
     const newLocationType = { id: `lt-${Date.now()}`, name: newType };
@@ -817,39 +858,6 @@ export default function InventoryPage() {
     }
   }, [isScannerOpen, toast]);
 
-  const handleReceiveStock = (items: ShipmentItem[], landedCosts: Record<string, number>) => {
-    receivedItemsRef.current = items;
-    setInventory(prevInventory => {
-      const newInventory = [...prevInventory];
-      const newCorrections: StockCorrection[] = [];
-
-      items.forEach(item => {
-        const productIndex = newInventory.findIndex(p => p.id === item.id);
-        if (productIndex !== -1) {
-          const newBatch: Batch = {
-            id: `batch-${Date.now()}-${item.id}`,
-            stock: item.shipmentQuantity,
-            costPerUnit: landedCosts[item.id] || item.costPerUnit || 0,
-            receivedDate: new Date().toISOString(),
-          };
-
-          newInventory[productIndex].batches.push(newBatch);
-          newInventory[productIndex].totalStock += item.shipmentQuantity;
-          
-          addStockCorrection({
-            id: `sc-${Date.now()}-${item.id}`,
-            productId: item.id,
-            date: new Date().toISOString(),
-            change: item.shipmentQuantity,
-            unit: newInventory[productIndex].unit || 'unit',
-            reason: 'Shipment Received'
-          });
-        }
-      });
-      return newInventory;
-    });
-  };
-
   const handleLogUse = (productToUpdate: InventoryItem) => {
     let useLogged = false;
     setInventory(prevInventory => {
@@ -867,7 +875,7 @@ export default function InventoryPage() {
         
         product.partialContainerUses = product.partialContainerUses ?? 0;
         
-        if (product.partialContainerUses > 0) {
+        if (product.partialContainerUses >= quantityNeeded) {
             product.partialContainerUses -= quantityNeeded;
         } else if (product.totalStock > 0) {
             product.totalStock -= 1;
