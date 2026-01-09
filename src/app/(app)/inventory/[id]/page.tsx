@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft, Edit, DollarSign, Package, AlertCircle, ShoppingCart, BarChart, FileText, Clock, Database, Book, QrCode, Tag, Truck, TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
 import { services } from '@/lib/data';
 import Link from 'next/link';
-import { notFound, useParams } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import Image from 'next/image';
@@ -26,17 +26,19 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { format, isPast, parseISO } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { useInventory } from '@/context/InventoryContext';
 import { StockCorrection } from '@/lib/data';
 
 const CorrectionIcon = ({ reason }: { reason: string }) => {
     if (reason.startsWith('Appointment')) return <TrendingDown className="h-4 w-4 text-red-500" />;
     if (reason.startsWith('Shipment')) return <TrendingUp className="h-4 w-4 text-green-500" />;
+    if (reason.startsWith('Manual Use')) return <TrendingDown className="h-4 w-4 text-red-500" />;
     return <RefreshCw className="h-4 w-4 text-gray-500" />;
 }
+
 
 export default function ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -45,8 +47,14 @@ export default function ProductDetailPage() {
   const product = inventory.find((p) => p.id === id);
 
   if (!product) {
-    // A loading state could be better here
-    return <div>Loading product...</div>
+    return (
+        <div className="flex min-h-screen w-full flex-col">
+            <AppHeader title="Product Details" />
+            <main className="flex-1 p-4 md:p-8 space-y-6">
+                <div>Loading product...</div>
+            </main>
+        </div>
+    )
   }
   
   const servicesUsingProduct = services.filter(s => s.products?.some(p => p.id === product.id));
@@ -55,19 +63,84 @@ export default function ProductDetailPage() {
   const stockValue = (product.totalStock || 0) * (product.costPerUnit || 0);
 
   const ledgerWithRunningStock = useMemo(() => {
-    let runningStock = product.totalStock; // Start with the final stock
-    const reversedCorrections = [...productStockCorrections].reverse(); // Oldest first
+    if (!product) return [];
+  
+    // Find the absolute initial state before any corrections
+    const allCorrections = [...productStockCorrections].reverse(); // Oldest first
+  
+    // Find initial batch
+    const initialBatch = product.batches.sort((a, b) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime())[0];
+  
+    let runningTotalStock = initialBatch ? initialBatch.stock : 0;
+    let runningPartialUses = product.costingMethod === 'uses' ? (product.estimatedUses || 0) * runningTotalStock : undefined;
+    let runningPartialSize = product.costingMethod === 'size' ? (product.size || 0) * runningTotalStock : undefined;
+  
+    // We need to find the state at the time of the *first* correction.
+    // Let's replay from the beginning of time (of this product).
     
-    // First, calculate the stock at the time of the oldest correction
-    const totalChange = reversedCorrections.reduce((acc, corr) => acc + corr.change, 0);
-    let stockBeforeFirstCorrection = runningStock - totalChange;
+    // This is a simplified replay. A more robust solution might store snapshots.
+    const initialTotalStock = product.batches.reduce((acc, batch) => acc + batch.stock, 0);
+    const totalChange = allCorrections.reduce((acc, corr) => acc + corr.change, 0);
 
-    return reversedCorrections.map(correction => {
-        const stockAfter = stockBeforeFirstCorrection + correction.change;
-        stockBeforeFirstCorrection = stockAfter; // Update for next iteration
-        return { ...correction, stockAfter };
-    }).reverse(); // Reverse back to newest first for display
-  }, [productStockCorrections, product.totalStock]);
+    const result = allCorrections.map(correction => {
+        let stockAfter;
+        let partialAfter;
+
+        if (product.costingMethod === 'uses') {
+             if (runningPartialUses === undefined) runningPartialUses = 0;
+             const usesPerContainer = product.estimatedUses || 1;
+             
+             // This assumes `change` is in 'uses' if it's a use-based product
+             const changeInUses = correction.change;
+             
+             if (changeInUses > 0) { // Receiving stock
+                 runningTotalStock += changeInUses / usesPerContainer;
+             } else { //Deducting stock
+                let usesToDeduct = Math.abs(changeInUses);
+                runningPartialUses -= usesToDeduct;
+
+                while (runningPartialUses < 0) {
+                    runningTotalStock -= 1;
+                    runningPartialUses += usesPerContainer;
+                }
+             }
+
+             stockAfter = runningTotalStock;
+             partialAfter = runningPartialUses;
+
+        } else if (product.costingMethod === 'size') {
+            if (runningPartialSize === undefined) runningPartialSize = 0;
+            const sizePerContainer = product.size || 1;
+
+            const changeInSize = correction.change;
+            if (changeInSize > 0) {
+                runningTotalStock += changeInSize / sizePerContainer;
+            } else {
+                let sizeToDeduct = Math.abs(changeInSize);
+                runningPartialSize -= sizeToDeduct;
+                while (runningPartialSize < 0) {
+                    runningTotalStock -= 1;
+                    runningPartialSize += sizePerContainer;
+                }
+            }
+            stockAfter = runningTotalStock;
+            partialAfter = runningPartialSize;
+
+        } else { // For items not tracked by use/size
+            runningTotalStock += correction.change;
+            stockAfter = runningTotalStock;
+        }
+
+        return { 
+            ...correction, 
+            stockAfter, 
+            partialAfter 
+        };
+    });
+
+    return result.reverse(); // Newest first for display
+  }, [product, productStockCorrections]);
+
 
 
   return (
@@ -278,8 +351,16 @@ export default function ProductDetailPage() {
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {ledgerWithRunningStock.length > 0 ? (
-                                                ledgerWithRunningStock.map((correction) => (
+                                            {productStockCorrections.length > 0 ? (
+                                                productStockCorrections.map((correction) => {
+                                                    let stockAfterDisplay = `${(correction as any).stockAfter?.toFixed(0) || 'N/A'}`;
+                                                    if (product.costingMethod === 'uses') {
+                                                        stockAfterDisplay = `${Math.floor((correction as any).stockAfter) || 0} full, ${((correction as any).partialAfter || 0)} uses`;
+                                                    } else if (product.costingMethod === 'size') {
+                                                        stockAfterDisplay = `${Math.floor((correction as any).stockAfter) || 0} full, ${((correction as any).partialAfter || 0).toFixed(2)}${product.unit}`;
+                                                    }
+
+                                                    return (
                                                     <TableRow key={correction.id}>
                                                         <TableCell>{format(parseISO(correction.date), 'MMM d, yyyy h:mm a')}</TableCell>
                                                         <TableCell>
@@ -291,11 +372,11 @@ export default function ProductDetailPage() {
                                                         <TableCell className={cn('text-right font-mono', correction.change > 0 ? 'text-green-500' : 'text-red-500')}>
                                                             {correction.change > 0 ? '+' : ''}{correction.change} {correction.unit}
                                                         </TableCell>
-                                                         <TableCell className="text-right font-mono">
-                                                            {correction.stockAfter.toFixed(2)} {correction.unit}
-                                                        </TableCell>
+                                                         <TableCell className="text-right font-mono text-xs">
+                                                            {stockAfterDisplay}
+                                                         </TableCell>
                                                     </TableRow>
-                                                ))
+                                                )})
                                             ) : (
                                                 <TableRow>
                                                     <TableCell colSpan={4} className="text-center text-muted-foreground py-8">No inventory movements recorded yet.</TableCell>
@@ -340,3 +421,4 @@ export default function ProductDetailPage() {
     </div>
   );
 }
+
