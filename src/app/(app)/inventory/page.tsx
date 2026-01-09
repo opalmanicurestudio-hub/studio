@@ -854,6 +854,7 @@ export default function InventoryPage() {
   };
 
   const handleLogUse = (productToUpdate: InventoryItem) => {
+    let useLogged = false;
     setInventory(prevInventory => {
         const newInventory = [...prevInventory];
         const productIndex = newInventory.findIndex(p => p.id === productToUpdate.id);
@@ -894,11 +895,13 @@ export default function InventoryPage() {
 
         newInventory[productIndex] = product;
         setStockCorrections(prev => [...prev, newCorrection]);
-        
-        toast({ title: 'Use Logged', description: `1 use of ${product.name} deducted.` });
+        useLogged = true;
 
         return newInventory;
     });
+    if (useLogged) {
+        toast({ title: 'Use Logged', description: `1 use of ${productToUpdate.name} deducted.` });
+    }
 };
   
   const ProductShelf = ({ title, items }: { title: string, items: InventoryItem[] }) => {
