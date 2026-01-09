@@ -63,21 +63,21 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
     }, [item]);
     
     return (
-        <Card className={cn("w-full transition-all duration-200 hover:shadow-xl hover:-translate-y-1", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
+        <Card className={cn("w-64 transition-all duration-200 hover:shadow-xl hover:-translate-y-1 shrink-0", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
             <CardContent className="p-3 space-y-3">
                 <div className="flex items-start justify-between gap-3">
                     <div className='flex items-start gap-3 flex-1 min-w-0'>
                         <div className='w-12 h-12 bg-muted rounded-md flex-shrink-0'>
                             <Image src={item.imageUrl || `https://picsum.photos/seed/inv${item.id}/100/100`} alt={item.name} width={48} height={48} className='rounded-md' data-ai-hint="product photo"/>
                         </div>
-                        <div className='flex-1 min-w-0'>
+                        <div className='flex-1 min-w-0 pt-1'>
                             <p className="font-semibold text-sm leading-snug truncate">{item.name}</p>
                             <p className="text-xs text-muted-foreground">{item.category}</p>
                         </div>
                     </div>
                      <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button aria-haspopup="true" size="icon" variant="ghost" className="-mt-1 h-8 w-8 flex-shrink-0">
+                        <Button aria-haspopup="true" size="icon" variant="ghost" className="h-8 w-8 flex-shrink-0">
                           <MoreHorizontal className="h-4 w-4" />
                           <span className="sr-only">Toggle menu</span>
                         </Button>
@@ -110,7 +110,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                     </Badge>
                      {item.isExperimentActive && (
                         <Badge variant="secondary" className="flex items-center gap-1.5 bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300">
-                            <FlaskConical className="h-3 w-3" /> Experiment Active
+                            <FlaskConical className="h-3 w-3" /> Experiment
                         </Badge>
                      )}
                 </div>
@@ -626,6 +626,25 @@ export default function InventoryPage() {
         }
     }
   }, [isScannerOpen, toast]);
+  
+  const ProductShelf = ({ title, items }: { title: string, items: InventoryItem[] }) => {
+    if (items.length === 0) return null;
+    
+    return (
+        <div className="space-y-4">
+            <h2 className="text-xl font-bold">{title}</h2>
+            <ScrollArea>
+                <div className="flex w-max space-x-4 pb-4">
+                    {items.map((item) => (
+                        <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} />
+                    ))}
+                </div>
+                <ScrollBar orientation="horizontal" />
+            </ScrollArea>
+        </div>
+    );
+  };
+
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -790,109 +809,31 @@ export default function InventoryPage() {
           </div>
         </div>
 
-        <div>
+        <div className='space-y-8'>
           {activeTab === 'professional' && (
             (professionalColor.length === 0 && professionalCare.length === 0 && professionalStyling.length === 0 && professionalTools.length === 0) ? (
               <EmptyState message="No professional products yet. Add one to get started." />
             ) : (
-              <div className="space-y-6">
-                
-                <div className="space-y-2">
-                  <h2 className="text-xl font-bold">Color</h2>
-                  <Carousel opts={{ align: "start" }} className="w-full">
-                    <CarouselContent className="-ml-4">
-                      {professionalColor.map((item) => (
-                        <CarouselItem key={item.id} className="pl-4 basis-full sm:basis-1/2 md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                          <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
-                        </CarouselItem>
-                      ))}
-                    </CarouselContent>
-                  </Carousel>
-                </div>
-                
-                <div className="space-y-2">
-                   <h2 className="text-xl font-bold">Styling</h2>
-                  <Carousel opts={{ align: "start" }} className="w-full">
-                    <CarouselContent className="-ml-4">
-                      {professionalStyling.map((item) => (
-                        <CarouselItem key={item.id} className="pl-4 basis-full sm:basis-1/2 md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                          <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
-                        </CarouselItem>
-                      ))}
-                    </CarouselContent>
-                  </Carousel>
-                </div>
-
-                <div className="space-y-2">
-                   <h2 className="text-xl font-bold">Care</h2>
-                   <Carousel opts={{ align: "start" }} className="w-full">
-                    <CarouselContent className="-ml-4">
-                      {professionalCare.map((item) => (
-                        <CarouselItem key={item.id} className="pl-4 basis-full sm:basis-1/2 md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                          <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
-                        </CarouselItem>
-                      ))}
-                    </CarouselContent>
-                  </Carousel>
-                </div>
-                
-                <div className="space-y-2">
-                  <h2 className="text-xl font-bold">Tools</h2>
-                   <Carousel opts={{ align: "start" }} className="w-full">
-                    <CarouselContent className="-ml-4">
-                      {professionalTools.map((item) => (
-                        <CarouselItem key={item.id} className="pl-4 basis-full sm:basis-1/2 md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                          <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
-                        </CarouselItem>
-                      ))}
-                    </CarouselContent>
-                  </Carousel>
-                </div>
-              </div>
+              <>
+                <ProductShelf title="Color" items={professionalColor} />
+                <ProductShelf title="Styling" items={professionalStyling} />
+                <ProductShelf title="Care" items={professionalCare} />
+                <ProductShelf title="Tools" items={professionalTools} />
+              </>
             )
           )}
           {activeTab === 'retail' && (retailItems.length > 0 ? (
-            <div className="pl-4">
-              <Carousel opts={{ align: "start" }} className="w-full">
-                <CarouselContent className="-ml-4">
-                  {retailItems.map((item) => (
-                    <CarouselItem key={item.id} className="pl-4 basis-full sm:basis-1/2 md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                      <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
-                    </CarouselItem>
-                  ))}
-                </CarouselContent>
-              </Carousel>
-            </div>
+            <ProductShelf title="Retail Products" items={retailItems} />
           ) : (
             <EmptyState message="No retail items yet. Add one to get started." />
           ))}
           {activeTab === 'overhead' && (overheadItems.length > 0 ? (
-            <div className="pl-4">
-              <Carousel opts={{ align: "start" }} className="w-full">
-                <CarouselContent className="-ml-4">
-                  {overheadItems.map((item) => (
-                    <CarouselItem key={item.id} className="pl-4 basis-full sm:basis-1/2 md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                      <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
-                    </CarouselItem>
-                  ))}
-                </CarouselContent>
-              </Carousel>
-            </div>
+             <ProductShelf title="Overhead Supplies" items={overheadItems} />
           ) : (
             <EmptyState message="No overhead items yet. Add one to get started." />
           ))}
           {activeTab === 'equipment' && (equipmentItems.length > 0 ? (
-            <div className="pl-4">
-              <Carousel opts={{ align: "start" }} className="w-full">
-                <CarouselContent className="-ml-4">
-                  {equipmentItems.map((item) => (
-                    <CarouselItem key={item.id} className="pl-4 basis-full sm:basis-1/2 md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                      <div className="p-1"><ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} /></div>
-                    </CarouselItem>
-                  ))}
-                </CarouselContent>
-              </Carousel>
-            </div>
+            <ProductShelf title="Capital Equipment" items={equipmentItems} />
           ) : (
             <EmptyState message="No equipment items yet. Add one to get started." />
           ))}
