@@ -604,6 +604,28 @@ export default function InventoryPage() {
       : p
     ));
   };
+  
+  const handleSimulateScan = () => {
+    const scannedProductId = 'inv-3'; // Simulate scanning "Base Coat Polish"
+    const product = inventory.find(p => p.id === scannedProductId);
+    if (product) {
+        setIsScannerOpen(false);
+        // Delay opening the edit dialog slightly to allow the scanner to close
+        setTimeout(() => {
+            handleOpenEditDialog(product);
+        }, 150);
+        toast({
+            title: "Product Scanned",
+            description: `Showing details for ${product.name}.`
+        });
+    } else {
+        toast({
+            variant: "destructive",
+            title: "Product Not Found",
+            description: `Product with ID ${scannedProductId} not found.`
+        });
+    }
+  };
 
 
   useEffect(() => {
@@ -964,7 +986,8 @@ export default function InventoryPage() {
                 </Alert>
             )}
           </div>
-           <DialogFooter className="p-4 pt-0">
+           <DialogFooter className="p-4 pt-0 flex-col gap-2">
+                <Button onClick={handleSimulateScan}>Simulate Scan (inv-3)</Button>
                 <Button variant="outline" onClick={() => setIsScannerOpen(false)}>Cancel</Button>
           </DialogFooter>
         </DialogContent>
