@@ -98,6 +98,7 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
     const productCosts = (service.products || []).map(p => ({
       ...p,
       cost: p.costPerUnit || 0, // This might need to be adjusted based on usage
+      location: 'Back Room - Shelf A' // Mock location
     }));
 
     const equipmentCosts = (service.equipment || []).map(e => ({
@@ -130,7 +131,10 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
             <h4 className="font-medium flex items-center gap-2"><ShoppingCart className="w-4 h-4 text-muted-foreground"/>Product Costs</h4>
             {productCosts.length > 0 ? productCosts.map(p => (
                 <div key={p.id} className="flex justify-between items-center bg-muted/50 p-3 rounded-md">
-                    <span>{p.name}</span>
+                    <div>
+                        <p className="font-medium">{p.name}</p>
+                        <p className="text-xs text-muted-foreground">{p.location}</p>
+                    </div>
                     <span className="font-semibold">${(p.cost || 0).toFixed(2)}</span>
                 </div>
             )) : <p className="text-xs text-muted-foreground text-center p-2">No products in formula.</p>}
