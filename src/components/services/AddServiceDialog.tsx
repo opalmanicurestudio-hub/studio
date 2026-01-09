@@ -49,6 +49,7 @@ const serviceSchema = z.object({
     description: z.string().optional(),
     imageUrl: z.string().optional(),
     isPrivate: z.boolean().optional(),
+    isAddon: z.boolean().optional(),
     
     products: z.array(z.any()).optional(),
     equipment: z.array(z.any()).optional(),
@@ -89,8 +90,21 @@ const Step1_Basics = ({
     
     return (
     <div className="grid gap-6 py-4">
+        <div className="flex items-center justify-between p-4 border rounded-lg">
+            <div className='space-y-1'>
+                <Label htmlFor="is-addon">Is this an Add-on Service?</Label>
+                <p className='text-sm text-muted-foreground'>Add-ons can be appended to primary services.</p>
+            </div>
+            <Controller
+                name="isAddon"
+                control={control}
+                render={({ field }) => (
+                    <Switch id="is-addon" checked={field.value} onCheckedChange={field.onChange} />
+                )}
+            />
+        </div>
         <div className="space-y-2">
-            <Label htmlFor="service-name">Service Name</Label>
+            <Label htmlFor="service-name">Name</Label>
             <Input id="service-name" placeholder="e.g., Signature Haircut" {...register('name')} />
              {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
         </div>
@@ -189,6 +203,7 @@ const Step2_Formula = ({ onScanClick }: { onScanClick: () => void; }) => {
     const selectedProducts = watch('products') || [];
     const selectedEquipment = watch('equipment') || [];
     const selectedAddOns = watch('addOns') || [];
+    const isAddon = watch('isAddon');
 
     const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
     const [isEquipmentSelectorOpen, setIsEquipmentSelectorOpen] = useState(false);
@@ -285,35 +300,37 @@ const Step2_Formula = ({ onScanClick }: { onScanClick: () => void; }) => {
                 <Button variant="outline" onClick={() => setIsEquipmentSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Equipment</Button>
             </div>
         </div>
-         <div className="space-y-4">
-            <div className="space-y-2">
-                 <div className='flex items-center gap-2'>
-                    <PlusCircle className="w-5 h-5 text-primary" />
-                    <Label className="text-lg font-semibold">Compatible Add-ons</Label>
+        {!isAddon && (
+             <div className="space-y-4">
+                <div className="space-y-2">
+                    <div className='flex items-center gap-2'>
+                        <PlusCircle className="w-5 h-5 text-primary" />
+                        <Label className="text-lg font-semibold">Compatible Add-ons</Label>
+                    </div>
+                    {selectedAddOns.length > 0 ? (
+                        <Card>
+                            <CardContent className="p-2 space-y-2">
+                                {selectedAddOns.map(item => (
+                                    <div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50">
+                                        <span className="text-sm font-medium">{item.name}</span>
+                                        <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}>
+                                            <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                ))}
+                            </CardContent>
+                        </Card>
+                    ) : (
+                        <Card>
+                            <CardContent className="p-4 text-center text-sm text-muted-foreground">
+                                No add-ons selected.
+                            </CardContent>
+                        </Card>
+                    )}
+                    <Button variant="outline" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button>
                 </div>
-                 {selectedAddOns.length > 0 ? (
-                    <Card>
-                         <CardContent className="p-2 space-y-2">
-                            {selectedAddOns.map(item => (
-                                <div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50">
-                                    <span className="text-sm font-medium">{item.name}</span>
-                                    <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}>
-                                        <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                </div>
-                            ))}
-                        </CardContent>
-                    </Card>
-                ) : (
-                    <Card>
-                        <CardContent className="p-4 text-center text-sm text-muted-foreground">
-                            No add-ons selected.
-                        </CardContent>
-                    </Card>
-                )}
-                <Button variant="outline" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button>
             </div>
-        </div>
+        )}
     </div>
     <BrowseProductsDialog
         open={isProductBrowserOpen}
@@ -575,6 +592,7 @@ export const AddServiceDialog = ({
         padBefore: undefined,
         padAfter: undefined,
         isPrivate: false,
+        isAddon: false,
         products: [],
         equipment: [],
         addOns: [],
@@ -583,6 +601,8 @@ export const AddServiceDialog = ({
         margin: 60,
     }
   });
+
+  const isAddon = methods.watch('isAddon');
   
   const totalSteps = 4;
   
@@ -619,7 +639,7 @@ export const AddServiceDialog = ({
       const newService: Service = {
         id: `svc-${Date.now()}`,
         name: data.name,
-        type: 'service', // Or 'addon' based on a form field if needed
+        type: data.isAddon ? 'addon' : 'service',
         category: data.category || 'Uncategorized',
         duration: duration,
         padBefore: padBefore,
@@ -637,7 +657,7 @@ export const AddServiceDialog = ({
       onServiceAdded(newService);
 
       toast({
-          title: "Service Created",
+          title: `New ${data.isAddon ? 'Add-on' : 'Service'} Created`,
           description: `${data.name} has been added to your library.`
       })
       handleOpenChange(false);
@@ -695,10 +715,10 @@ export const AddServiceDialog = ({
         <FormProvider {...methods}>
         <form onSubmit={methods.handleSubmit(onSubmit)}>
             <DialogHeader>
-            <DialogTitle>Add New Service</DialogTitle>
-            <DialogDescription>
-                Create a new service for your menu. Follow the steps to ensure accurate pricing.
-            </DialogDescription>
+                <DialogTitle>Add New {isAddon ? 'Add-on' : 'Service'}</DialogTitle>
+                <DialogDescription>
+                    Create a new {isAddon ? 'add-on' : 'service'} for your menu. Follow the steps to ensure accurate pricing.
+                </DialogDescription>
             </DialogHeader>
 
             <div className="py-4 space-y-4">
@@ -721,7 +741,7 @@ export const AddServiceDialog = ({
                     {step < totalSteps ? (
                         <Button onClick={handleNext} type="button">Next</Button>
                     ) : (
-                        <Button type="submit">Save Service</Button>
+                        <Button type="submit">Save {isAddon ? 'Add-on' : 'Service'}</Button>
                     )}
                 </div>
             </div>

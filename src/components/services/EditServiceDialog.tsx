@@ -50,6 +50,7 @@ const serviceSchema = z.object({
     padAfter: z.number().optional(),
     description: z.string().optional(),
     imageUrl: z.string().optional(),
+    isAddon: z.boolean().optional(),
     
     products: z.array(z.any()).optional(),
     equipment: z.array(z.any()).optional(),
@@ -90,6 +91,19 @@ const Step1_Basics = ({
     
     return (
     <div className="grid gap-6 py-4">
+         <div className="flex items-center justify-between p-4 border rounded-lg">
+            <div className='space-y-1'>
+                <Label htmlFor="is-addon-edit">Is this an Add-on Service?</Label>
+                <p className='text-sm text-muted-foreground'>Add-ons can be appended to primary services.</p>
+            </div>
+            <Controller
+                name="isAddon"
+                control={control}
+                render={({ field }) => (
+                    <Switch id="is-addon-edit" checked={field.value} onCheckedChange={field.onChange} />
+                )}
+            />
+        </div>
         <div className="space-y-2">
             <Label htmlFor="service-name">Service Name</Label>
             <Input id="service-name" placeholder="e.g., Signature Haircut" {...register('name')} />
@@ -169,6 +183,7 @@ const Step2_Formula = ({ onScanClick }: { onScanClick: () => void; }) => {
     const selectedProducts = watch('products') || [];
     const selectedEquipment = watch('equipment') || [];
     const selectedAddOns = watch('addOns') || [];
+    const isAddon = watch('isAddon');
 
     const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
     const [isEquipmentSelectorOpen, setIsEquipmentSelectorOpen] = useState(false);
@@ -265,35 +280,37 @@ const Step2_Formula = ({ onScanClick }: { onScanClick: () => void; }) => {
                 <Button variant="outline" onClick={() => setIsEquipmentSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Equipment</Button>
             </div>
         </div>
-         <div className="space-y-4">
-            <div className="space-y-2">
-                 <div className='flex items-center gap-2'>
-                    <PlusCircle className="w-5 h-5 text-primary" />
-                    <Label className="text-lg font-semibold">Compatible Add-ons</Label>
+        {!isAddon && (
+             <div className="space-y-4">
+                <div className="space-y-2">
+                    <div className='flex items-center gap-2'>
+                        <PlusCircle className="w-5 h-5 text-primary" />
+                        <Label className="text-lg font-semibold">Compatible Add-ons</Label>
+                    </div>
+                    {selectedAddOns.length > 0 ? (
+                        <Card>
+                            <CardContent className="p-2 space-y-2">
+                                {selectedAddOns.map(item => (
+                                    <div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50">
+                                        <span className="text-sm font-medium">{item.name}</span>
+                                        <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}>
+                                            <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                ))}
+                            </CardContent>
+                        </Card>
+                    ) : (
+                        <Card>
+                            <CardContent className="p-4 text-center text-sm text-muted-foreground">
+                                No add-ons selected.
+                            </CardContent>
+                        </Card>
+                    )}
+                    <Button variant="outline" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button>
                 </div>
-                 {selectedAddOns.length > 0 ? (
-                    <Card>
-                         <CardContent className="p-2 space-y-2">
-                            {selectedAddOns.map(item => (
-                                <div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50">
-                                    <span className="text-sm font-medium">{item.name}</span>
-                                    <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}>
-                                        <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                </div>
-                            ))}
-                        </CardContent>
-                    </Card>
-                ) : (
-                    <Card>
-                        <CardContent className="p-4 text-center text-sm text-muted-foreground">
-                            No add-ons selected.
-                        </CardContent>
-                    </Card>
-                )}
-                <Button variant="outline" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button>
             </div>
-        </div>
+        )}
     </div>
     <BrowseProductsDialog
         open={isProductBrowserOpen}
@@ -554,12 +571,15 @@ export const EditServiceDialog = ({
     resolver: zodResolver(serviceSchema),
   });
 
+   const isAddon = methods.watch('isAddon');
+
   useEffect(() => {
       if (service) {
           methods.reset({
             id: service.id,
             name: service.name,
             type: service.type,
+            isAddon: service.type === 'addon',
             category: service.category,
             duration: service.duration,
             padBefore: service.padBefore || undefined,
@@ -611,7 +631,7 @@ export const EditServiceDialog = ({
       const updatedService: Service = {
         id: data.id,
         name: data.name,
-        type: data.type,
+        type: data.isAddon ? 'addon' : 'service',
         category: data.category || 'Uncategorized',
         duration: duration,
         padBefore: padBefore,
@@ -682,7 +702,7 @@ export const EditServiceDialog = ({
         <FormProvider {...methods}>
         <form onSubmit={methods.handleSubmit(onSubmit)}>
             <DialogHeader>
-            <DialogTitle>Edit Service</DialogTitle>
+            <DialogTitle>Edit {isAddon ? 'Add-on' : 'Service'}</DialogTitle>
             <DialogDescription>
                 Update the details for &quot;{service.name}&quot;.
             </DialogDescription>
