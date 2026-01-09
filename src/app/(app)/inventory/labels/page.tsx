@@ -179,7 +179,7 @@ const SingleLabel = ({ product, options }: { product: InventoryItem, options: La
     }, [product]);
 
     return (
-        <div className="text-center flex flex-col items-center justify-center break-words">
+        <div className="text-center flex flex-col items-center justify-center break-words text-black">
             {options.showProductName && <p className="font-bold text-xs mb-1">{product.name}</p>}
             {options.showPrice && price && <p className="mb-1 font-mono text-sm">${price.toFixed(2)}</p>}
             {options.showSKU && <p className="font-mono text-[10px] mb-1">SKU: {product.id.slice(-6)}</p>}
@@ -409,4 +409,5 @@ export default function LabelPage() {
         </Suspense>
     );
 }
+
 
