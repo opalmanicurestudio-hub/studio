@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -705,8 +704,11 @@ export const EditServiceDialog = ({
       stepMap.push(<Step3_Deposits key="step3" />);
     }
     
-    stepMap.push(<PricingForm key="step4" />);
-    
+    const pricingStep = <PricingForm key={`step${totalSteps}`} />;
+
+    if (step === totalSteps) {
+        return pricingStep;
+    }
     return stepMap[step - 1];
   }
 
