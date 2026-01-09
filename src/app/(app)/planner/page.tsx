@@ -6,7 +6,7 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
-import { appointments as initialAppointments, clients, services, inventory, type InventoryItem, type Service } from '@/lib/data';
+import { appointments as initialAppointments, clients, services, inventory as initialInventory, type InventoryItem, type Service, type Appointment } from '@/lib/data';
 import { format, addDays, subDays, startOfWeek, setHours, startOfDay } from 'date-fns';
 import { useState, useMemo, useCallback } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -15,9 +15,10 @@ import { cn } from '@/lib/utils';
 import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
 
 
-const DayTimeline = ({ date, appointmentsForDay, onUpdateAppointmentStatus, onMarkCompleted }: { date: Date; appointmentsForDay: any[]; onUpdateAppointmentStatus: (id: string, status: 'confirmed' | 'completed' | 'canceled') => void; onMarkCompleted: (service: Service) => void; }) => {
+const DayTimeline = ({ date, appointmentsForDay, onCompleteClick }: { date: Date; appointmentsForDay: any[]; onCompleteClick: (appointment: Appointment) => void; }) => {
   const hours = Array.from({ length: 13 }, (_, i) => i + 8); // 8am to 8pm
 
   const getPosition = (time: Date) => {
@@ -113,8 +114,8 @@ const DayTimeline = ({ date, appointmentsForDay, onUpdateAppointmentStatus, onMa
                     </div>
                     {apt.status === 'confirmed' && (
                         <div className='mt-auto pt-2 grid grid-cols-2 gap-1'>
-                             <Button size="xs" variant="ghost" className="h-6 text-xs" onClick={() => onUpdateAppointmentStatus(apt.id, 'canceled')}>Cancel</Button>
-                             <Button size="xs" className="h-6 text-xs" onClick={() => onMarkCompleted(service)}>Complete</Button>
+                             <Button size="xs" variant="ghost" className="h-6 text-xs" onClick={() => {}}>Cancel</Button>
+                             <Button size="xs" className="h-6 text-xs" onClick={() => onCompleteClick(apt)}>Complete</Button>
                         </div>
                     )}
                     {apt.status === 'completed' && (
@@ -154,6 +155,9 @@ export default function PlannerPage() {
   const [api, setApi] = React.useState<CarouselApi>()
   const [current, setCurrent] = React.useState(new Date().getDay())
   const [appointments, setAppointments] = useState(initialAppointments);
+  const [inventory, setInventory] = useState(initialInventory);
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const { toast } = useToast();
 
   const weekDays = useMemo(() => {
@@ -161,38 +165,24 @@ export default function PlannerPage() {
     return Array.from({ length: 7 }, (_, i) => addDays(start, i));
   }, [currentDate]);
 
-  const updateAppointmentStatus = useCallback((id: string, status: 'confirmed' | 'completed' | 'canceled') => {
-    setAppointments(prev => prev.map(apt => apt.id === id ? { ...apt, status } : apt));
-  }, []);
+  const handleCompleteClick = (appointment: Appointment) => {
+    setSelectedAppointment(appointment);
+    setIsCheckoutOpen(true);
+  };
 
-  const markCompletedAndTrackUses = useCallback((service: Service) => {
-    // Find the appointment that uses this service and is 'confirmed'
-    const appointmentToComplete = appointments.find(apt => apt.serviceId === service.id && apt.status === 'confirmed');
-    if (!appointmentToComplete) return;
+  const handleCheckout = (updatedInventory: InventoryItem[]) => {
+    if (!selectedAppointment) return;
 
-    updateAppointmentStatus(appointmentToComplete.id, 'completed');
-    
-    let experimentsUpdated = 0;
-    (service.products || []).forEach(productInService => {
-      // Since we don't have a shared state management, we can't directly update inventory here.
-      // This part would typically involve dispatching an action to a global store (like Redux/Zustand)
-      // or calling a context method that updates the main inventory state.
-      // For now, we'll just log it.
-      const productInInventory = inventory.find(p => p.id === productInService.id);
-      if (productInInventory?.isExperimentActive) {
-          console.log(`Incrementing experiment uses for ${productInInventory.name}`);
-          experimentsUpdated++;
-          // In a real app: updateInventoryItem(productInInventory.id, { experimentUses: (productInInventory.experimentUses || 0) + 1 });
-      }
-    });
+    setAppointments(prev => prev.map(apt => apt.id === selectedAppointment.id ? { ...apt, status: 'completed' } : apt));
+    setInventory(updatedInventory);
     
     toast({
         title: "Appointment Completed",
-        description: `The appointment has been marked as completed. ${experimentsUpdated > 0 ? `${experimentsUpdated} cost experiment(s) updated.` : ''}`
+        description: `Inventory levels have been updated.`
     })
-
-  }, [appointments, updateAppointmentStatus, toast]);
-
+    setIsCheckoutOpen(false);
+    setSelectedAppointment(null);
+  };
 
   React.useEffect(() => {
     if (!api) return;
@@ -218,6 +208,13 @@ export default function PlannerPage() {
         setCurrentDate(today);
     }
   }
+
+  const selectedAppointmentData = useMemo(() => {
+    if (!selectedAppointment) return null;
+    const client = clients.find(c => c.id === selectedAppointment.clientId);
+    const service = services.find(s => s.id === selectedAppointment.serviceId);
+    return { appointment: selectedAppointment, client, service };
+  }, [selectedAppointment]);
 
   return (
     <div className="flex h-screen w-full flex-col">
@@ -247,8 +244,7 @@ export default function PlannerPage() {
                 key={date.toString()}
                 date={date}
                 appointmentsForDay={appointmentsForDay}
-                onUpdateAppointmentStatus={updateAppointmentStatus}
-                onMarkCompleted={markCompletedAndTrackUses}
+                onCompleteClick={handleCompleteClick}
               />
             );
           })}
@@ -265,8 +261,7 @@ export default function PlannerPage() {
                          <DayTimeline
                             date={date}
                             appointmentsForDay={appointmentsForDay}
-                            onUpdateAppointmentStatus={updateAppointmentStatus}
-                            onMarkCompleted={markCompletedAndTrackUses}
+                            onCompleteClick={handleCompleteClick}
                          />
                       </CarouselItem>
                     );
@@ -278,6 +273,15 @@ export default function PlannerPage() {
             </div>
         </div>
       </main>
+      {selectedAppointmentData && (
+        <CompleteAppointmentDialog
+            open={isCheckoutOpen}
+            onOpenChange={setIsCheckoutOpen}
+            appointmentData={selectedAppointmentData}
+            inventory={inventory}
+            onConfirmCheckout={handleCheckout}
+        />
+      )}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 
+
 import { BillDefinition, billDefinitions } from './financial-data';
 
 export type Client = {
@@ -25,7 +26,7 @@ export type Service = {
   profit: number;
   margin: number;
   imageUrl?: string;
-  products?: InventoryItem[];
+  products?: (InventoryItem & { quantityUsed: number })[]; // Add quantityUsed
   equipment?: InventoryItem[];
   description?: string;
 };
@@ -43,16 +44,25 @@ export type InventoryItem = {
   name: string;
   type: 'professional' | 'retail' | 'equipment' | 'overhead';
   category: string;
-  totalStock: number;
+  totalStock: number; // Full, unopened containers
   supplier: string;
   supplierUrl?: string;
   lifespanYears?: number;
-  costPerUnit?: number;
+  costPerUnit?: number; // Landed cost of one full container
   reorderPoint?: number;
   imageUrl?: string;
+  
+  // For partial usage tracking
+  costingMethod?: 'uses' | 'size'; // How to deduct from a partial container
+  size?: number; // e.g., 1000 for 1000ml
+  unit?: 'ml' | 'oz' | 'g' | 'unit';
+  estimatedUses?: number; // e.g., 100 uses per bottle
+  
+  partialContainerSize?: number; // Amount left in the open container (e.g., 750ml)
+  partialContainerUses?: number; // Uses left in the open container (e.g., 80 uses)
+
   isExperimentActive?: boolean;
   experimentUses?: number;
-  estimatedUses?: number;
   batches: Batch[];
 };
 
@@ -88,16 +98,16 @@ export const clients: Client[] = [
 ];
 
 export const inventory: InventoryItem[] = [
-  { id: 'inv-1', name: 'Nail File', type: 'professional', category: 'Tools', totalStock: 50, reorderPoint: 20, supplier: 'ProNailSupply', supplierUrl: 'https://www.nails-r-us.com/pro-files', batches: [{id: 'b1-1', stock: 50, costPerUnit: 0.25, receivedDate: '2024-05-01'}] },
-  { id: 'inv-2', name: 'Cuticle Oil', type: 'professional', category: 'Care', totalStock: 100, reorderPoint: 25, supplier: 'ProNailSupply', batches: [{id: 'b2-1', stock: 100, costPerUnit: 0.15, receivedDate: '2024-05-01'}] },
-  { id: 'inv-3', name: 'Base Coat Polish', type: 'professional', category: 'Color', totalStock: 30, reorderPoint: 10, supplier: 'ColorWorld', isExperimentActive: true, experimentUses: 22, estimatedUses: 30, batches: [{id: 'b3-1', stock: 30, costPerUnit: 0.50, receivedDate: '2024-05-01'}] },
-  { id: 'inv-4', name: 'Top Coat Polish', type: 'professional', category: 'Color', totalStock: 30, reorderPoint: 10, supplier: 'ColorWorld', batches: [{id: 'b4-1', stock: 30, costPerUnit: 0.50, receivedDate: '2024-05-01'}] },
-  { id: 'inv-5', name: 'Red Nail Polish', type: 'professional', category: 'Color', totalStock: 15, reorderPoint: 5, supplier: 'ColorWorld', batches: [{id: 'b5-1', stock: 15, costPerUnit: 0.80, receivedDate: '2024-05-01', expirationDate: '2024-06-30'}] },
-  { id: 'inv-6', name: 'Lotion', type: 'professional', category: 'Care', totalStock: 100, reorderPoint: 20, supplier: 'BeautyCare', batches: [{id: 'b6-1', stock: 100, costPerUnit: 0.30, receivedDate: '2024-05-01'}] },
+  { id: 'inv-1', name: 'Nail File', type: 'professional', category: 'Tools', totalStock: 50, reorderPoint: 20, supplier: 'ProNailSupply', supplierUrl: 'https://www.nails-r-us.com/pro-files', batches: [{id: 'b1-1', stock: 50, costPerUnit: 0.25, receivedDate: '2024-05-01'}], costingMethod: 'uses', estimatedUses: 1, partialContainerUses: 50 },
+  { id: 'inv-2', name: 'Cuticle Oil', type: 'professional', category: 'Care', totalStock: 1, reorderPoint: 25, supplier: 'ProNailSupply', batches: [{id: 'b2-1', stock: 1, costPerUnit: 15.00, receivedDate: '2024-05-01'}], costingMethod: 'size', size: 500, unit: 'ml', partialContainerSize: 350 },
+  { id: 'inv-3', name: 'Base Coat Polish', type: 'professional', category: 'Color', totalStock: 30, reorderPoint: 10, supplier: 'ColorWorld', isExperimentActive: true, experimentUses: 22, estimatedUses: 30, batches: [{id: 'b3-1', stock: 30, costPerUnit: 0.50, receivedDate: '2024-05-01'}], costingMethod: 'uses', partialContainerUses: 8 },
+  { id: 'inv-4', name: 'Top Coat Polish', type: 'professional', category: 'Color', totalStock: 30, reorderPoint: 10, supplier: 'ColorWorld', batches: [{id: 'b4-1', stock: 30, costPerUnit: 0.50, receivedDate: '2024-05-01'}], costingMethod: 'uses', partialContainerUses: 30 },
+  { id: 'inv-5', name: 'Red Nail Polish', type: 'professional', category: 'Color', totalStock: 15, reorderPoint: 5, supplier: 'ColorWorld', batches: [{id: 'b5-1', stock: 15, costPerUnit: 0.80, receivedDate: '2024-05-01', expirationDate: '2024-06-30'}], costingMethod: 'uses', partialContainerUses: 15 },
+  { id: 'inv-6', name: 'Lotion', type: 'professional', category: 'Care', totalStock: 0, reorderPoint: 20, supplier: 'BeautyCare', batches: [{id: 'b6-1', stock: 0, costPerUnit: 30.00, receivedDate: '2024-05-01'}], costingMethod: 'size', size: 1000, unit: 'ml', partialContainerSize: 50 },
   { id: 'inv-7', name: 'UV Gel Lamp', type: 'equipment', category: 'Tools', totalStock: 2, supplier: 'EquipPro', lifespanYears: 3, batches: [{id: 'b7-1', stock: 2, costPerUnit: 150.00, receivedDate: '2022-01-15'}] },
   { id: 'inv-8', name: 'Disinfectant Wipes', type: 'overhead', category: 'Cleaning', totalStock: 5, reorderPoint: 2, supplier: 'CleanSupplies', batches: [{id: 'b8-1', stock: 5, costPerUnit: 10.00, receivedDate: '2024-06-01'}] },
   { id: 'inv-9', name: 'Retail Shine Serum', type: 'retail', category: 'Styling', totalStock: 12, reorderPoint: 5, supplier: 'BeautyCare', batches: [{id: 'b9-1', stock: 12, costPerUnit: 8.50, receivedDate: '2024-06-01'}] },
-  { id: 'inv-10', name: 'Pro Color Tube 5N', type: 'professional', category: 'Color', totalStock: 2, reorderPoint: 5, supplier: 'ColorWorld', isExperimentActive: false, experimentUses: 0, estimatedUses: 25, batches: [{id: 'b10-1', stock: 2, costPerUnit: 7.00, receivedDate: '2024-06-01'}] },
+  { id: 'inv-10', name: 'Pro Color Tube 5N', type: 'professional', category: 'Color', totalStock: 2, reorderPoint: 5, supplier: 'ColorWorld', isExperimentActive: false, experimentUses: 0, estimatedUses: 25, batches: [{id: 'b10-1', stock: 2, costPerUnit: 7.00, receivedDate: '2024-06-01'}], costingMethod: 'uses', partialContainerUses: 25 },
 ];
 
 export const services: Service[] = [
@@ -113,17 +123,24 @@ export const services: Service[] = [
     profit: 41.50,
     margin: 92.2,
     imageUrl: 'https://picsum.photos/seed/svc1/200/200',
-    products: inventory.filter(i => ['inv-1', 'inv-2', 'inv-3', 'inv-4', 'inv-5', 'inv-6'].includes(i.id))
+    products: [
+      { ...inventory.find(i => i.id === 'inv-1')!, quantityUsed: 1 },
+      { ...inventory.find(i => i.id === 'inv-2')!, quantityUsed: 5 }, // 5ml
+      { ...inventory.find(i => i.id === 'inv-3')!, quantityUsed: 1 },
+      { ...inventory.find(i => i.id === 'inv-4')!, quantityUsed: 1 },
+      { ...inventory.find(i => i.id === 'inv-5')!, quantityUsed: 1 },
+      { ...inventory.find(i => i.id === 'inv-6')!, quantityUsed: 10 }, // 10ml
+    ]
   },
 ];
 
 
 export const appointments: Appointment[] = [
-  { id: 'apt-1', clientId: 'cli-1', serviceId: 'svc-1', startTime: new Date('2024-07-20T10:00:00'), endTime: new Date('2024-07-20T10:45:00'), status: 'confirmed' },
-  { id: 'apt-2', clientId: 'cli-2', serviceId: 'svc-1', startTime: new Date('2024-07-20T11:00:00'), endTime: new Date('2024-07-20T11:45:00'), status: 'completed' },
-  { id: 'apt-3', clientId: 'cli-3', serviceId: 'svc-1', startTime: new Date('2024-07-21T14:00:00'), endTime: new Date('2024-07-21T14:45:00'), status: 'confirmed' },
-  { id: 'apt-4', clientId: 'cli-1', serviceId: 'svc-1', startTime: new Date('2024-06-15T10:00:00'), endTime: new Date('2024-06-15T10:45:00'), status: 'completed' },
-  { id: 'apt-5', clientId: 'cli-5', serviceId: 'svc-1', startTime: new Date('2024-07-22T13:00:00'), endTime: new Date('2024-07-22T13:45:00'), status: 'canceled' },
+  { id: 'apt-1', clientId: 'cli-1', serviceId: 'svc-1', startTime: new Date('2024-07-20T10:00:00'), endTime: new Date('2024-07-20T10:50:00'), status: 'confirmed' },
+  { id: 'apt-2', clientId: 'cli-2', serviceId: 'svc-1', startTime: new Date('2024-07-20T11:00:00'), endTime: new Date('2024-07-20T11:50:00'), status: 'completed' },
+  { id: 'apt-3', clientId: 'cli-3', serviceId: 'svc-1', startTime: new Date('2024-07-21T14:00:00'), endTime: new Date('2024-07-21T14:50:00'), status: 'confirmed' },
+  { id: 'apt-4', clientId: 'cli-1', serviceId: 'svc-1', startTime: new Date('2024-06-15T10:00:00'), endTime: new Date('2024-06-15T10:50:00'), status: 'completed' },
+  { id: 'apt-5', clientId: 'cli-5', serviceId: 'svc-1', startTime: new Date('2024-07-22T13:00:00'), endTime: new Date('2024-07-22T13:50:00'), status: 'canceled' },
 ];
 
 export const quotes: Quote[] = [

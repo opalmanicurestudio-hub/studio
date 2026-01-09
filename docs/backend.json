@@ -289,6 +289,20 @@
         }
       },
       "required": ["id", "date", "description", "type", "context", "category", "amount"]
+    },
+    "StockCorrection": {
+      "title": "Stock Correction",
+      "type": "object",
+      "description": "Represents a single atomic change to inventory stock levels.",
+      "properties": {
+        "id": { "type": "string" },
+        "productId": { "type": "string", "description": "The ID of the product being adjusted." },
+        "date": { "type": "string", "format": "date-time" },
+        "change": { "type": "number", "description": "The amount of change (e.g., -20 for 20ml used, 1 for 1 new container)." },
+        "unit": { "type": "string", "description": "The unit of the change (e.g., 'ml', 'uses', 'container')." },
+        "reason": { "type": "string", "description": "The reason for the correction (e.g., 'Appointment #123', 'Manual Count', 'Spoilage')." }
+      },
+      "required": ["id", "productId", "date", "change", "unit", "reason"]
     }
   },
   "auth": {
@@ -362,6 +376,12 @@
         "$ref": "#/entities/Transaction"
       },
       "description": "Financial transaction log for a specific tenant."
+    },
+    "/tenants/{tenantId}/stockCorrections/{correctionId}": {
+      "schema": {
+        "$ref": "#/entities/StockCorrection"
+      },
+      "description": "An audit log of all inventory stock changes."
     }
   }
 }
