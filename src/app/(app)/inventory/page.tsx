@@ -57,7 +57,6 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
         const hasExpiredBatch = item.batches.some(b => b.expirationDate && isPast(parseISO(b.expirationDate)));
         if (hasExpiredBatch) return { label: 'Expired', className: 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-400 dark:border-red-600/30' };
         if (item.totalStock <= 0) return { label: 'Out of Stock', className: 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-400 dark:border-red-600/30' };
-        // Assuming a reorderPoint property exists on the item
         if (item.totalStock <= (item.reorderPoint || 5)) return { label: 'Low Stock', className: 'bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-400 dark:border-yellow-600/30' };
         return { label: 'In Stock', className: 'bg-green-100 text-green-800 border-green-200 dark:bg-green-900/40 dark:text-green-400 dark:border-green-600/30' };
     }, [item]);
@@ -65,15 +64,13 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
     return (
         <Card className={cn("w-64 transition-all duration-200 hover:shadow-xl hover:-translate-y-1 shrink-0", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
             <CardContent className="p-3 space-y-3">
-                <div className="flex items-start justify-between gap-3">
-                    <div className='flex items-start gap-3 flex-1 min-w-0'>
-                        <div className='w-12 h-12 bg-muted rounded-md flex-shrink-0'>
-                            <Image src={item.imageUrl || `https://picsum.photos/seed/inv${item.id}/100/100`} alt={item.name} width={48} height={48} className='rounded-md' data-ai-hint="product photo"/>
-                        </div>
-                        <div className='flex-1 min-w-0 pt-1'>
-                            <p className="font-semibold text-sm leading-snug truncate">{item.name}</p>
-                            <p className="text-xs text-muted-foreground">{item.category}</p>
-                        </div>
+                <div className="grid grid-cols-[auto,1fr,auto] items-start gap-3">
+                    <div className='w-12 h-12 bg-muted rounded-md flex-shrink-0'>
+                        <Image src={item.imageUrl || `https://picsum.photos/seed/inv${item.id}/100/100`} alt={item.name} width={48} height={48} className='rounded-md' data-ai-hint="product photo"/>
+                    </div>
+                    <div className='pt-1 min-w-0'>
+                        <p className="font-semibold text-sm leading-snug truncate">{item.name}</p>
+                        <p className="text-xs text-muted-foreground">{item.category}</p>
                     </div>
                      <DropdownMenu>
                       <DropdownMenuTrigger asChild>
