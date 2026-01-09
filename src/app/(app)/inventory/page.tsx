@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, File, MoreHorizontal, Database, Camera, AlertTriangle, Truck, Search, SlidersHorizontal, QrCode, Package, Hammer, Beaker, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, BellRing, TrendingUp, DollarSign, BarChart, LineChart, FileText } from 'lucide-react';
-import { type InventoryItem, type Batch, inventory as initialInventory, stockCorrections as initialStockCorrections, type StockCorrection } from '@/lib/data';
+import { type InventoryItem, type Batch, type StockCorrection } from '@/lib/data';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -51,6 +51,7 @@ import { cn } from '@/lib/utils';
 import { Carousel, CarouselContent, CarouselItem } from '@/components/ui/carousel';
 import { isPast, parseISO, differenceInYears, format } from 'date-fns';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useInventory } from '@/context/InventoryContext';
 
 
 const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff, onLogUse }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (item: InventoryItem) => void, onLogUse: (item: InventoryItem) => void }) => {
@@ -521,8 +522,7 @@ const tabOptions = [
 
 
 export default function InventoryPage() {
-  const [inventory, setInventory] = useState(initialInventory);
-  const [stockCorrections, setStockCorrections] = useState(initialStockCorrections);
+  const { inventory, setInventory, addStockCorrection } = useInventory();
   const { toast } = useToast();
   
   const { professionalValue, retailValue, overheadValue, equipmentValue, totalValue } = useMemo(() => {
@@ -629,8 +629,7 @@ export default function InventoryPage() {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const lastAddedLocationRef = useRef<Location | null>(null);
-
+  
   const [isReceiveStockOpen, setIsReceiveStockOpen] = useState(false);
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
   const [isEditProductOpen, setIsEditProductOpen] = useState(false);
@@ -652,8 +651,9 @@ export default function InventoryPage() {
     return [...new Set(categories)];
   }, [inventory]);
 
+  const lastAddedLocationRef = useRef<Location | null>(null);
   const receivedItemsRef = useRef<ShipmentItem[] | null>(null);
-
+  
   useEffect(() => {
     if (lastAddedLocationRef.current) {
         toast({
@@ -672,8 +672,7 @@ export default function InventoryPage() {
         });
         receivedItemsRef.current = null;
     }
-  }, [inventory, stockCorrections, toast]);
-
+  }, [inventory, addStockCorrection, toast]);
 
   const handleAddNewLocation = (newLocation: Omit<Location, 'id'>) => {
     const locationWithId = { ...newLocation, id: `loc-${Date.now()}` };
@@ -837,7 +836,7 @@ export default function InventoryPage() {
           newInventory[productIndex].batches.push(newBatch);
           newInventory[productIndex].totalStock += item.shipmentQuantity;
           
-          newCorrections.push({
+          addStockCorrection({
             id: `sc-${Date.now()}-${item.id}`,
             productId: item.id,
             date: new Date().toISOString(),
@@ -847,8 +846,6 @@ export default function InventoryPage() {
           });
         }
       });
-
-      setStockCorrections(prev => [...prev, ...newCorrections]);
       return newInventory;
     });
   };
@@ -874,7 +871,7 @@ export default function InventoryPage() {
             product.partialContainerUses -= quantityNeeded;
         } else if (product.totalStock > 0) {
             product.totalStock -= 1;
-            product.partialContainerUses = (product.estimatedUses || 0) - quantityNeeded;
+            product.partialContainerUses = (product.estimatedUses || 1) - quantityNeeded;
         } else {
             toast({ variant: 'destructive', title: 'Out of Stock', description: `Cannot log use for ${product.name}.` });
             return prevInventory;
@@ -884,19 +881,17 @@ export default function InventoryPage() {
             product.experimentUses = (product.experimentUses || 0) + 1;
         }
 
-        const newCorrection: StockCorrection = {
+        addStockCorrection({
             id: `sc-manual-${Date.now()}`,
             productId: product.id,
             date: new Date().toISOString(),
             change: -quantityNeeded,
             unit: 'use',
             reason: 'Manual Use Log'
-        };
-
-        newInventory[productIndex] = product;
-        setStockCorrections(prev => [...prev, newCorrection]);
+        });
         useLogged = true;
-
+        
+        newInventory[productIndex] = product;
         return newInventory;
     });
     if (useLogged) {

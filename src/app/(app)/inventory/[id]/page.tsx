@@ -1,5 +1,6 @@
 
-'use server';
+
+'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
@@ -11,9 +12,9 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Edit, DollarSign, Package, AlertCircle, ShoppingCart, BarChart, FileText, Clock, Database, Book, QrCode, Tag, Truck, TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
-import { inventory, services, stockCorrections, type StockCorrection } from '@/lib/data';
+import { services } from '@/lib/data';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import Image from 'next/image';
@@ -28,6 +29,8 @@ import {
 import { format, isPast, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useMemo } from 'react';
+import { useInventory } from '@/context/InventoryContext';
+import { StockCorrection } from '@/lib/data';
 
 const CorrectionIcon = ({ reason }: { reason: string }) => {
     if (reason.startsWith('Appointment')) return <TrendingDown className="h-4 w-4 text-red-500" />;
@@ -35,11 +38,15 @@ const CorrectionIcon = ({ reason }: { reason: string }) => {
     return <RefreshCw className="h-4 w-4 text-gray-500" />;
 }
 
-export default async function ProductDetailPage({ params }: { params: { id: string } }) {
-  const product = inventory.find((p) => p.id === params.id);
+export default function ProductDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const { inventory, stockCorrections } = useInventory();
+  
+  const product = inventory.find((p) => p.id === id);
 
   if (!product) {
-    notFound();
+    // A loading state could be better here
+    return <div>Loading product...</div>
   }
   
   const servicesUsingProduct = services.filter(s => s.products?.some(p => p.id === product.id));
@@ -47,12 +54,20 @@ export default async function ProductDetailPage({ params }: { params: { id: stri
 
   const stockValue = (product.totalStock || 0) * (product.costPerUnit || 0);
 
-  const ledgerWithRunningStock = productStockCorrections.reduce((acc, correction) => {
-    const previousStock = acc.length > 0 ? acc[acc.length - 1].stockAfter : product.totalStock + correction.change;
-    const stockAfter = previousStock - correction.change;
-    acc.push({ ...correction, stockAfter });
-    return acc;
-  }, [] as (StockCorrection & { stockAfter: number })[]).reverse();
+  const ledgerWithRunningStock = useMemo(() => {
+    let runningStock = product.totalStock; // Start with the final stock
+    const reversedCorrections = [...productStockCorrections].reverse(); // Oldest first
+    
+    // First, calculate the stock at the time of the oldest correction
+    const totalChange = reversedCorrections.reduce((acc, corr) => acc + corr.change, 0);
+    let stockBeforeFirstCorrection = runningStock - totalChange;
+
+    return reversedCorrections.map(correction => {
+        const stockAfter = stockBeforeFirstCorrection + correction.change;
+        stockBeforeFirstCorrection = stockAfter; // Update for next iteration
+        return { ...correction, stockAfter };
+    }).reverse(); // Reverse back to newest first for display
+  }, [productStockCorrections, product.totalStock]);
 
 
   return (
