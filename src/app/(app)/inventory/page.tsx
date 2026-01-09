@@ -661,9 +661,6 @@ export default function InventoryPage() {
   
   const isMobile = useIsMobile();
   const [isClient, setIsClient] = useState(false);
-  useEffect(() => {
-    setIsClient(true);
-  }, []);
 
   const [activeTab, setActiveTab] = useState('professional');
 
@@ -717,6 +714,10 @@ export default function InventoryPage() {
   };
 
   useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  useEffect(() => {
     if (lastAddedLocationRef.current) {
         toast({
             title: "Location Added",
@@ -737,16 +738,23 @@ export default function InventoryPage() {
   }, [inventory, toast]);
 
   const previousInventory = useRef<InventoryItem[]>();
+  const writtenOffProductRef = useRef<{ name: string; quantity: number; reason: string; cost: number } | null>(null);
 
   useEffect(() => {
-    // On mount, set the initial inventory to the previous state
-    previousInventory.current = inventory;
-  }, []);
+    if (!previousInventory.current) {
+        previousInventory.current = inventory;
+        return;
+    }
 
-  useEffect(() => {
-    if (!previousInventory.current) return;
-    
-    // Find a product where isExperimentActive was just changed
+    if (writtenOffProductRef.current) {
+        const { name, quantity, reason, cost } = writtenOffProductRef.current;
+        toast({
+            title: "Inventory Written Off",
+            description: `${quantity} unit(s) of ${name} written off as ${reason}. Expense of $${cost.toFixed(2)} logged.`
+        });
+        writtenOffProductRef.current = null;
+    }
+
     const toggledProduct = inventory.find(currentProduct => {
         const prevProduct = previousInventory.current?.find(p => p.id === currentProduct.id);
         return prevProduct && prevProduct.isExperimentActive !== currentProduct.isExperimentActive;
@@ -759,7 +767,6 @@ export default function InventoryPage() {
         });
     }
 
-    // Update the ref for the next render
     previousInventory.current = inventory;
   }, [inventory, toast]);
   
@@ -834,11 +841,8 @@ export default function InventoryPage() {
         product.batches[batchIndex] = batch;
         newInventory[productIndex] = product;
         
-        toast({
-            title: "Inventory Written Off",
-            description: `${quantity} unit(s) of ${product.name} written off as ${reason}. Expense of $${cost.toFixed(2)} logged.`
-        });
-        
+        writtenOffProductRef.current = { name: product.name, quantity, reason, cost };
+
         console.log(`LOGGED EXPENSE: ${quantity} x ${product.name} for $${cost.toFixed(2)} due to ${reason}`);
 
         return newInventory;
