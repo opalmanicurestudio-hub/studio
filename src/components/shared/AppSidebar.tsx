@@ -76,7 +76,8 @@ export function AppSidebar() {
   const pathname = usePathname();
 
   const isNavItemActive = (href: string) => {
-    if (href === '/dashboard') {
+    // Exact match for dashboard, startsWith for others
+    if (href === '/dashboard' || href === '/inventory') {
         return pathname === href;
     }
     return pathname.startsWith(href);

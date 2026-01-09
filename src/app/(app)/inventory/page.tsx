@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -67,11 +66,11 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
         <Card className={cn("w-full transition-all duration-200 hover:shadow-xl hover:-translate-y-1", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
             <CardContent className="p-3 space-y-3">
                 <div className="grid grid-cols-[auto,1fr,auto] items-start gap-3">
-                    <div className='w-16 h-16 bg-muted rounded-md flex-shrink-0'>
+                    <Link href={`/inventory/${item.id}`} className='w-16 h-16 bg-muted rounded-md flex-shrink-0'>
                         <Image src={item.imageUrl || `https://picsum.photos/seed/inv${item.id}/100/100`} alt={item.name} width={64} height={64} className='rounded-md' data-ai-hint="product photo"/>
-                    </div>
+                    </Link>
                     <div className='pt-1 min-w-0'>
-                        <p className="font-semibold text-sm leading-snug truncate">{item.name}</p>
+                        <Link href={`/inventory/${item.id}`} className="font-semibold text-sm leading-snug truncate hover:underline">{item.name}</Link>
                         <p className="text-xs text-muted-foreground">{item.category}</p>
                     </div>
                      <DropdownMenu>
