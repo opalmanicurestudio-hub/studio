@@ -135,7 +135,7 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
                     <span>{p.name}</span>
                     <span className='text-xs text-muted-foreground'>{p.location}</span>
                 </div>
-                <span className="font-semibold">${p.cost.toFixed(2)}</span>
+                <span className="font-semibold">${(p.cost || 0).toFixed(2)}</span>
             </div>
          )) : <p className="text-xs text-muted-foreground text-center p-2">No products in formula.</p>}
       </div>
@@ -296,13 +296,12 @@ export default function ServicesPage() {
   const { toast } = useToast();
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const storedTmhr = localStorage.getItem('tmhr');
-      if (storedTmhr) {
-        setTmhr(parseFloat(storedTmhr));
-      }
+    // This code now runs only on the client, after the initial render.
+    const storedTmhr = localStorage.getItem('tmhr');
+    if (storedTmhr) {
+      setTmhr(parseFloat(storedTmhr));
     }
-  }, []);
+  }, []); // The empty dependency array ensures this runs only once on mount.
 
   const handleOpenEditService = (service: Service) => {
     setSelectedService(service);
