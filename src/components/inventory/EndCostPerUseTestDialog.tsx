@@ -119,13 +119,18 @@ export const EndCostPerUseTestDialog: React.FC<EndCostPerUseTestDialogProps> = (
   const actualUses = product.experimentUses || 0;
   
   // In a real app, this would find the specific batch under experiment
-  const landedCost = product.batches[0]?.costPerUnit * estimatedUses; 
+  const landedCost = product.batches[0]?.costPerUnit || 0; 
 
-  const oldCostPerUse = landedCost / estimatedUses;
+  const oldCostPerUse = estimatedUses > 0 ? landedCost / estimatedUses : 0;
   const newCostPerUse = actualUses > 0 ? landedCost / actualUses : 0;
   
   const handleConfirmProduct = () => {
-    // onUpdateCost(product.id, newCostPerUse); // This is now handled by the parent
+    // The parent component will handle the state update.
+    // This dialog's job is just to report the results.
+    onConfirm({
+        actualLifespanMonths: actualUses, // For products, we can re-purpose this to mean actual uses
+        totalMaintenanceCost: 0 // Not applicable for products
+    });
     toast({
         title: "Experiment Complete!",
         description: `Cost-per-use for ${product.name} updated to $${newCostPerUse.toFixed(3)}.`,
@@ -189,5 +194,3 @@ export const EndCostPerUseTestDialog: React.FC<EndCostPerUseTestDialogProps> = (
     </Dialog>
   );
 };
-
-    

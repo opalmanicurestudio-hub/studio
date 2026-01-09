@@ -769,6 +769,16 @@ export default function InventoryPage() {
     setSelectedProduct(product);
     setIsEndExperimentOpen(true);
   };
+
+  const handleEndExperimentConfirmed = (productId: string, results: { actualLifespanMonths: number; totalMaintenanceCost: number }) => {
+    setInventory(prev => prev.map(item => 
+        item.id === productId ? { 
+            ...item, 
+            isExperimentActive: false,
+            actualLifespanMonths: results.actualLifespanMonths,
+        } : item
+    ));
+  };
   
   const handleOpenWriteOff = (product: InventoryItem) => {
     setSelectedProduct(product);
@@ -803,14 +813,6 @@ export default function InventoryPage() {
 
         return newInventory;
     });
-  };
-
-  const handleUpdateCost = (productId: string, newCost: number) => {
-    setInventory(prev => prev.map(p => 
-      p.id === productId 
-      ? { ...p, costPerUnit: newCost, isExperimentActive: false, experimentUses: 0 } 
-      : p
-    ));
   };
   
   const handleSimulateScan = () => {
@@ -1280,7 +1282,7 @@ export default function InventoryPage() {
             open={isEndExperimentOpen}
             onOpenChange={setIsEndExperimentOpen}
             product={selectedProduct}
-            onUpdateCost={handleUpdateCost}
+            onConfirm={(results) => handleEndExperimentConfirmed(selectedProduct.id, results)}
           />
       )}
       {selectedProduct && (
