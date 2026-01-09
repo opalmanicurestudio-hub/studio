@@ -265,6 +265,16 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr }: { service: Service, o
                     <InlineProfitTester service={service} tmhr={tmhr} />
                 </AccordionContent>
             </AccordionItem>
+            <AccordionItem value="cost-breakdown" className="border-b-0 mt-2">
+                <AccordionTrigger className='p-3 text-sm font-medium hover:no-underline rounded-md bg-muted/50'>
+                    <div className='flex items-center gap-2'>
+                        <FileText className='w-4 h-4 text-primary' /> Cost Breakdown
+                    </div>
+                </AccordionTrigger>
+                <AccordionContent className='pt-4'>
+                    <CostBreakdown service={service} tmhr={tmhr} />
+                </AccordionContent>
+            </AccordionItem>
         </Accordion>
 
       </CardContent>
