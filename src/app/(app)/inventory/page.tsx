@@ -53,7 +53,7 @@ import { isPast, parseISO, differenceInYears, format } from 'date-fns';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 
-const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (item: InventoryItem) => void }) => {
+const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff, onLogUse }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (item: InventoryItem) => void, onLogUse: (item: InventoryItem) => void }) => {
     
     const stockStatus = useMemo(() => {
         const hasExpiredBatch = item.batches.some(b => b.expirationDate && isPast(parseISO(b.expirationDate)));
@@ -140,14 +140,14 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                                 {item.experimentUses} uses logged
                             </p>
                         ) : (
-                             <p className='text-xs text-muted-foreground'>30 uses left</p>
+                             <p className='text-xs text-muted-foreground'>{item.partialContainerUses || 'N/A'} uses left</p>
                         )}
                     </CardContent>
                 </Card>
 
                 <div className='space-y-2'>
                     <Badge variant="secondary" className={cn("w-full justify-center h-6", stockStatus.className)}>{stockStatus.label}</Badge>
-                    <Button variant='outline' size="sm" className='w-full h-8'>Log 1 Use</Button>
+                    <Button variant='outline' size="sm" className='w-full h-8' onClick={() => onLogUse(item)} disabled={item.type !== 'professional'}>Log 1 Use</Button>
                 </div>
                 
                 <Accordion type="single" collapsible className="w-full">
@@ -821,6 +821,63 @@ export default function InventoryPage() {
         description: `${items.length} product(s) have been updated.`
     });
   };
+
+  const handleLogUse = (productToUpdate: InventoryItem) => {
+    setInventory(prevInventory => {
+      const newInventory = [...prevInventory];
+      const productIndex = newInventory.findIndex(p => p.id === productToUpdate.id);
+      if (productIndex === -1) return prevInventory;
+      
+      const product = { ...newInventory[productIndex] };
+      const quantityNeeded = 1; // Always 1 for this button
+
+      let newCorrection: StockCorrection | null = null;
+      let changeDescription = '';
+
+      if (product.costingMethod === 'uses') {
+        product.partialContainerUses = product.partialContainerUses ?? product.estimatedUses ?? 0;
+        
+        if (product.partialContainerUses >= quantityNeeded) {
+            product.partialContainerUses -= quantityNeeded;
+        } else {
+            if (product.totalStock > 0) {
+                product.totalStock -= 1;
+                product.partialContainerUses += (product.estimatedUses || 0) - quantityNeeded;
+            } else {
+                toast({ variant: 'destructive', title: 'Out of Stock', description: `Cannot log use for ${product.name}.` });
+                return prevInventory;
+            }
+        }
+        if (product.isExperimentActive) {
+          product.experimentUses = (product.experimentUses || 0) + 1;
+        }
+        
+        newCorrection = {
+          id: `sc-manual-${Date.now()}`,
+          productId: product.id,
+          date: new Date().toISOString(),
+          change: -quantityNeeded,
+          unit: 'use',
+          reason: 'Manual Use Log'
+        };
+        changeDescription = `1 use`;
+
+      } else {
+        toast({ variant: 'destructive', title: 'Not Applicable', description: `Manual use logging is only for products costed 'by uses'.` });
+        return prevInventory;
+      }
+      
+      newInventory[productIndex] = product;
+      
+      if (newCorrection) {
+        setStockCorrections(prev => [...prev, newCorrection!]);
+      }
+      
+      toast({ title: 'Use Logged', description: `${changeDescription} of ${product.name} deducted.` });
+
+      return newInventory;
+    });
+  };
   
   const ProductShelf = ({ title, items }: { title: string, items: InventoryItem[] }) => {
     if (items.length === 0) return null;
@@ -832,7 +889,7 @@ export default function InventoryPage() {
                 <div className="flex w-max space-x-4 pb-4">
                     {items.map((item) => (
                         <div key={item.id} className='w-72'>
-                             <ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} />
+                             <ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleLogUse} />
                         </div>
                     ))}
                 </div>
@@ -1043,7 +1100,7 @@ export default function InventoryPage() {
                 ) : (
                     filteredItems.length > 0 ? (
                         filteredItems.map(item => (
-                            <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} />
+                            <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleLogUse} />
                         ))
                     ) : (
                         <div className="col-span-2">
@@ -1219,3 +1276,4 @@ export default function InventoryPage() {
     </div>
   );
 }
+
