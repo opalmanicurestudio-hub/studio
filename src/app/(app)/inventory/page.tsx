@@ -62,7 +62,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
     }, [item]);
     
     return (
-        <Card className={cn("w-64 transition-all duration-200 hover:shadow-xl hover:-translate-y-1 shrink-0", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
+        <Card className={cn("w-full transition-all duration-200 hover:shadow-xl hover:-translate-y-1", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
             <CardContent className="p-3 space-y-3">
                 <div className="grid grid-cols-[auto,1fr,auto] items-start gap-3">
                     <div className='w-12 h-12 bg-muted rounded-md flex-shrink-0'>
@@ -642,75 +642,105 @@ export default function InventoryPage() {
     );
   };
 
+  const kpiCards = [
+    <Card className="shrink-0" key="total-value">
+        <CardHeader>
+            <CardTitle>Total Inventory Value</CardTitle>
+            <CardDescription>Real-time valuation of all your business assets.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+            <div className="text-4xl font-bold text-primary">${totalValue.toFixed(2)}</div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                <div className="flex justify-between border-b pb-1">
+                    <span className="text-muted-foreground">Professional</span>
+                    <span className="font-medium">${professionalValue.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between border-b pb-1">
+                    <span className="text-muted-foreground">Retail</span>
+                    <span className="font-medium">${retailValue.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                    <span className="text-muted-foreground">Overhead</span>
+                    <span className="font-medium">${overheadValue.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                    <span className="text-muted-foreground">Equipment</span>
+                    <span className="font-medium">${equipmentValue.toFixed(2)}</span>
+                </div>
+            </div>
+        </CardContent>
+    </Card>,
+    <Card className="shrink-0" key="top-usage">
+        <CardHeader>
+            <CardTitle className="flex items-center gap-2"><BarChart className="text-muted-foreground"/> Top Product Usage</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+            {topProductUsage.length > 0 ? topProductUsage.map(item => (
+                <div key={item.id} className="flex justify-between items-center text-sm">
+                    <span className="truncate flex-1">{item.name}</span>
+                    <div className="flex items-center gap-4 ml-4">
+                        <span className="font-mono">{item.experimentUses} uses</span>
+                        <span className="font-mono w-20 text-right">${item.totalCost.toFixed(2)}</span>
+                    </div>
+                </div>
+            )) : <p className="text-sm text-muted-foreground text-center py-8">No usage data yet.</p>}
+        </CardContent>
+    </Card>,
+    <Card className="shrink-0" key="risks">
+         <CardHeader>
+            <CardTitle className="flex items-center gap-2"><AlertTriangle className="text-muted-foreground"/> Risks &amp; Spoilage</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+             <div>
+                <h4 className="font-medium text-sm mb-2">Expired Products</h4>
+                {expiredProducts.length > 0 ? (
+                     <div className="flex justify-between items-center text-red-500">
+                        <span className="font-bold">{expiredProducts.length} item(s) expired</span>
+                        <span className="font-mono text-lg font-bold">${expiredProducts.reduce((acc, p) => acc + p.expiredValue, 0).toFixed(2)}</span>
+                    </div>
+                ): <p className="text-sm text-muted-foreground text-center py-4">No expired products.</p>}
+            </div>
+            <Button className="w-full" variant="secondary" onClick={() => setIsManageSpoilageOpen(true)}>Manage Spoilage</Button>
+        </CardContent>
+    </Card>
+  ];
+
+  const filteredItems = useMemo(() => {
+    switch (activeTab) {
+      case 'professional':
+        return inventory.filter(item => item.type === 'professional');
+      case 'retail':
+        return retailItems;
+      case 'overhead':
+        return overheadItems;
+      case 'equipment':
+        return equipmentItems;
+      default:
+        return [];
+    }
+  }, [activeTab, inventory, retailItems, overheadItems, equipmentItems]);
+
 
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Inventory Hub" />
       <main className="flex-1 p-4 md:p-8 space-y-6">
 
-        <div className='grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-6 mb-6'>
-            <Card className="xl:col-span-2">
-                <CardHeader>
-                    <CardTitle>Total Inventory Value</CardTitle>
-                    <CardDescription>Real-time valuation of all your business assets.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="text-4xl font-bold text-primary">${totalValue.toFixed(2)}</div>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                        <div className="flex justify-between border-b pb-1">
-                            <span className="text-muted-foreground">Professional</span>
-                            <span className="font-medium">${professionalValue.toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between border-b pb-1">
-                            <span className="text-muted-foreground">Retail</span>
-                            <span className="font-medium">${retailValue.toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                            <span className="text-muted-foreground">Overhead</span>
-                            <span className="font-medium">${overheadValue.toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                            <span className="text-muted-foreground">Equipment</span>
-                            <span className="font-medium">${equipmentValue.toFixed(2)}</span>
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
-             <Card>
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2"><BarChart className="text-muted-foreground"/> Top Product Usage</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                    {topProductUsage.length > 0 ? topProductUsage.map(item => (
-                        <div key={item.id} className="flex justify-between items-center text-sm">
-                            <span className="truncate flex-1">{item.name}</span>
-                            <div className="flex items-center gap-4 ml-4">
-                                <span className="font-mono">{item.experimentUses} uses</span>
-                                <span className="font-mono w-20 text-right">${item.totalCost.toFixed(2)}</span>
-                            </div>
-                        </div>
-                    )) : <p className="text-sm text-muted-foreground text-center py-8">No usage data yet.</p>}
-                </CardContent>
-            </Card>
-             <Card>
-                 <CardHeader>
-                    <CardTitle className="flex items-center gap-2"><AlertTriangle className="text-muted-foreground"/> Risks &amp; Spoilage</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                     <div>
-                        <h4 className="font-medium text-sm mb-2">Expired Products</h4>
-                        {expiredProducts.length > 0 ? (
-                             <div className="flex justify-between items-center text-red-500">
-                                <span className="font-bold">{expiredProducts.length} item(s) expired</span>
-                                <span className="font-mono text-lg font-bold">${expiredProducts.reduce((acc, p) => acc + p.expiredValue, 0).toFixed(2)}</span>
-                            </div>
-                        ): <p className="text-sm text-muted-foreground text-center py-4">No expired products.</p>}
-                    </div>
-                    <Button className="w-full" variant="secondary" onClick={() => setIsManageSpoilageOpen(true)}>Manage Spoilage</Button>
-                </CardContent>
-            </Card>
-        </div>
-
+        {isMobile ? (
+            <Carousel className="w-full">
+                <CarouselContent className="-ml-2">
+                    {kpiCards.map((card, index) => (
+                        <CarouselItem key={index} className="pl-4 basis-11/12">
+                            {card}
+                        </CarouselItem>
+                    ))}
+                </CarouselContent>
+            </Carousel>
+        ) : (
+            <div className='grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 mb-6'>
+                {kpiCards}
+            </div>
+        )}
 
         <div className="flex flex-col gap-4">
           <div className="flex flex-col sm:flex-row items-center gap-2">
@@ -718,14 +748,7 @@ export default function InventoryPage() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input placeholder="Search inventory..." className="pl-9" />
             </div>
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <Button variant="outline" className="flex-1 sm:flex-initial" onClick={() => setIsManageSpoilageOpen(true)}>
-                <BellRing className="mr-2 h-4 w-4" /> Spoilage
-              </Button>
-              <Button variant="outline" className="flex-1 sm:flex-initial" onClick={() => setIsScannerOpen(true)}>
-                <QrCode className="mr-2 h-4 w-4" />
-                Scan
-              </Button>
+            <div className="flex w-full sm:w-auto items-center gap-2">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" className="flex-1 sm:flex-initial">
@@ -738,47 +761,12 @@ export default function InventoryPage() {
                   <DropdownMenuItem>Filter by Vendor</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-            </div>
-          </div>
-          <div className="flex flex-col sm:flex-row items-center gap-2">
-            <div className="flex items-center gap-2 w-full">
-              {isMobile ? (
-                <Select value={activeTab} onValueChange={setActiveTab}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select a category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {tabOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <ScrollArea className="w-full whitespace-nowrap rounded-md">
-                  <div className="flex w-max space-x-2">
-                    {tabOptions.map((option) => (
-                      <Button
-                        key={option.value}
-                        variant={activeTab === option.value ? 'default' : 'outline'}
-                        onClick={() => setActiveTab(option.value)}
-                      >
-                        {option.label}
-                      </Button>
-                    ))}
-                  </div>
-                  <ScrollBar orientation="horizontal" />
-                </ScrollArea>
-              )}
-            </div>
-            <div className="flex w-full sm:w-auto items-center gap-2">
               <Button className="w-full" onClick={() => setIsReceiveStockOpen(true)}>
-                <Truck className="mr-2 h-4 w-4" /> Receive Stock
+                <Truck className="mr-2 h-4 w-4" /> Receive
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="w-full">
+                  <Button variant="outline" className="flex-1 sm:flex-initial">
                     <PlusCircle className="mr-2 h-4 w-4" /> New
                   </Button>
                 </DropdownMenuTrigger>
@@ -797,71 +785,119 @@ export default function InventoryPage() {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-              <Button variant="outline" className="flex-1 sm:flex-initial" asChild>
-                <Link href="/inventory/labels">
-                  <Printer className="mr-2 h-4 w-4" /> Labels
-                </Link>
-              </Button>
             </div>
           </div>
+          
+          {isMobile ? (
+              <Select value={activeTab} onValueChange={setActiveTab}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select a category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {tabOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+          ) : null}
+
         </div>
 
         <div className='space-y-8'>
-          {activeTab === 'professional' && (
-            (professionalColor.length === 0 && professionalCare.length === 0 && professionalStyling.length === 0 && professionalTools.length === 0) ? (
-              <EmptyState message="No professional products yet. Add one to get started." />
-            ) : (
-              <>
-                <ProductShelf title="Color" items={professionalColor} />
-                <ProductShelf title="Styling" items={professionalStyling} />
-                <ProductShelf title="Care" items={professionalCare} />
-                <ProductShelf title="Tools" items={professionalTools} />
-              </>
-            )
-          )}
-          {activeTab === 'retail' && (retailItems.length > 0 ? (
-            <ProductShelf title="Retail Products" items={retailItems} />
+          {isMobile ? (
+             <div className="grid grid-cols-2 gap-4">
+                {activeTab === 'locations' ? (
+                   locations.length > 0 ? (
+                        locations.map(location => (
+                        <Card key={location.id}>
+                          <CardHeader>
+                            <CardTitle className="text-lg">{location.name}</CardTitle>
+                            {location.description && <CardDescription>{location.description}</CardDescription>}
+                          </CardHeader>
+                          <CardFooter className="flex gap-2">
+                            <Button variant="outline" size="sm"><Edit className="mr-2 h-3 w-3" /> Edit</Button>
+                            <Button variant="outline" size="sm" className="text-destructive"><Trash2 className="mr-2 h-3 w-3" /> Delete</Button>
+                          </CardFooter>
+                        </Card>
+                      ))
+                    ) : (
+                         <div className="col-span-2">
+                            <EmptyState message="No storage locations defined yet." />
+                         </div>
+                    )
+                ) : (
+                    filteredItems.length > 0 ? (
+                        filteredItems.map(item => (
+                            <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} />
+                        ))
+                    ) : (
+                        <div className="col-span-2">
+                            <EmptyState message={`No ${activeTab} products yet.`} />
+                        </div>
+                    )
+                )}
+             </div>
           ) : (
-            <EmptyState message="No retail items yet. Add one to get started." />
-          ))}
-          {activeTab === 'overhead' && (overheadItems.length > 0 ? (
-             <ProductShelf title="Overhead Supplies" items={overheadItems} />
-          ) : (
-            <EmptyState message="No overhead items yet. Add one to get started." />
-          ))}
-          {activeTab === 'equipment' && (equipmentItems.length > 0 ? (
-            <ProductShelf title="Capital Equipment" items={equipmentItems} />
-          ) : (
-            <EmptyState message="No equipment items yet. Add one to get started." />
-          ))}
-          {activeTab === 'locations' && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-2xl font-bold">Storage Locations</h2>
-                  <p className="text-muted-foreground">A map of all your physical storage areas.</p>
-                </div>
-                <Button onClick={() => setIsAddLocationOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> New Location</Button>
-              </div>
-              {locations.length === 0 ? (
-                <EmptyState message="No storage locations defined yet. Add one to get started." />
+            <>
+              {activeTab === 'professional' && (
+                (professionalColor.length === 0 && professionalCare.length === 0 && professionalStyling.length === 0 && professionalTools.length === 0) ? (
+                  <EmptyState message="No professional products yet. Add one to get started." />
+                ) : (
+                  <>
+                    <ProductShelf title="Color" items={professionalColor} />
+                    <ProductShelf title="Styling" items={professionalStyling} />
+                    <ProductShelf title="Care" items={professionalCare} />
+                    <ProductShelf title="Tools" items={professionalTools} />
+                  </>
+                )
+              )}
+              {activeTab === 'retail' && (retailItems.length > 0 ? (
+                <ProductShelf title="Retail Products" items={retailItems} />
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {locations.map(location => (
-                    <Card key={location.id}>
-                      <CardHeader>
-                        <CardTitle className="text-lg">{location.name}</CardTitle>
-                        {location.description && <CardDescription>{location.description}</CardDescription>}
-                      </CardHeader>
-                      <CardFooter className="flex gap-2">
-                        <Button variant="outline" size="sm"><Edit className="mr-2 h-3 w-3" /> Edit</Button>
-                        <Button variant="outline" size="sm" className="text-destructive"><Trash2 className="mr-2 h-3 w-3" /> Delete</Button>
-                      </CardFooter>
-                    </Card>
-                  ))}
+                <EmptyState message="No retail items yet. Add one to get started." />
+              ))}
+              {activeTab === 'overhead' && (overheadItems.length > 0 ? (
+                 <ProductShelf title="Overhead Supplies" items={overheadItems} />
+              ) : (
+                <EmptyState message="No overhead items yet. Add one to get started." />
+              ))}
+              {activeTab === 'equipment' && (equipmentItems.length > 0 ? (
+                <ProductShelf title="Capital Equipment" items={equipmentItems} />
+              ) : (
+                <EmptyState message="No equipment items yet. Add one to get started." />
+              ))}
+              {activeTab === 'locations' && (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-2xl font-bold">Storage Locations</h2>
+                      <p className="text-muted-foreground">A map of all your physical storage areas.</p>
+                    </div>
+                    <Button onClick={() => setIsAddLocationOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> New Location</Button>
+                  </div>
+                  {locations.length === 0 ? (
+                    <EmptyState message="No storage locations defined yet. Add one to get started." />
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {locations.map(location => (
+                        <Card key={location.id}>
+                          <CardHeader>
+                            <CardTitle className="text-lg">{location.name}</CardTitle>
+                            {location.description && <CardDescription>{location.description}</CardDescription>}
+                          </CardHeader>
+                          <CardFooter className="flex gap-2">
+                            <Button variant="outline" size="sm"><Edit className="mr-2 h-3 w-3" /> Edit</Button>
+                            <Button variant="outline" size="sm" className="text-destructive"><Trash2 className="mr-2 h-3 w-3" /> Delete</Button>
+                          </CardFooter>
+                        </Card>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
+            </>
           )}
         </div>
       </main>
