@@ -6,7 +6,7 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
-import { appointments as initialAppointments, clients, services, inventory as initialInventory, type InventoryItem, type Service, type Appointment } from '@/lib/data';
+import { appointments as initialAppointments, clients, services, inventory as initialInventory, stockCorrections as initialStockCorrections, type InventoryItem, type Service, type Appointment, type StockCorrection } from '@/lib/data';
 import { format, addDays, subDays, startOfWeek, setHours, startOfDay } from 'date-fns';
 import { useState, useMemo, useCallback } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -156,6 +156,7 @@ export default function PlannerPage() {
   const [current, setCurrent] = React.useState(new Date().getDay())
   const [appointments, setAppointments] = useState(initialAppointments);
   const [inventory, setInventory] = useState(initialInventory);
+  const [stockCorrections, setStockCorrections] = useState(initialStockCorrections);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const { toast } = useToast();
@@ -170,15 +171,16 @@ export default function PlannerPage() {
     setIsCheckoutOpen(true);
   };
 
-  const handleCheckout = (updatedInventory: InventoryItem[]) => {
+  const handleCheckout = (updatedInventory: InventoryItem[], newCorrections: StockCorrection[]) => {
     if (!selectedAppointment) return;
 
     setAppointments(prev => prev.map(apt => apt.id === selectedAppointment.id ? { ...apt, status: 'completed' } : apt));
     setInventory(updatedInventory);
+    setStockCorrections(prev => [...prev, ...newCorrections]);
     
     toast({
         title: "Appointment Completed",
-        description: `Inventory levels have been updated.`
+        description: `Inventory levels have been updated and ${newCorrections.length} stock correction(s) logged.`
     })
     setIsCheckoutOpen(false);
     setSelectedAppointment(null);

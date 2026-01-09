@@ -15,7 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { AlertCircle, CheckCircle } from 'lucide-react';
-import { type Appointment, type Client, type Service, type InventoryItem } from '@/lib/data';
+import { type Appointment, type Client, type Service, type InventoryItem, type StockCorrection } from '@/lib/data';
 import { format } from 'date-fns';
 
 interface CompleteAppointmentDialogProps {
@@ -27,7 +27,7 @@ interface CompleteAppointmentDialogProps {
     service: Service | undefined;
   };
   inventory: InventoryItem[];
-  onConfirmCheckout: (updatedInventory: InventoryItem[]) => void;
+  onConfirmCheckout: (updatedInventory: InventoryItem[], newCorrections: StockCorrection[]) => void;
 }
 
 export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps> = ({
@@ -39,15 +39,16 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
 }) => {
   const { appointment, client, service } = appointmentData;
 
-  const { updatedInventory, stockCorrections, warnings } = useMemo(() => {
+  const { updatedInventory, displayCorrections, newCorrections, warnings } = useMemo(() => {
     const warnings: string[] = [];
-    const stockCorrections: { name: string; change: string }[] = [];
+    const displayCorrections: { name: string; change: string }[] = [];
+    const newCorrections: StockCorrection[] = [];
     
     // Deep clone inventory to simulate changes without mutating state
     let tempInventory = JSON.parse(JSON.stringify(inventory)) as InventoryItem[];
 
     if (!service || !service.products) {
-      return { updatedInventory: inventory, stockCorrections, warnings };
+      return { updatedInventory: inventory, displayCorrections, newCorrections, warnings };
     }
 
     service.products.forEach(productInService => {
@@ -62,15 +63,28 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
 
         if (product.costingMethod === 'uses') {
             if (product.partialContainerUses === undefined) product.partialContainerUses = 0;
+            
+            const createCorrection = (change: number) => {
+                 newCorrections.push({
+                    id: `sc-${Date.now()}-${Math.random()}`,
+                    productId: product.id,
+                    date: new Date().toISOString(),
+                    change: -change,
+                    unit: 'use',
+                    reason: `Appointment #${appointment.id.slice(-4)}`
+                });
+            };
 
             if (product.partialContainerUses >= quantityNeeded) {
                 product.partialContainerUses -= quantityNeeded;
-                stockCorrections.push({ name: product.name, change: `-${quantityNeeded} uses` });
+                displayCorrections.push({ name: product.name, change: `-${quantityNeeded} uses` });
+                createCorrection(quantityNeeded);
             } else {
                 let usesToFulfill = quantityNeeded;
                 if (product.partialContainerUses > 0) {
                     usesToFulfill -= product.partialContainerUses;
-                    stockCorrections.push({ name: product.name, change: `-${product.partialContainerUses} uses (emptied)` });
+                    displayCorrections.push({ name: product.name, change: `-${product.partialContainerUses} uses (emptied)` });
+                    createCorrection(product.partialContainerUses);
                     product.partialContainerUses = 0;
                 }
 
@@ -85,26 +99,41 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                     
                     if (product.partialContainerUses >= usesToFulfill) {
                         product.partialContainerUses -= usesToFulfill;
-                        stockCorrections.push({ name: product.name, change: `-1 container, -${usesToFulfill} uses` });
+                        displayCorrections.push({ name: product.name, change: `-1 container, -${usesToFulfill} uses` });
+                        createCorrection(usesToFulfill);
                         usesToFulfill = 0;
                     } else {
-                        stockCorrections.push({ name: product.name, change: `-1 container (emptied)` });
+                        displayCorrections.push({ name: product.name, change: `-1 container (emptied)` });
+                        createCorrection(product.partialContainerUses);
                         usesToFulfill -= product.partialContainerUses;
                         product.partialContainerUses = 0;
                     }
                 }
             }
         } else if (product.costingMethod === 'size') {
+             const createCorrection = (change: number) => {
+                 newCorrections.push({
+                    id: `sc-${Date.now()}-${Math.random()}`,
+                    productId: product.id,
+                    date: new Date().toISOString(),
+                    change: -change,
+                    unit: product.unit || '',
+                    reason: `Appointment #${appointment.id.slice(-4)}`
+                });
+            };
+
             if (product.partialContainerSize === undefined) product.partialContainerSize = 0;
 
             if (product.partialContainerSize >= quantityNeeded) {
                 product.partialContainerSize -= quantityNeeded;
-                stockCorrections.push({ name: product.name, change: `-${quantityNeeded}${product.unit || ''}` });
+                displayCorrections.push({ name: product.name, change: `-${quantityNeeded}${product.unit || ''}` });
+                createCorrection(quantityNeeded);
             } else {
                 let sizeToFulfill = quantityNeeded;
                 if (product.partialContainerSize > 0) {
                     sizeToFulfill -= product.partialContainerSize;
-                    stockCorrections.push({ name: product.name, change: `-${product.partialContainerSize}${product.unit || ''} (emptied)` });
+                    displayCorrections.push({ name: product.name, change: `-${product.partialContainerSize}${product.unit || ''} (emptied)` });
+                    createCorrection(product.partialContainerSize);
                     product.partialContainerSize = 0;
                 }
 
@@ -119,10 +148,12 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
 
                     if (product.partialContainerSize >= sizeToFulfill) {
                         product.partialContainerSize -= sizeToFulfill;
-                        stockCorrections.push({ name: product.name, change: `-1 container, -${sizeToFulfill}${product.unit || ''}` });
+                        displayCorrections.push({ name: product.name, change: `-1 container, -${sizeToFulfill}${product.unit || ''}` });
+                        createCorrection(sizeToFulfill);
                         sizeToFulfill = 0;
                     } else {
-                        stockCorrections.push({ name: product.name, change: `-1 container (emptied)` });
+                        displayCorrections.push({ name: product.name, change: `-1 container (emptied)` });
+                        createCorrection(product.partialContainerSize);
                         sizeToFulfill -= product.partialContainerSize;
                         product.partialContainerSize = 0;
                     }
@@ -132,8 +163,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         tempInventory[productIndex] = product;
     });
 
-    return { updatedInventory: tempInventory, stockCorrections, warnings };
-  }, [service, inventory]);
+    return { updatedInventory: tempInventory, displayCorrections, newCorrections, warnings };
+  }, [service, inventory, appointment.id]);
 
   if (!client || !service) {
     return null;
@@ -196,9 +227,9 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                         </div>
                     ))}
                     
-                    {stockCorrections.length > 0 ? (
+                    {displayCorrections.length > 0 ? (
                         <div className="space-y-2 text-sm">
-                            {stockCorrections.map((correction, i) => (
+                            {displayCorrections.map((correction, i) => (
                                 <div key={`corr-${i}`} className="flex justify-between p-2 bg-muted/50 rounded-md">
                                     <span>{correction.name}</span>
                                     <span className="font-mono font-medium">{correction.change}</span>
@@ -216,7 +247,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={() => onConfirmCheckout(updatedInventory)} disabled={warnings.some(w => w.includes('Insufficient stock'))}>
+          <Button onClick={() => onConfirmCheckout(updatedInventory, newCorrections)} disabled={warnings.some(w => w.includes('Insufficient stock'))}>
             Confirm & Complete
           </Button>
         </DialogFooter>
