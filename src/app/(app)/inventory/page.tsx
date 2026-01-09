@@ -92,7 +92,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                            </Link>
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => onEdit(item)}><Pencil className="mr-2 h-4 w-4" /> Edit</DropdownMenuItem>
-                        {item.type === 'professional' && (
+                        {(item.type === 'professional' || item.type === 'equipment') && (
                             item.isExperimentActive ? (
                                 <DropdownMenuItem onClick={() => onEndExperiment(item)}>
                                     <CheckCircle className="mr-2 h-4 w-4" /> End Experiment
@@ -159,7 +159,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                                 <p className='text-3xl font-bold'>{item.totalStock}</p>
                             </div>
                         )}
-                         {item.isExperimentActive && (
+                         {item.isExperimentActive && item.type === 'professional' && (
                             <p className='text-xs text-purple-500 font-medium mt-1'>
                                 {item.experimentUses} uses logged in experiment
                             </p>

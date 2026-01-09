@@ -12,9 +12,10 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowRight, FlaskConical } from 'lucide-react';
+import { FlaskConical } from 'lucide-react';
 import { type InventoryItem } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
+import { differenceInYears, differenceInMonths, parseISO } from 'date-fns';
 
 interface EndCostPerUseTestDialogProps {
   open: boolean;
@@ -32,6 +33,69 @@ export const EndCostPerUseTestDialog: React.FC<EndCostPerUseTestDialogProps> = (
   const { toast } = useToast();
 
   if (!product) return null;
+  
+  if (product.type === 'equipment') {
+      const purchaseDate = product.batches[0]?.receivedDate ? parseISO(product.batches[0].receivedDate) : new Date();
+      const actualYearsInService = differenceInYears(new Date(), purchaseDate);
+      const actualMonthsInService = differenceInMonths(new Date(), purchaseDate);
+      const estimatedLifespan = product.lifespanYears || 0;
+
+      const handleConfirm = () => {
+         // In a real app, you might just stop the experiment flag
+         // For now, we'll just show a toast.
+         toast({
+            title: "Equipment Experiment Complete!",
+            description: `${product.name} was in service for ${actualMonthsInService} months.`,
+        });
+        onOpenChange(false);
+      }
+
+      return (
+         <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-xl">
+                <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                    <FlaskConical className="text-purple-500" />
+                    Equipment Lifespan Results
+                </DialogTitle>
+                <DialogDescription>
+                    You've completed a lifespan test for "{product.name}".
+                </DialogDescription>
+                </DialogHeader>
+                <div className="py-4 space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+                        <Card className="bg-muted/50">
+                        <CardHeader>
+                            <CardTitle className="text-base">Estimated Lifespan</CardTitle>
+                        </CardHeader>
+                        <CardContent className="text-center">
+                            <p className="text-3xl font-bold">{estimatedLifespan}</p>
+                            <p className="text-sm text-muted-foreground">years</p>
+                        </CardContent>
+                        </Card>
+                        <Card className="border-purple-500/50 shadow-lg shadow-purple-500/10">
+                        <CardHeader>
+                            <CardTitle className="text-base text-purple-500">Actual Time in Service</CardTitle>
+                        </CardHeader>
+                        <CardContent className="text-center">
+                            <p className="text-3xl font-bold text-purple-500">{actualMonthsInService}</p>
+                            <p className="text-sm text-muted-foreground">months</p>
+                        </CardContent>
+                        </Card>
+                    </div>
+                </div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>
+                        Cancel
+                    </Button>
+                    <Button onClick={handleConfirm}>
+                        End Test
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+      )
+  }
 
   const estimatedUses = product.estimatedUses || 1;
   const actualUses = product.experimentUses || 0;

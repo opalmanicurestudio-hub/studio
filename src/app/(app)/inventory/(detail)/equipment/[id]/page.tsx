@@ -12,7 +12,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Edit, PlusCircle, Trash2, User, Wrench, DollarSign, FlaskConical, Calendar as CalendarIcon } from 'lucide-react';
+import { ArrowLeft, Edit, PlusCircle, Trash2, User, Wrench, DollarSign, FlaskConical, Calendar as CalendarIcon, Rocket, CheckCircle } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -36,6 +36,7 @@ import { ImageUpload } from '@/components/shared/ImageUpload';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
+import { EndCostPerUseTestDialog } from '@/components/inventory/EndCostPerUseTestDialog';
 
 const LogMaintenanceDialog = ({
   open,
@@ -139,6 +140,7 @@ export default function EquipmentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { inventory, setInventory } = useInventory();
   const [isLogMaintenanceOpen, setIsLogMaintenanceOpen] = useState(false);
+  const [isEndExperimentOpen, setIsEndExperimentOpen] = useState(false);
   
   const equipment = inventory.find((p) => p.id === id && p.type === 'equipment');
 
@@ -176,10 +178,23 @@ export default function EquipmentDetailPage() {
 
   const handleToggleExperiment = () => {
     if (!equipment) return;
-    setInventory(prev => prev.map(item => 
-        item.id === equipment.id ? { ...item, isExperimentActive: !item.isExperimentActive } : item
-    ));
+    
+    if (equipment.isExperimentActive) {
+        setIsEndExperimentOpen(true);
+    } else {
+        setInventory(prev => prev.map(item => 
+            item.id === equipment.id ? { ...item, isExperimentActive: true } : item
+        ));
+    }
   }
+
+  const handleEndExperimentConfirmed = () => {
+    if (!equipment) return;
+    setInventory(prev => prev.map(item => 
+        item.id === equipment.id ? { ...item, isExperimentActive: false } : item
+    ));
+    setIsEndExperimentOpen(false);
+  };
   
   const usageHistory = useMemo(() => {
     if (!equipment) return [];
@@ -231,6 +246,11 @@ export default function EquipmentDetailPage() {
                     </h1>
                      <div className="text-xs sm:text-sm text-muted-foreground flex items-center gap-2">
                         <Badge variant="secondary">{equipment.totalStock > 0 ? "Active" : "Retired"}</Badge>
+                         {equipment.isExperimentActive && (
+                            <Badge variant="secondary" className="flex items-center gap-1.5 bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300">
+                                <FlaskConical className="h-3 w-3" /> Lifespan Test Active
+                            </Badge>
+                        )}
                     </div>
                 </div>
             </div>
@@ -277,7 +297,7 @@ export default function EquipmentDetailPage() {
                         <span className="font-mono">{serviceMonths} months</span>
                     </div>
                     <Button variant="outline" className="w-full" onClick={handleToggleExperiment}>
-                        {equipment.isExperimentActive ? 'End Lifespan Test' : 'Start Lifespan Test'}
+                        {equipment.isExperimentActive ? <><CheckCircle className="mr-2"/>End Lifespan Test</> : <><Rocket className="mr-2"/>Start Lifespan Test</>}
                     </Button>
                 </CardContent>
              </Card>
@@ -377,6 +397,12 @@ export default function EquipmentDetailPage() {
             onOpenChange={setIsLogMaintenanceOpen}
             onSave={handleSaveMaintenance}
         />
+        {equipment && <EndCostPerUseTestDialog 
+            open={isEndExperimentOpen} 
+            onOpenChange={setIsEndExperimentOpen}
+            product={equipment}
+            onUpdateCost={() => handleEndExperimentConfirmed()}
+        />}
       </main>
     </div>
   );
