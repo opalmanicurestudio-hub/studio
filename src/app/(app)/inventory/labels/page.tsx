@@ -1,7 +1,9 @@
 
+
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import {
@@ -14,13 +16,15 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { ArrowLeft, Printer, Download, Search } from 'lucide-react';
+import { ArrowLeft, Printer, Download, Search, Sheet, ChevronsUpDown } from 'lucide-react';
 import Link from 'next/link';
 import { inventory as allProducts, type InventoryItem } from '@/lib/data';
 import { Input } from '@/components/ui/input';
 import Image from 'next/image';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
+import { Switch } from '@/components/ui/switch';
+
 
 interface LabelContentOptions {
   showProductName: boolean;
@@ -34,11 +38,15 @@ const CustomizationSidebar = ({
   onProductSelect,
   labelContent,
   onLabelContentChange,
+  printMode,
+  onPrintModeChange,
 }: {
   selectedProducts: Set<string>;
   onProductSelect: (productId: string) => void;
   labelContent: LabelContentOptions;
   onLabelContentChange: (options: LabelContentOptions) => void;
+  printMode: 'sheet' | 'single';
+  onPrintModeChange: (mode: 'sheet' | 'single') => void;
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const filteredProducts = useMemo(() => 
@@ -50,9 +58,27 @@ const CustomizationSidebar = ({
     <Card className="lg:sticky top-24">
       <CardHeader>
         <CardTitle>Customize Labels</CardTitle>
-        <CardDescription>Select products and label content.</CardDescription>
+        <CardDescription>Select products, content, and print format.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
+        <div className="space-y-2">
+            <div className="flex items-center justify-between">
+                <Label>Print Format</Label>
+                 <div className="flex items-center space-x-2">
+                    <Sheet className="h-4 w-4" />
+                    <Switch
+                        checked={printMode === 'single'}
+                        onCheckedChange={(checked) => onPrintModeChange(checked ? 'single' : 'sheet')}
+                    />
+                    <ChevronsUpDown className="h-4 w-4" />
+                 </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+                Toggle for {printMode === 'sheet' ? 'Full Sheet (Avery 5160)' : 'Single Label (Thermal)'}.
+            </p>
+        </div>
+
+
         <div className="space-y-2">
           <Label>Products</Label>
           <div className="relative">
@@ -71,6 +97,7 @@ const CustomizationSidebar = ({
                     id={`product-${product.id}`} 
                     checked={selectedProducts.has(product.id)}
                     onCheckedChange={() => onProductSelect(product.id)}
+                    disabled={printMode === 'single' && selectedProducts.size > 0 && !selectedProducts.has(product.id)}
                   />
                   <Label htmlFor={`product-${product.id}`} className="text-sm font-normal flex-1 cursor-pointer">
                     {product.name}
@@ -145,12 +172,38 @@ const GeneratedLabel = ({ product, options }: { product: InventoryItem, options:
     )
 }
 
+const SingleLabel = ({ product, options }: { product: InventoryItem, options: LabelContentOptions }) => {
+    const price = useMemo(() => {
+        const retailBatch = product.batches.find(b => b.costPerUnit > 0);
+        return retailBatch ? retailBatch.costPerUnit * 1.5 : undefined;
+    }, [product]);
+
+    return (
+        <div className="text-center flex flex-col items-center justify-center break-words">
+            {options.showProductName && <p className="font-bold text-xs mb-1">{product.name}</p>}
+            {options.showPrice && price && <p className="mb-1 font-mono text-sm">${price.toFixed(2)}</p>}
+            {options.showSKU && <p className="font-mono text-[10px] mb-1">SKU: {product.id.slice(-6)}</p>}
+            {options.showQRCode && (
+                 <Image
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(`clarityflow://product/${product.id}`)}`}
+                    alt={`QR code for ${product.name}`}
+                    width={100}
+                    height={100}
+                    className="object-contain"
+                />
+            )}
+        </div>
+    )
+}
+
 const PrintPreview = ({
   selectedProductIds,
   labelContent,
+  printMode,
 }: {
   selectedProductIds: Set<string>;
   labelContent: LabelContentOptions;
+  printMode: 'sheet' | 'single';
 }) => {
   const selectedProducts = useMemo(() => 
     allProducts.filter(p => selectedProductIds.has(p.id)),
@@ -158,6 +211,9 @@ const PrintPreview = ({
   );
   
   const labelsToRender = useMemo(() => {
+    if (printMode === 'single') {
+        return selectedProducts.length > 0 ? [selectedProducts[0]] : [];
+    }
     // Standard US Letter Avery 5160 labels (30 per sheet)
     const labels = Array(30).fill(null);
     let currentProductIndex = 0;
@@ -168,7 +224,7 @@ const PrintPreview = ({
         }
     }
     return labels;
-  }, [selectedProducts]);
+  }, [selectedProducts, printMode]);
   
 
   return (
@@ -179,14 +235,20 @@ const PrintPreview = ({
       </CardHeader>
       <CardContent className="bg-muted/50 rounded-md p-4">
         {selectedProducts.length > 0 ? (
-            <div id="label-sheet" className="grid grid-cols-3 gap-x-2 gap-y-0 p-4 bg-white shadow-lg aspect-[8.5/11]">
-                 {labelsToRender.map((product, index) => (
-                    product ? <GeneratedLabel key={`${product.id}-${index}`} product={product} options={labelContent} /> : <div key={index} className="border border-dashed border-gray-400"></div>
-                 ))}
-            </div>
+            printMode === 'sheet' ? (
+                <div id="label-sheet" className="grid grid-cols-3 gap-x-2 gap-y-0 p-4 bg-white shadow-lg aspect-[8.5/11]">
+                    {labelsToRender.map((product, index) => (
+                        product ? <GeneratedLabel key={`${product.id}-${index}`} product={product} options={labelContent} /> : <div key={index} className="border border-dashed border-gray-400"></div>
+                    ))}
+                </div>
+            ) : (
+                <div id="single-label-preview" className="bg-white shadow-lg mx-auto" style={{ width: '2.25in', height: '1.25in', padding: '0.1in', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                   {labelsToRender[0] && <SingleLabel product={labelsToRender[0]} options={labelContent} />}
+                </div>
+            )
         ) : (
              <div className="h-[600px] flex items-center justify-center">
-                <p className="text-muted-foreground">Select products to see a preview.</p>
+                <p className="text-muted-foreground">Select a product to see a preview.</p>
             </div>
         )}
       </CardContent>
@@ -194,17 +256,43 @@ const PrintPreview = ({
   );
 };
 
-export default function LabelPage() {
-  const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
+
+function LabelPageContent() {
+  const searchParams = useSearchParams();
+  const initialProductId = searchParams.get('product');
+
+  const [selectedProducts, setSelectedProducts] = useState<Set<string>>(
+    initialProductId ? new Set([initialProductId]) : new Set()
+  );
+
   const [labelContent, setLabelContent] = useState<LabelContentOptions>({
     showProductName: true,
     showPrice: true,
     showQRCode: true,
     showSKU: false,
   });
+  
+  const [printMode, setPrintMode] = useState<'sheet' | 'single'>(initialProductId ? 'single' : 'sheet');
+
   const { toast } = useToast();
+  
+  const handlePrintModeChange = (mode: 'sheet' | 'single') => {
+    setPrintMode(mode);
+    if (mode === 'single' && selectedProducts.size > 1) {
+      const firstProduct = selectedProducts.values().next().value;
+      setSelectedProducts(new Set([firstProduct]));
+    }
+  }
 
   const handleProductSelect = (productId: string) => {
+    if (printMode === 'single') {
+        if (selectedProducts.has(productId)) {
+            setSelectedProducts(new Set());
+        } else {
+            setSelectedProducts(new Set([productId]));
+        }
+        return;
+    }
     const newSelection = new Set(selectedProducts);
     if (newSelection.has(productId)) {
         newSelection.delete(productId);
@@ -258,10 +346,12 @@ export default function LabelPage() {
                 onProductSelect={handleProductSelect}
                 labelContent={labelContent}
                 onLabelContentChange={setLabelContent}
+                printMode={printMode}
+                onPrintModeChange={handlePrintModeChange}
               />
             </div>
             <div className="lg:col-span-2">
-              <PrintPreview selectedProductIds={selectedProducts} labelContent={labelContent} />
+              <PrintPreview selectedProductIds={selectedProducts} labelContent={labelContent} printMode={printMode} />
             </div>
           </div>
         </div>
@@ -271,10 +361,14 @@ export default function LabelPage() {
           body * {
             visibility: hidden;
           }
-          #label-sheet, #label-sheet * {
+          #main-content {
+            padding: 0;
+            margin: 0;
+          }
+          .label-print-area, .label-print-area * {
             visibility: visible;
           }
-          #label-sheet {
+          .label-print-area {
             position: absolute;
             left: 0;
             top: 0;
@@ -282,12 +376,37 @@ export default function LabelPage() {
             height: 100%;
             transform: scale(1);
           }
-          @page {
-            size: letter;
-            margin: 0.5in;
-          }
+        }
+        
+        @page {
+          size: letter;
+          margin: 0.5in;
+        }
+
+        @page thermal {
+          size: 2.25in 1.25in;
+          margin: 0;
+        }
+
+        .thermal-print {
+            page: thermal;
         }
       `}</style>
+       {/* Assign a class to the container based on print mode for targeted print styles */}
+       <div className={cn('label-print-area', printMode === 'single' ? 'thermal-print' : 'sheet-print')}>
+           <div className="hidden">
+             <PrintPreview selectedProductIds={selectedProducts} labelContent={labelContent} printMode={printMode} />
+           </div>
+       </div>
     </div>
   );
 }
+
+export default function LabelPage() {
+    return (
+        <Suspense fallback={<div>Loading...</div>}>
+            <LabelPageContent />
+        </Suspense>
+    );
+}
+

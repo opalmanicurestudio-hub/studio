@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -96,7 +97,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                         <DropdownMenuItem onClick={() => onWriteOff(item)}><PackageX className="mr-2 h-4 w-4" /> Write-off / Damage</DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem asChild>
-                           <Link href="/inventory/labels">
+                           <Link href={`/inventory/labels?product=${item.id}`}>
                                 <QrCode className="mr-2 h-4 w-4" /> Print Label
                            </Link>
                         </DropdownMenuItem>
@@ -1028,3 +1029,4 @@ export default function InventoryPage() {
     </div>
   );
 }
+
