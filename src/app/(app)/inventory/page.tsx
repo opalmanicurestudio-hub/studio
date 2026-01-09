@@ -616,6 +616,7 @@ export default function InventoryPage() {
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
   const videoRef = useRef<HTMLVideoElement>(null);
   const { toast } = useToast();
+  const lastAddedLocationRef = useRef<Location | null>(null);
 
   const [isReceiveStockOpen, setIsReceiveStockOpen] = useState(false);
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
@@ -638,10 +639,20 @@ export default function InventoryPage() {
     return [...new Set(categories)];
   }, [inventory]);
 
+  useEffect(() => {
+    if (lastAddedLocationRef.current) {
+        toast({
+            title: "Location Added",
+            description: `${lastAddedLocationRef.current.name} has been created.`
+        });
+        lastAddedLocationRef.current = null; // Reset after showing toast
+    }
+  }, [locations, toast]);
+
   const handleAddNewLocation = (newLocation: Omit<Location, 'id'>) => {
     const locationWithId = { ...newLocation, id: `loc-${Date.now()}` };
     setLocations(prev => [...prev, locationWithId]);
-    toast({ title: "Location Added", description: `${locationWithId.name} has been created.` });
+    lastAddedLocationRef.current = locationWithId; // Store the new location to trigger toast
     setIsAddLocationOpen(false);
     setIsAddLocationFromProductOpen(false);
   }
@@ -1276,4 +1287,3 @@ export default function InventoryPage() {
     </div>
   );
 }
-
