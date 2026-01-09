@@ -133,14 +133,27 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                 
                 <Card className='bg-muted/50'>
                     <CardContent className='p-2 text-center'>
-                        <p className='text-xs text-muted-foreground'>Total On Hand</p>
-                        <p className='text-2xl font-bold'>{item.totalStock}</p>
-                        {item.isExperimentActive ? (
-                             <p className='text-xs text-purple-500 font-medium'>
-                                {item.experimentUses} uses logged
+                        <div className="grid grid-cols-2 divide-x">
+                            <div>
+                                <p className='text-xs text-muted-foreground'>Full Units</p>
+                                <p className='text-2xl font-bold'>{item.totalStock}</p>
+                            </div>
+                            <div>
+                                <p className='text-xs text-muted-foreground'>
+                                    {item.costingMethod === 'uses' ? 'Uses Left' : 'Size Left'}
+                                </p>
+                                <p className='text-2xl font-bold'>
+                                    {item.costingMethod === 'uses'
+                                        ? item.partialContainerUses || 0
+                                        : `${item.partialContainerSize || 0}${item.unit || ''}`
+                                    }
+                                </p>
+                            </div>
+                        </div>
+                         {item.isExperimentActive && (
+                            <p className='text-xs text-purple-500 font-medium mt-1'>
+                                {item.experimentUses} uses logged in experiment
                             </p>
-                        ) : (
-                             <p className='text-xs text-muted-foreground'>{item.partialContainerUses || 'N/A'} uses left</p>
                         )}
                     </CardContent>
                 </Card>
@@ -639,37 +652,33 @@ export default function InventoryPage() {
     return [...new Set(categories)];
   }, [inventory]);
 
-  const prevLocationsLength = useRef(locations.length);
-  const prevStockCorrectionsLength = useRef(stockCorrections.length);
   const receivedItemsRef = useRef<ShipmentItem[] | null>(null);
 
   useEffect(() => {
-    if (locations.length > prevLocationsLength.current && lastAddedLocationRef.current) {
+    if (lastAddedLocationRef.current) {
         toast({
             title: "Location Added",
             description: `${lastAddedLocationRef.current.name} has been created.`
         });
-        lastAddedLocationRef.current = null; // Reset after showing toast
+        lastAddedLocationRef.current = null;
     }
-    prevLocationsLength.current = locations.length;
   }, [locations, toast]);
   
   useEffect(() => {
-    if (stockCorrections.length > prevStockCorrectionsLength.current && receivedItemsRef.current) {
+    if (receivedItemsRef.current) {
          toast({
             title: "Stock Received",
             description: `${receivedItemsRef.current.length} product(s) have been updated.`
         });
-        receivedItemsRef.current = null; // Reset
+        receivedItemsRef.current = null;
     }
-     prevStockCorrectionsLength.current = stockCorrections.length;
-  }, [stockCorrections, toast]);
+  }, [inventory, stockCorrections, toast]);
 
 
   const handleAddNewLocation = (newLocation: Omit<Location, 'id'>) => {
     const locationWithId = { ...newLocation, id: `loc-${Date.now()}` };
     setLocations(prev => [...prev, locationWithId]);
-    lastAddedLocationRef.current = locationWithId; // Store the new location to trigger toast
+    lastAddedLocationRef.current = locationWithId;
     setIsAddLocationOpen(false);
     setIsAddLocationFromProductOpen(false);
   }
@@ -681,7 +690,6 @@ export default function InventoryPage() {
   };
 
   const handleNewProductCategory = (category: string) => {
-    // In a real app, this would update a central category list if it's not already present
     console.log("New product category added:", category);
   }
 
@@ -759,11 +767,10 @@ export default function InventoryPage() {
   };
   
   const handleSimulateScan = () => {
-    const scannedProductId = 'inv-3'; // Simulate scanning "Base Coat Polish"
+    const scannedProductId = 'inv-3'; 
     const product = inventory.find(p => p.id === scannedProductId);
     if (product) {
         setIsScannerOpen(false);
-        // Delay opening the edit dialog slightly to allow the scanner to close
         setTimeout(() => {
             handleOpenEditDialog(product);
         }, 150);
@@ -853,7 +860,7 @@ export default function InventoryPage() {
       if (productIndex === -1) return prevInventory;
       
       const product = { ...newInventory[productIndex] };
-      const quantityNeeded = 1; // Always 1 for this button
+      const quantityNeeded = 1; 
 
       let newCorrection: StockCorrection | null = null;
       let changeDescription = '';
@@ -1006,7 +1013,6 @@ export default function InventoryPage() {
       <div className="flex min-h-screen w-full flex-col">
         <AppHeader title="Inventory Hub" />
         <main className="flex-1 p-4 md:p-8 space-y-6">
-           {/* Render a skeleton or loading state */}
         </main>
       </div>
     )
