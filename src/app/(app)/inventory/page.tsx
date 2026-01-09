@@ -49,6 +49,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 import { Carousel, CarouselContent, CarouselItem } from '@/components/ui/carousel';
 import { isPast, parseISO, differenceInYears } from 'date-fns';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 
 const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (item: InventoryItem) => void }) => {
