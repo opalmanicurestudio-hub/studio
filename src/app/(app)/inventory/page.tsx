@@ -773,6 +773,9 @@ export default function InventoryPage() {
               <Input placeholder="Search inventory..." className="pl-9" />
             </div>
             <div className="flex w-full sm:w-auto items-center gap-2">
+              <Button variant="outline" className="flex-1 sm:flex-initial" onClick={() => setIsScannerOpen(true)}>
+                <Camera className="mr-2 h-4 w-4" /> Scan
+              </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" className="flex-1 sm:flex-initial">
@@ -1029,4 +1032,3 @@ export default function InventoryPage() {
     </div>
   );
 }
-
