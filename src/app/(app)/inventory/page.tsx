@@ -662,6 +662,10 @@ export default function InventoryPage() {
   const isMobile = useIsMobile();
   const [isClient, setIsClient] = useState(false);
 
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+  
   const [activeTab, setActiveTab] = useState('professional');
 
   const productCategories = useMemo(() => {
@@ -712,10 +716,6 @@ export default function InventoryPage() {
       return newInventory;
     });
   };
-
-  useEffect(() => {
-    setIsClient(true);
-  }, []);
 
   useEffect(() => {
     if (lastAddedLocationRef.current) {
@@ -838,8 +838,7 @@ export default function InventoryPage() {
         batch.stock -= quantity;
         product.totalStock -= quantity;
         
-        // If writing off from the currently "open" partial container, reset partials
-        if (batch.stock === 0) {
+        if (batch.stock <= 0 && (reason === 'Expired' || reason === 'Damaged')) {
             product.partialContainerUses = 0;
             product.partialContainerSize = 0;
         }
@@ -1070,9 +1069,23 @@ export default function InventoryPage() {
       }));
   }, [selectedProduct]);
 
-  useEffect(() => {
-    setIsClient(true);
-  }, []);
+  const kpiSection = useMemo(() => (
+    isMobile ? (
+        <Carousel className="w-full">
+            <CarouselContent className="-ml-2">
+                {kpiCards.map((card, index) => (
+                    <CarouselItem key={index} className="pl-4 basis-11/12">
+                        {card}
+                    </CarouselItem>
+                ))}
+            </CarouselContent>
+        </Carousel>
+    ) : (
+        <div className='grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 mb-6'>
+            {kpiCards}
+        </div>
+    )
+  ), [isMobile, kpiCards]);
   
   if (!isClient) {
     return (
@@ -1089,21 +1102,7 @@ export default function InventoryPage() {
       <AppHeader title="Inventory Hub" />
       <main className="flex-1 p-4 md:p-8 space-y-6">
 
-        {isMobile ? (
-            <Carousel className="w-full">
-                <CarouselContent className="-ml-2">
-                    {kpiCards.map((card, index) => (
-                        <CarouselItem key={index} className="pl-4 basis-11/12">
-                            {card}
-                        </CarouselItem>
-                    ))}
-                </CarouselContent>
-            </Carousel>
-        ) : (
-            <div className='grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 mb-6'>
-                {kpiCards}
-            </div>
-        )}
+        {kpiSection}
 
         <div className="flex flex-col gap-4">
           <div className="flex flex-col sm:flex-row items-center gap-2">
@@ -1373,4 +1372,3 @@ export default function InventoryPage() {
     </div>
   );
 }
-
