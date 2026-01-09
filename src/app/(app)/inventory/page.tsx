@@ -65,16 +65,17 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
     }, [item]);
 
     const activeBatches = useMemo(() => item.batches.filter(b => b.stock > 0), [item.batches]);
+    const detailHref = item.type === 'equipment' ? `/inventory/equipment/${item.id}` : `/inventory/product/${item.id}`;
     
     return (
         <Card className={cn("w-full transition-all duration-200 hover:shadow-xl hover:-translate-y-1", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
             <CardContent className="p-3 space-y-3">
                 <div className="grid grid-cols-[auto,1fr,auto] items-start gap-3">
-                    <Link href={`/inventory/${item.id}`} className='w-16 h-16 bg-muted rounded-md flex-shrink-0'>
+                    <Link href={detailHref} className='w-16 h-16 bg-muted rounded-md flex-shrink-0'>
                         <Image src={item.imageUrl || `https://picsum.photos/seed/inv${item.id}/100/100`} alt={item.name} width={64} height={64} className='rounded-md' data-ai-hint="product photo"/>
                     </Link>
                     <div className='pt-1 min-w-0'>
-                        <Link href={`/inventory/${item.id}`} className="font-semibold text-sm leading-snug truncate hover:underline">{item.name}</Link>
+                        <Link href={detailHref} className="font-semibold text-sm leading-snug truncate hover:underline">{item.name}</Link>
                         <p className="text-xs text-muted-foreground">{item.category}</p>
                     </div>
                      <DropdownMenu>
@@ -86,7 +87,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem asChild>
-                           <Link href={`/inventory/${item.id}`}>
+                           <Link href={detailHref}>
                                 <FileText className="mr-2 h-4 w-4" /> View Details
                            </Link>
                         </DropdownMenuItem>
@@ -661,7 +662,6 @@ export default function InventoryPage() {
   }, [inventory]);
 
   const lastAddedLocationRef = useRef<Location | null>(null);
-  const receivedItemsRef = useRef<ShipmentItem[] | null>(null);
   
   const handleAddNewLocation = (newLocation: Omit<Location, 'id'>) => {
     const locationWithId = { ...newLocation, id: `loc-${Date.now()}` };
@@ -670,16 +670,8 @@ export default function InventoryPage() {
     setIsAddLocationOpen(false);
     setIsAddLocationFromProductOpen(false);
   };
-  
-  useEffect(() => {
-    if (lastAddedLocationRef.current) {
-        toast({
-            title: "Location Added",
-            description: `${lastAddedLocationRef.current.name} has been created.`
-        });
-        lastAddedLocationRef.current = null;
-    }
-  }, [locations, toast]);
+
+  const receivedItemsRef = useRef<ShipmentItem[] | null>(null);
   
   const handleReceiveStock = (items: ShipmentItem[], landedCosts: Record<string, number>) => {
     receivedItemsRef.current = items;
@@ -712,17 +704,7 @@ export default function InventoryPage() {
       return newInventory;
     });
   };
-
-  useEffect(() => {
-    if (receivedItemsRef.current) {
-         toast({
-            title: "Stock Received",
-            description: `${receivedItemsRef.current.length} product(s) have been updated.`
-        });
-        receivedItemsRef.current = null;
-    }
-  }, [inventory, addStockCorrection, toast]);
-
+  
   const handleAddNewLocationType = (newType: string) => {
     const newLocationType = { id: `lt-${Date.now()}`, name: newType };
     setLocationTypes(prev => [...prev, newLocationType]);
@@ -859,11 +841,13 @@ export default function InventoryPage() {
   }, [isScannerOpen, toast]);
 
   const handleLogUse = (productToUpdate: InventoryItem) => {
-    let useLogged = false;
     setInventory(prevInventory => {
         const newInventory = [...prevInventory];
         const productIndex = newInventory.findIndex(p => p.id === productToUpdate.id);
-        if (productIndex === -1) return prevInventory;
+        if (productIndex === -1) {
+            toast({ variant: 'destructive', title: 'Error', description: 'Product not found.' });
+            return prevInventory;
+        }
         
         const product = { ...newInventory[productIndex] };
         const quantityNeeded = 1; 
@@ -888,7 +872,9 @@ export default function InventoryPage() {
         if (product.isExperimentActive) {
             product.experimentUses = (product.experimentUses || 0) + 1;
         }
-
+        
+        newInventory[productIndex] = product;
+        
         addStockCorrection({
             id: `sc-manual-${Date.now()}`,
             productId: product.id,
@@ -897,14 +883,11 @@ export default function InventoryPage() {
             unit: 'use',
             reason: 'Manual Use Log'
         });
-        useLogged = true;
-        
-        newInventory[productIndex] = product;
+
+        toast({ title: 'Use Logged', description: `1 use of ${product.name} deducted.` });
+
         return newInventory;
     });
-    if (useLogged) {
-        toast({ title: 'Use Logged', description: `1 use of ${productToUpdate.name} deducted.` });
-    }
 };
   
   const ProductShelf = ({ title, items }: { title: string, items: InventoryItem[] }) => {
