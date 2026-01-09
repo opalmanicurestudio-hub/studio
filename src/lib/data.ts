@@ -45,6 +45,7 @@ export type InventoryItem = {
   category: string;
   totalStock: number;
   supplier: string;
+  supplierUrl?: string;
   lifespanYears?: number;
   costPerUnit?: number;
   reorderPoint?: number;
@@ -87,7 +88,7 @@ export const clients: Client[] = [
 ];
 
 export const inventory: InventoryItem[] = [
-  { id: 'inv-1', name: 'Nail File', type: 'professional', category: 'Tools', totalStock: 50, reorderPoint: 20, supplier: 'ProNailSupply', batches: [{id: 'b1-1', stock: 50, costPerUnit: 0.25, receivedDate: '2024-05-01'}] },
+  { id: 'inv-1', name: 'Nail File', type: 'professional', category: 'Tools', totalStock: 50, reorderPoint: 20, supplier: 'ProNailSupply', supplierUrl: 'https://www.nails-r-us.com/pro-files', batches: [{id: 'b1-1', stock: 50, costPerUnit: 0.25, receivedDate: '2024-05-01'}] },
   { id: 'inv-2', name: 'Cuticle Oil', type: 'professional', category: 'Care', totalStock: 100, reorderPoint: 25, supplier: 'ProNailSupply', batches: [{id: 'b2-1', stock: 100, costPerUnit: 0.15, receivedDate: '2024-05-01'}] },
   { id: 'inv-3', name: 'Base Coat Polish', type: 'professional', category: 'Color', totalStock: 30, reorderPoint: 10, supplier: 'ColorWorld', isExperimentActive: true, experimentUses: 22, estimatedUses: 30, batches: [{id: 'b3-1', stock: 30, costPerUnit: 0.50, receivedDate: '2024-05-01'}] },
   { id: 'inv-4', name: 'Top Coat Polish', type: 'professional', category: 'Color', totalStock: 30, reorderPoint: 10, supplier: 'ColorWorld', batches: [{id: 'b4-1', stock: 30, costPerUnit: 0.50, receivedDate: '2024-05-01'}] },

@@ -65,8 +65,8 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
         <Card className={cn("w-full transition-all duration-200 hover:shadow-xl hover:-translate-y-1", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
             <CardContent className="p-3 space-y-3">
                 <div className="grid grid-cols-[auto,1fr,auto] items-start gap-3">
-                    <div className='w-12 h-12 bg-muted rounded-md flex-shrink-0'>
-                        <Image src={item.imageUrl || `https://picsum.photos/seed/inv${item.id}/100/100`} alt={item.name} width={48} height={48} className='rounded-md' data-ai-hint="product photo"/>
+                    <div className='w-16 h-16 bg-muted rounded-md flex-shrink-0'>
+                        <Image src={item.imageUrl || `https://picsum.photos/seed/inv${item.id}/100/100`} alt={item.name} width={64} height={64} className='rounded-md' data-ai-hint="product photo"/>
                     </div>
                     <div className='pt-1 min-w-0'>
                         <p className="font-semibold text-sm leading-snug truncate">{item.name}</p>
@@ -93,7 +93,12 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                             )
                         )}
                         <DropdownMenuItem onClick={() => onWriteOff(item)}><PackageX className="mr-2 h-4 w-4" /> Write-off / Damage</DropdownMenuItem>
-                         <DropdownMenuItem><QrCode className="mr-2 h-4 w-4" /> Reorder</DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem asChild disabled={!item.supplierUrl}>
+                           <Link href={item.supplierUrl || '#'} target="_blank" rel="noopener noreferrer">
+                                <QrCode className="mr-2 h-4 w-4" /> Reorder
+                           </Link>
+                        </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Delete</DropdownMenuItem>
                       </DropdownMenuContent>
@@ -633,7 +638,9 @@ export default function InventoryPage() {
             <ScrollArea>
                 <div className="flex w-max space-x-4 pb-4">
                     {items.map((item) => (
-                        <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} />
+                        <div key={item.id} className='w-72'>
+                             <ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} />
+                        </div>
                     ))}
                 </div>
                 <ScrollBar orientation="horizontal" />
@@ -761,7 +768,7 @@ export default function InventoryPage() {
                   <DropdownMenuItem>Filter by Vendor</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-              <Button className="w-full" onClick={() => setIsReceiveStockOpen(true)}>
+              <Button className="w-auto" onClick={() => setIsReceiveStockOpen(true)}>
                 <Truck className="mr-2 h-4 w-4" /> Receive
               </Button>
               <DropdownMenu>
@@ -840,7 +847,19 @@ export default function InventoryPage() {
                 )}
              </div>
           ) : (
-            <>
+            <div className='space-y-8'>
+              <div className="border-b">
+                <Tabs defaultValue="professional" onValueChange={setActiveTab} className="w-full">
+                  <TabsList>
+                    {tabOptions.map((option) => (
+                      <TabsTrigger key={option.value} value={option.value}>
+                        {option.label}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </Tabs>
+              </div>
+
               {activeTab === 'professional' && (
                 (professionalColor.length === 0 && professionalCare.length === 0 && professionalStyling.length === 0 && professionalTools.length === 0) ? (
                   <EmptyState message="No professional products yet. Add one to get started." />
@@ -897,7 +916,7 @@ export default function InventoryPage() {
                   )}
                 </div>
               )}
-            </>
+            </div>
           )}
         </div>
       </main>
