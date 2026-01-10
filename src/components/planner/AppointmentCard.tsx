@@ -122,7 +122,7 @@ export function AppointmentCard({
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className="overflow-hidden"
+              className="overflow-hidden bg-card border rounded-md p-3"
             >
               {/* Expanded View */}
               <div className="space-y-3">
