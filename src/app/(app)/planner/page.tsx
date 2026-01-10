@@ -1,11 +1,12 @@
 
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event } from '@/lib/data';
-import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday } from 'date-fns';
+import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay } from 'date-fns';
 import { useState, useMemo, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
@@ -52,8 +53,8 @@ const TimeIndicator = () => {
     useEffect(() => {
         const updatePosition = () => {
             const now = new Date();
-            const startOfDay = setHours(startOfDay(now), 8);
-            const minutesFromStart = differenceInMinutes(now, startOfDay);
+            const dayStart = setHours(startOfDay(now), 8);
+            const minutesFromStart = differenceInMinutes(now, dayStart);
             // Each hour is 96px (h-24). 96px / 60 minutes = 1.6px per minute.
             const newTop = minutesFromStart * 1.6;
             if (newTop >= 0) { // Only show if after 8 AM
@@ -479,3 +480,4 @@ export default function PlannerPage() {
     </div>
   );
 }
+
