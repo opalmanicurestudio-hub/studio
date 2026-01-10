@@ -5,7 +5,7 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event } from '@/lib/data';
-import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast } from 'date-fns';
+import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday } from 'date-fns';
 import { useState, useMemo, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
@@ -45,6 +45,38 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
+
+const TimeIndicator = () => {
+    const [top, setTop] = useState(0);
+
+    useEffect(() => {
+        const updatePosition = () => {
+            const now = new Date();
+            const startOfDay = setHours(startOfDay(now), 8);
+            const minutesFromStart = differenceInMinutes(now, startOfDay);
+            // Each hour is 96px (h-24). 96px / 60 minutes = 1.6px per minute.
+            const newTop = minutesFromStart * 1.6;
+            if (newTop >= 0) { // Only show if after 8 AM
+                setTop(newTop);
+            }
+        };
+
+        updatePosition(); // Initial position
+        const interval = setInterval(updatePosition, 60000); // Update every minute
+
+        return () => clearInterval(interval);
+    }, []);
+
+    if (top === 0) return null;
+
+    return (
+        <div className="absolute w-full flex items-center z-10" style={{ top: `${top}px` }}>
+            <div className="h-2 w-2 rounded-full bg-red-500 -ml-1"></div>
+            <div className="h-px w-full bg-red-500"></div>
+        </div>
+    );
+};
+
 
 const DayTimeline = ({ date, appointments, events, onCompleteClick, onUpdateStatus, onDelete, onPrintReceipt, onEdit }: { date: Date; appointments: Appointment[]; events: Event[]; onCompleteClick: (apt: Appointment) => void; onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void; onDelete: (appointmentId: string) => void; onPrintReceipt: (appointment: Appointment) => void; onEdit: (appointment: Appointment) => void; }) => {
     const dailyTotals = useMemo(() => {
@@ -121,6 +153,9 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick, onUpdateStat
                         {hours.map(hour => (
                            <div key={hour} className="h-24 border-t border-dashed"></div>
                         ))}
+
+                        {isToday(date) && <TimeIndicator />}
+
 
                         {/* Render Appointments */}
                         {appointments.map(appointment => {
