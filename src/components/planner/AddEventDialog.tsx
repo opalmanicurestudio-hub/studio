@@ -33,7 +33,7 @@ import {
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CalendarIcon, PlusCircle, Trash2 } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2, DollarSign } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type Event, type EventChecklistItem } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay } from 'date-fns';
@@ -52,6 +52,7 @@ const AddEventForm = ({
     const [endTime, setEndTime] = useState<string>('10:00');
     const [notes, setNotes] = useState('');
     const [location, setLocation] = useState('');
+    const [cost, setCost] = useState<number | undefined>(undefined);
     const [checklist, setChecklist] = useState<Omit<EventChecklistItem, 'id'>[]>([]);
     const [newChecklistItem, setNewChecklistItem] = useState('');
 
@@ -99,7 +100,8 @@ const AddEventForm = ({
             endTime: endDateTime,
             notes,
             location,
-            isWriteOff: type === 'business', // Automatically flag business events
+            cost: type === 'business' ? cost : undefined,
+            isWriteOff: type === 'business',
             checklist: checklist.map((item, index) => ({...item, id: `cl-${Date.now()}-${index}`}))
         };
         onConfirm(newEvent);
@@ -193,6 +195,16 @@ const AddEventForm = ({
                             <Label htmlFor="location">Location</Label>
                             <Input id="location" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g., 123 Main St or 'Zoom'" />
                         </div>
+                        {type === 'business' && (
+                             <div className="space-y-2">
+                                <Label htmlFor="cost">Cost</Label>
+                                <div className="relative">
+                                     <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                     <Input id="cost" type="number" value={cost || ''} onChange={(e) => setCost(parseFloat(e.target.value))} placeholder="0.00" className="pl-8" />
+                                </div>
+                                <p className="text-xs text-muted-foreground">If this business event has a cost, an expense will be logged automatically.</p>
+                            </div>
+                        )}
                         <div className="space-y-2">
                             <Label>Checklist</Label>
                             <div className='space-y-2'>

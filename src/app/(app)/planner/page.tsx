@@ -6,7 +6,7 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem } from '@/lib/data';
-import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay } from 'date-fns';
+import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay } from 'date-fns';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
@@ -46,6 +46,9 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
+import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking } from '@/firebase';
+import { collection, query, where, Timestamp } from 'firebase/firestore';
+import { type Transaction } from '@/lib/financial-data';
 
 const TimeIndicator = () => {
     const [top, setTop] = useState(0);
@@ -88,7 +91,8 @@ const DayTimeline = ({
     onDeleteAppointment, 
     onPrintReceipt, 
     onEditAppointment,
-    onChecklistItemToggle
+    onChecklistItemToggle,
+    dailyTransactions,
 }: { 
     date: Date; 
     appointments: Appointment[]; 
@@ -99,23 +103,34 @@ const DayTimeline = ({
     onPrintReceipt: (appointment: Appointment) => void; 
     onEditAppointment: (appointment: Appointment) => void; 
     onChecklistItemToggle: (eventId: string, checklistItemId: string, completed: boolean) => void;
+    dailyTransactions: Transaction[] | null;
 }) => {
     const dailyTotals = useMemo(() => {
-        return appointments
-        .filter(apt => apt.status === 'completed')
-        .reduce(
-            (acc, apt) => {
-            const service = services.find(s => s.id === apt.serviceId);
-            if (service) {
-                acc.revenue += service.price;
-                acc.costs += service.cost;
-                acc.net += service.profit;
-            }
-            return acc;
-            },
-            { revenue: 0, costs: 0, net: 0 }
-        );
-    }, [appointments]);
+        const appointmentRevenue = appointments
+            .filter(apt => apt.status === 'completed')
+            .reduce((acc, apt) => {
+                const service = services.find(s => s.id === apt.serviceId);
+                return acc + (service?.price || 0);
+            }, 0);
+
+        const costs = dailyTransactions?.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0) || 0;
+        
+        const appointmentCosts = appointments
+            .filter(apt => apt.status === 'completed')
+            .reduce((acc, apt) => {
+                const service = services.find(s => s.id === apt.serviceId);
+                return acc + (service?.cost || 0);
+            }, 0);
+        
+        const totalCosts = costs + appointmentCosts;
+        const netProfit = appointmentRevenue - totalCosts;
+
+        return {
+            revenue: appointmentRevenue,
+            costs: totalCosts,
+            net: netProfit,
+        };
+    }, [appointments, dailyTransactions]);
 
     const allItems = useMemo(() => {
         return [...appointments.map(a => ({...a, itemType: 'appointment'})), ...events.map(e => ({...e, itemType: 'event'}))]
@@ -230,6 +245,9 @@ export default function PlannerPage() {
   const [events, setEvents] = useState<Event[]>(initialEvents);
   const { inventory, setInventory, addStockCorrection } = useInventory();
 
+  const { firestore, user } = useFirebase();
+  const tenantId = 'tenant-abc'; // Replace with dynamic tenant ID
+
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
   const [isEditAppointmentOpen, setIsEditAppointmentOpen] = useState(false);
@@ -241,6 +259,27 @@ export default function PlannerPage() {
   const [currentDayIndex, setCurrentDayIndex] = useState(0);
   
   const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
+  
+  const currentVisibleDate = useMemo(() => {
+    if (!currentDate) return new Date();
+    const start = startOfWeek(currentDate, { weekStartsOn: 0 });
+    return addDays(start, currentDayIndex);
+  }, [currentDate, currentDayIndex]);
+
+
+  const transactionsQuery = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    const dayStart = startOfDay(currentVisibleDate);
+    const dayEnd = endOfDay(currentVisibleDate);
+    return query(
+        collection(firestore, 'tenants', tenantId, 'transactions'),
+        where('date', '>=', Timestamp.fromDate(dayStart)),
+        where('date', '<=', Timestamp.fromDate(dayEnd))
+    );
+  }, [firestore, user, currentVisibleDate, tenantId]);
+
+  const { data: dailyTransactions, isLoading: transactionsLoading } = useCollection<Transaction>(transactionsQuery);
+
 
   useEffect(() => {
     const today = new Date();
@@ -324,7 +363,27 @@ export default function PlannerPage() {
     toast({
         title: "Event Added",
         description: `"${newEvent.title}" has been added to your calendar.`
-    })
+    });
+
+    if (newEvent.type === 'business' && newEvent.cost && newEvent.cost > 0 && firestore) {
+        const transactionRef = collection(firestore, 'tenants', tenantId, 'transactions');
+        const newTransaction: Omit<Transaction, 'id'> = {
+            date: newEvent.startTime.toISOString(),
+            description: newEvent.title,
+            clientOrVendor: newEvent.location || 'Internal',
+            type: 'expense',
+            context: 'Business',
+            category: 'General Business',
+            amount: newEvent.cost,
+            hasReceipt: false
+        };
+        addDocumentNonBlocking(transactionRef, newTransaction);
+        toast({
+            title: "Expense Logged",
+            description: `An expense of $${newEvent.cost.toFixed(2)} for "${newEvent.title}" has been recorded.`
+        });
+    }
+
     setIsAddEventOpen(false);
   };
 
@@ -418,7 +477,6 @@ export default function PlannerPage() {
     setReceiptToPrint(receiptData);
   }
 
-  const currentVisibleDate = weekDays[currentDayIndex];
   
   if (!isClient || !currentDate) {
     return (
@@ -495,6 +553,7 @@ export default function PlannerPage() {
                                 onPrintReceipt={handlePrintReceipt} 
                                 onEditAppointment={handleEditClick}
                                 onChecklistItemToggle={handleChecklistItemToggle}
+                                dailyTransactions={dailyTransactions}
                             />
                         </CarouselItem>
                     )
