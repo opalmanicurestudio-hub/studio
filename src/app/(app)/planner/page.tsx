@@ -1,3 +1,4 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -22,6 +23,12 @@ import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog'
 import { Badge } from '@/components/ui/badge';
 import { AddEventDialog } from '@/components/planner/AddEventDialog';
 import { EventCard } from '@/components/planner/EventCard';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 const AppointmentItem = ({ appointment, onCompleteClick }: { appointment: Appointment; onCompleteClick: (apt: Appointment) => void; }) => {
     const client = clients.find(c => c.id === appointment.clientId);
