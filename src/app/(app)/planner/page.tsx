@@ -3,7 +3,7 @@
 
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, MoreHorizontal, DollarSign } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, MoreHorizontal, DollarSign, Clock } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event } from '@/lib/data';
 import { format, addDays, subDays, startOfWeek, setHours, setMinutes, startOfDay } from 'date-fns';
 import { useState, useMemo, useEffect } from 'react';
@@ -41,44 +41,55 @@ const AppointmentItem = ({ appointment, onCompleteClick }: { appointment: Appoin
     const service = services.find(s => s.id === appointment.serviceId);
 
     if (!client || !service) return null;
-
-    const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
-
+    
     const statusStyles = {
-        confirmed: 'border-l-4 border-blue-500',
-        completed: 'border-l-4 border-green-500',
-        cancelled: 'border-l-4 border-red-500 opacity-70',
-        deposit_pending: 'border-l-4 border-pink-500',
+        confirmed: 'border-blue-500',
+        completed: 'border-green-500',
+        cancelled: 'border-red-500 opacity-70',
+        deposit_pending: 'border-pink-500',
     };
+
+    const padBefore = service.padBefore || 0;
+    const padAfter = service.padAfter || 0;
+
+    const Padding = ({ time }: { time: number }) => (
+        <div className="h-full bg-muted/50 p-2 text-xs text-muted-foreground flex items-center justify-center">
+            <Clock className="w-3 h-3 mr-1.5" />
+            {time} min padding
+        </div>
+    );
     
     return (
-        <div className={cn("p-4 rounded-lg bg-card border flex flex-col gap-3", statusStyles[appointment.status])}>
-            <div className="flex items-start justify-between gap-4">
-                <div className="flex items-center gap-3">
-                    <Avatar className="w-10 h-10">
-                        <AvatarImage src={client.avatarUrl} alt={client.name} />
-                        <AvatarFallback>{client.name.charAt(0)}</AvatarFallback>
-                    </Avatar>
-                    <div>
-                        <p className="font-semibold text-sm">{client.name}</p>
-                        <p className="text-xs text-muted-foreground">{service.name}</p>
+        <div className={cn("rounded-lg bg-card border-l-4 overflow-hidden", statusStyles[appointment.status])}>
+            {padBefore > 0 && <Padding time={padBefore} />}
+            <div className="p-4 flex flex-col gap-3 border-y">
+                <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                        <Avatar className="w-10 h-10">
+                            <AvatarImage src={client.avatarUrl} alt={client.name} />
+                            <AvatarFallback>{client.name.charAt(0)}</AvatarFallback>
+                        </Avatar>
+                        <div>
+                            <p className="font-semibold text-sm">{client.name}</p>
+                            <p className="text-xs text-muted-foreground">{service.name}</p>
+                        </div>
                     </div>
+                    <Badge variant={appointment.status === 'completed' ? 'default' : 'secondary'} className="capitalize shrink-0">{appointment.status}</Badge>
                 </div>
-                 <Badge variant={appointment.status === 'completed' ? 'default' : 'secondary'} className="capitalize shrink-0">{appointment.status}</Badge>
-            </div>
-            <div className="text-xs text-muted-foreground">
-                {format(appointment.startTime, 'h:mm a')} - {format(appointment.endTime, 'h:mm a')}
-                {totalPadding > 0 && <span className="text-muted-foreground/80"> (+{totalPadding} min pad)</span>}
-            </div>
-            {appointment.status === 'confirmed' && (
-                <div className="flex gap-2 pt-2 border-t -mb-1 -mx-2 px-2">
-                    <Button variant="ghost" size="sm" className="flex-1 text-muted-foreground">Cancel</Button>
-                    <Button variant="secondary" size="sm" className="flex-1" onClick={() => onCompleteClick(appointment)}>
-                        <PlusCircle className="mr-2 h-4 w-4" />
-                        Complete
-                    </Button>
+                <div className="text-xs text-muted-foreground">
+                    {format(appointment.startTime, 'h:mm a')} - {format(appointment.endTime, 'h:mm a')}
                 </div>
-            )}
+                {appointment.status === 'confirmed' && (
+                    <div className="flex gap-2 pt-2 border-t -mb-1 -mx-2 px-2">
+                        <Button variant="ghost" size="sm" className="flex-1 text-muted-foreground">Cancel</Button>
+                        <Button variant="secondary" size="sm" className="flex-1" onClick={() => onCompleteClick(appointment)}>
+                            <PlusCircle className="mr-2 h-4 w-4" />
+                            Complete
+                        </Button>
+                    </div>
+                )}
+            </div>
+            {padAfter > 0 && <Padding time={padAfter} />}
         </div>
     );
 };
@@ -159,8 +170,8 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick }: { date: Da
 export default function PlannerPage() {
   const [isClient, setIsClient] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
-  const [events, setEvents] = useState<Event[]>(initialEvents);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [events, setEvents] = useState<Event[]>([]);
   const { inventory, setInventory, addStockCorrection } = useInventory();
 
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
@@ -171,16 +182,20 @@ export default function PlannerPage() {
   
   const [api, setApi] = useState<CarouselApi>()
   const [currentDayIndex, setCurrentDayIndex] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    setIsClient(true);
+    // This effect runs only on the client, after hydration
     const today = new Date();
-    setCurrentDate(today);
-
-    // Find today's index in the initial week view
     const start = startOfWeek(today, { weekStartsOn: 0 });
     const todayIndex = Array.from({ length: 7 }, (_, i) => addDays(start, i)).findIndex(d => format(d, 'yyyy-MM-dd') === format(today, 'yyyy-MM-dd'));
+    
+    setAppointments(initialAppointments);
+    setEvents(initialEvents);
+    setCurrentDate(today);
     setCurrentDayIndex(todayIndex);
+    setIsClient(true);
+    setIsLoading(false);
   }, []);
 
   const weekDays = useMemo(() => {
@@ -264,7 +279,7 @@ export default function PlannerPage() {
   
   const currentVisibleDate = weekDays[currentDayIndex];
   
-  if (!isClient) {
+  if (isLoading || !isClient) {
     return (
       <div className="flex h-full w-full flex-col">
         <AppHeader title="Planner" />
@@ -305,10 +320,10 @@ export default function PlannerPage() {
          <Carousel setApi={setApi} className="h-full w-full" opts={{startIndex: currentDayIndex}}>
             <CarouselContent className="h-full">
                  {weekDays.map((date, index) => {
-                    const appointmentsForDay = initialAppointments
+                    const appointmentsForDay = appointments
                         .filter(apt => format(apt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'))
                         .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
-                    const eventsForDay = initialEvents
+                    const eventsForDay = events
                         .filter(evt => format(evt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'))
                         .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
                     return (
