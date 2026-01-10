@@ -46,17 +46,14 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     
     let tempInventory = JSON.parse(JSON.stringify(inventory)) as InventoryItem[];
 
-    // Determine which products to use: client's custom formula notes or service default
-    // This is a simplified logic. A real app would parse the notes string into a product list.
-    // For this demo, we'll assume if notes exist, they replace the service formula.
-    // We'll hardcode what Eleanor's formula means for now.
-    let productsToDeduct: { id: string; quantityUsed: number; name: string }[] = [];
-    if (client?.notes && client.id === 'cli-1') {
-        // Hardcoded formula for Eleanor Vance
-         productsToDeduct = [
-            { id: 'inv-10', quantityUsed: 2, name: 'Pro Color Tube 5N' }, // Example: 2 uses of color
-            { id: 'inv-3', quantityUsed: 1, name: 'Base Coat Polish' },
-         ];
+    let productsToDeduct: { id?: string; productId?: string; quantityUsed: number; name?: string; productName?: string }[] = [];
+    
+    if (client?.customFormula) {
+        productsToDeduct = client.customFormula.map(item => ({
+            productId: item.productId,
+            name: item.productName,
+            quantityUsed: item.quantityUsed,
+        }));
     } else if (service?.products) {
         productsToDeduct = service.products;
     }
@@ -67,9 +64,12 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     }
 
     productsToDeduct.forEach(productInService => {
-        const productIndex = tempInventory.findIndex(p => p.id === productInService.id);
+        const productId = productInService.id || productInService.productId;
+        if (!productId) return;
+
+        const productIndex = tempInventory.findIndex(p => p.id === productId);
         if (productIndex === -1) {
-            warnings.push(`Product "${productInService.name}" not found in inventory.`);
+            warnings.push(`Product "${productInService.name || productInService.productName}" not found in inventory.`);
             return;
         }
 
@@ -233,7 +233,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                     <CardDescription>The following stock adjustments will be made.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                    {client.notes && (
+                    {client.customFormula && (
                       <div className="p-3 rounded-md bg-blue-500/10 text-blue-700 dark:text-blue-300 text-sm flex items-start gap-2">
                         <FileText className="w-4 h-4 mt-0.5 flex-shrink-0" />
                         Applying custom formula from client profile.

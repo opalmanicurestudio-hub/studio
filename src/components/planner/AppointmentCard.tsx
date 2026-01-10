@@ -14,6 +14,7 @@ import {
   Clock,
   Briefcase,
   FileText,
+  FlaskConical,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -118,9 +119,22 @@ const AppointmentDetails = ({
         
         <div className="space-y-4">
             <h4 className="font-medium text-sm">Client Intel</h4>
+             {client.customFormula && (
+                <div className='space-y-3'>
+                    <h5 className='font-semibold text-xs flex items-center gap-2'><FlaskConical className="w-4 h-4 text-blue-500"/>Custom Formula</h5>
+                     <div className='p-3 rounded-md bg-blue-500/5 border border-blue-500/20 space-y-2'>
+                        {client.customFormula.map((item, index) => (
+                            <div key={index} className='text-sm'>
+                                <p className='font-medium'>{item.quantityUsed}{item.unit} {item.productName}</p>
+                                {item.note && <p className='text-xs text-muted-foreground pl-4'>&ndash; {item.note}</p>}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
             <div className="text-sm space-y-2">
-                {client.notes && <div className="flex items-start gap-2"><FileText className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5"/><span>{client.notes}</span></div>}
-                {!client.medicalNotes && !client.allergyNotes && !client.sensoryNeeds && !client.notes && <p className="text-muted-foreground">No special notes for this client.</p>}
+                {client.notes && !client.customFormula && <div className="flex items-start gap-2"><FileText className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5"/><span>{client.notes}</span></div>}
+                {!client.medicalNotes && !client.allergyNotes && !client.sensoryNeeds && !client.notes && !client.customFormula && <p className="text-muted-foreground">No special notes for this client.</p>}
                 {client.medicalNotes && <div className="flex items-center gap-2"><ShieldPlus className="w-4 h-4 text-red-500 flex-shrink-0"/><span>{client.medicalNotes}</span></div>}
                 {client.allergyNotes && <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-yellow-500 flex-shrink-0"/><span>{client.allergyNotes}</span></div>}
                 {client.sensoryNeeds && <div className="flex items-center gap-2"><Ear className="w-4 h-4 text-blue-500 flex-shrink-0"/><span>{client.sensoryNeeds}</span></div>}
@@ -159,11 +173,10 @@ export function AppointmentCard({
 
   const MainContent = () => (
     <div className={cn(
-        'p-2 border-l-4 w-full h-full flex flex-col justify-between',
+        'p-2 border-l-4 w-full h-full flex flex-col justify-between bg-card',
         statusStyles[appointment.status] || 'bg-gray-100 border-gray-500',
         hasPadBefore ? '' : 'rounded-t-lg',
-        hasPadAfter ? '' : 'rounded-b-lg',
-        "bg-card" // Added this to make it opaque
+        hasPadAfter ? '' : 'rounded-b-lg'
     )}>
         <div>
           <p className="font-semibold text-xs leading-tight truncate">{client.name}</p>

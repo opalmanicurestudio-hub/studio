@@ -3,6 +3,14 @@
 import { BillDefinition, billDefinitions } from './financial-data';
 import { addDays, subDays, setHours, setMinutes, startOfDay } from 'date-fns';
 
+export type CustomFormulaItem = {
+  productId: string;
+  productName: string;
+  quantityUsed: number;
+  unit: string;
+  note?: string;
+};
+
 export type Client = {
   id: string;
   name: string;
@@ -12,6 +20,7 @@ export type Client = {
   lifetimeValue: number;
   lastAppointment: string;
   notes?: string;
+  customFormula?: CustomFormulaItem[];
   medicalNotes?: string;
   allergyNotes?: string;
   sensoryNeeds?: string;
@@ -133,7 +142,22 @@ export const bills: Bill[] = billDefinitions;
 
 
 export const clients: Client[] = [
-  { id: 'cli-1', name: 'Eleanor Vance', email: 'eleanor@example.com', phone: '202-555-0198', avatarUrl: 'https://picsum.photos/seed/101/100/100', lifetimeValue: 2450.75, lastAppointment: '2024-05-15T10:00:00.000Z', notes: "Redken Shades EQ 1oz 9NB, 1oz 9G. Process for 20 minutes.", medicalNotes: 'Pregnant' },
+  { 
+    id: 'cli-1', 
+    name: 'Eleanor Vance', 
+    email: 'eleanor@example.com', 
+    phone: '202-555-0198', 
+    avatarUrl: 'https://picsum.photos/seed/101/100/100', 
+    lifetimeValue: 2450.75, 
+    lastAppointment: '2024-05-15T10:00:00.000Z', 
+    notes: "Prefers sitting near the window.",
+    customFormula: [
+      { productId: 'inv-10', productName: 'Pro Color Tube 5N', quantityUsed: 1, unit: 'oz', note: 'Apply to roots first.' },
+      { productId: 'inv-10', productName: 'Pro Color Tube 9G', quantityUsed: 1, unit: 'oz' },
+      { productId: 'inv-11', productName: '20 Vol Developer', quantityUsed: 2, unit: 'oz', note: 'Process for 20 minutes.' },
+    ],
+    medicalNotes: 'Pregnant' 
+  },
   { id: 'cli-2', name: 'Marcus Holloway', email: 'marcus@example.com', phone: '310-555-0187', avatarUrl: 'https://picsum.photos/seed/102/100/100', lifetimeValue: 1890.00, lastAppointment: '2024-05-20T14:30:00.000Z', allergyNotes: 'Latex' },
   { id: 'cli-3', name: 'Anya Sharma', email: 'anya@example.com', phone: '773-555-0123', avatarUrl: 'https://picsum.photos/seed/103/100/100', lifetimeValue: 3200.50, lastAppointment: '2024-05-01T11:00:00.000Z' },
   { id: 'cli-4', name: 'Leo Gallagher', email: 'leo@example.com', phone: '415-555-0142', avatarUrl: 'https://picsum.photos/seed/104/100/100', lifetimeValue: 950.00, lastAppointment: '2024-04-22T16:00:00.000Z' },
@@ -151,6 +175,7 @@ export const inventory: InventoryItem[] = [
   { id: 'inv-8', name: 'Disinfectant Wipes', type: 'overhead', category: 'Cleaning', totalStock: 5, reorderPoint: 2, supplier: 'CleanSupplies', batches: [{id: 'b8-1', stock: 5, costPerUnit: 10.00, receivedDate: '2024-06-01'}] },
   { id: 'inv-9', name: 'Retail Shine Serum', type: 'retail', category: 'Styling', totalStock: 12, reorderPoint: 5, supplier: 'BeautyCare', batches: [{id: 'b9-1', stock: 12, costPerUnit: 8.50, receivedDate: '2024-06-01'}] },
   { id: 'inv-10', name: 'Pro Color Tube 5N', type: 'professional', category: 'Color', totalStock: 2, reorderPoint: 5, supplier: 'ColorWorld', isExperimentActive: false, experimentUses: 0, estimatedUses: 25, batches: [{id: 'b10-1', stock: 2, costPerUnit: 7.00, receivedDate: '2024-06-01'}], costingMethod: 'uses', partialContainerUses: 25, unit: 'uses' },
+  { id: 'inv-11', name: '20 Vol Developer', type: 'professional', category: 'Color', totalStock: 1, reorderPoint: 1, supplier: 'ColorWorld', batches: [{id: 'b11-1', stock: 1, costPerUnit: 12.00, receivedDate: '2024-06-01'}], costingMethod: 'size', size: 1000, unit: 'ml', partialContainerSize: 800 },
 ];
 
 export const services: Service[] = [
@@ -225,4 +250,5 @@ export const stockCorrections: StockCorrection[] = [
     
 
     
+
 
