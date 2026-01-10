@@ -119,7 +119,8 @@ const AppointmentDetails = ({
         <div className="space-y-4">
             <h4 className="font-medium text-sm">Client Intel</h4>
             <div className="text-sm space-y-2">
-                {!client.medicalNotes && !client.allergyNotes && !client.sensoryNeeds && <p className="text-muted-foreground">No special notes for this client.</p>}
+                {client.notes && <div className="flex items-start gap-2"><FileText className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5"/><span>{client.notes}</span></div>}
+                {!client.medicalNotes && !client.allergyNotes && !client.sensoryNeeds && !client.notes && <p className="text-muted-foreground">No special notes for this client.</p>}
                 {client.medicalNotes && <div className="flex items-center gap-2"><ShieldPlus className="w-4 h-4 text-red-500 flex-shrink-0"/><span>{client.medicalNotes}</span></div>}
                 {client.allergyNotes && <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-yellow-500 flex-shrink-0"/><span>{client.allergyNotes}</span></div>}
                 {client.sensoryNeeds && <div className="flex items-center gap-2"><Ear className="w-4 h-4 text-blue-500 flex-shrink-0"/><span>{client.sensoryNeeds}</span></div>}
@@ -161,7 +162,8 @@ export function AppointmentCard({
         'p-2 border-l-4 w-full h-full flex flex-col justify-between',
         statusStyles[appointment.status] || 'bg-gray-100 border-gray-500',
         hasPadBefore ? '' : 'rounded-t-lg',
-        hasPadAfter ? '' : 'rounded-b-lg'
+        hasPadAfter ? '' : 'rounded-b-lg',
+        "bg-card" // Added this to make it opaque
     )}>
         <div>
           <p className="font-semibold text-xs leading-tight truncate">{client.name}</p>
