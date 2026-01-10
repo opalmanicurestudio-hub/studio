@@ -108,28 +108,6 @@
         "quantity"
       ]
     },
-    "Equipment": {
-      "title": "Equipment",
-      "type": "object",
-      "description": "Represents a piece of capital equipment.",
-      "properties": {
-        "id": { "type": "string" },
-        "name": { "type": "string" },
-        "purchaseCost": { "type": "number" },
-        "lifespanYears": { "type": "number" },
-        "lastTestResult": {
-          "type": "object",
-          "description": "Stores the results of the last completed lifespan test.",
-          "properties": {
-            "actualLifespanMonths": { "type": "number" },
-            "totalMaintenanceCost": { "type": "number" },
-            "totalRevenue": { "type": "number" },
-            "roi": { "type": "number" }
-          }
-        }
-      },
-      "required": ["id", "name", "purchaseCost", "lifespanYears"]
-    },
     "Client": {
       "title": "Client",
       "type": "object",
@@ -306,11 +284,15 @@
         "amount": {
           "type": "number"
         },
+        "paymentMethod": {
+          "type": "string",
+          "description": "The method of payment used for the transaction."
+        },
         "hasReceipt": {
           "type": "boolean"
         }
       },
-      "required": ["id", "date", "description", "type", "context", "category", "amount"]
+      "required": ["id", "date", "description", "type", "context", "category", "amount", "paymentMethod"]
     },
     "StockCorrection": {
       "title": "Stock Correction",
@@ -356,12 +338,6 @@
         "$ref": "#/entities/Product"
       },
       "description": "Products sold or used by a specific tenant."
-    },
-    "/tenants/{tenantId}/equipment/{equipmentId}": {
-      "schema": {
-        "$ref": "#/entities/Equipment"
-      },
-      "description": "Capital equipment owned by a specific tenant."
     },
     "/tenants/{tenantId}/clients/{clientId}": {
       "schema": {

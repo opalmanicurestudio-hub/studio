@@ -30,6 +30,7 @@ export type Transaction = {
   context: 'Business' | 'Personal';
   category: string;
   amount: number;
+  paymentMethod: string;
   hasReceipt: boolean;
   relatedBillInstanceId?: string; // Link to a bill instance
 };

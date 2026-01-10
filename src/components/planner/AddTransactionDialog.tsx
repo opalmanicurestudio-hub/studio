@@ -29,6 +29,7 @@ import { type Event, type Transaction } from '@/lib/data';
 const transactionSchema = z.object({
   amount: z.coerce.number().positive('Amount must be positive.'),
   category: z.string().min(1, 'Category is required.'),
+  paymentMethod: z.string().min(1, 'Payment method is required.'),
   clientOrVendor: z.string().optional(),
 });
 
@@ -54,6 +55,9 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
     formState: { errors },
   } = useForm<TransactionFormData>({
     resolver: zodResolver(transactionSchema),
+    defaultValues: {
+      category: event.type === 'business' ? 'Business Travel' : 'Personal Travel',
+    }
   });
 
   const handleFormSubmit = (data: TransactionFormData) => {
@@ -64,6 +68,7 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
       context: event.type === 'business' ? 'Business' : 'Personal',
       category: data.category,
       amount: data.amount,
+      paymentMethod: data.paymentMethod,
       hasReceipt: false, // Default to false, can be updated later
     };
     onConfirm(newTransaction);
@@ -95,6 +100,28 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
                 </div>
               )}
             />
+             <Controller
+              name="paymentMethod"
+              control={control}
+              render={({ field }) => (
+                <div className="space-y-2">
+                  <Label htmlFor="paymentMethod">Payment Method</Label>
+                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <SelectTrigger id="paymentMethod">
+                      <SelectValue placeholder="Select a payment method" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Business Checking">Business Checking</SelectItem>
+                      <SelectItem value="Business Credit Card">Business Credit Card</SelectItem>
+                      <SelectItem value="Personal Checking">Personal Checking</SelectItem>
+                      <SelectItem value="Personal Credit Card">Personal Credit Card</SelectItem>
+                      <SelectItem value="Cash">Cash</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {errors.paymentMethod && <p className="text-sm text-destructive">{errors.paymentMethod.message}</p>}
+                </div>
+              )}
+            />
             <Controller
               name="category"
               control={control}
@@ -108,8 +135,8 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
                     <SelectContent>
                       <SelectItem value="Supplies">Supplies</SelectItem>
                       <SelectItem value="Travel">Travel</SelectItem>
-                      <SelectItem value="Meals">Meals & Entertainment</SelectItem>
-                      <SelectItem value="Other">Other</SelectItem>
+                      <SelectItem value="Meals & Entertainment">Meals & Entertainment</SelectItem>
+                      <SelectItem value={event.type === 'business' ? 'Business Other' : 'Personal Other'}>Other</SelectItem>
                     </SelectContent>
                   </Select>
                   {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}

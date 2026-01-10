@@ -21,6 +21,7 @@ import {
   Paperclip,
   Calendar as CalendarIcon,
   BookOpen,
+  CreditCard,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -209,6 +210,12 @@ const TransactionRow = ({ transaction }: { transaction: Transaction }) => {
           {transaction.context}
         </Badge>
       </TableCell>
+      <TableCell>
+          <div className="flex items-center gap-2">
+            <CreditCard className="w-4 h-4 text-muted-foreground"/>
+            <span>{transaction.paymentMethod}</span>
+          </div>
+      </TableCell>
       <TableCell>{transaction.category}</TableCell>
       <TableCell className="text-right">
         <div className='flex items-center justify-end gap-2'>
@@ -290,6 +297,9 @@ const TransactionCard = ({ transaction }: { transaction: Transaction }) => {
                         </DropdownMenuContent>
                     </DropdownMenu>
                 </div>
+                 <div className="flex items-center text-sm text-muted-foreground pt-2 border-t mt-4">
+                    <CreditCard className="w-4 h-4 mr-2"/> Paid with {transaction.paymentMethod}
+                </div>
             </CardContent>
         </Card>
     );
@@ -338,6 +348,7 @@ export default function LedgerPage() {
                       <TableHead>Description</TableHead>
                       <TableHead>Date</TableHead>
                       <TableHead>Context</TableHead>
+                      <TableHead>Payment Method</TableHead>
                       <TableHead>Category</TableHead>
                       <TableHead className="text-right">Amount</TableHead>
                       <TableHead><span className='sr-only'>Actions</span></TableHead>
@@ -346,7 +357,7 @@ export default function LedgerPage() {
                   <TableBody>
                     {isLoading && (
                         <TableRow>
-                            <TableCell colSpan={6} className="text-center">{isUserLoading ? 'Loading user...' : 'Loading transactions...'}</TableCell>
+                            <TableCell colSpan={7} className="text-center">{isUserLoading ? 'Loading user...' : 'Loading transactions...'}</TableCell>
                         </TableRow>
                     )}
                     {!isLoading && sortedTransactions.map((transaction) => (
