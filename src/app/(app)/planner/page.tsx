@@ -86,7 +86,7 @@ const DayTimeline = ({ date, appointments, onCompleteClick }: { date: Date; appo
 
     return (
         <div className="flex flex-col h-full">
-            <div className="flex-1 overflow-y-auto">
+            <ScrollArea className="flex-1 h-[calc(100vh-250px)]">
                 <div className="p-4 space-y-4">
                     {appointments.length > 0 ? (
                         appointments.map(apt => (
@@ -102,7 +102,7 @@ const DayTimeline = ({ date, appointments, onCompleteClick }: { date: Date; appo
                         </div>
                     )}
                 </div>
-            </div>
+            </ScrollArea>
              {appointments.length > 0 && (
                 <div className="p-2 border-t bg-background">
                     <div className="grid grid-cols-3 gap-2 w-full text-center">
@@ -128,7 +128,7 @@ const DayTimeline = ({ date, appointments, onCompleteClick }: { date: Date; appo
 export default function PlannerPage() {
   const [isClient, setIsClient] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [appointments, setAppointments] = useState(initialAppointments);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
   const { inventory, setInventory, addStockCorrection } = useInventory();
 
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
@@ -144,6 +144,7 @@ export default function PlannerPage() {
     setIsClient(true);
     setCurrentDate(new Date());
     setCurrentDayIndex(new Date().getDay()); // Set initial day index
+    setAppointments(initialAppointments);
   }, []);
 
   const weekDays = useMemo(() => {
