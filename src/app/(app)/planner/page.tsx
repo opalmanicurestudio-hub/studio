@@ -130,7 +130,7 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick }: { date: Da
                     </AccordionItem>
                 </Accordion>
             </div>
-            <ScrollArea className="flex-1">
+            <ScrollArea className="h-[calc(100vh-230px)]">
                  <div className="p-4 space-y-4">
                     {allItems.length > 0 ? (
                         allItems.map(item => (
@@ -156,8 +156,8 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick }: { date: Da
 export default function PlannerPage() {
   const [isClient, setIsClient] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [events, setEvents] = useState<Event[]>([]);
+  const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
+  const [events, setEvents] = useState<Event[]>(initialEvents);
   const { inventory, setInventory, addStockCorrection } = useInventory();
 
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
@@ -171,8 +171,6 @@ export default function PlannerPage() {
 
   useEffect(() => {
     setIsClient(true);
-    setAppointments(initialAppointments);
-    setEvents(initialEvents);
     const today = new Date();
     setCurrentDate(today);
 
@@ -275,7 +273,7 @@ export default function PlannerPage() {
   }
 
   return (
-    <div className="flex h-full w-full flex-col">
+    <div className="flex h-screen w-full flex-col overflow-hidden">
       <AppHeader title="Planner" />
       <div className="flex items-center justify-between gap-4 p-4 border-b">
           <div className="flex items-center gap-2">
