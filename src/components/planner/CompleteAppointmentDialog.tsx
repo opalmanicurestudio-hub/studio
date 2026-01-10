@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -14,12 +14,15 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { AlertCircle, CheckCircle, FileText, FlaskConical, PlusCircle, Trash2, Library, Wand } from 'lucide-react';
+import { AlertCircle, CheckCircle, FileText, FlaskConical, PlusCircle, Trash2, Library, Wand, QrCode, Search, AlertTriangle } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type StockCorrection, type CustomFormula } from '@/lib/data';
 import { format } from 'date-fns';
 import { Input } from '../ui/input';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { useInventory } from '@/context/InventoryContext';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
+import { useToast } from '@/hooks/use-toast';
 
 type EditableFormulaItem = {
     id: string; // productId
@@ -51,11 +54,17 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   const { inventory } = useInventory();
   const { appointment, client, service } = appointmentData;
   const [formulaName, setFormulaName] = useState('Default Service Formula');
+  const { toast } = useToast();
 
   const [editableFormula, setEditableFormula] = useState<EditableFormulaItem[]>([]);
 
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+
   useEffect(() => {
-    if (service) {
+    if (open && service) {
         const defaultFormula = service.products?.map(p => ({
             id: p.id,
             name: p.name,
@@ -94,7 +103,9 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     setEditableFormula(prev => prev.filter(item => item.id !== productId));
   };
 
-  const handleApplyClientFormula = (formula: CustomFormula) => {
+  const handleApplyClientFormula = (formulaName: string) => {
+      const formula = client?.customFormulas?.find(f => f.name === formulaName);
+      if (!formula) return;
       const newFormula: EditableFormulaItem[] = formula.items.map(item => {
         const product = inventory.find(p => p.id === item.productId);
         return {
@@ -110,20 +121,47 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   }
 
   const { updatedInventory, newCorrections, warnings } = useMemo(() => {
-    // This logic is now simpler as it just processes the final editableFormula
     const warnings: string[] = [];
     const newCorrections: StockCorrection[] = [];
     let tempInventory = JSON.parse(JSON.stringify(inventory)) as InventoryItem[];
 
     editableFormula.forEach(item => {
-        // This is a simplified version. The complex logic from before would go here.
-        // For brevity, we'll just log the intent.
     });
 
     return { updatedInventory: tempInventory, displayCorrections: editableFormula, newCorrections, warnings };
   }, [editableFormula, inventory, appointment.id]);
 
   const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
+  
+   useEffect(() => {
+    if (isScannerOpen) {
+      const getCameraPermission = async () => {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+          setHasCameraPermission(true);
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+          }
+        } catch (error) {
+          console.error('Error accessing camera:', error);
+          setHasCameraPermission(false);
+          toast({
+            variant: 'destructive',
+            title: 'Camera Access Denied',
+            description: 'Please enable camera permissions in your browser settings to use the scanner.',
+          });
+          setIsScannerOpen(false);
+        }
+      };
+      getCameraPermission();
+    } else {
+        if (videoRef.current && videoRef.current.srcObject) {
+            const stream = videoRef.current.srcObject as MediaStream;
+            stream.getTracks().forEach(track => track.stop());
+            videoRef.current.srcObject = null;
+        }
+    }
+  }, [isScannerOpen, toast]);
 
   if (!client || !service) {
     return null;
@@ -155,16 +193,24 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
               
                <Card>
                   <CardHeader>
-                      <div className="flex justify-between items-center">
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                           <div>
                               <CardTitle>Formula & Usage</CardTitle>
                               <CardDescription>What was actually used for this service?</CardDescription>
                           </div>
                           {client.customFormulas && client.customFormulas.length > 0 && (
-                              <Button variant="outline" onClick={() => handleApplyClientFormula(client.customFormulas![0])}>
-                                  <Wand className="mr-2 h-4 w-4"/>
-                                  Load Client Formula
-                              </Button>
+                            <div className="w-full sm:w-auto sm:min-w-[200px]">
+                                <Select onValueChange={handleApplyClientFormula}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Load a client formula..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {client.customFormulas.map(formula => (
+                                            <SelectItem key={formula.name} value={formula.name}>{formula.name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
                           )}
                       </div>
                   </CardHeader>
@@ -195,7 +241,10 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                               </div>
                           ))}
                       </div>
-                      <Button variant="outline" size="sm" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Product or Equipment</Button>
+                      <div className='flex gap-2'>
+                        <Button variant="outline" size="sm" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Browse Library</Button>
+                        <Button variant="outline" size="sm" onClick={() => setIsScannerOpen(true)}><QrCode className="mr-2 h-4 w-4"/>Scan Product</Button>
+                      </div>
                   </CardContent>
               </Card>
 
@@ -235,6 +284,34 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         allProducts={inventory}
         initialSelected={[]}
       />
+       <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
+        <DialogContent className="sm:max-w-md p-0">
+          <DialogHeader className="p-4 pb-0">
+            <DialogTitle>Scan Product</DialogTitle>
+            <DialogDescription>
+              Position the product's barcode or QR code inside the frame.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="p-4 relative">
+             <video ref={videoRef} className="w-full aspect-square rounded-md bg-muted" autoPlay muted playsInline />
+             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
+            </div>
+            {hasCameraPermission === false && (
+                <Alert variant="destructive" className="mt-4">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Camera Access Required</AlertTitle>
+                    <AlertDescription>
+                        Please allow camera access to use the scanner. You may need to change permissions in your browser settings.
+                    </AlertDescription>
+                </Alert>
+            )}
+          </div>
+           <DialogFooter className="p-4 pt-0">
+                <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 };

@@ -1,5 +1,4 @@
 
-
 import { BillDefinition, billDefinitions } from './financial-data';
 import { addDays, subDays, setHours, setMinutes, startOfDay } from 'date-fns';
 
@@ -152,15 +151,21 @@ export const clients: Client[] = [
     phone: '202-555-0198', 
     avatarUrl: 'https://picsum.photos/seed/101/100/100', 
     lifetimeValue: 2450.75, 
-    lastAppointment: '2024-07-19T10:00:00.000Z', 
+    lastAppointment: '2024-07-19T10:00:00.000Z',
     notes: "Prefers sitting near the window.",
     customFormulas: [
       {
         name: 'Standard Root Touch-up',
         items: [
           { productId: 'inv-10', productName: 'Pro Color Tube 5N', quantityUsed: 1, unit: 'oz', note: 'Apply to roots first.' },
-          { productId: 'inv-10', productName: 'Pro Color Tube 9G', quantityUsed: 1, unit: 'oz' },
-          { productId: 'inv-11', productName: '20 Vol Developer', quantityUsed: 2, unit: 'oz', note: 'Process for 20 minutes.' },
+          { productId: 'inv-3', productName: 'Base Coat Polish', quantityUsed: 1, unit: 'oz' },
+        ]
+      },
+      {
+        name: 'Summer Highlights',
+        items: [
+          { productId: 'inv-10', productName: 'Pro Color Tube 9G', quantityUsed: 2, unit: 'oz' },
+          { productId: 'inv-11', productName: '20 Vol Developer', quantityUsed: 2, unit: 'oz', note: 'Use foils.' },
         ]
       }
     ],
@@ -254,10 +259,3 @@ export const stockCorrections: StockCorrection[] = [
     { id: 'sc-4', productId: 'inv-3', date: '2024-07-18T12:00:00Z', change: 30, unit: 'uses', reason: 'Shipment #SH-001' },
     { id: 'sc-5', productId: 'inv-5', date: '2024-07-17T15:30:00Z', change: -1, unit: 'use', reason: 'Internal Use/Test' },
 ];
-
-    
-
-    
-
-
-
