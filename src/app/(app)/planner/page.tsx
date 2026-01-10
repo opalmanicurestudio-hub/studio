@@ -1,3 +1,4 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -22,6 +23,7 @@ import {
   type CarouselApi,
 } from "@/components/ui/carousel"
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog';
 
 const AppointmentItem = ({ appointment, onCompleteClick }: { appointment: Appointment; onCompleteClick: (apt: Appointment) => void; }) => {
     const client = clients.find(c => c.id === appointment.clientId);
@@ -132,11 +134,12 @@ export default function PlannerPage() {
   const { inventory, setInventory, addStockCorrection } = useInventory();
 
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const { toast } = useToast();
   
   const [api, setApi] = useState<CarouselApi>()
-  const [currentDayIndex, setCurrentDayIndex] = useState(0)
+  const [currentDayIndex, setCurrentDayIndex] = useState(startOfWeek(new Date()).getDay());
 
   const weekDays = useMemo(() => {
     const start = startOfWeek(currentDate, { weekStartsOn: 0 });
@@ -176,6 +179,16 @@ export default function PlannerPage() {
     setIsCheckoutOpen(false);
     setSelectedAppointment(null);
   };
+  
+  const handleAddAppointment = (newAppointment: Omit<Appointment, 'id'>) => {
+    const newAptWithId = { ...newAppointment, id: `apt-${Date.now()}` };
+    setAppointments(prev => [...prev, newAptWithId].sort((a,b) => a.startTime.getTime() - b.startTime.getTime()));
+    toast({
+        title: "Appointment Booked",
+        description: `Appointment with ${clients.find(c => c.id === newAppointment.clientId)?.name} has been added.`
+    })
+    setIsAddAppointmentOpen(false);
+  };
 
   const handleNextWeek = () => setCurrentDate(addDays(currentDate, 7));
   const handlePrevWeek = () => setCurrentDate(subDays(currentDate, 7));
@@ -203,13 +216,13 @@ export default function PlannerPage() {
                <p className='font-semibold'>{format(currentVisibleDate, 'EEEE, LLL d')}</p>
                <p className='text-xs text-muted-foreground'>{format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMMM yyyy')}</p>
            </div>
-          <Button>
+          <Button onClick={() => setIsAddAppointmentOpen(true)}>
           <PlusCircle className="mr-2 h-4 w-4" />
           Add
           </Button>
       </div>
       <main className="flex-1 relative">
-         <Carousel setApi={setApi} className="h-full w-full">
+         <Carousel setApi={setApi} className="h-full w-full" opts={{startIndex: currentDayIndex}}>
             <CarouselContent className="h-full">
                  {weekDays.map((date, index) => {
                     const appointmentsForDay = appointments
@@ -233,6 +246,13 @@ export default function PlannerPage() {
             onConfirmCheckout={handleCheckout}
         />
       )}
+      <AddAppointmentDialog 
+        open={isAddAppointmentOpen}
+        onOpenChange={setIsAddAppointmentOpen}
+        clients={clients}
+        services={services}
+        onConfirm={handleAddAppointment}
+      />
     </div>
   );
 }
