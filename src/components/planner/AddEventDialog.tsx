@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, KeyboardEvent } from 'react';
@@ -78,12 +79,6 @@ const AddEventForm = ({
         }
     };
 
-    const toggleChecklistItem = (index: number) => {
-        const updatedList = [...checklist];
-        updatedList[index].completed = !updatedList[index].completed;
-        setChecklist(updatedList);
-    };
-
     const removeChecklistItem = (index: number) => {
         setChecklist(checklist.filter((_, i) => i !== index));
     };
@@ -105,7 +100,7 @@ const AddEventForm = ({
             notes,
             location,
             isWriteOff: type === 'business', // Automatically flag business events
-            checklist: checklist.map((item, index) => ({...item, id: `cl-${index}`}))
+            checklist: checklist.map((item, index) => ({...item, id: `cl-${Date.now()}-${index}`}))
         };
         onConfirm(newEvent);
     }
@@ -203,8 +198,7 @@ const AddEventForm = ({
                             <div className='space-y-2'>
                                 {checklist.map((item, index) => (
                                     <div key={index} className="flex items-center gap-2 p-2 bg-muted/50 rounded-md">
-                                        <Checkbox id={`item-${index}`} checked={item.completed} onCheckedChange={() => toggleChecklistItem(index)} />
-                                        <Label htmlFor={`item-${index}`} className={cn("flex-1", item.completed && "line-through text-muted-foreground")}>{item.text}</Label>
+                                        <p className="flex-1 text-sm">{item.text}</p>
                                         <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeChecklistItem(index)}><Trash2 className="h-4 w-4"/></Button>
                                     </div>
                                 ))}

@@ -89,8 +89,6 @@ const DayTimeline = ({
     onPrintReceipt, 
     onEditAppointment,
     onChecklistItemToggle,
-    onAddChecklistItem,
-    onRemoveChecklistItem,
     onDeleteEvent,
     onEditEvent
 }: { 
@@ -103,8 +101,6 @@ const DayTimeline = ({
     onPrintReceipt: (appointment: Appointment) => void; 
     onEditAppointment: (appointment: Appointment) => void; 
     onChecklistItemToggle: (eventId: string, checklistItemId: string, completed: boolean) => void;
-    onAddChecklistItem: (eventId: string, text: string) => void;
-    onRemoveChecklistItem: (eventId: string, checklistItemId: string) => void;
     onDeleteEvent: (eventId: string) => void;
     onEditEvent: (event: Event) => void;
 }) => {
@@ -172,8 +168,6 @@ const DayTimeline = ({
                     <EventCard 
                         event={item} 
                         onChecklistItemToggle={onChecklistItemToggle}
-                        onAddChecklistItem={onAddChecklistItem}
-                        onRemoveChecklistItem={onRemoveChecklistItem}
                         onDeleteEvent={onDeleteEvent}
                         onEditEvent={onEditEvent}
                     />
@@ -393,31 +387,6 @@ export default function PlannerPage() {
       }));
   };
 
-  const handleAddChecklistItem = (eventId: string, text: string) => {
-      setEvents(prevEvents => prevEvents.map(event => {
-          if (event.id === eventId) {
-              const newChecklistItem: EventChecklistItem = {
-                  id: `cl-${Date.now()}`,
-                  text,
-                  completed: false
-              };
-              const updatedChecklist = event.checklist ? [...event.checklist, newChecklistItem] : [newChecklistItem];
-              return { ...event, checklist: updatedChecklist };
-          }
-          return event;
-      }));
-  };
-
-  const handleRemoveChecklistItem = (eventId: string, checklistItemId: string) => {
-      setEvents(prevEvents => prevEvents.map(event => {
-          if (event.id === eventId) {
-              const updatedChecklist = event.checklist?.filter(item => item.id !== checklistItemId);
-              return { ...event, checklist: updatedChecklist };
-          }
-          return event;
-      }));
-  };
-
   const handleNextWeek = () => {
     if (currentDate) {
         setCurrentDate(addDays(currentDate, 7));
@@ -549,8 +518,6 @@ export default function PlannerPage() {
                                 onPrintReceipt={handlePrintReceipt} 
                                 onEditAppointment={handleEditClick}
                                 onChecklistItemToggle={handleChecklistItemToggle}
-                                onAddChecklistItem={handleAddChecklistItem}
-                                onRemoveChecklistItem={handleRemoveChecklistItem}
                                 onDeleteEvent={handleDeleteEvent}
                                 onEditEvent={handleEditEvent}
                             />
