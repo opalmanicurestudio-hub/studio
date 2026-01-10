@@ -50,7 +50,7 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { type Appointment, type Client, type Service, inventory } from '@/lib/data';
+import { type Appointment, type Client, type Service, inventory, CustomFormula } from '@/lib/data';
 
 interface AppointmentCardProps {
   appointment: Appointment;
@@ -79,10 +79,11 @@ const AppointmentDetails = ({
     const totalDuration = differenceInMinutes(appointment.endTime, appointment.startTime);
     const timeCost = (totalDuration / 60) * tmhr;
     
-    let productsToUse: { id?: string, productId?: string, quantityUsed: number, name?: string, productName?: string, costPerUnit?: number }[] = service.products || [];
+    let productsToUse: { productId?: string; quantityUsed: number; productName?: string; costPerUnit?: number; id?:string }[] = service.products || [];
 
-    if (client.customFormula && client.customFormula.length > 0) {
-      productsToUse = client.customFormula.map(cf => {
+    if (client.customFormulas && client.customFormulas.length > 0) {
+      // For simplicity, using the first formula. A real app might let you choose.
+      productsToUse = client.customFormulas[0].items.map(cf => {
           const productData = inventory.find(i => i.id === cf.productId);
           return {
             ...productData,
@@ -94,7 +95,11 @@ const AppointmentDetails = ({
       });
     }
 
-    const productCost = productsToUse.reduce((sum, p) => sum + (p.costPerUnit || 0), 0);
+    const productCost = productsToUse.reduce((sum, p) => {
+        const productData = inventory.find(i => i.id === (p.id || p.productId));
+        return sum + ((productData?.costPerUnit || 0) * (p.quantityUsed || 1));
+    }, 0);
+
 
     const equipmentCost = (service.equipment || []).reduce((sum, e) => {
         const lifespanInMinutes = (e.lifespanYears || 5) * 365 * 8 * 60;
@@ -146,11 +151,11 @@ const AppointmentDetails = ({
         
         <div className="space-y-4">
             <h4 className="font-medium text-sm">Client Intel</h4>
-             {client.customFormula && client.customFormula.length > 0 && (
+             {client.customFormulas && client.customFormulas.length > 0 && (
                 <div className='space-y-3'>
-                    <h5 className='font-semibold text-xs flex items-center gap-2'><FlaskConical className="w-4 h-4 text-blue-500"/>Custom Formula</h5>
+                    <h5 className='font-semibold text-xs flex items-center gap-2'><FlaskConical className="w-4 h-4 text-blue-500"/>Custom Formula: {client.customFormulas[0].name}</h5>
                      <div className='p-3 rounded-md bg-blue-500/5 border border-blue-500/20 space-y-2'>
-                        {client.customFormula.map((item, index) => (
+                        {client.customFormulas[0].items.map((item, index) => (
                             <div key={index} className='text-sm'>
                                 <p className='font-medium'>{item.quantityUsed}{item.unit} {item.productName}</p>
                                 {item.note && <p className='text-xs text-muted-foreground pl-4'>&ndash; {item.note}</p>}
@@ -160,8 +165,8 @@ const AppointmentDetails = ({
                 </div>
             )}
             <div className="text-sm space-y-2">
-                {client.notes && (!client.customFormula || client.customFormula.length === 0) && <div className="flex items-start gap-2"><FileText className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5"/><span>{client.notes}</span></div>}
-                {!client.medicalNotes && !client.allergyNotes && !client.sensoryNeeds && !client.notes && (!client.customFormula || client.customFormula.length === 0) && <p className="text-muted-foreground">No special notes for this client.</p>}
+                {client.notes && (!client.customFormulas || client.customFormulas.length === 0) && <div className="flex items-start gap-2"><FileText className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5"/><span>{client.notes}</span></div>}
+                {!client.medicalNotes && !client.allergyNotes && !client.sensoryNeeds && !client.notes && (!client.customFormulas || client.customFormulas.length === 0) && <p className="text-muted-foreground">No special notes for this client.</p>}
                 {client.medicalNotes && <div className="flex items-center gap-2"><ShieldPlus className="w-4 h-4 text-red-500 flex-shrink-0"/><span>{client.medicalNotes}</span></div>}
                 {client.allergyNotes && <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-yellow-500 flex-shrink-0"/><span>{client.allergyNotes}</span></div>}
                 {client.sensoryNeeds && <div className="flex items-center gap-2"><Ear className="w-4 h-4 text-blue-500 flex-shrink-0"/><span>{client.sensoryNeeds}</span></div>}
@@ -231,7 +236,7 @@ export function AppointmentCard({
                     </DropdownMenuSubTrigger>
                     <DropdownMenuPortal>
                         <DropdownMenuSubContent>
-                            {appointment.status !== 'completed' && (
+                            {isPast(appointment.startTime) && appointment.status !== 'completed' && (
                                 <DropdownMenuItem onSelect={() => onCompleteClick(appointment)}>
                                 <CheckCircle className="mr-2 h-4 w-4 text-green-500"/>Mark as Completed
                                 </DropdownMenuItem>

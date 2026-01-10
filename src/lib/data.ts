@@ -3,12 +3,15 @@
 import { BillDefinition, billDefinitions } from './financial-data';
 import { addDays, subDays, setHours, setMinutes, startOfDay } from 'date-fns';
 
-export type CustomFormulaItem = {
-  productId: string;
-  productName: string;
-  quantityUsed: number;
-  unit: string;
-  note?: string;
+export type CustomFormula = {
+  name: string;
+  items: {
+    productId: string;
+    productName: string;
+    quantityUsed: number;
+    unit: string;
+    note?: string;
+  }[];
 };
 
 export type Client = {
@@ -20,7 +23,7 @@ export type Client = {
   lifetimeValue: number;
   lastAppointment: string;
   notes?: string;
-  customFormula?: CustomFormulaItem[];
+  customFormulas?: CustomFormula[];
   medicalNotes?: string;
   allergyNotes?: string;
   sensoryNeeds?: string;
@@ -149,12 +152,17 @@ export const clients: Client[] = [
     phone: '202-555-0198', 
     avatarUrl: 'https://picsum.photos/seed/101/100/100', 
     lifetimeValue: 2450.75, 
-    lastAppointment: '2024-05-15T10:00:00.000Z', 
+    lastAppointment: '2024-07-19T10:00:00.000Z', 
     notes: "Prefers sitting near the window.",
-    customFormula: [
-      { productId: 'inv-10', productName: 'Pro Color Tube 5N', quantityUsed: 1, unit: 'oz', note: 'Apply to roots first.' },
-      { productId: 'inv-10', productName: 'Pro Color Tube 9G', quantityUsed: 1, unit: 'oz' },
-      { productId: 'inv-11', productName: '20 Vol Developer', quantityUsed: 2, unit: 'oz', note: 'Process for 20 minutes.' },
+    customFormulas: [
+      {
+        name: 'Standard Root Touch-up',
+        items: [
+          { productId: 'inv-10', productName: 'Pro Color Tube 5N', quantityUsed: 1, unit: 'oz', note: 'Apply to roots first.' },
+          { productId: 'inv-10', productName: 'Pro Color Tube 9G', quantityUsed: 1, unit: 'oz' },
+          { productId: 'inv-11', productName: '20 Vol Developer', quantityUsed: 2, unit: 'oz', note: 'Process for 20 minutes.' },
+        ]
+      }
     ],
     medicalNotes: 'Pregnant' 
   },
@@ -250,5 +258,6 @@ export const stockCorrections: StockCorrection[] = [
     
 
     
+
 
 
