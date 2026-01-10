@@ -3,7 +3,7 @@
 
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, MoreHorizontal } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, MoreHorizontal, DollarSign } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event } from '@/lib/data';
 import { format, addDays, subDays, startOfWeek, setHours, setMinutes, startOfDay } from 'date-fns';
 import { useState, useMemo, useEffect } from 'react';
@@ -99,7 +99,7 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick }: { date: Da
 
     return (
         <div className="flex flex-col h-full">
-            <ScrollArea className="flex-1" style={{ height: 'calc(100vh - 200px)' }}>
+            <ScrollArea className="flex-1">
                  <div className="p-4 space-y-4">
                     {allItems.length > 0 ? (
                         allItems.map(item => (
@@ -353,3 +353,4 @@ export default function PlannerPage() {
     </div>
   );
 }
+
