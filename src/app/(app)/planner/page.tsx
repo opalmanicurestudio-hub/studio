@@ -3,8 +3,8 @@
 
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader } from 'lucide-react';
-import { appointments as initialAppointments, clients, services, type Appointment } from '@/lib/data';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, MoreHorizontal } from 'lucide-react';
+import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event } from '@/lib/data';
 import { format, addDays, subDays, startOfWeek } from 'date-fns';
 import { useState, useMemo, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
@@ -21,6 +21,9 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog';
 import { Badge } from '@/components/ui/badge';
+import { AddEventDialog } from '@/components/planner/AddEventDialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { EventCard } from '@/components/planner/EventCard';
 
 const AppointmentItem = ({ appointment, onCompleteClick }: { appointment: Appointment; onCompleteClick: (apt: Appointment) => void; }) => {
     const client = clients.find(c => c.id === appointment.clientId);
@@ -66,7 +69,7 @@ const AppointmentItem = ({ appointment, onCompleteClick }: { appointment: Appoin
     );
 };
 
-const DayTimeline = ({ date, appointments, onCompleteClick }: { date: Date; appointments: Appointment[]; onCompleteClick: (apt: Appointment) => void; }) => {
+const DayTimeline = ({ date, appointments, events, onCompleteClick }: { date: Date; appointments: Appointment[]; events: Event[]; onCompleteClick: (apt: Appointment) => void; }) => {
     const dailyTotals = useMemo(() => {
         return appointments
         .filter(apt => apt.status === 'completed')
@@ -84,17 +87,24 @@ const DayTimeline = ({ date, appointments, onCompleteClick }: { date: Date; appo
         );
     }, [appointments]);
 
+    const allItems = useMemo(() => {
+        return [...appointments.map(a => ({...a, itemType: 'appointment'})), ...events.map(e => ({...e, itemType: 'event'}))]
+            .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
+    }, [appointments, events]);
+
     return (
         <div className="flex flex-col h-full">
-            <ScrollArea className="flex-1 h-[calc(100vh-250px)]">
-                <div className="p-4 space-y-4">
-                    {appointments.length > 0 ? (
-                        appointments.map(apt => (
-                            <AppointmentItem key={apt.id} appointment={apt} onCompleteClick={onCompleteClick} />
+            <ScrollArea className="flex-1">
+                 <div className="p-4 space-y-4">
+                    {allItems.length > 0 ? (
+                        allItems.map(item => (
+                            item.itemType === 'appointment' ? 
+                            <AppointmentItem key={item.id} appointment={item as Appointment} onCompleteClick={onCompleteClick} /> :
+                            <EventCard key={item.id} event={item as Event} />
                         ))
                     ) : (
                         <div className="text-center pt-20 text-muted-foreground text-sm space-y-4">
-                            <p>No appointments scheduled for this day.</p>
+                            <p>No appointments or events scheduled for this day.</p>
                             <Button variant="secondary">
                                 <PlusCircle className="mr-2 h-4 w-4" />
                                 Add Appointment
@@ -129,10 +139,12 @@ export default function PlannerPage() {
   const [isClient, setIsClient] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [events, setEvents] = useState<Event[]>([]);
   const { inventory, setInventory, addStockCorrection } = useInventory();
 
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
+  const [isAddEventOpen, setIsAddEventOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const { toast } = useToast();
   
@@ -142,9 +154,11 @@ export default function PlannerPage() {
   useEffect(() => {
     // This effect runs only on the client, after hydration
     setIsClient(true);
-    setCurrentDate(new Date());
-    setCurrentDayIndex(new Date().getDay()); // Set initial day index
+    const today = new Date();
+    setCurrentDate(today);
+    setCurrentDayIndex(today.getDay()); // Set initial day index
     setAppointments(initialAppointments);
+    setEvents(initialEvents);
   }, []);
 
   const weekDays = useMemo(() => {
@@ -196,6 +210,16 @@ export default function PlannerPage() {
     setIsAddAppointmentOpen(false);
   };
 
+  const handleAddEvent = (newEvent: Omit<Event, 'id'>) => {
+    const newEventWithId = { ...newEvent, id: `evt-${Date.now()}` };
+    setEvents(prev => [...prev, newEventWithId].sort((a,b) => a.startTime.getTime() - b.startTime.getTime()));
+    toast({
+        title: "Event Added",
+        description: `"${newEvent.title}" has been added to your calendar.`
+    })
+    setIsAddEventOpen(false);
+  };
+
   const handleNextWeek = () => setCurrentDate(addDays(currentDate, 7));
   const handlePrevWeek = () => setCurrentDate(subDays(currentDate, 7));
   const handleToday = () => setCurrentDate(new Date());
@@ -221,7 +245,7 @@ export default function PlannerPage() {
   }
 
   return (
-    <div className="flex h-full w-full flex-col">
+    <div className="flex h-[100dvh] w-full flex-col">
       <AppHeader title="Planner" />
       <div className="flex items-center justify-between gap-4 p-4 border-b">
           <div className="flex items-center gap-2">
@@ -233,21 +257,32 @@ export default function PlannerPage() {
                <p className='font-semibold'>{format(currentVisibleDate, 'EEEE, LLL d')}</p>
                <p className='text-xs text-muted-foreground'>{format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMMM yyyy')}</p>
            </div>
-          <Button onClick={() => setIsAddAppointmentOpen(true)}>
-          <PlusCircle className="mr-2 h-4 w-4" />
-          Add
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <Button>
+                    <PlusCircle className="mr-2 h-4 w-4" />
+                    Add
+                </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+                <DropdownMenuItem onSelect={() => setIsAddAppointmentOpen(true)}>Add Appointment</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setIsAddEventOpen(true)}>Add Event</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
       </div>
-      <main className="flex-1 relative">
+      <main className="flex-1 overflow-hidden">
          <Carousel setApi={setApi} className="h-full w-full" opts={{startIndex: currentDayIndex}}>
             <CarouselContent className="h-full">
                  {weekDays.map((date, index) => {
                     const appointmentsForDay = appointments
                         .filter(apt => format(apt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'))
                         .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
+                    const eventsForDay = events
+                        .filter(evt => format(evt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'))
+                        .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
                     return (
                         <CarouselItem key={index} className="h-full basis-full">
-                            <DayTimeline date={date} appointments={appointmentsForDay} onCompleteClick={handleCompleteClick} />
+                            <DayTimeline date={date} appointments={appointmentsForDay} events={eventsForDay} onCompleteClick={handleCompleteClick} />
                         </CarouselItem>
                     )
                  })}
@@ -269,6 +304,11 @@ export default function PlannerPage() {
         clients={clients}
         services={services}
         onConfirm={handleAddAppointment}
+      />
+      <AddEventDialog 
+        open={isAddEventOpen}
+        onOpenChange={setIsAddEventOpen}
+        onConfirm={handleAddEvent}
       />
     </div>
   );
