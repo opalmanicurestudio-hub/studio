@@ -46,7 +46,7 @@ const AddEventForm = ({
     onConfirm: (event: Omit<Event, 'id'>) => void
 }) => {
     const [title, setTitle] = useState('');
-    const [type, setType] = useState<'personal' | 'business'>('business');
+    const [type, setType] = useState<'personal' | 'business' | 'blocked'>('business');
     const [date, setDate] = useState<Date>(new Date());
     const [startTime, setStartTime] = useState<string>('09:00');
     const [endTime, setEndTime] = useState<string>('10:00');
@@ -119,14 +119,18 @@ const AddEventForm = ({
                         </div>
                         <div className="space-y-2">
                              <Label>Type</Label>
-                            <RadioGroup value={type} onValueChange={(v: any) => setType(v)} className="grid grid-cols-2 gap-4">
+                            <RadioGroup value={type} onValueChange={(v: any) => setType(v)} className="grid grid-cols-3 gap-2">
                                 <div>
                                     <RadioGroupItem value="business" id="business" className="peer sr-only" />
-                                    <Label htmlFor="business" className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Business</Label>
+                                    <Label htmlFor="business" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Business</Label>
                                 </div>
                                 <div>
                                     <RadioGroupItem value="personal" id="personal" className="peer sr-only" />
-                                    <Label htmlFor="personal" className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Personal</Label>
+                                    <Label htmlFor="personal" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Personal</Label>
+                                </div>
+                                 <div>
+                                    <RadioGroupItem value="blocked" id="blocked" className="peer sr-only" />
+                                    <Label htmlFor="blocked" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Blocked</Label>
                                 </div>
                             </RadioGroup>
                         </div>
@@ -200,9 +204,9 @@ const AddEventForm = ({
                                 <Label htmlFor="cost">Cost</Label>
                                 <div className="relative">
                                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                     <Input id="cost" type="number" value={cost || ''} onChange={(e) => setCost(parseFloat(e.target.value))} placeholder="0.00" className="pl-8" />
+                                     <Input id="cost" type="number" value={cost || ''} onChange={(e) => setCost(parseFloat(e.target.value) || undefined)} placeholder="0.00" className="pl-8" />
                                 </div>
-                                 <p className="text-xs text-muted-foreground pt-1">This will be automatically logged as a business expense.</p>
+                                 <p className="text-xs text-muted-foreground pt-1">If this event has a cost, it will be logged as a business expense.</p>
                             </div>
                         )}
                         <div className="space-y-2">

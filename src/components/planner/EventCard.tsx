@@ -4,12 +4,11 @@
 import React from 'react';
 import { type Event } from '@/lib/data';
 import { cn } from '@/lib/utils';
-import { Briefcase, User, Lock, MapPin, CheckSquare, MoreHorizontal, FileText, Upload, Link as LinkIcon } from 'lucide-react';
+import { Briefcase, User, Lock, MapPin, CheckSquare, DollarSign, Upload } from 'lucide-react';
 import { format } from 'date-fns';
 import { Progress } from '../ui/progress';
 import { Checkbox } from '../ui/checkbox';
 import { Separator } from '../ui/separator';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Sheet,
@@ -34,17 +33,36 @@ const EventDetailsContent = ({ event, onChecklistItemToggle }: EventCardProps) =
     const completedCount = React.useMemo(() => event.checklist?.filter(item => item.completed).length || 0, [event.checklist]);
     const totalCount = React.useMemo(() => event.checklist?.length || 0, [event.checklist]);
 
+    if (event.type === 'blocked') {
+        return (
+            <div className='p-6 text-center'>
+                 <Lock className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                 <h3 className='font-semibold text-lg'>Blocked Time</h3>
+                 <p className='text-muted-foreground'>This time is marked as unavailable.</p>
+            </div>
+        )
+    }
+
     return (
         <div className="space-y-6">
             <div className="space-y-2">
                 <h4 className="font-medium text-sm">Details</h4>
                 {event.notes && <p className="text-sm text-muted-foreground">{event.notes}</p>}
-                {event.location && (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <MapPin className="w-4 h-4" />
-                        <span>{event.location}</span>
-                    </div>
-                )}
+                
+                <div className='flex flex-col gap-2 text-sm text-muted-foreground'>
+                    {event.location && (
+                        <div className="flex items-center gap-2">
+                            <MapPin className="w-4 h-4 flex-shrink-0" />
+                            <span>{event.location}</span>
+                        </div>
+                    )}
+                     {event.cost && event.cost > 0 && (
+                        <div className="flex items-center gap-2">
+                            <DollarSign className="w-4 h-4 flex-shrink-0" />
+                            <span>Cost: ${event.cost.toFixed(2)}</span>
+                        </div>
+                    )}
+                </div>
             </div>
 
             {event.checklist && event.checklist.length > 0 && (
@@ -65,14 +83,6 @@ const EventDetailsContent = ({ event, onChecklistItemToggle }: EventCardProps) =
             )}
             
             <Separator />
-            
-            <div className="space-y-3">
-                <h4 className="font-medium text-sm flex items-center gap-2"><LinkIcon className="w-4 h-4"/> Linked Transactions</h4>
-                <div className="p-4 text-center border-2 border-dashed rounded-lg">
-                    <p className="text-sm text-muted-foreground mb-2">No transactions linked.</p>
-                    <Button variant="outline" size="sm">Assign Transaction</Button>
-                </div>
-            </div>
             
             <div className="space-y-3">
                 <h4 className="font-medium text-sm flex items-center gap-2"><Upload className="w-4 h-4"/> Receipts</h4>
@@ -161,7 +171,9 @@ export function EventCard({
                 </SheetHeader>
                 <Separator />
                 <ScrollArea className="flex-1 -mr-6 pr-6">
-                    <EventDetailsContent event={event} onChecklistItemToggle={onChecklistItemToggle} />
+                    <div className="p-6">
+                        <EventDetailsContent event={event} onChecklistItemToggle={onChecklistItemToggle} />
+                    </div>
                 </ScrollArea>
                 <SheetFooter className="pt-4 border-t">
                     <Button variant="outline" className="w-full">Edit Event</Button>
