@@ -102,8 +102,14 @@ const EditAppointmentForm = ({
                 options.push(format(potentialStartTime, 'HH:mm'));
             }
         }
+        
+        const originalTimeFormatted = format(appointment.startTime, 'HH:mm');
+        if (!options.includes(originalTimeFormatted)) {
+            options.unshift(originalTimeFormatted);
+        }
+
         return options;
-    }, [date, selectedService, appointments, services, appointment.id]);
+    }, [date, selectedService, appointments, services, appointment.id, appointment.startTime]);
 
     const handleSubmit = () => {
         if (!selectedClientId || !selectedService || !date || !startTime) return;
@@ -190,9 +196,6 @@ const EditAppointmentForm = ({
                                         <SelectValue placeholder="Select a time" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value={format(appointment.startTime, 'HH:mm')}>
-                                            {format(appointment.startTime, 'h:mm a')}
-                                        </SelectItem>
                                         {timeOptions.map(time => (
                                             <SelectItem key={time} value={time}>{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</SelectItem>
                                         ))}
