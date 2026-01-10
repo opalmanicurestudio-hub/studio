@@ -105,33 +105,31 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick }: { date: Da
 
     return (
         <div className="flex flex-col h-full">
-            {appointments.length > 0 && (
-                <div className="p-4 border-b">
-                    <Accordion type="single" collapsible>
-                        <AccordionItem value="summary" className='border-0'>
-                            <AccordionTrigger className='p-0 hover:no-underline text-sm font-medium'>
-                                Daily Summary
-                            </AccordionTrigger>
-                            <AccordionContent className='pt-4'>
-                                <div className="grid grid-cols-3 gap-2 w-full text-center">
-                                    <div className="rounded-md bg-green-500/10 p-2">
-                                        <p className="text-xs text-green-800/80 dark:text-green-400/80">Revenue</p>
-                                        <p className="font-bold text-sm text-green-800 dark:text-green-400">${dailyTotals.revenue.toFixed(2)}</p>
-                                    </div>
-                                    <div className="rounded-md bg-red-500/10 p-2">
-                                        <p className="text-xs text-red-800/80 dark:text-red-400/80">Costs</p>
-                                        <p className="font-bold text-sm text-red-800 dark:text-red-400">${dailyTotals.costs.toFixed(2)}</p>
-                                    </div>
-                                    <div className="rounded-md bg-blue-500/10 p-2">
-                                        <p className="text-xs text-blue-800/80 dark:text-blue-400/80">Net Profit</p>
-                                        <p className="font-bold text-sm text-blue-800 dark:text-blue-400">${dailyTotals.net.toFixed(2)}</p>
-                                    </div>
+            <div className="p-4 border-b">
+                <Accordion type="single" collapsible>
+                    <AccordionItem value="summary" className='border-0'>
+                        <AccordionTrigger className='p-0 hover:no-underline text-sm font-medium'>
+                            Daily Summary
+                        </AccordionTrigger>
+                        <AccordionContent className='pt-4'>
+                            <div className="grid grid-cols-3 gap-2 w-full text-center">
+                                <div className="rounded-md bg-green-500/10 p-2">
+                                    <p className="text-xs text-green-800/80 dark:text-green-400/80">Revenue</p>
+                                    <p className="font-bold text-sm text-green-800 dark:text-green-400">${dailyTotals.revenue.toFixed(2)}</p>
                                 </div>
-                            </AccordionContent>
-                        </AccordionItem>
-                    </Accordion>
-                </div>
-            )}
+                                <div className="rounded-md bg-red-500/10 p-2">
+                                    <p className="text-xs text-red-800/80 dark:text-red-400/80">Costs</p>
+                                    <p className="font-bold text-sm text-red-800 dark:text-red-400">${dailyTotals.costs.toFixed(2)}</p>
+                                </div>
+                                <div className="rounded-md bg-blue-500/10 p-2">
+                                    <p className="text-xs text-blue-800/80 dark:text-blue-400/80">Net Profit</p>
+                                    <p className="font-bold text-sm text-blue-800 dark:text-blue-400">${dailyTotals.net.toFixed(2)}</p>
+                                </div>
+                            </div>
+                        </AccordionContent>
+                    </AccordionItem>
+                </Accordion>
+            </div>
             <ScrollArea className="flex-1">
                  <div className="p-4 space-y-4">
                     {allItems.length > 0 ? (
@@ -158,8 +156,8 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick }: { date: Da
 export default function PlannerPage() {
   const [isClient, setIsClient] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [events, setEvents] = useState<Event[]>([]);
+  const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
+  const [events, setEvents] = useState<Event[]>(initialEvents);
   const { inventory, setInventory, addStockCorrection } = useInventory();
 
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
@@ -175,30 +173,6 @@ export default function PlannerPage() {
     // This effect runs only on the client, after hydration
     setIsClient(true);
     const today = new Date();
-    
-    // Make appointment and event dates relative to today
-    const todayAppointments = initialAppointments.map((apt, index) => {
-        const daysToAdd = index - 3; // Spread appointments around today
-        const newDate = addDays(today, daysToAdd);
-        return {
-            ...apt,
-            startTime: setMinutes(setHours(startOfDay(newDate), apt.startTime.getHours()), apt.startTime.getMinutes()),
-            endTime: setMinutes(setHours(startOfDay(newDate), apt.endTime.getHours()), apt.endTime.getMinutes()),
-        }
-    });
-
-    const todayEvents = initialEvents.map((evt, index) => {
-       const daysToAdd = index - 1;
-       const newDate = addDays(today, daysToAdd);
-       return {
-            ...evt,
-            startTime: setMinutes(setHours(startOfDay(newDate), evt.startTime.getHours()), evt.startTime.getMinutes()),
-            endTime: setMinutes(setHours(startOfDay(newDate), evt.endTime.getHours()), evt.endTime.getMinutes()),
-       }
-    })
-
-    setAppointments(todayAppointments);
-    setEvents(todayEvents);
     setCurrentDate(today);
 
     // Find today's index in the initial week view
