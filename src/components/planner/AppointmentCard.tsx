@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -118,7 +119,7 @@ const AppointmentDetails = ({
   }, [service, appointment, tmhr, client]);
 
   return (
-    <ScrollArea className="max-h-[80vh] p-6">
+    <ScrollArea className="h-[80vh] p-6">
         <div className="space-y-6">
             <div className="space-y-2">
                 <h3 className="font-semibold text-lg">{client.name}</h3>

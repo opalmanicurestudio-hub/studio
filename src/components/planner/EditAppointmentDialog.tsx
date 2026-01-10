@@ -104,8 +104,9 @@ const EditAppointmentForm = ({
         }
         
         const originalTimeFormatted = format(appointment.startTime, 'HH:mm');
-        if (!options.includes(originalTimeFormatted)) {
+        if (!options.includes(originalTimeFormatted) && format(appointment.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd')) {
             options.unshift(originalTimeFormatted);
+            options.sort();
         }
 
         return options;
