@@ -88,9 +88,7 @@ const DayTimeline = ({
     onDeleteAppointment, 
     onPrintReceipt, 
     onEditAppointment,
-    onChecklistItemToggle,
-    onDeleteEvent,
-    onEditEvent
+    onChecklistItemToggle
 }: { 
     date: Date; 
     appointments: Appointment[]; 
@@ -101,8 +99,6 @@ const DayTimeline = ({
     onPrintReceipt: (appointment: Appointment) => void; 
     onEditAppointment: (appointment: Appointment) => void; 
     onChecklistItemToggle: (eventId: string, checklistItemId: string, completed: boolean) => void;
-    onDeleteEvent: (eventId: string) => void;
-    onEditEvent: (event: Event) => void;
 }) => {
     const dailyTotals = useMemo(() => {
         return appointments
@@ -168,8 +164,6 @@ const DayTimeline = ({
                     <EventCard 
                         event={item} 
                         onChecklistItemToggle={onChecklistItemToggle}
-                        onDeleteEvent={onDeleteEvent}
-                        onEditEvent={onEditEvent}
                     />
                 </div>
             );
@@ -287,14 +281,6 @@ export default function PlannerPage() {
     setSelectedAppointment(appointment);
     setIsEditAppointmentOpen(true);
   };
-  
-  const handleEditEvent = (event: Event) => {
-    // This will likely open a new dialog pre-filled with event data.
-    // For now, we'll just log it.
-    console.log("Editing event:", event);
-    // setIsEditEventOpen(true);
-    // setSelectedEvent(event);
-  };
 
   const handleCheckout = (updatedInventory: any, newCorrections: any) => {
     if (!selectedAppointment) return;
@@ -363,15 +349,6 @@ export default function PlannerPage() {
         variant: "destructive",
         title: "Appointment Deleted",
         description: `The appointment has been removed from your calendar.`
-    });
-  };
-
-  const handleDeleteEvent = (eventId: string) => {
-    setEvents(prev => prev.filter(evt => evt.id !== eventId));
-     toast({
-        variant: "destructive",
-        title: "Event Deleted",
-        description: `The event has been removed from your calendar.`
     });
   };
   
@@ -518,8 +495,6 @@ export default function PlannerPage() {
                                 onPrintReceipt={handlePrintReceipt} 
                                 onEditAppointment={handleEditClick}
                                 onChecklistItemToggle={handleChecklistItemToggle}
-                                onDeleteEvent={handleDeleteEvent}
-                                onEditEvent={handleEditEvent}
                             />
                         </CarouselItem>
                     )
