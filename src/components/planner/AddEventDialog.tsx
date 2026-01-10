@@ -53,6 +53,7 @@ const AddEventForm = ({
     const [notes, setNotes] = useState('');
     const [location, setLocation] = useState('');
     const [cost, setCost] = useState<number | undefined>(undefined);
+    const [logExpense, setLogExpense] = useState(true);
     const [checklist, setChecklist] = useState<Omit<EventChecklistItem, 'id'>[]>([]);
     const [newChecklistItem, setNewChecklistItem] = useState('');
 
@@ -101,7 +102,7 @@ const AddEventForm = ({
             notes,
             location,
             cost: type === 'business' ? cost : undefined,
-            isWriteOff: type === 'business',
+            isWriteOff: type === 'business' && logExpense,
             checklist: checklist.map((item, index) => ({...item, id: `cl-${Date.now()}-${index}`}))
         };
         onConfirm(newEvent);
@@ -202,7 +203,15 @@ const AddEventForm = ({
                                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                      <Input id="cost" type="number" value={cost || ''} onChange={(e) => setCost(parseFloat(e.target.value))} placeholder="0.00" className="pl-8" />
                                 </div>
-                                <p className="text-xs text-muted-foreground">If this business event has a cost, an expense will be logged automatically.</p>
+                                <div className="flex items-center space-x-2 pt-2">
+                                    <Checkbox id="log-expense" checked={logExpense} onCheckedChange={(checked) => setLogExpense(!!checked)} disabled={!cost || cost <= 0} />
+                                    <label
+                                        htmlFor="log-expense"
+                                        className="text-sm font-medium leading-none text-muted-foreground peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                                    >
+                                        Log this cost as a business expense in the ledger.
+                                    </label>
+                                </div>
                             </div>
                         )}
                         <div className="space-y-2">
