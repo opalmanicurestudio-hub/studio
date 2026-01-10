@@ -409,6 +409,22 @@ export default function PlannerPage() {
             </DropdownMenuContent>
           </DropdownMenu>
       </div>
+      
+      {/* Day navigation for desktop */}
+      <div className="hidden md:flex items-center justify-between gap-2 p-2 border-b bg-muted/50">
+        {weekDays.map((day, index) => (
+            <Button 
+                key={index} 
+                variant={currentDayIndex === index ? 'secondary' : 'ghost'}
+                className="flex-1 flex-col h-auto py-2"
+                onClick={() => api?.scrollTo(index)}
+            >
+                <span className="text-xs">{format(day, 'EEE')}</span>
+                <span className="text-lg font-bold">{format(day, 'd')}</span>
+            </Button>
+        ))}
+      </div>
+
       <main className="flex-1 overflow-hidden">
          <Carousel setApi={setApi} className="h-full w-full" opts={{startIndex: currentDayIndex, align: 'start' }}>
             <CarouselContent className="h-full">
@@ -480,4 +496,3 @@ export default function PlannerPage() {
     </div>
   );
 }
-
