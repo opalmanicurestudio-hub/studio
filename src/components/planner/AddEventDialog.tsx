@@ -38,7 +38,6 @@ import { cn } from '@/lib/utils';
 import { type Event, type EventChecklistItem } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay } from 'date-fns';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Checkbox } from '../ui/checkbox';
 
 const AddEventForm = ({
     onConfirm
@@ -53,7 +52,6 @@ const AddEventForm = ({
     const [notes, setNotes] = useState('');
     const [location, setLocation] = useState('');
     const [cost, setCost] = useState<number | undefined>(undefined);
-    const [isWriteOff, setIsWriteOff] = useState(false);
     const [checklist, setChecklist] = useState<Omit<EventChecklistItem, 'id'>[]>([]);
     const [newChecklistItem, setNewChecklistItem] = useState('');
 
@@ -102,7 +100,7 @@ const AddEventForm = ({
             notes,
             location,
             cost: cost,
-            isWriteOff: type === 'business' && isWriteOff,
+            isWriteOff: type !== 'blocked', // Simplified: all business/personal costs are write-offs for the ledger
             checklist: checklist.map((item, index) => ({...item, id: `cl-${Date.now()}-${index}`}))
         };
         onConfirm(newEvent);
@@ -200,17 +198,13 @@ const AddEventForm = ({
                             <Label htmlFor="location">Location</Label>
                             <Input id="location" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g., 123 Main St or 'Zoom'" />
                         </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="cost">Cost</Label>
-                            <div className="relative">
+                        {type !== 'blocked' && (
+                            <div className="space-y-2">
+                                <Label htmlFor="cost">Cost</Label>
+                                <div className="relative">
                                     <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                     <Input id="cost" type="number" value={cost || ''} onChange={(e) => setCost(parseFloat(e.target.value) || undefined)} placeholder="0.00" className="pl-8" />
-                            </div>
-                        </div>
-                        {type === 'business' && cost && cost > 0 && (
-                            <div className="flex items-center space-x-2 p-3 bg-muted/50 rounded-lg">
-                                <Checkbox id="is-write-off" checked={isWriteOff} onCheckedChange={(checked) => setIsWriteOff(!!checked)} />
-                                <Label htmlFor="is-write-off" className="text-sm font-normal">Log this cost as a business expense in the ledger.</Label>
+                                </div>
                             </div>
                         )}
                         <div className="space-y-2">

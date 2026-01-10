@@ -379,15 +379,15 @@ export default function PlannerPage() {
         description: `"${newEvent.title}" has been added to your calendar.`
     });
 
-    if (newEvent.type === 'business' && newEvent.isWriteOff && newEvent.cost && newEvent.cost > 0 && firestore) {
+    if (newEvent.type !== 'blocked' && newEvent.cost && newEvent.cost > 0 && firestore) {
         const transactionRef = collection(firestore, 'tenants', tenantId, 'transactions');
         const newTransaction: Omit<Transaction, 'id'> = {
             date: newEvent.startTime.toISOString(),
             description: newEvent.title,
             clientOrVendor: newEvent.location || 'Internal',
             type: 'expense',
-            context: 'Business',
-            category: 'General Business', // This could be made more specific in the dialog
+            context: newEvent.type === 'business' ? 'Business' : 'Personal',
+            category: newEvent.type === 'business' ? 'General Business' : 'General Personal',
             amount: newEvent.cost,
             hasReceipt: false
         };
