@@ -20,6 +20,7 @@ import {
   CheckCircle,
   XCircle,
   Clock10,
+  Printer,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -61,6 +62,7 @@ interface AppointmentCardProps {
   onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void;
   onDelete: (appointmentId: string) => void;
   onCompleteClick: (appointment: Appointment) => void;
+  onPrintReceipt: (appointment: Appointment) => void;
 }
 
 const AppointmentDetails = ({
@@ -165,8 +167,6 @@ const AppointmentDetails = ({
                 </div>
             )}
             <div className="text-sm space-y-2">
-                {client.notes && (!client.customFormulas || client.customFormulas.length === 0) && <div className="flex items-start gap-2"><FileText className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5"/><span>{client.notes}</span></div>}
-                {!client.medicalNotes && !client.allergyNotes && !client.sensoryNeeds && !client.notes && (!client.customFormulas || client.customFormulas.length === 0) && <p className="text-muted-foreground">No special notes for this client.</p>}
                 {client.medicalNotes && <div className="flex items-center gap-2"><ShieldPlus className="w-4 h-4 text-red-500 flex-shrink-0"/><span>{client.medicalNotes}</span></div>}
                 {client.allergyNotes && <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-yellow-500 flex-shrink-0"/><span>{client.allergyNotes}</span></div>}
                 {client.sensoryNeeds && <div className="flex items-center gap-2"><Ear className="w-4 h-4 text-blue-500 flex-shrink-0"/><span>{client.sensoryNeeds}</span></div>}
@@ -186,7 +186,8 @@ export function AppointmentCard({
   tmhr,
   onUpdateStatus,
   onDelete,
-  onCompleteClick
+  onCompleteClick,
+  onPrintReceipt,
 }: AppointmentCardProps) {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const isMobile = useIsMobile();
@@ -236,7 +237,7 @@ export function AppointmentCard({
                     </DropdownMenuSubTrigger>
                     <DropdownMenuPortal>
                         <DropdownMenuSubContent>
-                            {isPast(appointment.startTime) && appointment.status !== 'completed' && (
+                            {appointment.status !== 'completed' && (
                                 <DropdownMenuItem onSelect={() => onCompleteClick(appointment)}>
                                 <CheckCircle className="mr-2 h-4 w-4 text-green-500"/>Mark as Completed
                                 </DropdownMenuItem>
@@ -246,6 +247,11 @@ export function AppointmentCard({
                         </DropdownMenuSubContent>
                     </DropdownMenuPortal>
                 </DropdownMenuSub>
+                {appointment.status === 'completed' && (
+                    <DropdownMenuItem onSelect={() => onPrintReceipt(appointment)}>
+                        <Printer className="mr-2 h-4 w-4"/>Print Receipt
+                    </DropdownMenuItem>
+                )}
                 <DropdownMenuItem>
                   <Edit className="mr-2 h-4 w-4"/> Edit Details
                 </DropdownMenuItem>

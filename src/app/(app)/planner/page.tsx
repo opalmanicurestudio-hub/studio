@@ -36,8 +36,9 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion';
 import { AppointmentCard } from '@/components/planner/AppointmentCard';
+import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
 
-const DayTimeline = ({ date, appointments, events, onCompleteClick, onUpdateStatus, onDelete }: { date: Date; appointments: Appointment[]; events: Event[]; onCompleteClick: (apt: Appointment) => void; onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void; onDelete: (appointmentId: string) => void; }) => {
+const DayTimeline = ({ date, appointments, events, onCompleteClick, onUpdateStatus, onDelete, onPrintReceipt }: { date: Date; appointments: Appointment[]; events: Event[]; onCompleteClick: (apt: Appointment) => void; onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void; onDelete: (appointmentId: string) => void; onPrintReceipt: (appointment: Appointment) => void; }) => {
     const dailyTotals = useMemo(() => {
         return appointments
         .filter(apt => apt.status === 'completed')
@@ -136,6 +137,7 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick, onUpdateStat
                                         onUpdateStatus={onUpdateStatus}
                                         onDelete={onDelete}
                                         onCompleteClick={onCompleteClick}
+                                        onPrintReceipt={onPrintReceipt}
                                     />
                                </div>
                            );
@@ -163,6 +165,8 @@ export default function PlannerPage() {
   const [api, setApi] = useState<CarouselApi>()
   const [currentDayIndex, setCurrentDayIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  
+  const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
 
   useEffect(() => {
     const today = new Date();
@@ -210,8 +214,7 @@ export default function PlannerPage() {
         title: "Appointment Completed",
         description: `Inventory levels have been updated and ${newCorrections.length} stock correction(s) logged.`
     });
-    // We no longer close the dialog from here. It closes itself after printing.
-    // setIsCheckoutOpen(false); 
+    setIsCheckoutOpen(false); 
     setSelectedAppointment(null);
   };
   
@@ -236,11 +239,18 @@ export default function PlannerPage() {
   };
 
   const handleUpdateStatus = (appointmentId: string, status: Appointment['status']) => {
-    setAppointments(prev => prev.map(apt => apt.id === appointmentId ? { ...apt, status } : apt));
-    toast({
-        title: "Status Updated",
-        description: `Appointment status changed to ${status}.`
-    });
+    if (status === 'completed') {
+        const appointmentToComplete = appointments.find(apt => apt.id === appointmentId);
+        if (appointmentToComplete) {
+            handleCompleteClick(appointmentToComplete);
+        }
+    } else {
+        setAppointments(prev => prev.map(apt => apt.id === appointmentId ? { ...apt, status } : apt));
+        toast({
+            title: "Status Updated",
+            description: `Appointment status changed to ${status}.`
+        });
+    }
   };
 
   const handleDeleteAppointment = (appointmentId: string) => {
@@ -272,6 +282,41 @@ export default function PlannerPage() {
     return { appointment: selectedAppointment, client, service };
   }, [selectedAppointment]);
   
+  const handlePrintReceipt = (appointment: Appointment) => {
+    const client = clients.find(c => c.id === appointment.clientId);
+    const service = services.find(s => s.id === appointment.serviceId);
+    if (!client || !service) return;
+
+    const subtotal = service.price;
+    const mockTax = subtotal * 0.07;
+    const total = subtotal + mockTax;
+
+    const receiptData: ReceiptData = {
+        business: { name: 'ClarityFlow Salon', phone: '555-123-4567' },
+        clientName: client.name,
+        date: appointment.endTime,
+        items: [{ name: service.name, quantity: 1, price: service.price }],
+        subtotal: subtotal,
+        tax: mockTax,
+        total: total,
+        payment: { // Assuming cash for simplicity, this would need to be stored
+            method: 'Cash',
+            amountTendered: total,
+            changeDue: 0,
+        }
+    };
+    setReceiptToPrint(receiptData);
+  }
+
+  useEffect(() => {
+      if (receiptToPrint) {
+          setTimeout(() => {
+            window.print();
+            setReceiptToPrint(null);
+          }, 100);
+      }
+  }, [receiptToPrint]);
+
   const currentVisibleDate = weekDays[currentDayIndex];
   
   if (isLoading || !isClient) {
@@ -283,6 +328,10 @@ export default function PlannerPage() {
         </div>
       </div>
     );
+  }
+  
+  if (receiptToPrint) {
+      return <PrintReceipt data={receiptToPrint} />;
   }
 
   return (
@@ -323,7 +372,7 @@ export default function PlannerPage() {
                         .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
                     return (
                         <CarouselItem key={index} className="h-full basis-full">
-                            <DayTimeline date={date} appointments={appointmentsForDay} events={eventsForDay} onCompleteClick={handleCompleteClick} onUpdateStatus={handleUpdateStatus} onDelete={handleDeleteAppointment} />
+                            <DayTimeline date={date} appointments={appointmentsForDay} events={eventsForDay} onCompleteClick={handleCompleteClick} onUpdateStatus={handleUpdateStatus} onDelete={handleDeleteAppointment} onPrintReceipt={handlePrintReceipt} />
                         </CarouselItem>
                     )
                  })}

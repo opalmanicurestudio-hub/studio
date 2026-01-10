@@ -16,7 +16,6 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { AlertCircle, CheckCircle, FileText, FlaskConical, PlusCircle, Trash2, Library, Wand, QrCode, Search, AlertTriangle, ShoppingCart, CreditCard, Banknote, Gift, Coins } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type StockCorrection, type CustomFormula } from '@/lib/data';
-import { format } from 'date-fns';
 import { Input } from '../ui/input';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { useInventory } from '@/context/InventoryContext';
@@ -26,122 +25,6 @@ import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '../ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Label } from '../ui/label';
-
-// --- Start of PrintReceipt Component ---
-export interface ReceiptData {
-  business: {
-    name: string;
-    phone: string;
-  };
-  clientName: string;
-  date: Date;
-  items: {
-    name: string;
-    quantity: number;
-    price: number;
-  }[];
-  subtotal: number;
-  tax: number;
-  total: number;
-  payment: {
-    method: string;
-    amountTendered: number;
-    changeDue: number;
-  };
-}
-
-interface PrintReceiptProps {
-  data: ReceiptData;
-}
-
-export const PrintReceipt: React.FC<PrintReceiptProps> = ({ data }) => {
-  return (
-    <div id="receipt" className="p-4 bg-white text-black font-mono text-sm max-w-sm mx-auto">
-      <div className="text-center space-y-1 mb-6">
-        <h1 className="text-xl font-bold">{data.business.name}</h1>
-        <p>{data.business.phone}</p>
-        <p>{format(data.date, 'MMM d, yyyy h:mm a')}</p>
-      </div>
-
-      <div className="mb-4">
-        <p>
-          <span className="font-semibold">Client:</span> {data.clientName}
-        </p>
-      </div>
-
-      <Separator className="my-2 border-dashed border-black" />
-
-      <div className="space-y-2">
-        {data.items.map((item, index) => (
-          <div key={index} className="flex justify-between">
-            <div>
-              <p>{item.name}</p>
-              {item.quantity > 1 && <p className="pl-4 text-xs">({item.quantity} @ ${item.price.toFixed(2)})</p>}
-            </div>
-            <p>${(item.quantity * item.price).toFixed(2)}</p>
-          </div>
-        ))}
-      </div>
-
-      <Separator className="my-2 border-dashed border-black" />
-
-      <div className="space-y-1">
-        <div className="flex justify-between">
-          <p>Subtotal</p>
-          <p>${data.subtotal.toFixed(2)}</p>
-        </div>
-        <div className="flex justify-between">
-          <p>Tax</p>
-          <p>${data.tax.toFixed(2)}</p>
-        </div>
-        <div className="flex justify-between font-bold text-base">
-          <p>Total</p>
-          <p>${data.total.toFixed(2)}</p>
-        </div>
-      </div>
-
-      <Separator className="my-2 border-dashed border-black" />
-
-      <div className="space-y-1">
-        <div className="flex justify-between">
-          <p>Payment Method</p>
-          <p>{data.payment.method}</p>
-        </div>
-        <div className="flex justify-between">
-          <p>Amount Tendered</p>
-          <p>${data.payment.amountTendered.toFixed(2)}</p>
-        </div>
-        <div className="flex justify-between">
-          <p>Change Due</p>
-          <p>${data.payment.changeDue.toFixed(2)}</p>
-        </div>
-      </div>
-
-      <div className="text-center mt-8">
-        <p>Thank you for your business!</p>
-      </div>
-      
-       <style jsx global>{`
-        @media print {
-          body * {
-            visibility: hidden;
-          }
-          #receipt, #receipt * {
-            visibility: visible;
-          }
-          #receipt {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-          }
-        }
-      `}</style>
-    </div>
-  );
-};
-// --- End of PrintReceipt Component ---
-
 
 type EditableFormulaItem = {
     id: string; // productId
@@ -184,9 +67,6 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
   const videoRef = useRef<HTMLVideoElement>(null);
   
-  const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
-
-
   useEffect(() => {
     if (open && service) {
         const defaultFormula = service.products?.map(p => ({
@@ -200,7 +80,6 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         setRetailItems([]);
         setFormulaName('Default Service Formula');
         setAmountTendered(0);
-        setReceiptData(null);
     }
   }, [service, open]);
 
@@ -292,38 +171,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   }, [editableFormula, inventory, appointment.id]);
   
   const handleCompleteAndPrint = () => {
-    if (!client || !service) return;
-
     onConfirmCheckout(updatedInventory, newCorrections)
-
-    const finalReceiptData: ReceiptData = {
-        business: { name: 'ClarityFlow Salon', phone: '555-123-4567' },
-        clientName: client.name,
-        date: new Date(),
-        items: [
-            { name: service.name, quantity: 1, price: service.price },
-            ...retailItems.map(item => {
-                const product = inventory.find(p => p.id === item.id);
-                const price = product?.costPerUnit ? product.costPerUnit * 1.75 : 0;
-                return { name: item.name, quantity: item.quantity, price: price };
-            }),
-        ],
-        subtotal: subtotal,
-        tax: mockTax,
-        total: grandTotal,
-        payment: {
-            method: 'Cash', // This would be dynamic
-            amountTendered: amountTendered || grandTotal,
-            changeDue: changeDue > 0 ? changeDue : 0,
-        }
-    };
-    setReceiptData(finalReceiptData);
-    
-    // Defer print action to allow state to update and component to render
-    setTimeout(() => {
-      window.print();
-      onOpenChange(false);
-    }, 100);
+    onOpenChange(false); // Close dialog after confirming
   };
 
 
@@ -369,10 +218,6 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
 
   if (!client || !service) {
     return null;
-  }
-  
-  if (receiptData) {
-      return <PrintReceipt data={receiptData} />;
   }
 
   return (
