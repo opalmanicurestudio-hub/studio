@@ -1,4 +1,5 @@
 
+      
 'use client';
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
@@ -14,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { AlertCircle, CheckCircle, FileText, FlaskConical, PlusCircle, Trash2, Library, Wand, QrCode, Search, AlertTriangle, ShoppingCart } from 'lucide-react';
+import { AlertCircle, CheckCircle, FileText, FlaskConical, PlusCircle, Trash2, Library, Wand, QrCode, Search, AlertTriangle, ShoppingCart, CreditCard, Banknote, Gift } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type StockCorrection, type CustomFormula } from '@/lib/data';
 import { format } from 'date-fns';
 import { Input } from '../ui/input';
@@ -24,6 +25,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '../ui/scroll-area';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { Label } from '../ui/label';
 
 type EditableFormulaItem = {
     id: string; // productId
@@ -59,6 +62,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
 
   const [editableFormula, setEditableFormula] = useState<EditableFormulaItem[]>([]);
   const [retailItems, setRetailItems] = useState<EditableFormulaItem[]>([]);
+  
+  const [amountTendered, setAmountTendered] = useState<number | null>(null);
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
@@ -95,6 +100,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   }, [retailItems, inventory]);
   
   const grandTotal = (service?.price || 0) + retailTotal;
+  const changeDue = amountTendered !== null ? amountTendered - grandTotal : null;
 
   const handleQuantityChange = (productId: string, newQuantity: number) => {
     setEditableFormula(prev => prev.map(item => item.id === productId ? { ...item, quantity: newQuantity } : item));
@@ -210,7 +216,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
               Confirm products used, add retail sales, and finalize the appointment.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4 space-y-6 max-h-[70vh] overflow-y-auto pr-4">
+          <ScrollArea className="max-h-[70vh] pr-4">
+          <div className="py-4 space-y-6">
               <Card>
                   <CardContent className="p-4 flex items-center gap-4">
                        <Avatar className="w-12 h-12">
@@ -321,37 +328,67 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
 
                <Card>
                   <CardHeader>
-                      <CardTitle>Financial Summary</CardTitle>
+                      <CardTitle>Payment & Checkout</CardTitle>
                   </CardHeader>
-                  <CardContent className="space-y-4 text-sm">
-                      <div className="flex justify-between">
-                          <span>Service: {service.name}</span>
-                          <span className='font-mono'>${service.price.toFixed(2)}</span>
+                  <CardContent className="space-y-4">
+                      <div className="p-4 rounded-lg bg-primary/10 text-center">
+                          <p className="text-sm font-medium text-primary">Total Due</p>
+                          <p className="text-5xl font-bold text-primary">${grandTotal.toFixed(2)}</p>
                       </div>
-                       <div className="flex justify-between">
-                          <span>Retail Subtotal</span>
-                          <span className='font-mono'>${retailTotal.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                          <span>Discounts</span>
-                          <span className='font-mono text-destructive'>-$0.00</span>
-                      </div>
-                       <div className="flex justify-between">
-                          <span>Taxes</span>
-                          <span className='font-mono'>${(grandTotal * 0.08).toFixed(2)}</span>
-                      </div>
-                      <Separator />
-                      <div className="flex justify-between font-bold text-base text-primary">
-                          <span>Grand Total</span>
-                          <span className='font-mono'>${(grandTotal * 1.08).toFixed(2)}</span>
-                      </div>
+                      <Tabs defaultValue="card" className="w-full">
+                          <TabsList className="grid w-full grid-cols-3">
+                              <TabsTrigger value="card"><CreditCard className="w-4 h-4 mr-2"/>Card</TabsTrigger>
+                              <TabsTrigger value="cash"><Banknote className="w-4 h-4 mr-2"/>Cash</TabsTrigger>
+                              <TabsTrigger value="other"><Gift className="w-4 h-4 mr-2"/>Other</TabsTrigger>
+                          </TabsList>
+                          <TabsContent value="card" className="pt-4 space-y-4">
+                              <Button className="w-full" size="lg">Charge Card on File</Button>
+                              <div className="grid grid-cols-2 gap-4">
+                                  <Button variant="outline" className="w-full" size="lg">Launch Square</Button>
+                                  <Button variant="outline" className="w-full" size="lg">Launch Stripe</Button>
+                              </div>
+                          </TabsContent>
+                          <TabsContent value="cash" className="pt-4 space-y-4">
+                              <div className="space-y-2">
+                                  <Label htmlFor="amount-tendered">Amount Tendered</Label>
+                                  <Input 
+                                    id="amount-tendered" 
+                                    type="number" 
+                                    placeholder={grandTotal.toFixed(2)}
+                                    value={amountTendered || ''}
+                                    onChange={(e) => setAmountTendered(parseFloat(e.target.value))}
+                                  />
+                              </div>
+                               <div className="flex justify-center gap-2">
+                                  {[20, 50, 100].map(amount => {
+                                      const nextBill = Math.ceil(grandTotal / amount) * amount;
+                                      return (
+                                        <Button key={amount} variant="outline" size="sm" onClick={() => setAmountTendered(nextBill)}>${nextBill}</Button>
+                                      )
+                                  })}
+                                   <Button variant="outline" size="sm" onClick={() => setAmountTendered(grandTotal)}>Exact</Button>
+                               </div>
+                              {changeDue !== null && (
+                                <Alert variant={changeDue < 0 ? 'destructive' : 'default'}>
+                                    <AlertTitle>{changeDue >= 0 ? 'Change Due' : 'Amount Remaining'}</AlertTitle>
+                                    <AlertDescription className="text-2xl font-bold">
+                                        ${Math.abs(changeDue).toFixed(2)}
+                                    </AlertDescription>
+                                </Alert>
+                              )}
+                          </TabsContent>
+                          <TabsContent value="other" className="pt-4">
+                               <Button variant="outline" className="w-full" size="lg">Record Manual Payment (Venmo, etc.)</Button>
+                          </TabsContent>
+                      </Tabs>
                   </CardContent>
               </Card>
           </div>
+          </ScrollArea>
           <DialogFooter>
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button onClick={() => onConfirmCheckout(updatedInventory, newCorrections)} disabled={warnings.some(w => w.includes('Insufficient stock'))}>
-              Take Payment & Complete
+              Complete & Print Receipt
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -401,3 +438,5 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     </>
   );
 };
+
+    
