@@ -131,102 +131,103 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
 
   return (
     <>
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Complete Appointment & Reconcile Service</DialogTitle>
-          <DialogDescription>
-            Confirm and edit products used to ensure accurate inventory and costing.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="py-4 space-y-6 max-h-[70vh] overflow-y-auto pr-4">
-            <Card>
-                <CardContent className="p-4 flex items-center gap-4">
-                     <Avatar className="w-12 h-12">
-                        <AvatarImage src={client.avatarUrl} alt={client.name} />
-                        <AvatarFallback>{client.name.substring(0, 2)}</AvatarFallback>
-                    </Avatar>
-                    <div>
-                        <p className="font-semibold">{client.name}</p>
-                        <p className="text-sm text-muted-foreground">{service.name}</p>
-                    </div>
-                </CardContent>
-            </Card>
-            
-             <Card>
-                <CardHeader>
-                    <div className="flex justify-between items-center">
-                        <div>
-                            <CardTitle>Formula & Usage</CardTitle>
-                            <CardDescription>What was actually used for this service?</CardDescription>
-                        </div>
-                        {client.customFormulas && client.customFormulas.length > 0 && (
-                            <Button variant="outline" onClick={() => handleApplyClientFormula(client.customFormulas![0])}>
-                                <Wand className="mr-2 h-4 w-4"/>
-                                Load Client Formula
-                            </Button>
-                        )}
-                    </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                     <div className="p-3 rounded-md bg-muted/50 text-muted-foreground text-sm flex items-start gap-2">
-                        <FlaskConical className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                        <p>Currently applying: <span className="font-semibold text-foreground">{formulaName}</span></p>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Complete Appointment & Reconcile Service</DialogTitle>
+            <DialogDescription>
+              Confirm and edit products used to ensure accurate inventory and costing.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-6 max-h-[70vh] overflow-y-auto pr-4">
+              <Card>
+                  <CardContent className="p-4 flex items-center gap-4">
+                       <Avatar className="w-12 h-12">
+                          <AvatarImage src={client.avatarUrl} alt={client.name} />
+                          <AvatarFallback>{client.name.substring(0, 2)}</AvatarFallback>
+                      </Avatar>
+                      <div>
+                          <p className="font-semibold">{client.name}</p>
+                          <p className="text-sm text-muted-foreground">{service.name}</p>
                       </div>
-                    <div className="space-y-2 text-sm">
-                        {editableFormula.map((item) => (
-                            <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md">
-                                <div>
-                                    <p className="font-medium">{item.name}</p>
-                                    <p className="text-xs text-muted-foreground">Cost: ${(item.costPerUnit || 0).toFixed(2)}/{item.unit}</p>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <Input
-                                        type="number"
-                                        value={item.quantity}
-                                        onChange={(e) => handleQuantityChange(item.id, parseFloat(e.target.value) || 0)}
-                                        className="w-20 h-8 text-center"
-                                    />
-                                    <span className="w-8 text-muted-foreground">{item.unit}</span>
-                                    <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveProduct(item.id)}>
-                                        <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                    <Button variant="outline" size="sm" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Product or Equipment</Button>
-                </CardContent>
-            </Card>
+                  </CardContent>
+              </Card>
+              
+               <Card>
+                  <CardHeader>
+                      <div className="flex justify-between items-center">
+                          <div>
+                              <CardTitle>Formula & Usage</CardTitle>
+                              <CardDescription>What was actually used for this service?</CardDescription>
+                          </div>
+                          {client.customFormulas && client.customFormulas.length > 0 && (
+                              <Button variant="outline" onClick={() => handleApplyClientFormula(client.customFormulas![0])}>
+                                  <Wand className="mr-2 h-4 w-4"/>
+                                  Load Client Formula
+                              </Button>
+                          )}
+                      </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                       <div className="p-3 rounded-md bg-muted/50 text-muted-foreground text-sm flex items-start gap-2">
+                          <FlaskConical className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                          <p>Currently applying: <span className="font-semibold text-foreground">{formulaName}</span></p>
+                        </div>
+                      <div className="space-y-2 text-sm">
+                          {editableFormula.map((item) => (
+                              <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md">
+                                  <div>
+                                      <p className="font-medium">{item.name}</p>
+                                      <p className="text-xs text-muted-foreground">Cost: ${(item.costPerUnit || 0).toFixed(2)}/{item.unit}</p>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                      <Input
+                                          type="number"
+                                          value={item.quantity}
+                                          onChange={(e) => handleQuantityChange(item.id, parseFloat(e.target.value) || 0)}
+                                          className="w-20 h-8 text-center"
+                                      />
+                                      <span className="w-8 text-muted-foreground">{item.unit}</span>
+                                      <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveProduct(item.id)}>
+                                          <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                  </div>
+                              </div>
+                          ))}
+                      </div>
+                      <Button variant="outline" size="sm" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Product or Equipment</Button>
+                  </CardContent>
+              </Card>
 
-             <Card>
-                <CardHeader>
-                    <CardTitle>Financial Reconciliation</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                        <span>Original Service Cost</span>
-                        <span>${service.cost.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                        <span>Actual Cost of Goods Used</span>
-                        <span className="font-mono">${actualCost.toFixed(2)}</span>
-                    </div>
-                    <Separator />
-                    <div className="flex justify-between font-bold text-base text-destructive">
-                        <span>Additional Cost</span>
-                        <span>${additionalCost.toFixed(2)}</span>
-                    </div>
-                </CardContent>
-            </Card>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={() => onConfirmCheckout(updatedInventory, newCorrections)} disabled={warnings.some(w => w.includes('Insufficient stock'))}>
-            Confirm & Complete
-          </Button>
-        </DialogFooter>
-      </DialogContent>
+               <Card>
+                  <CardHeader>
+                      <CardTitle>Financial Reconciliation</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                          <span>Original Service Cost</span>
+                          <span>${service.cost.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                          <span>Actual Cost of Goods Used</span>
+                          <span className="font-mono">${actualCost.toFixed(2)}</span>
+                      </div>
+                      <Separator />
+                      <div className="flex justify-between font-bold text-base text-destructive">
+                          <span>Additional Cost</span>
+                          <span>${additionalCost.toFixed(2)}</span>
+                      </div>
+                  </CardContent>
+              </Card>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button onClick={() => onConfirmCheckout(updatedInventory, newCorrections)} disabled={warnings.some(w => w.includes('Insufficient stock'))}>
+              Confirm & Complete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <BrowseProductsDialog
         open={isProductBrowserOpen}
         onOpenChange={setIsProductBrowserOpen}
