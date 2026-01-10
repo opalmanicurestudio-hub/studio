@@ -29,6 +29,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
 
 const AppointmentItem = ({ appointment, onCompleteClick }: { appointment: Appointment; onCompleteClick: (apt: Appointment) => void; }) => {
     const client = clients.find(c => c.id === appointment.clientId);
@@ -99,6 +105,33 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick }: { date: Da
 
     return (
         <div className="flex flex-col h-full">
+            {appointments.length > 0 && (
+                <div className="p-4 border-b">
+                    <Accordion type="single" collapsible>
+                        <AccordionItem value="summary" className='border-0'>
+                            <AccordionTrigger className='p-0 hover:no-underline text-sm font-medium'>
+                                Daily Summary
+                            </AccordionTrigger>
+                            <AccordionContent className='pt-4'>
+                                <div className="grid grid-cols-3 gap-2 w-full text-center">
+                                    <div className="rounded-md bg-green-500/10 p-2">
+                                        <p className="text-xs text-green-800/80 dark:text-green-400/80">Revenue</p>
+                                        <p className="font-bold text-sm text-green-800 dark:text-green-400">${dailyTotals.revenue.toFixed(2)}</p>
+                                    </div>
+                                    <div className="rounded-md bg-red-500/10 p-2">
+                                        <p className="text-xs text-red-800/80 dark:text-red-400/80">Costs</p>
+                                        <p className="font-bold text-sm text-red-800 dark:text-red-400">${dailyTotals.costs.toFixed(2)}</p>
+                                    </div>
+                                    <div className="rounded-md bg-blue-500/10 p-2">
+                                        <p className="text-xs text-blue-800/80 dark:text-blue-400/80">Net Profit</p>
+                                        <p className="font-bold text-sm text-blue-800 dark:text-blue-400">${dailyTotals.net.toFixed(2)}</p>
+                                    </div>
+                                </div>
+                            </AccordionContent>
+                        </AccordionItem>
+                    </Accordion>
+                </div>
+            )}
             <ScrollArea className="flex-1">
                  <div className="p-4 space-y-4">
                     {allItems.length > 0 ? (
@@ -118,24 +151,6 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick }: { date: Da
                     )}
                 </div>
             </ScrollArea>
-             {appointments.length > 0 && (
-                <div className="p-2 border-t bg-background">
-                    <div className="grid grid-cols-3 gap-2 w-full text-center">
-                        <div className="rounded-md bg-green-500/10 p-2">
-                            <p className="text-xs text-green-800/80 dark:text-green-400/80">Revenue</p>
-                            <p className="font-bold text-sm text-green-800 dark:text-green-400">${dailyTotals.revenue.toFixed(2)}</p>
-                        </div>
-                        <div className="rounded-md bg-red-500/10 p-2">
-                            <p className="text-xs text-red-800/80 dark:text-red-400/80">Costs</p>
-                            <p className="font-bold text-sm text-red-800 dark:text-red-400">${dailyTotals.costs.toFixed(2)}</p>
-                        </div>
-                        <div className="rounded-md bg-blue-500/10 p-2">
-                            <p className="text-xs text-blue-800/80 dark:text-blue-400/80">Net Profit</p>
-                            <p className="font-bold text-sm text-blue-800 dark:text-blue-400">${dailyTotals.net.toFixed(2)}</p>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 };
