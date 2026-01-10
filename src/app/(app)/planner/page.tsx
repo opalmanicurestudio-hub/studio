@@ -86,7 +86,7 @@ const DayTimeline = ({ date, appointments, onCompleteClick }: { date: Date; appo
 
     return (
         <div className="flex flex-col h-full">
-            <ScrollArea className="flex-1">
+            <div className="flex-1 overflow-y-auto">
                 <div className="p-4 space-y-4">
                     {appointments.length > 0 ? (
                         appointments.map(apt => (
@@ -102,7 +102,7 @@ const DayTimeline = ({ date, appointments, onCompleteClick }: { date: Date; appo
                         </div>
                     )}
                 </div>
-            </ScrollArea>
+            </div>
              {appointments.length > 0 && (
                 <div className="p-2 border-t bg-background">
                     <div className="grid grid-cols-3 gap-2 w-full text-center">
