@@ -3,9 +3,9 @@
 
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event } from '@/lib/data';
-import { format, addDays, subDays, startOfWeek } from 'date-fns';
+import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes } from 'date-fns';
 import { useState, useMemo, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
@@ -35,64 +35,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-
-const AppointmentItem = ({ appointment, onCompleteClick }: { appointment: Appointment; onCompleteClick: (apt: Appointment) => void; }) => {
-    const client = clients.find(c => c.id === appointment.clientId);
-    const service = services.find(s => s.id === appointment.serviceId);
-
-    if (!client || !service) return null;
-    
-    const statusStyles = {
-        confirmed: 'border-blue-500',
-        completed: 'border-green-500',
-        cancelled: 'border-red-500 opacity-70',
-        deposit_pending: 'border-pink-500',
-    };
-
-    const padBefore = service.padBefore || 0;
-    const padAfter = service.padAfter || 0;
-
-    const Padding = ({ time }: { time: number }) => (
-        <div className="h-full bg-muted/50 p-2 text-xs text-muted-foreground flex items-center justify-center">
-            <Clock className="w-3 h-3 mr-1.5" />
-            {time} min padding
-        </div>
-    );
-    
-    return (
-        <div className={cn("rounded-lg bg-card border-l-4 overflow-hidden", statusStyles[appointment.status])}>
-            {padBefore > 0 && <Padding time={padBefore} />}
-            <div className="p-4 flex flex-col gap-3 border-y">
-                <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                        <Avatar className="w-10 h-10">
-                            <AvatarImage src={client.avatarUrl} alt={client.name} />
-                            <AvatarFallback>{client.name.charAt(0)}</AvatarFallback>
-                        </Avatar>
-                        <div>
-                            <p className="font-semibold text-sm">{client.name}</p>
-                            <p className="text-xs text-muted-foreground">{service.name}</p>
-                        </div>
-                    </div>
-                    <Badge variant={appointment.status === 'completed' ? 'default' : 'secondary'} className="capitalize shrink-0">{appointment.status}</Badge>
-                </div>
-                <div className="text-xs text-muted-foreground">
-                    {format(appointment.startTime, 'h:mm a')} - {format(appointment.endTime, 'h:mm a')}
-                </div>
-                {appointment.status === 'confirmed' && (
-                    <div className="flex gap-2 pt-2 border-t -mb-1 -mx-2 px-2">
-                        <Button variant="ghost" size="sm" className="flex-1 text-muted-foreground">Cancel</Button>
-                        <Button variant="secondary" size="sm" className="flex-1" onClick={() => onCompleteClick(appointment)}>
-                            <PlusCircle className="mr-2 h-4 w-4" />
-                            Complete
-                        </Button>
-                    </div>
-                )}
-            </div>
-            {padAfter > 0 && <Padding time={padAfter} />}
-        </div>
-    );
-};
+import { AppointmentCard } from '@/components/planner/AppointmentCard';
 
 const DayTimeline = ({ date, appointments, events, onCompleteClick }: { date: Date; appointments: Appointment[]; events: Event[]; onCompleteClick: (apt: Appointment) => void; }) => {
     const dailyTotals = useMemo(() => {
@@ -116,6 +59,16 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick }: { date: Da
         return [...appointments.map(a => ({...a, itemType: 'appointment'})), ...events.map(e => ({...e, itemType: 'event'}))]
             .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
     }, [appointments, events]);
+
+    const hours = Array.from({ length: 15 }, (_, i) => i + 8); // 8 AM to 10 PM
+    const [tmhr, setTmhr] = useState(0);
+
+    useEffect(() => {
+      if (typeof window !== 'undefined') {
+        const storedTmhr = localStorage.getItem('tmhr');
+        setTmhr(parseFloat(storedTmhr || '50'));
+      }
+    }, []);
 
     return (
         <div className="flex flex-col h-full">
@@ -144,23 +97,47 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick }: { date: Da
                     </AccordionItem>
                 </Accordion>
             </div>
-            <ScrollArea className="flex-1" style={{ height: 'calc(100vh - 230px)' }}>
-                 <div className="p-4 space-y-4">
-                    {allItems.length > 0 ? (
-                        allItems.map(item => (
-                            item.itemType === 'appointment' ? 
-                            <AppointmentItem key={item.id} appointment={item as Appointment} onCompleteClick={onCompleteClick} /> :
-                            <EventCard key={item.id} event={item as Event} />
-                        ))
-                    ) : (
-                        <div className="text-center pt-20 text-muted-foreground text-sm space-y-4">
-                            <p>No appointments or events scheduled for this day.</p>
-                            <Button variant="secondary" onClick={() => { /* This needs to open the dialog */ }}>
-                                <PlusCircle className="mr-2 h-4 w-4" />
-                                Add Appointment
-                            </Button>
-                        </div>
-                    )}
+             <ScrollArea className="flex-1" style={{ height: 'calc(100vh - 230px)' }}>
+                <div className="relative grid grid-cols-[auto,1fr] p-4">
+                    {/* Time labels */}
+                    <div className="flex flex-col text-right pr-4">
+                        {hours.map(hour => (
+                            <div key={hour} className="h-24 -mt-2.5">
+                                <span className="text-xs text-muted-foreground">{format(new Date(0, 0, 0, hour), 'ha')}</span>
+                            </div>
+                        ))}
+                    </div>
+                     {/* Calendar grid */}
+                    <div className="relative">
+                        {hours.map(hour => (
+                           <div key={hour} className="h-24 border-t border-dashed"></div>
+                        ))}
+
+                        {/* Render Appointments */}
+                        {appointments.map(appointment => {
+                           const client = clients.find(c => c.id === appointment.clientId);
+                           const service = services.find(s => s.id === appointment.serviceId);
+
+                           if (!client || !service) return null;
+
+                           const top = (getHours(appointment.startTime) - 8 + getMinutes(appointment.startTime) / 60) * 96; // 6rem * 16px/rem = 96px per hour
+                           const height = differenceInMinutes(appointment.endTime, appointment.startTime) / 60 * 96;
+
+                           return (
+                               <AppointmentCard
+                                    key={appointment.id}
+                                    appointment={appointment}
+                                    client={client}
+                                    service={service}
+                                    tmhr={tmhr}
+                                    style={{
+                                        top: `${top}px`,
+                                        height: `${height}px`,
+                                    }}
+                               />
+                           );
+                        })}
+                    </div>
                 </div>
             </ScrollArea>
         </div>
@@ -190,7 +167,7 @@ export default function PlannerPage() {
     const todayIndex = Array.from({ length: 7 }, (_, i) => addDays(start, i)).findIndex(d => format(d, 'yyyy-MM-dd') === format(today, 'yyyy-MM-dd'));
     
     setCurrentDate(today);
-    setCurrentDayIndex(todayIndex);
+    setCurrentDayIndex(todayIndex >= 0 ? todayIndex : 0);
     setIsClient(true);
     setIsLoading(false);
   }, []);
@@ -261,7 +238,7 @@ export default function PlannerPage() {
     setCurrentDate(today);
     const start = startOfWeek(today, { weekStartsOn: 0 });
     const todayIndex = Array.from({ length: 7 }, (_, i) => addDays(start, i)).findIndex(d => format(d, 'yyyy-MM-dd') === format(today, 'yyyy-MM-dd'));
-    if (api) {
+    if (api && todayIndex >= 0) {
         api.scrollTo(todayIndex);
     }
   };
@@ -314,7 +291,7 @@ export default function PlannerPage() {
           </DropdownMenu>
       </div>
       <main className="flex-1 overflow-hidden">
-         <Carousel setApi={setApi} className="h-full w-full" opts={{startIndex: currentDayIndex}}>
+         <Carousel setApi={setApi} className="h-full w-full" opts={{startIndex: currentDayIndex, align: 'start' }}>
             <CarouselContent className="h-full">
                  {weekDays.map((date, index) => {
                     const appointmentsForDay = appointments
