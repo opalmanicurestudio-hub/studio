@@ -63,6 +63,7 @@ interface AppointmentCardProps {
   onDelete: (appointmentId: string) => void;
   onCompleteClick: (appointment: Appointment) => void;
   onPrintReceipt: (appointment: Appointment) => void;
+  onEdit: (appointment: Appointment) => void;
 }
 
 const AppointmentDetails = ({
@@ -188,6 +189,7 @@ export function AppointmentCard({
   onDelete,
   onCompleteClick,
   onPrintReceipt,
+  onEdit,
 }: AppointmentCardProps) {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const isMobile = useIsMobile();
@@ -252,7 +254,7 @@ export function AppointmentCard({
                         <Printer className="mr-2 h-4 w-4"/>Print Receipt
                     </DropdownMenuItem>
                 )}
-                <DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => onEdit(appointment)}>
                   <Edit className="mr-2 h-4 w-4"/> Edit Details
                 </DropdownMenuItem>
                 <DropdownMenuItem className="text-destructive" onSelect={() => onDelete(appointment.id)}>

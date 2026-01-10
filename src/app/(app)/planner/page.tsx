@@ -44,8 +44,9 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
 
-const DayTimeline = ({ date, appointments, events, onCompleteClick, onUpdateStatus, onDelete, onPrintReceipt }: { date: Date; appointments: Appointment[]; events: Event[]; onCompleteClick: (apt: Appointment) => void; onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void; onDelete: (appointmentId: string) => void; onPrintReceipt: (appointment: Appointment) => void; }) => {
+const DayTimeline = ({ date, appointments, events, onCompleteClick, onUpdateStatus, onDelete, onPrintReceipt, onEdit }: { date: Date; appointments: Appointment[]; events: Event[]; onCompleteClick: (apt: Appointment) => void; onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void; onDelete: (appointmentId: string) => void; onPrintReceipt: (appointment: Appointment) => void; onEdit: (appointment: Appointment) => void; }) => {
     const dailyTotals = useMemo(() => {
         return appointments
         .filter(apt => apt.status === 'completed')
@@ -145,6 +146,7 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick, onUpdateStat
                                         onDelete={onDelete}
                                         onCompleteClick={onCompleteClick}
                                         onPrintReceipt={onPrintReceipt}
+                                        onEdit={onEdit}
                                     />
                                </div>
                            );
@@ -165,6 +167,7 @@ export default function PlannerPage() {
 
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
+  const [isEditAppointmentOpen, setIsEditAppointmentOpen] = useState(false);
   const [isAddEventOpen, setIsAddEventOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const { toast } = useToast();
@@ -210,6 +213,11 @@ export default function PlannerPage() {
     setIsCheckoutOpen(true);
   };
 
+  const handleEditClick = (appointment: Appointment) => {
+    setSelectedAppointment(appointment);
+    setIsEditAppointmentOpen(true);
+  };
+
   const handleCheckout = (updatedInventory: any, newCorrections: any) => {
     if (!selectedAppointment) return;
 
@@ -235,6 +243,15 @@ export default function PlannerPage() {
         description: `Appointment with ${clients.find(c => c.id === newAppointment.clientId)?.name} has been added.`
     })
     setIsAddAppointmentOpen(false);
+  };
+
+  const handleUpdateAppointment = (updatedAppointment: Appointment) => {
+    setAppointments(prev => prev.map(apt => apt.id === updatedAppointment.id ? updatedAppointment : apt));
+    toast({
+        title: "Appointment Updated",
+        description: `The appointment has been successfully updated.`
+    })
+    setIsEditAppointmentOpen(false);
   };
 
   const handleAddEvent = (newEvent: Omit<Event, 'id'>) => {
@@ -368,7 +385,7 @@ export default function PlannerPage() {
                         .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
                     return (
                         <CarouselItem key={index} className="h-full basis-full">
-                            <DayTimeline date={date} appointments={appointmentsForDay} events={eventsForDay} onCompleteClick={handleCompleteClick} onUpdateStatus={handleUpdateStatus} onDelete={handleDeleteAppointment} onPrintReceipt={handlePrintReceipt} />
+                            <DayTimeline date={date} appointments={appointmentsForDay} events={eventsForDay} onCompleteClick={handleCompleteClick} onUpdateStatus={handleUpdateStatus} onDelete={handleDeleteAppointment} onPrintReceipt={handlePrintReceipt} onEdit={handleEditClick} />
                         </CarouselItem>
                     )
                  })}
@@ -391,6 +408,17 @@ export default function PlannerPage() {
         appointments={appointments}
         onConfirm={handleAddAppointment}
       />
+       {selectedAppointment && (
+        <EditAppointmentDialog 
+            open={isEditAppointmentOpen}
+            onOpenChange={setIsEditAppointmentOpen}
+            appointment={selectedAppointment}
+            clients={clients}
+            services={services}
+            appointments={appointments}
+            onConfirm={handleUpdateAppointment}
+        />
+       )}
       <AddEventDialog 
         open={isAddEventOpen}
         onOpenChange={setIsAddEventOpen}
