@@ -170,9 +170,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     return { updatedInventory: tempInventory, displayCorrections: editableFormula, newCorrections, warnings };
   }, [editableFormula, inventory, appointment.id]);
   
-  const handleCompleteAndPrint = () => {
+  const handleCompleteAppointment = () => {
     onConfirmCheckout(updatedInventory, newCorrections)
-    onOpenChange(false); // Close dialog after confirming
   };
 
 
@@ -396,8 +395,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
           </ScrollArea>
           <DialogFooter className="print:hidden">
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button onClick={handleCompleteAndPrint} disabled={warnings.some(w => w.includes('Insufficient stock'))}>
-              Complete & Print Receipt
+            <Button onClick={handleCompleteAppointment} disabled={warnings.some(w => w.includes('Insufficient stock'))}>
+              Complete Appointment
             </Button>
           </DialogFooter>
         </DialogContent>

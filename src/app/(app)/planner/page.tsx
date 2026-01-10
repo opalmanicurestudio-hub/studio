@@ -3,7 +3,7 @@
 
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event } from '@/lib/data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast } from 'date-fns';
 import { useState, useMemo, useEffect } from 'react';
@@ -37,6 +37,13 @@ import {
 } from '@/components/ui/accordion';
 import { AppointmentCard } from '@/components/planner/AppointmentCard';
 import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 
 const DayTimeline = ({ date, appointments, events, onCompleteClick, onUpdateStatus, onDelete, onPrintReceipt }: { date: Date; appointments: Appointment[]; events: Event[]; onCompleteClick: (apt: Appointment) => void; onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void; onDelete: (appointmentId: string) => void; onPrintReceipt: (appointment: Appointment) => void; }) => {
     const dailyTotals = useMemo(() => {
@@ -206,7 +213,8 @@ export default function PlannerPage() {
   const handleCheckout = (updatedInventory: any, newCorrections: any) => {
     if (!selectedAppointment) return;
 
-    setAppointments(prev => prev.map(apt => apt.id === selectedAppointment.id ? { ...apt, status: 'completed' } : apt));
+    const completedAppointment = { ...selectedAppointment, status: 'completed' as const };
+    setAppointments(prev => prev.map(apt => apt.id === selectedAppointment.id ? completedAppointment : apt));
     setInventory(updatedInventory);
     newCorrections.forEach(addStockCorrection);
     
@@ -216,6 +224,7 @@ export default function PlannerPage() {
     });
     setIsCheckoutOpen(false); 
     setSelectedAppointment(null);
+    handlePrintReceipt(completedAppointment);
   };
   
   const handleAddAppointment = (newAppointment: Omit<Appointment, 'id'>) => {
@@ -308,15 +317,6 @@ export default function PlannerPage() {
     setReceiptToPrint(receiptData);
   }
 
-  useEffect(() => {
-      if (receiptToPrint) {
-          setTimeout(() => {
-            window.print();
-            setReceiptToPrint(null);
-          }, 100);
-      }
-  }, [receiptToPrint]);
-
   const currentVisibleDate = weekDays[currentDayIndex];
   
   if (isLoading || !isClient) {
@@ -331,12 +331,7 @@ export default function PlannerPage() {
   }
   
   return (
-    <div id="main-content" className="flex h-screen w-full flex-col overflow-hidden">
-      {receiptToPrint && (
-        <div className="label-print-area">
-            <PrintReceipt data={receiptToPrint} />
-        </div>
-      )}
+    <div className="flex h-screen w-full flex-col overflow-hidden">
       <AppHeader title="Planner" />
       <div className="flex items-center justify-between gap-4 p-4 border-b">
           <div className="flex items-center gap-2">
@@ -401,6 +396,23 @@ export default function PlannerPage() {
         onOpenChange={setIsAddEventOpen}
         onConfirm={handleAddEvent}
       />
+      <Dialog open={!!receiptToPrint} onOpenChange={(open) => !open && setReceiptToPrint(null)}>
+        <DialogContent className="max-w-sm print-content">
+          <DialogHeader>
+            <DialogTitle>Receipt</DialogTitle>
+          </DialogHeader>
+          <div id="receipt-area">
+            {receiptToPrint && <PrintReceipt data={receiptToPrint} />}
+          </div>
+          <DialogFooter className="print:hidden">
+            <Button variant="outline" onClick={() => setReceiptToPrint(null)}>Close</Button>
+            <Button onClick={() => window.print()}>
+              <Printer className="mr-2 h-4 w-4" />
+              Print
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
