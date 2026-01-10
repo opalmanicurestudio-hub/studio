@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { usePathname } from 'next/navigation';
@@ -79,7 +80,7 @@ export function AppSidebar() {
 
   const isNavItemActive = (href: string) => {
     // Exact match for dashboard, startsWith for others
-    if (href === '/dashboard' || href === '/inventory') {
+    if (href === '/dashboard' || href === '/inventory' || href === '/planner') {
         return pathname === href;
     }
     return pathname.startsWith(href);
