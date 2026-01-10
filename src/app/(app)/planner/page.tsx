@@ -5,7 +5,7 @@
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer } from 'lucide-react';
-import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event } from '@/lib/data';
+import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem } from '@/lib/data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay } from 'date-fns';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
@@ -79,7 +79,35 @@ const TimeIndicator = () => {
 };
 
 
-const DayTimeline = ({ date, appointments, events, onCompleteClick, onUpdateStatus, onDelete, onPrintReceipt, onEdit }: { date: Date; appointments: Appointment[]; events: Event[]; onCompleteClick: (apt: Appointment) => void; onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void; onDelete: (appointmentId: string) => void; onPrintReceipt: (appointment: Appointment) => void; onEdit: (appointment: Appointment) => void; }) => {
+const DayTimeline = ({ 
+    date, 
+    appointments, 
+    events, 
+    onCompleteClick, 
+    onUpdateStatus, 
+    onDeleteAppointment, 
+    onPrintReceipt, 
+    onEditAppointment,
+    onChecklistItemToggle,
+    onAddChecklistItem,
+    onRemoveChecklistItem,
+    onDeleteEvent,
+    onEditEvent
+}: { 
+    date: Date; 
+    appointments: Appointment[]; 
+    events: Event[]; 
+    onCompleteClick: (apt: Appointment) => void; 
+    onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void; 
+    onDeleteAppointment: (appointmentId: string) => void; 
+    onPrintReceipt: (appointment: Appointment) => void; 
+    onEditAppointment: (appointment: Appointment) => void; 
+    onChecklistItemToggle: (eventId: string, checklistItemId: string, completed: boolean) => void;
+    onAddChecklistItem: (eventId: string, text: string) => void;
+    onRemoveChecklistItem: (eventId: string, checklistItemId: string) => void;
+    onDeleteEvent: (eventId: string) => void;
+    onEditEvent: (event: Event) => void;
+}) => {
     const dailyTotals = useMemo(() => {
         return appointments
         .filter(apt => apt.status === 'completed')
@@ -113,15 +141,17 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick, onUpdateStat
     }, []);
 
     const renderItem = (item: any) => {
+        const top = (getHours(item.startTime) - 8 + getMinutes(item.startTime) / 60) * 96;
+        const height = differenceInMinutes(item.endTime, item.startTime) / 60 * 96;
+        const style = { top: `${top}px`, height: `${height}px` };
+
         if (item.itemType === 'appointment') {
             const client = clients.find(c => c.id === item.clientId);
             const service = services.find(s => s.id === item.serviceId);
             if (!client || !service) return null;
-            const totalDuration = service.duration + (service.padBefore || 0) + (service.padAfter || 0);
-            const top = (getHours(item.startTime) - 8 + getMinutes(item.startTime) / 60) * 96;
-            const height = totalDuration / 60 * 96;
+           
             return (
-                <div key={item.id} className="absolute w-full" style={{ top: `${top}px`, height: `${height}px` }}>
+                <div key={item.id} className="absolute w-full" style={style}>
                     <AppointmentCard
                         appointment={item}
                         client={client}
@@ -129,20 +159,24 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick, onUpdateStat
                         tmhr={tmhr}
                         style={{ height: '100%'}}
                         onUpdateStatus={onUpdateStatus}
-                        onDelete={onDelete}
+                        onDelete={onDeleteAppointment}
                         onCompleteClick={onCompleteClick}
                         onPrintReceipt={onPrintReceipt}
-                        onEdit={onEdit}
+                        onEdit={onEditAppointment}
                     />
                 </div>
             );
         } else { // item.itemType === 'event'
-            const duration = differenceInMinutes(item.endTime, item.startTime);
-            const top = (getHours(item.startTime) - 8 + getMinutes(item.startTime) / 60) * 96;
-            const height = (duration / 60) * 96;
-            return (
-                 <div key={item.id} className="absolute w-full px-2" style={{ top: `${top}px`, height: `${height}px` }}>
-                    <EventCard event={item} />
+             return (
+                 <div key={item.id} className="absolute w-full px-2" style={style}>
+                    <EventCard 
+                        event={item} 
+                        onChecklistItemToggle={onChecklistItemToggle}
+                        onAddChecklistItem={onAddChecklistItem}
+                        onRemoveChecklistItem={onRemoveChecklistItem}
+                        onDeleteEvent={onDeleteEvent}
+                        onEditEvent={onEditEvent}
+                    />
                 </div>
             );
         }
@@ -259,6 +293,14 @@ export default function PlannerPage() {
     setSelectedAppointment(appointment);
     setIsEditAppointmentOpen(true);
   };
+  
+  const handleEditEvent = (event: Event) => {
+    // This will likely open a new dialog pre-filled with event data.
+    // For now, we'll just log it.
+    console.log("Editing event:", event);
+    // setIsEditEventOpen(true);
+    // setSelectedEvent(event);
+  };
 
   const handleCheckout = (updatedInventory: any, newCorrections: any) => {
     if (!selectedAppointment) return;
@@ -328,6 +370,52 @@ export default function PlannerPage() {
         title: "Appointment Deleted",
         description: `The appointment has been removed from your calendar.`
     });
+  };
+
+  const handleDeleteEvent = (eventId: string) => {
+    setEvents(prev => prev.filter(evt => evt.id !== eventId));
+     toast({
+        variant: "destructive",
+        title: "Event Deleted",
+        description: `The event has been removed from your calendar.`
+    });
+  };
+  
+  const handleChecklistItemToggle = (eventId: string, checklistItemId: string, completed: boolean) => {
+      setEvents(prevEvents => prevEvents.map(event => {
+          if (event.id === eventId) {
+              const updatedChecklist = event.checklist?.map(item => 
+                  item.id === checklistItemId ? { ...item, completed } : item
+              );
+              return { ...event, checklist: updatedChecklist };
+          }
+          return event;
+      }));
+  };
+
+  const handleAddChecklistItem = (eventId: string, text: string) => {
+      setEvents(prevEvents => prevEvents.map(event => {
+          if (event.id === eventId) {
+              const newChecklistItem: EventChecklistItem = {
+                  id: `cl-${Date.now()}`,
+                  text,
+                  completed: false
+              };
+              const updatedChecklist = event.checklist ? [...event.checklist, newChecklistItem] : [newChecklistItem];
+              return { ...event, checklist: updatedChecklist };
+          }
+          return event;
+      }));
+  };
+
+  const handleRemoveChecklistItem = (eventId: string, checklistItemId: string) => {
+      setEvents(prevEvents => prevEvents.map(event => {
+          if (event.id === eventId) {
+              const updatedChecklist = event.checklist?.filter(item => item.id !== checklistItemId);
+              return { ...event, checklist: updatedChecklist };
+          }
+          return event;
+      }));
   };
 
   const handleNextWeek = () => {
@@ -451,7 +539,21 @@ export default function PlannerPage() {
                         .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
                     return (
                         <CarouselItem key={index} className="h-full basis-full">
-                            <DayTimeline date={date} appointments={appointmentsForDay} events={eventsForDay} onCompleteClick={handleCompleteClick} onUpdateStatus={handleUpdateStatus} onDelete={handleDeleteAppointment} onPrintReceipt={handlePrintReceipt} onEdit={handleEditClick} />
+                            <DayTimeline 
+                                date={date} 
+                                appointments={appointmentsForDay} 
+                                events={eventsForDay} 
+                                onCompleteClick={handleCompleteClick} 
+                                onUpdateStatus={handleUpdateStatus} 
+                                onDeleteAppointment={handleDeleteAppointment} 
+                                onPrintReceipt={handlePrintReceipt} 
+                                onEditAppointment={handleEditClick}
+                                onChecklistItemToggle={handleChecklistItemToggle}
+                                onAddChecklistItem={handleAddChecklistItem}
+                                onRemoveChecklistItem={handleRemoveChecklistItem}
+                                onDeleteEvent={handleDeleteEvent}
+                                onEditEvent={handleEditEvent}
+                            />
                         </CarouselItem>
                     )
                  })}
