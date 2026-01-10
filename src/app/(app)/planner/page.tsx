@@ -203,7 +203,7 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick, onUpdateStat
 
 export default function PlannerPage() {
   const [isClient, setIsClient] = useState(false);
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentDate, setCurrentDate] = useState<Date | null>(null);
   const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
   const [events, setEvents] = useState<Event[]>(initialEvents);
   const { inventory, setInventory, addStockCorrection } = useInventory();
@@ -217,7 +217,6 @@ export default function PlannerPage() {
   
   const [api, setApi] = useState<CarouselApi>()
   const [currentDayIndex, setCurrentDayIndex] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
   
   const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
 
@@ -229,10 +228,10 @@ export default function PlannerPage() {
     setCurrentDate(today);
     setCurrentDayIndex(todayIndex >= 0 ? todayIndex : 0);
     setIsClient(true);
-    setIsLoading(false);
   }, []);
 
   const weekDays = useMemo(() => {
+    if (!currentDate) return [];
     const start = startOfWeek(currentDate, { weekStartsOn: 0 });
     return Array.from({ length: 7 }, (_, i) => addDays(start, i));
   }, [currentDate]);
@@ -331,8 +330,16 @@ export default function PlannerPage() {
     });
   };
 
-  const handleNextWeek = () => setCurrentDate(addDays(currentDate, 7));
-  const handlePrevWeek = () => setCurrentDate(subDays(currentDate, 7));
+  const handleNextWeek = () => {
+    if (currentDate) {
+        setCurrentDate(addDays(currentDate, 7));
+    }
+  };
+  const handlePrevWeek = () => {
+    if (currentDate) {
+      setCurrentDate(subDays(currentDate, 7));
+    }
+  };
   const handleToday = () => {
     const today = new Date();
     setCurrentDate(today);
@@ -379,7 +386,7 @@ export default function PlannerPage() {
 
   const currentVisibleDate = weekDays[currentDayIndex];
   
-  if (isLoading || !isClient) {
+  if (!isClient || !currentDate) {
     return (
       <div className="flex h-full w-full flex-col">
         <AppHeader title="Planner" />
