@@ -33,7 +33,7 @@ export const BrowseProductsDialog: React.FC<BrowseProductsDialogProps> = ({
   allProducts,
   initialSelected,
 }) => {
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(initialSelected.map(p => p.id)));
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
@@ -55,6 +55,7 @@ export const BrowseProductsDialog: React.FC<BrowseProductsDialogProps> = ({
   const handleSave = () => {
     const selectedItems = allProducts.filter(p => selectedIds.has(p.id));
     onSelect(selectedItems);
+    onOpenChange(false);
   };
 
   const filteredProducts = allProducts.filter(p =>
@@ -66,7 +67,7 @@ export const BrowseProductsDialog: React.FC<BrowseProductsDialogProps> = ({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Browse Products</DialogTitle>
-          <DialogDescription>Select products to add to the service formula.</DialogDescription>
+          <DialogDescription>Select products to add.</DialogDescription>
         </DialogHeader>
         <div className="py-4 space-y-4">
             <div className="relative">
@@ -108,11 +109,9 @@ export const BrowseProductsDialog: React.FC<BrowseProductsDialogProps> = ({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSave}>Add Selected</Button>
+          <Button onClick={handleSave}>Add Selected ({selectedIds.size})</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 };
-
-    

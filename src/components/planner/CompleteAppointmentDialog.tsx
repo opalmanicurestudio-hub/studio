@@ -131,7 +131,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         unit: 'unit',
         costPerUnit: p.costPerUnit || 0,
       }));
-      setRetailItems(prev => [...prev, ...newItems.filter(newItem => !prev.find(item => item.id === newItem.id))]);
+      // This is the key change: ensure we get the full list of selected products, not just the newly added ones
+      setRetailItems(newItems);
   }
   
   const handleRemoveProduct = (productId: string) => {
@@ -413,7 +414,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         onOpenChange={setIsRetailBrowserOpen}
         onSelect={handleAddRetail}
         allProducts={inventory.filter(i => i.type === 'retail')}
-        initialSelected={[]}
+        initialSelected={retailItems}
       />
        <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
         <DialogContent className="sm:max-w-md p-0">
