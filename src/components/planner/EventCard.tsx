@@ -1,12 +1,11 @@
 
 'use client';
 
-import React from 'react';
-import { type Event } from '@/lib/data';
+import React, { useState } from 'react';
+import { type Event, type EventChecklistItem } from '@/lib/data';
 import { cn } from '@/lib/utils';
-import { Briefcase, User, Lock, MapPin, CheckSquare, DollarSign, Upload } from 'lucide-react';
+import { Briefcase, User, Lock, MapPin, CheckSquare, DollarSign, Upload, Edit } from 'lucide-react';
 import { format } from 'date-fns';
-import { Progress } from '../ui/progress';
 import { Checkbox } from '../ui/checkbox';
 import { Separator } from '../ui/separator';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -22,16 +21,21 @@ import {
 import { ScrollArea } from '../ui/scroll-area';
 import { Button } from '../ui/button';
 import { ImageUpload } from '../shared/ImageUpload';
+import { EditEventDialog } from './EditEventDialog';
 
 
 interface EventCardProps {
     event: Event,
     onChecklistItemToggle: (eventId: string, checklistItemId: string, completed: boolean) => void;
+    onUpdateEvent: (updatedEvent: Event) => void;
 }
 
-const EventDetailsContent = ({ event, onChecklistItemToggle }: EventCardProps) => {
-    const completedCount = React.useMemo(() => event.checklist?.filter(item => item.completed).length || 0, [event.checklist]);
-    const totalCount = React.useMemo(() => event.checklist?.length || 0, [event.checklist]);
+const EventDetailsContent = ({ event, onChecklistItemToggle, onUpdateEvent }: {
+    event: Event,
+    onChecklistItemToggle: (eventId: string, checklistItemId: string, completed: boolean) => void;
+    onUpdateEvent: (updatedEvent: Event) => void;
+}) => {
+    const [isEditing, setIsEditing] = useState(false);
 
     if (event.type === 'blocked') {
         return (
@@ -44,60 +48,76 @@ const EventDetailsContent = ({ event, onChecklistItemToggle }: EventCardProps) =
     }
 
     return (
-        <div className="space-y-6">
-            <div className="space-y-2">
-                <h4 className="font-medium text-sm">Details</h4>
-                {event.notes && <p className="text-sm text-muted-foreground">{event.notes}</p>}
-                
-                <div className='flex flex-col gap-2 text-sm text-muted-foreground'>
-                    {event.location && (
-                        <div className="flex items-center gap-2">
-                            <MapPin className="w-4 h-4 flex-shrink-0" />
-                            <span>{event.location}</span>
-                        </div>
-                    )}
-                     {event.cost && event.cost > 0 && (
-                        <div className="flex items-center gap-2">
-                            <DollarSign className="w-4 h-4 flex-shrink-0" />
-                            <span>Cost: ${event.cost.toFixed(2)}</span>
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            {event.checklist && event.checklist.length > 0 && (
-                <div className="space-y-3">
-                    <div className="flex justify-between items-center text-sm">
-                        <h4 className="font-medium flex items-center gap-2"><CheckSquare className="w-4 h-4"/> Checklist</h4>
-                        <span className="text-muted-foreground">{completedCount}/{totalCount} completed</span>
-                    </div>
+        <>
+            <ScrollArea className="flex-1 -mr-6 pr-6">
+                <div className="p-6 space-y-6">
                     <div className="space-y-2">
-                    {event.checklist.map((item) => (
-                        <div key={item.id} className="flex items-center gap-3 p-2 rounded-md bg-muted/50">
-                            <Checkbox id={item.id} checked={item.completed} onCheckedChange={(checked) => onChecklistItemToggle(event.id, item.id, !!checked)} />
-                            <label htmlFor={item.id} className={cn("text-sm flex-1", item.completed && "line-through text-muted-foreground")}>{item.text}</label>
+                        <h4 className="font-medium text-sm">Details</h4>
+                        {event.notes && <p className="text-sm text-muted-foreground">{event.notes}</p>}
+                        
+                        <div className='flex flex-col gap-2 text-sm text-muted-foreground'>
+                            {event.location && (
+                                <div className="flex items-center gap-2">
+                                    <MapPin className="w-4 h-4 flex-shrink-0" />
+                                    <span>{event.location}</span>
+                                </div>
+                            )}
+                            {event.cost && event.cost > 0 && (
+                                <div className="flex items-center gap-2">
+                                    <DollarSign className="w-4 h-4 flex-shrink-0" />
+                                    <span>Cost: ${event.cost.toFixed(2)}</span>
+                                </div>
+                            )}
                         </div>
-                    ))}
+                    </div>
+
+                    {event.checklist && event.checklist.length > 0 && (
+                        <div className="space-y-3">
+                            <div className="flex justify-between items-center text-sm">
+                                <h4 className="font-medium flex items-center gap-2"><CheckSquare className="w-4 h-4"/> Checklist</h4>
+                            </div>
+                            <div className="space-y-2">
+                            {event.checklist.map((item) => (
+                                <div key={item.id} className="flex items-center gap-3 p-2 rounded-md bg-muted/50">
+                                    <Checkbox id={item.id} checked={item.completed} onCheckedChange={(checked) => onChecklistItemToggle(event.id, item.id, !!checked)} />
+                                    <label htmlFor={item.id} className={cn("text-sm flex-1", item.completed && "line-through text-muted-foreground")}>{item.text}</label>
+                                </div>
+                            ))}
+                            </div>
+                        </div>
+                    )}
+                    
+                    <Separator />
+                    
+                    <div className="space-y-3">
+                        <h4 className="font-medium text-sm flex items-center gap-2"><Upload className="w-4 h-4"/> Receipts</h4>
+                        <div className="p-4 text-center border-2 border-dashed rounded-lg">
+                            <p className="text-sm text-muted-foreground mb-2">No receipts uploaded.</p>
+                            <ImageUpload onImageUploaded={(url) => console.log('Receipt uploaded:', url)} />
+                        </div>
                     </div>
                 </div>
-            )}
-            
-            <Separator />
-            
-            <div className="space-y-3">
-                <h4 className="font-medium text-sm flex items-center gap-2"><Upload className="w-4 h-4"/> Receipts</h4>
-                <div className="p-4 text-center border-2 border-dashed rounded-lg">
-                    <p className="text-sm text-muted-foreground mb-2">No receipts uploaded.</p>
-                    <ImageUpload onImageUploaded={(url) => console.log('Receipt uploaded:', url)} />
-                </div>
-            </div>
-        </div>
+            </ScrollArea>
+             <SheetFooter className="pt-4 border-t pr-6">
+                <Button variant="outline" className="w-full" onClick={() => setIsEditing(true)}>
+                    <Edit className="w-4 h-4 mr-2" />
+                    Edit Event
+                </Button>
+            </SheetFooter>
+            <EditEventDialog 
+                open={isEditing}
+                onOpenChange={setIsEditing}
+                event={event}
+                onConfirm={onUpdateEvent}
+            />
+        </>
     )
 }
 
 export function EventCard({ 
     event,
     onChecklistItemToggle,
+    onUpdateEvent,
 }: EventCardProps) {
 
     const isMobile = useIsMobile();
@@ -115,16 +135,6 @@ export function EventCard({
         case 'blocked': Icon = Lock; break;
     }
     
-    const checklistProgress = React.useMemo(() => {
-        if (!event.checklist || event.checklist.length === 0) return null;
-        const completed = event.checklist.filter(item => item.completed).length;
-        const total = event.checklist.length;
-        return {
-            progress: (completed / total) * 100,
-            text: `${completed}/${total}`
-        };
-    }, [event.checklist]);
-
     const TriggerCard = (
         <div 
             className={cn(
@@ -142,19 +152,6 @@ export function EventCard({
             </div>
             
             <div className="flex-grow mt-2 overflow-y-auto">
-              {/* Minimal content for the card itself can go here if needed */}
-            </div>
-            
-            <div className="flex-shrink-0 mt-auto pt-2">
-                {checklistProgress && (
-                    <div className="space-y-1">
-                        <div className="flex justify-between items-center text-[10px] text-muted-foreground">
-                            <span>Checklist</span>
-                            <span>{checklistProgress.text}</span>
-                        </div>
-                        <Progress value={checklistProgress.progress} className="h-1" />
-                    </div>
-                )}
             </div>
         </div>
     );
@@ -162,22 +159,15 @@ export function EventCard({
     return (
         <Sheet>
             <SheetTrigger asChild>{TriggerCard}</SheetTrigger>
-            <SheetContent side={isMobile ? "bottom" : "right"} className={cn(isMobile ? "h-[90dvh]" : "sm:max-w-md", "flex flex-col")}>
-                 <SheetHeader className="pr-6">
+            <SheetContent side={isMobile ? "bottom" : "right"} className={cn(isMobile ? "h-[90dvh]" : "sm:max-w-md", "flex flex-col p-0")}>
+                 <SheetHeader className="p-6 pb-4">
                     <SheetTitle>{event.title}</SheetTitle>
                     <SheetDescription>
                          {format(event.startTime, 'EEEE, LLL d')} &middot; {format(event.startTime, 'h:mm a')} - {format(event.endTime, 'h:mm a')}
                     </SheetDescription>
                 </SheetHeader>
                 <Separator />
-                <ScrollArea className="flex-1 -mr-6 pr-6">
-                    <div className="p-6">
-                        <EventDetailsContent event={event} onChecklistItemToggle={onChecklistItemToggle} />
-                    </div>
-                </ScrollArea>
-                <SheetFooter className="pt-4 border-t">
-                    <Button variant="outline" className="w-full">Edit Event</Button>
-                </SheetFooter>
+                <EventDetailsContent event={event} onChecklistItemToggle={onChecklistItemToggle} onUpdateEvent={onUpdateEvent} />
             </SheetContent>
         </Sheet>
     )

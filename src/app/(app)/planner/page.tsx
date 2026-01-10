@@ -49,6 +49,7 @@ import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialo
 import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, Timestamp } from 'firebase/firestore';
 import { type Transaction } from '@/lib/financial-data';
+import { EditEventDialog } from '@/components/planner/EditEventDialog';
 
 const TimeIndicator = () => {
     const [top, setTop] = useState(0);
@@ -92,6 +93,7 @@ const DayTimeline = ({
     onPrintReceipt, 
     onEditAppointment,
     onChecklistItemToggle,
+    onUpdateEvent,
     dailyTransactions,
 }: { 
     date: Date; 
@@ -103,6 +105,7 @@ const DayTimeline = ({
     onPrintReceipt: (appointment: Appointment) => void; 
     onEditAppointment: (appointment: Appointment) => void; 
     onChecklistItemToggle: (eventId: string, checklistItemId: string, completed: boolean) => void;
+    onUpdateEvent: (updatedEvent: Event) => void;
     dailyTransactions: Transaction[] | null;
 }) => {
     const dailyTotals = useMemo(() => {
@@ -179,6 +182,7 @@ const DayTimeline = ({
                     <EventCard 
                         event={item} 
                         onChecklistItemToggle={onChecklistItemToggle}
+                        onUpdateEvent={onUpdateEvent}
                     />
                 </div>
             );
@@ -387,6 +391,14 @@ export default function PlannerPage() {
     setIsAddEventOpen(false);
   };
 
+    const handleUpdateEvent = (updatedEvent: Event) => {
+        setEvents(prev => prev.map(e => e.id === updatedEvent.id ? updatedEvent : e));
+        toast({
+            title: "Event Updated",
+            description: `"${updatedEvent.title}" has been updated.`
+        });
+    }
+
   const handleUpdateStatus = (appointmentId: string, status: Appointment['status']) => {
     if (status === 'completed') {
         const appointmentToComplete = appointments.find(apt => apt.id === appointmentId);
@@ -553,6 +565,7 @@ export default function PlannerPage() {
                                 onPrintReceipt={handlePrintReceipt} 
                                 onEditAppointment={handleEditClick}
                                 onChecklistItemToggle={handleChecklistItemToggle}
+                                onUpdateEvent={handleUpdateEvent}
                                 dailyTransactions={dailyTransactions}
                             />
                         </CarouselItem>
