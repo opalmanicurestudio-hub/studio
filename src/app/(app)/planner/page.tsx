@@ -141,7 +141,7 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick }: { date: Da
                     ) : (
                         <div className="text-center pt-20 text-muted-foreground text-sm space-y-4">
                             <p>No appointments or events scheduled for this day.</p>
-                            <Button variant="secondary">
+                            <Button variant="secondary" onClick={() => { /* This needs to open the dialog */ }}>
                                 <PlusCircle className="mr-2 h-4 w-4" />
                                 Add Appointment
                             </Button>
@@ -156,8 +156,8 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick }: { date: Da
 export default function PlannerPage() {
   const [isClient, setIsClient] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
-  const [events, setEvents] = useState<Event[]>(initialEvents);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [events, setEvents] = useState<Event[]>([]);
   const { inventory, setInventory, addStockCorrection } = useInventory();
 
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
@@ -170,8 +170,9 @@ export default function PlannerPage() {
   const [currentDayIndex, setCurrentDayIndex] = useState(0);
 
   useEffect(() => {
-    // This effect runs only on the client, after hydration
     setIsClient(true);
+    setAppointments(initialAppointments);
+    setEvents(initialEvents);
     const today = new Date();
     setCurrentDate(today);
 
@@ -274,7 +275,7 @@ export default function PlannerPage() {
   }
 
   return (
-    <div className="flex h-[100dvh] w-full flex-col">
+    <div className="flex h-full w-full flex-col">
       <AppHeader title="Planner" />
       <div className="flex items-center justify-between gap-4 p-4 border-b">
           <div className="flex items-center gap-2">
