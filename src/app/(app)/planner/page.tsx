@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event } from '@/lib/data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay } from 'date-fns';
-import { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
 import { useInventory } from '@/context/InventoryContext';
@@ -112,6 +112,42 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick, onUpdateStat
       }
     }, []);
 
+    const renderItem = (item: any) => {
+        if (item.itemType === 'appointment') {
+            const client = clients.find(c => c.id === item.clientId);
+            const service = services.find(s => s.id === item.serviceId);
+            if (!client || !service) return null;
+            const totalDuration = service.duration + (service.padBefore || 0) + (service.padAfter || 0);
+            const top = (getHours(item.startTime) - 8 + getMinutes(item.startTime) / 60) * 96;
+            const height = totalDuration / 60 * 96;
+            return (
+                <div key={item.id} className="absolute w-full" style={{ top: `${top}px`, height: `${height}px` }}>
+                    <AppointmentCard
+                        appointment={item}
+                        client={client}
+                        service={service}
+                        tmhr={tmhr}
+                        style={{ height: '100%'}}
+                        onUpdateStatus={onUpdateStatus}
+                        onDelete={onDelete}
+                        onCompleteClick={onCompleteClick}
+                        onPrintReceipt={onPrintReceipt}
+                        onEdit={onEdit}
+                    />
+                </div>
+            );
+        } else { // item.itemType === 'event'
+            const duration = differenceInMinutes(item.endTime, item.startTime);
+            const top = (getHours(item.startTime) - 8 + getMinutes(item.startTime) / 60) * 96;
+            const height = (duration / 60) * 96;
+            return (
+                 <div key={item.id} className="absolute w-full px-2" style={{ top: `${top}px`, height: `${height}px` }}>
+                    <EventCard event={item} />
+                </div>
+            );
+        }
+    };
+
     return (
         <div className="flex flex-col h-full">
             <div className="p-4 border-b">
@@ -157,36 +193,7 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick, onUpdateStat
 
                         {isToday(date) && <TimeIndicator />}
 
-
-                        {/* Render Appointments */}
-                        {appointments.map(appointment => {
-                           const client = clients.find(c => c.id === appointment.clientId);
-                           const service = services.find(s => s.id === appointment.serviceId);
-
-                           if (!client || !service) return null;
-
-                           const totalDuration = service.duration + (service.padBefore || 0) + (service.padAfter || 0);
-
-                           const top = (getHours(appointment.startTime) - 8 + getMinutes(appointment.startTime) / 60) * 96;
-                           const height = totalDuration / 60 * 96;
-
-                           return (
-                               <div key={appointment.id} className="absolute w-full" style={{ top: `${top}px`, height: `${height}px` }}>
-                                    <AppointmentCard
-                                        appointment={appointment}
-                                        client={client}
-                                        service={service}
-                                        tmhr={tmhr}
-                                        style={{ height: '100%'}}
-                                        onUpdateStatus={onUpdateStatus}
-                                        onDelete={onDelete}
-                                        onCompleteClick={onCompleteClick}
-                                        onPrintReceipt={onPrintReceipt}
-                                        onEdit={onEdit}
-                                    />
-                               </div>
-                           );
-                        })}
+                        {allItems.map(renderItem)}
                     </div>
                 </div>
             </ScrollArea>

@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, KeyboardEvent } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
@@ -33,11 +33,13 @@ import {
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CalendarIcon } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { type Event } from '@/lib/data';
+import { type Event, type EventChecklistItem } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay } from 'date-fns';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Switch } from '../ui/switch';
+import { Checkbox } from '../ui/checkbox';
 
 const AddEventForm = ({
     onConfirm
@@ -50,6 +52,11 @@ const AddEventForm = ({
     const [startTime, setStartTime] = useState<string>('09:00');
     const [endTime, setEndTime] = useState<string>('10:00');
     const [notes, setNotes] = useState('');
+    const [location, setLocation] = useState('');
+    const [isWriteOff, setIsWriteOff] = useState(false);
+    const [checklist, setChecklist] = useState<Omit<EventChecklistItem, 'id'>[]>([]);
+    const [newChecklistItem, setNewChecklistItem] = useState('');
+
 
     const timeOptions = useMemo(() => {
         const options = [];
@@ -59,6 +66,30 @@ const AddEventForm = ({
         }
         return options;
     }, []);
+
+    const handleAddChecklistItem = () => {
+        if (newChecklistItem.trim()) {
+            setChecklist([...checklist, { text: newChecklistItem.trim(), completed: false }]);
+            setNewChecklistItem('');
+        }
+    };
+    
+    const handleChecklistKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            handleAddChecklistItem();
+        }
+    };
+
+    const toggleChecklistItem = (index: number) => {
+        const updatedList = [...checklist];
+        updatedList[index].completed = !updatedList[index].completed;
+        setChecklist(updatedList);
+    };
+
+    const removeChecklistItem = (index: number) => {
+        setChecklist(checklist.filter((_, i) => i !== index));
+    };
 
     const handleSubmit = () => {
         if (!title || !date) return;
@@ -74,7 +105,10 @@ const AddEventForm = ({
             type,
             startTime: startDateTime,
             endTime: endDateTime,
-            notes
+            notes,
+            location,
+            isWriteOff: type === 'business' ? isWriteOff : undefined,
+            checklist: checklist.map((item, index) => ({...item, id: `cl-${index}`}))
         };
         onConfirm(newEvent);
     }
@@ -161,10 +195,48 @@ const AddEventForm = ({
                         </div>
                     </div>
 
-                    <div className="space-y-4">
-                        <h3 className="text-lg font-medium">Notes</h3>
-                        <Textarea rows={4} placeholder="Add any event-specific notes..." value={notes} onChange={(e) => setNotes(e.target.value)} />
+                     <div className="space-y-4">
+                        <h3 className="text-lg font-medium">Important Details</h3>
+                         <div className="space-y-2">
+                            <Label htmlFor="location">Location</Label>
+                            <Input id="location" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g., 123 Main St or 'Zoom'" />
+                        </div>
+                        {type === 'business' && (
+                            <div className="flex items-center justify-between p-4 border rounded-lg">
+                                <div className='space-y-1'>
+                                    <Label htmlFor="is-writeoff">Potential Business Write-off?</Label>
+                                    <p className='text-sm text-muted-foreground'>Flag this event for tax purposes.</p>
+                                </div>
+                                <Switch id="is-writeoff" checked={isWriteOff} onCheckedChange={setIsWriteOff} />
+                            </div>
+                        )}
+                        <div className="space-y-2">
+                            <Label>Checklist</Label>
+                            <div className='space-y-2'>
+                                {checklist.map((item, index) => (
+                                    <div key={index} className="flex items-center gap-2 p-2 bg-muted/50 rounded-md">
+                                        <Checkbox id={`item-${index}`} checked={item.completed} onCheckedChange={() => toggleChecklistItem(index)} />
+                                        <Label htmlFor={`item-${index}`} className={cn("flex-1", item.completed && "line-through text-muted-foreground")}>{item.text}</Label>
+                                        <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeChecklistItem(index)}><Trash2 className="h-4 w-4"/></Button>
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="flex gap-2">
+                                <Input 
+                                    placeholder="Add checklist item..."
+                                    value={newChecklistItem}
+                                    onChange={(e) => setNewChecklistItem(e.target.value)}
+                                    onKeyDown={handleChecklistKeyDown}
+                                />
+                                <Button type="button" variant="outline" onClick={handleAddChecklistItem}><PlusCircle className="h-4 w-4"/></Button>
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="notes">Notes</Label>
+                            <Textarea id="notes" rows={4} placeholder="Add any event-specific notes..." value={notes} onChange={(e) => setNotes(e.target.value)} />
+                        </div>
                     </div>
+
                 </div>
             </ScrollArea>
         </form>
