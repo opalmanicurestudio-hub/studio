@@ -1,4 +1,3 @@
-
 import { BillDefinition, billDefinitions } from './financial-data';
 import { addDays, subDays, setHours, setMinutes, startOfDay } from 'date-fns';
 
@@ -248,7 +247,7 @@ export const appointments: Appointment[] = [
 
 export const events: Event[] = [
     { id: 'evt-1', title: 'Lunch with Mom', type: 'personal', startTime: setMinutes(setHours(startOfDay(today), 12), 30), endTime: setMinutes(setHours(startOfDay(today), 13), 30)},
-    { id: 'evt-2', title: 'Content Planning', type: 'business', startTime: setMinutes(setHours(startOfDay(today), 9), 0), endTime: setMinutes(setHours(startOfDay(today), 9), 30), notes: 'Plan next week\'s social posts.'},
+    { id: 'evt-2', title: 'Content Planning', type: 'business', startTime: setMinutes(setHours(startOfDay(today), 9), 0), endTime: setMinutes(setHours(startOfDay(today), 9), 30), notes: 'Plan next week\'s social posts.', isWriteOff: true},
     { id: 'evt-3', title: 'Pick up supplies', type: 'business', startTime: setMinutes(setHours(startOfDay(today), 17), 0), endTime: setMinutes(setHours(startOfDay(today), 17), 30), location: 'ProNailSupply Downtown', isWriteOff: true, checklist: [{id: 'cl-1', text: 'Nail Files', completed: false}, {id: 'cl-2', text: 'Cuticle Oil', completed: false}]},
     { id: 'evt-4', title: 'Dentist', type: 'personal', startTime: setMinutes(setHours(startOfDay(addDays(today, 2)), 15), 0), endTime: setMinutes(setHours(startOfDay(addDays(today, 2)), 16), 0)},
     { id: 'evt-5', title: 'Yoga Class', type: 'personal', startTime: setMinutes(setHours(startOfDay(today), 18), 0), endTime: setMinutes(setHours(startOfDay(today), 19), 0)},

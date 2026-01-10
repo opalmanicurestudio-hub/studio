@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/chart';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { clients, appointments, services, type Appointment } from '@/lib/data';
+import { clients, appointments, services, type Appointment, type Transaction } from '@/lib/data';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -38,6 +38,9 @@ import {
 import { endOfDayDebrief } from '@/ai/flows/end-of-day-debrief';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
+import { collection, query, where, Timestamp } from 'firebase/firestore';
+import { startOfDay, endOfDay } from 'date-fns';
 
 const chartData = [
   { day: 'Sun', profit: 450 },
@@ -67,20 +70,58 @@ export default function DashboardPage() {
   const [debriefContent, setDebriefContent] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const { toast } = useToast();
+  
+  const { firestore, user, isUserLoading } = useFirebase();
+  const tenantId = 'tenant-abc'; // Replace with dynamic tenant ID
+  
+  const todayStart = startOfDay(new Date());
+  const todayEnd = endOfDay(new Date());
 
-  const [todayAppointments, setTodayAppointments] = useState<Appointment[]>([]);
+  const transactionsQuery = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    return query(
+      collection(firestore, 'tenants', tenantId, 'transactions'),
+      where('date', '>=', Timestamp.fromDate(todayStart)),
+      where('date', '<=', Timestamp.fromDate(todayEnd))
+    );
+  }, [firestore, user, todayStart, todayEnd, tenantId]);
+
+  const appointmentsQuery = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    return query(
+      collection(firestore, 'tenants', tenantId, 'appointments'),
+      where('startTime', '>=', Timestamp.fromDate(todayStart)),
+      where('startTime', '<=', Timestamp.fromDate(todayEnd))
+    );
+  }, [firestore, user, todayStart, todayEnd, tenantId]);
+
+  const { data: todayTransactions, isLoading: transactionsLoading } = useCollection<Transaction>(transactionsQuery);
+  const { data: todayAppointments, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
+
+  const { todaysRevenue, todaysExpenses, profitPercentage } = useMemo(() => {
+    if (!todayTransactions) return { todaysRevenue: 0, todaysExpenses: 0, profitPercentage: 0 };
+    
+    const revenue = todayTransactions
+      .filter(t => t.type === 'income')
+      .reduce((acc, t) => acc + t.amount, 0);
+      
+    const expenses = todayTransactions
+      .filter(t => t.type === 'expense')
+      .reduce((acc, t) => acc + t.amount, 0);
+
+    const yesterdayRevenue = 812; // Mock data for percentage change
+    const percentage = yesterdayRevenue > 0 ? ((revenue - yesterdayRevenue) / yesterdayRevenue) * 100 : revenue > 0 ? 100 : 0;
+
+    return { todaysRevenue: revenue, todaysExpenses: expenses, profitPercentage: percentage };
+  }, [todayTransactions]);
+  
+
   const [recentActivities, setRecentActivities] = useState<Activity[]>([]);
   const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
     // This effect runs only on the client, after hydration
-    const today = new Date().toDateString();
-    setTodayAppointments(
-      appointments.filter(
-        (apt) => new Date(apt.startTime).toDateString() === today
-      )
-    );
-
+    setIsClient(true);
     setRecentActivities(
       [...appointments]
         .sort((a, b) => b.startTime.getTime() - a.startTime.getTime())
@@ -91,8 +132,6 @@ export default function DashboardPage() {
           service: services.find((s) => s.id === apt.serviceId),
         }))
     );
-
-    setIsClient(true);
   }, []);
 
   const handleGenerateDebrief = async () => {
@@ -100,10 +139,10 @@ export default function DashboardPage() {
     setDebriefContent('');
     try {
       const result = await endOfDayDebrief({
-        dailyRevenue: 910,
-        dailyExpenses: 150,
-        inventoryLevels: { 'Pro Color Tube 5N': 20, 'Retail Shine Serum': 15 },
-        completedAppointments: 5,
+        dailyRevenue: todaysRevenue,
+        dailyExpenses: todaysExpenses,
+        inventoryLevels: { 'Pro Color Tube 5N': 20, 'Retail Shine Serum': 15 }, // This should be dynamic
+        completedAppointments: todayAppointments?.filter(a => a.status === 'completed').length || 0,
       });
       setDebriefContent(result.summary);
     } catch (error) {
@@ -118,6 +157,8 @@ export default function DashboardPage() {
     }
   };
 
+  const isLoading = isUserLoading || transactionsLoading || appointmentsLoading;
+
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Dashboard" />
@@ -131,10 +172,10 @@ export default function DashboardPage() {
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">$910.00</div>
-              <p className="text-xs text-muted-foreground">
-                +12% from yesterday
-              </p>
+              {isLoading ? <Skeleton className="h-8 w-32"/> : <div className="text-2xl font-bold">${todaysRevenue.toFixed(2)}</div>}
+              {isLoading ? <Skeleton className="h-4 w-24 mt-1"/> : <p className="text-xs text-muted-foreground">
+                {profitPercentage >= 0 ? '+' : ''}{profitPercentage.toFixed(0)}% from yesterday
+              </p>}
             </CardContent>
           </Card>
           <Card>
@@ -146,9 +187,9 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {isClient ? todayAppointments.length : <Skeleton className="h-8 w-10 inline-block" />}
+                {isLoading ? <Skeleton className="h-8 w-10 inline-block" /> : todayAppointments?.length}
               </div>
-              <p className="text-xs text-muted-foreground">2 completed, 3 upcoming</p>
+               {isLoading ? <Skeleton className="h-4 w-32 mt-1"/> : <p className="text-xs text-muted-foreground">{todayAppointments?.filter(a => a.status === 'completed').length} completed, {todayAppointments?.filter(a => a.status !== 'completed').length} upcoming</p>}
             </CardContent>
           </Card>
           <Card>

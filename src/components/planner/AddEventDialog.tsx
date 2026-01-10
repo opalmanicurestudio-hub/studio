@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, KeyboardEvent } from 'react';
@@ -38,7 +37,6 @@ import { cn } from '@/lib/utils';
 import { type Event, type EventChecklistItem } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay } from 'date-fns';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Switch } from '../ui/switch';
 import { Checkbox } from '../ui/checkbox';
 
 const AddEventForm = ({
@@ -53,7 +51,6 @@ const AddEventForm = ({
     const [endTime, setEndTime] = useState<string>('10:00');
     const [notes, setNotes] = useState('');
     const [location, setLocation] = useState('');
-    const [isWriteOff, setIsWriteOff] = useState(false);
     const [checklist, setChecklist] = useState<Omit<EventChecklistItem, 'id'>[]>([]);
     const [newChecklistItem, setNewChecklistItem] = useState('');
 
@@ -107,7 +104,7 @@ const AddEventForm = ({
             endTime: endDateTime,
             notes,
             location,
-            isWriteOff: type === 'business' ? isWriteOff : undefined,
+            isWriteOff: type === 'business', // Automatically flag business events
             checklist: checklist.map((item, index) => ({...item, id: `cl-${index}`}))
         };
         onConfirm(newEvent);
@@ -201,15 +198,6 @@ const AddEventForm = ({
                             <Label htmlFor="location">Location</Label>
                             <Input id="location" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g., 123 Main St or 'Zoom'" />
                         </div>
-                        {type === 'business' && (
-                            <div className="flex items-center justify-between p-4 border rounded-lg">
-                                <div className='space-y-1'>
-                                    <Label htmlFor="is-writeoff">Potential Business Write-off?</Label>
-                                    <p className='text-sm text-muted-foreground'>Flag this event for tax purposes.</p>
-                                </div>
-                                <Switch id="is-writeoff" checked={isWriteOff} onCheckedChange={setIsWriteOff} />
-                            </div>
-                        )}
                         <div className="space-y-2">
                             <Label>Checklist</Label>
                             <div className='space-y-2'>
