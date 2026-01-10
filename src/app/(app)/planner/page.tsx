@@ -94,7 +94,7 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick }: { date: Da
 
     return (
         <div className="flex flex-col h-full">
-            <ScrollArea className="flex-1">
+            <ScrollArea className="flex-1" style={{ height: 'calc(100vh - 200px)' }}>
                  <div className="p-4 space-y-4">
                     {allItems.length > 0 ? (
                         allItems.map(item => (
@@ -155,9 +155,32 @@ export default function PlannerPage() {
     // This effect runs only on the client, after hydration
     setIsClient(true);
     const today = new Date();
+    
+    // Make appointment and event dates relative to today
+    const todayAppointments = initialAppointments.map((apt, index) => {
+        const daysToAdd = index - 3; // Spread appointments around today
+        const newDate = addDays(today, daysToAdd);
+        return {
+            ...apt,
+            startTime: setMinutes(setHours(startOfDay(newDate), apt.startTime.getHours()), apt.startTime.getMinutes()),
+            endTime: setMinutes(setHours(startOfDay(newDate), apt.endTime.getHours()), apt.endTime.getMinutes()),
+        }
+    });
+
+    const todayEvents = initialEvents.map((evt, index) => {
+       const daysToAdd = index - 1;
+       const newDate = addDays(today, daysToAdd);
+       return {
+            ...evt,
+            startTime: setMinutes(setHours(startOfDay(newDate), evt.startTime.getHours()), evt.startTime.getMinutes()),
+            endTime: setMinutes(setHours(startOfDay(newDate), evt.endTime.getHours()), evt.endTime.getMinutes()),
+       }
+    })
+
+    setAppointments(todayAppointments);
+    setEvents(todayEvents);
     setCurrentDate(today);
-    setAppointments(initialAppointments);
-    setEvents(initialEvents);
+
     // Find today's index in the initial week view
     const start = startOfWeek(today, { weekStartsOn: 0 });
     const todayIndex = Array.from({ length: 7 }, (_, i) => addDays(start, i)).findIndex(d => format(d, 'yyyy-MM-dd') === format(today, 'yyyy-MM-dd'));
@@ -325,4 +348,3 @@ export default function PlannerPage() {
     </div>
   );
 }
-
