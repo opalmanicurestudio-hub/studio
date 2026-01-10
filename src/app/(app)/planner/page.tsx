@@ -135,17 +135,8 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick, onUpdateStat
                                         style={{ height: '100%'}}
                                         onUpdateStatus={onUpdateStatus}
                                         onDelete={onDelete}
+                                        onCompleteClick={onCompleteClick}
                                     />
-                                    {isPast(appointment.endTime) && appointment.status !== 'completed' && appointment.status !== 'cancelled' && (
-                                        <Button
-                                            size="sm"
-                                            className="absolute -bottom-4 right-2 z-10"
-                                            onClick={() => onCompleteClick(appointment)}
-                                        >
-                                            <CheckCircle className="mr-2 h-4 w-4" />
-                                            Complete
-                                        </Button>
-                                    )}
                                </div>
                            );
                         })}

@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { format, differenceInMinutes } from 'date-fns';
+import { format, differenceInMinutes, isPast } from 'date-fns';
 import {
   ShieldPlus,
   AlertTriangle,
@@ -50,7 +50,7 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { type Appointment, type Client, type Service } from '@/lib/data';
+import { type Appointment, type Client, type Service, inventory } from '@/lib/data';
 
 interface AppointmentCardProps {
   appointment: Appointment;
@@ -60,6 +60,7 @@ interface AppointmentCardProps {
   tmhr: number;
   onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void;
   onDelete: (appointmentId: string) => void;
+  onCompleteClick: (appointment: Appointment) => void;
 }
 
 const AppointmentDetails = ({
@@ -78,13 +79,21 @@ const AppointmentDetails = ({
     const totalDuration = differenceInMinutes(appointment.endTime, appointment.startTime);
     const timeCost = (totalDuration / 60) * tmhr;
     
-    let productsToUse = service.products || [];
+    let productsToUse: { id?: string, productId?: string, quantityUsed: number, name?: string, productName?: string, costPerUnit?: number }[] = service.products || [];
+
     if (client.customFormula && client.customFormula.length > 0) {
-      productsToUse = client.customFormula.map(cf => ({
-        ...inventory.find(i => i.id === cf.productId)!,
-        quantityUsed: cf.quantityUsed,
-      }));
+      productsToUse = client.customFormula.map(cf => {
+          const productData = inventory.find(i => i.id === cf.productId);
+          return {
+            ...productData,
+            productId: cf.productId,
+            productName: cf.productName,
+            quantityUsed: cf.quantityUsed,
+            costPerUnit: productData?.costPerUnit || 0,
+        }
+      });
     }
+
     const productCost = productsToUse.reduce((sum, p) => sum + (p.costPerUnit || 0), 0);
 
     const equipmentCost = (service.equipment || []).reduce((sum, e) => {
@@ -171,7 +180,8 @@ export function AppointmentCard({
   style,
   tmhr,
   onUpdateStatus,
-  onDelete
+  onDelete,
+  onCompleteClick
 }: AppointmentCardProps) {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const isMobile = useIsMobile();
@@ -193,8 +203,9 @@ export function AppointmentCard({
 
   const MainContent = () => (
     <div className={cn(
-        'p-2 border-l-4 w-full h-full flex flex-col justify-between bg-card',
+        'p-2 border-l-4 w-full h-full flex flex-col justify-between',
         statusStyles[appointment.status] || 'bg-gray-100 border-gray-500',
+        'bg-card',
         hasPadBefore ? '' : 'rounded-t-lg',
         hasPadAfter ? '' : 'rounded-b-lg'
     )}>
@@ -220,6 +231,11 @@ export function AppointmentCard({
                     </DropdownMenuSubTrigger>
                     <DropdownMenuPortal>
                         <DropdownMenuSubContent>
+                            {appointment.status !== 'completed' && (
+                                <DropdownMenuItem onSelect={() => onCompleteClick(appointment)}>
+                                <CheckCircle className="mr-2 h-4 w-4 text-green-500"/>Mark as Completed
+                                </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem onSelect={() => onUpdateStatus(appointment.id, 'confirmed')}><CheckCircle className="mr-2 h-4 w-4 text-blue-500"/>Confirmed</DropdownMenuItem>
                             <DropdownMenuItem onSelect={() => onUpdateStatus(appointment.id, 'cancelled')}><XCircle className="mr-2 h-4 w-4 text-red-500"/>Cancelled</DropdownMenuItem>
                         </DropdownMenuSubContent>
