@@ -120,8 +120,10 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick }: { date: Da
 
                            if (!client || !service) return null;
 
-                           const top = (getHours(appointment.startTime) - 8 + getMinutes(appointment.startTime) / 60) * 96; // 6rem * 16px/rem = 96px per hour
-                           const height = differenceInMinutes(appointment.endTime, appointment.startTime) / 60 * 96;
+                           const totalDuration = service.duration + (service.padBefore || 0) + (service.padAfter || 0);
+
+                           const top = (getHours(appointment.startTime) - 8 + getMinutes(appointment.startTime) / 60) * 96 - ((service.padBefore || 0) / 60 * 96);
+                           const height = totalDuration / 60 * 96;
 
                            return (
                                <AppointmentCard
