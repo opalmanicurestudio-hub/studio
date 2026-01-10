@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { AlertCircle, CheckCircle, FileText, FlaskConical, PlusCircle, Trash2, Library, Wand, QrCode, Search, AlertTriangle } from 'lucide-react';
+import { AlertCircle, CheckCircle, FileText, FlaskConical, PlusCircle, Trash2, Library, Wand, QrCode, Search, AlertTriangle, ShoppingCart } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type StockCorrection, type CustomFormula } from '@/lib/data';
 import { format } from 'date-fns';
 import { Input } from '../ui/input';
@@ -23,6 +23,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
 import { useToast } from '@/hooks/use-toast';
+import { ScrollArea } from '../ui/scroll-area';
 
 type EditableFormulaItem = {
     id: string; // productId
@@ -57,6 +58,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   const { toast } = useToast();
 
   const [editableFormula, setEditableFormula] = useState<EditableFormulaItem[]>([]);
+  const [retailItems, setRetailItems] = useState<EditableFormulaItem[]>([]);
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
@@ -73,6 +75,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
             costPerUnit: p.costPerUnit || 0,
         })) || [];
         setEditableFormula(defaultFormula);
+        setRetailItems([]);
         setFormulaName('Default Service Formula');
     }
   }, [service, open]);
@@ -83,8 +86,22 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     return { actualCost: cost, additionalCost: additional > 0 ? additional : 0 };
   }, [editableFormula, service]);
 
+  const retailTotal = useMemo(() => {
+    return retailItems.reduce((acc, item) => {
+        const product = inventory.find(p => p.id === item.id);
+        const price = product?.costPerUnit ? product.costPerUnit * 1.75 : 0; // Mocked markup
+        return acc + (item.quantity * price);
+    }, 0);
+  }, [retailItems, inventory]);
+  
+  const grandTotal = (service?.price || 0) + retailTotal;
+
   const handleQuantityChange = (productId: string, newQuantity: number) => {
     setEditableFormula(prev => prev.map(item => item.id === productId ? { ...item, quantity: newQuantity } : item));
+  };
+  
+  const handleRetailQuantityChange = (productId: string, newQuantity: number) => {
+    setRetailItems(prev => prev.map(item => item.id === productId ? { ...item, quantity: newQuantity } : item));
   };
   
   const handleAddProduct = (products: InventoryItem[]) => {
@@ -98,9 +115,24 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
       }));
       setEditableFormula(prev => [...prev, ...newItems.filter(newItem => !prev.find(item => item.id === newItem.id))]);
   };
+
+  const handleAddRetail = (products: InventoryItem[]) => {
+      const newItems: EditableFormulaItem[] = products.map(p => ({
+        id: p.id,
+        name: p.name,
+        quantity: 1,
+        unit: 'unit',
+        costPerUnit: p.costPerUnit || 0,
+      }));
+      setRetailItems(prev => [...prev, ...newItems.filter(newItem => !prev.find(item => item.id === newItem.id))]);
+  }
   
   const handleRemoveProduct = (productId: string) => {
     setEditableFormula(prev => prev.filter(item => item.id !== productId));
+  };
+
+  const handleRemoveRetail = (productId: string) => {
+    setRetailItems(prev => prev.filter(item => item.id !== productId));
   };
 
   const handleApplyClientFormula = (formulaName: string) => {
@@ -132,6 +164,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   }, [editableFormula, inventory, appointment.id]);
 
   const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
+  const [isRetailBrowserOpen, setIsRetailBrowserOpen] = useState(false);
   
    useEffect(() => {
     if (isScannerOpen) {
@@ -172,9 +205,9 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Complete Appointment & Reconcile Service</DialogTitle>
+            <DialogTitle>Complete Appointment & Checkout</DialogTitle>
             <DialogDescription>
-              Confirm and edit products used to ensure accurate inventory and costing.
+              Confirm products used, add retail sales, and finalize the appointment.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4 space-y-6 max-h-[70vh] overflow-y-auto pr-4">
@@ -195,7 +228,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                   <CardHeader>
                       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                           <div>
-                              <CardTitle>Formula & Usage</CardTitle>
+                              <CardTitle>Service Formula & Usage</CardTitle>
                               <CardDescription>What was actually used for this service?</CardDescription>
                           </div>
                           {client.customFormulas && client.customFormulas.length > 0 && (
@@ -248,23 +281,69 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                   </CardContent>
               </Card>
 
+              <Card>
+                <CardHeader>
+                  <CardTitle>Retail & Add-ons</CardTitle>
+                  <CardDescription>Add any products the client is purchasing.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                     <div className="space-y-2 text-sm">
+                          {retailItems.map((item) => {
+                             const product = inventory.find(p => p.id === item.id);
+                             const price = product?.costPerUnit ? product.costPerUnit * 1.75 : 0;
+                             return (
+                              <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md">
+                                  <div>
+                                      <p className="font-medium">{item.name}</p>
+                                      <p className="text-xs text-muted-foreground">Price: ${price.toFixed(2)}</p>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                      <Input
+                                          type="number"
+                                          value={item.quantity}
+                                          onChange={(e) => handleRetailQuantityChange(item.id, parseInt(e.target.value) || 0)}
+                                          className="w-16 h-8 text-center"
+                                          min={1}
+                                      />
+                                      <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveRetail(item.id)}>
+                                          <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                  </div>
+                              </div>
+                          )})}
+                      </div>
+                      <div className='flex gap-2'>
+                        <Button variant="outline" size="sm" onClick={() => setIsRetailBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Browse Retail</Button>
+                        <Button variant="outline" size="sm" onClick={() => setIsScannerOpen(true)}><QrCode className="mr-2 h-4 w-4"/>Scan to Add</Button>
+                      </div>
+                </CardContent>
+              </Card>
+
                <Card>
                   <CardHeader>
-                      <CardTitle>Financial Reconciliation</CardTitle>
+                      <CardTitle>Financial Summary</CardTitle>
                   </CardHeader>
-                  <CardContent className="space-y-2 text-sm">
+                  <CardContent className="space-y-4 text-sm">
                       <div className="flex justify-between">
-                          <span>Original Service Cost</span>
-                          <span>${service.cost.toFixed(2)}</span>
+                          <span>Service: {service.name}</span>
+                          <span className='font-mono'>${service.price.toFixed(2)}</span>
+                      </div>
+                       <div className="flex justify-between">
+                          <span>Retail Subtotal</span>
+                          <span className='font-mono'>${retailTotal.toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between">
-                          <span>Actual Cost of Goods Used</span>
-                          <span className="font-mono">${actualCost.toFixed(2)}</span>
+                          <span>Discounts</span>
+                          <span className='font-mono text-destructive'>-$0.00</span>
+                      </div>
+                       <div className="flex justify-between">
+                          <span>Taxes</span>
+                          <span className='font-mono'>${(grandTotal * 0.08).toFixed(2)}</span>
                       </div>
                       <Separator />
-                      <div className="flex justify-between font-bold text-base text-destructive">
-                          <span>Additional Cost</span>
-                          <span>${additionalCost.toFixed(2)}</span>
+                      <div className="flex justify-between font-bold text-base text-primary">
+                          <span>Grand Total</span>
+                          <span className='font-mono'>${(grandTotal * 1.08).toFixed(2)}</span>
                       </div>
                   </CardContent>
               </Card>
@@ -272,7 +351,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
           <DialogFooter>
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button onClick={() => onConfirmCheckout(updatedInventory, newCorrections)} disabled={warnings.some(w => w.includes('Insufficient stock'))}>
-              Confirm & Complete
+              Take Payment & Complete
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -281,7 +360,14 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         open={isProductBrowserOpen}
         onOpenChange={setIsProductBrowserOpen}
         onSelect={handleAddProduct}
-        allProducts={inventory}
+        allProducts={inventory.filter(i => i.type === 'professional')}
+        initialSelected={[]}
+      />
+      <BrowseProductsDialog
+        open={isRetailBrowserOpen}
+        onOpenChange={setIsRetailBrowserOpen}
+        onSelect={handleAddRetail}
+        allProducts={inventory.filter(i => i.type === 'retail')}
         initialSelected={[]}
       />
        <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
