@@ -1,7 +1,6 @@
-
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -25,7 +24,7 @@ import {
 } from '@/components/ui/chart';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { clients, appointments, services } from '@/lib/data';
+import { clients, appointments, services, type Appointment } from '@/lib/data';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -37,6 +36,7 @@ import {
 } from '@/components/ui/dialog';
 import { endOfDayDebrief } from '@/ai/flows/end-of-day-debrief';
 import { useToast } from '@/hooks/use-toast';
+import { Skeleton } from '@/components/ui/skeleton';
 
 const chartData = [
   { day: 'Sun', profit: 450 },
@@ -55,11 +55,44 @@ const chartConfig = {
   },
 };
 
+type Activity = {
+  apt: Appointment;
+  client: (typeof clients)[0] | undefined;
+  service: (typeof services)[0] | undefined;
+};
+
 export default function DashboardPage() {
   const [isDebriefDialogOpen, setIsDebriefDialogOpen] = useState(false);
   const [debriefContent, setDebriefContent] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const { toast } = useToast();
+
+  const [todayAppointments, setTodayAppointments] = useState<Appointment[]>([]);
+  const [recentActivities, setRecentActivities] = useState<Activity[]>([]);
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    // This effect runs only on the client, after hydration
+    const today = new Date().toDateString();
+    setTodayAppointments(
+      appointments.filter(
+        (apt) => new Date(apt.startTime).toDateString() === today
+      )
+    );
+
+    setRecentActivities(
+      [...appointments]
+        .sort((a, b) => b.startTime.getTime() - a.startTime.getTime())
+        .slice(0, 5)
+        .map((apt) => ({
+          apt,
+          client: clients.find((c) => c.id === apt.clientId),
+          service: services.find((s) => s.id === apt.serviceId),
+        }))
+    );
+
+    setIsClient(true);
+  }, []);
 
   const handleGenerateDebrief = async () => {
     setIsGenerating(true);
@@ -83,25 +116,6 @@ export default function DashboardPage() {
       setIsGenerating(false);
     }
   };
-
-  const todayAppointments = useMemo(() => {
-    const today = new Date().toDateString();
-    return appointments.filter(
-      (apt) => new Date(apt.startTime).toDateString() === today
-    );
-  }, []);
-
-  const recentActivities = useMemo(() => {
-    // Sort appointments by date descending to get the most recent ones
-    return [...appointments]
-      .sort((a, b) => b.startTime.getTime() - a.startTime.getTime())
-      .slice(0, 5)
-      .map(apt => {
-          const client = clients.find(c => c.id === apt.clientId);
-          const service = services.find(s => s.id === apt.serviceId);
-          return { apt, client, service };
-      });
-    }, []);
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -130,7 +144,9 @@ export default function DashboardPage() {
               <Calendar className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{todayAppointments.length}</div>
+              <div className="text-2xl font-bold">
+                {isClient ? todayAppointments.length : <Skeleton className="h-8 w-10 inline-block" />}
+              </div>
               <p className="text-xs text-muted-foreground">2 completed, 3 upcoming</p>
             </CardContent>
           </Card>
@@ -184,7 +200,7 @@ export default function DashboardPage() {
                     tickLine={false}
                     axisLine={false}
                     tickMargin={10}
-                    tickFormatter={(value) => `$${value}`}
+                    tickFormatter={(value) => `$${'${value}'}`}
                   />
                   <ChartTooltip
                     cursor={false}
@@ -203,7 +219,19 @@ export default function DashboardPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-6">
-              {recentActivities.map(({ apt, client, service }) => {
+              {!isClient ? (
+                Array.from({ length: 5 }).map((_, index) => (
+                  <div key={index} className="flex items-center gap-4">
+                    <Skeleton className="h-9 w-9 rounded-full" />
+                    <div className="grid gap-1 flex-1">
+                      <Skeleton className="h-4 w-24" />
+                      <Skeleton className="h-4 w-32" />
+                    </div>
+                    <Skeleton className="h-5 w-16" />
+                  </div>
+                ))
+              ) : (
+                recentActivities.map(({ apt, client, service }) => {
                   if (!client || !service) return null;
                   return (
                     <div key={apt.id} className="flex items-center gap-4">
@@ -227,6 +255,7 @@ export default function DashboardPage() {
                     </div>
                   );
                 })}
+              )}
             </CardContent>
           </Card>
         </div>
