@@ -92,6 +92,7 @@ const DayTimeline = ({
     onDeleteAppointment, 
     onPrintReceipt, 
     onEditAppointment,
+    onEditEvent,
     onChecklistItemToggle,
     onUpdateEvent,
     dailyTransactions,
@@ -104,6 +105,7 @@ const DayTimeline = ({
     onDeleteAppointment: (appointmentId: string) => void; 
     onPrintReceipt: (appointment: Appointment) => void; 
     onEditAppointment: (appointment: Appointment) => void; 
+    onEditEvent: (event: Event) => void;
     onChecklistItemToggle: (eventId: string, checklistItemId: string, completed: boolean) => void;
     onUpdateEvent: (updatedEvent: Event) => void;
     dailyTransactions: Transaction[] | null;
@@ -183,6 +185,7 @@ const DayTimeline = ({
                         event={item} 
                         onChecklistItemToggle={onChecklistItemToggle}
                         onUpdateEvent={onUpdateEvent}
+                        onEditEvent={onEditEvent}
                     />
                 </div>
             );
@@ -256,7 +259,9 @@ export default function PlannerPage() {
   const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
   const [isEditAppointmentOpen, setIsEditAppointmentOpen] = useState(false);
   const [isAddEventOpen, setIsAddEventOpen] = useState(false);
+  const [isEditEventOpen, setIsEditEventOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const { toast } = useToast();
   
   const [api, setApi] = useState<CarouselApi>()
@@ -324,6 +329,11 @@ export default function PlannerPage() {
     setSelectedAppointment(appointment);
     setIsEditAppointmentOpen(true);
   };
+  
+  const handleEditEventClick = (event: Event) => {
+    setSelectedEvent(event);
+    setIsEditEventOpen(true);
+  }
 
   const handleCheckout = (updatedInventory: any, newCorrections: any) => {
     if (!selectedAppointment) return;
@@ -369,7 +379,7 @@ export default function PlannerPage() {
         description: `"${newEvent.title}" has been added to your calendar.`
     });
 
-    if (newEvent.type === 'business' && newEvent.cost && newEvent.cost > 0 && firestore) {
+    if (newEvent.type === 'business' && newEvent.isWriteOff && newEvent.cost && newEvent.cost > 0 && firestore) {
         const transactionRef = collection(firestore, 'tenants', tenantId, 'transactions');
         const newTransaction: Omit<Transaction, 'id'> = {
             date: newEvent.startTime.toISOString(),
@@ -377,14 +387,14 @@ export default function PlannerPage() {
             clientOrVendor: newEvent.location || 'Internal',
             type: 'expense',
             context: 'Business',
-            category: 'General Business',
+            category: 'General Business', // This could be made more specific in the dialog
             amount: newEvent.cost,
             hasReceipt: false
         };
         addDocumentNonBlocking(transactionRef, newTransaction);
         toast({
             title: "Expense Logged",
-            description: `An expense of $${newEvent.cost.toFixed(2)} for "${newEvent.title}" has been recorded.`
+            description: `An expense of $${newEvent.cost.toFixed(2)} for "${newEvent.title}" has been recorded in your ledger.`
         });
     }
 
@@ -397,6 +407,7 @@ export default function PlannerPage() {
             title: "Event Updated",
             description: `"${updatedEvent.title}" has been updated.`
         });
+        setIsEditEventOpen(false);
     }
 
   const handleUpdateStatus = (appointmentId: string, status: Appointment['status']) => {
@@ -564,6 +575,7 @@ export default function PlannerPage() {
                                 onDeleteAppointment={handleDeleteAppointment} 
                                 onPrintReceipt={handlePrintReceipt} 
                                 onEditAppointment={handleEditClick}
+                                onEditEvent={handleEditEventClick}
                                 onChecklistItemToggle={handleChecklistItemToggle}
                                 onUpdateEvent={handleUpdateEvent}
                                 dailyTransactions={dailyTransactions}
@@ -606,6 +618,14 @@ export default function PlannerPage() {
         onOpenChange={setIsAddEventOpen}
         onConfirm={handleAddEvent}
       />
+       {selectedEvent && (
+        <EditEventDialog
+            open={isEditEventOpen}
+            onOpenChange={setIsEditEventOpen}
+            event={selectedEvent}
+            onConfirm={handleUpdateEvent}
+        />
+       )}
       <Dialog open={!!receiptToPrint} onOpenChange={(open) => !open && setReceiptToPrint(null)}>
         <DialogContent className="max-w-sm print-content">
           <DialogHeader>

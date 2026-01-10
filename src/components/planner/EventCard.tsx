@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState } from 'react';
@@ -28,18 +29,19 @@ interface EventCardProps {
     event: Event,
     onChecklistItemToggle: (eventId: string, checklistItemId: string, completed: boolean) => void;
     onUpdateEvent: (updatedEvent: Event) => void;
+    onEditEvent: (event: Event) => void;
 }
 
-const EventDetailsContent = ({ event, onChecklistItemToggle, onUpdateEvent }: {
+const EventDetailsContent = ({ event, onChecklistItemToggle, onUpdateEvent, onEditEvent }: {
     event: Event,
     onChecklistItemToggle: (eventId: string, checklistItemId: string, completed: boolean) => void;
     onUpdateEvent: (updatedEvent: Event) => void;
+    onEditEvent: (event: Event) => void;
 }) => {
-    const [isEditing, setIsEditing] = useState(false);
-
+    
     if (event.type === 'blocked') {
         return (
-            <div className='p-6 text-center'>
+            <div className='p-6 text-center flex-1 flex flex-col items-center justify-center'>
                  <Lock className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
                  <h3 className='font-semibold text-lg'>Blocked Time</h3>
                  <p className='text-muted-foreground'>This time is marked as unavailable.</p>
@@ -99,17 +101,11 @@ const EventDetailsContent = ({ event, onChecklistItemToggle, onUpdateEvent }: {
                 </div>
             </ScrollArea>
              <SheetFooter className="pt-4 border-t pr-6">
-                <Button variant="outline" className="w-full" onClick={() => setIsEditing(true)}>
+                <Button variant="outline" className="w-full" onClick={() => onEditEvent(event)}>
                     <Edit className="w-4 h-4 mr-2" />
                     Edit Event
                 </Button>
             </SheetFooter>
-            <EditEventDialog 
-                open={isEditing}
-                onOpenChange={setIsEditing}
-                event={event}
-                onConfirm={onUpdateEvent}
-            />
         </>
     )
 }
@@ -118,6 +114,7 @@ export function EventCard({
     event,
     onChecklistItemToggle,
     onUpdateEvent,
+    onEditEvent,
 }: EventCardProps) {
 
     const isMobile = useIsMobile();
@@ -167,7 +164,7 @@ export function EventCard({
                     </SheetDescription>
                 </SheetHeader>
                 <Separator />
-                <EventDetailsContent event={event} onChecklistItemToggle={onChecklistItemToggle} onUpdateEvent={onUpdateEvent} />
+                <EventDetailsContent event={event} onChecklistItemToggle={onChecklistItemToggle} onUpdateEvent={onUpdateEvent} onEditEvent={onEditEvent} />
             </SheetContent>
         </Sheet>
     )
