@@ -330,12 +330,13 @@ export default function PlannerPage() {
     );
   }
   
-  if (receiptToPrint) {
-      return <PrintReceipt data={receiptToPrint} />;
-  }
-
   return (
-    <div className="flex h-screen w-full flex-col overflow-hidden">
+    <div id="main-content" className="flex h-screen w-full flex-col overflow-hidden">
+      {receiptToPrint && (
+        <div className="label-print-area">
+            <PrintReceipt data={receiptToPrint} />
+        </div>
+      )}
       <AppHeader title="Planner" />
       <div className="flex items-center justify-between gap-4 p-4 border-b">
           <div className="flex items-center gap-2">

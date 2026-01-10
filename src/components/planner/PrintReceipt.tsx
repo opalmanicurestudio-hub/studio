@@ -100,16 +100,13 @@ export const PrintReceipt: React.FC<PrintReceiptProps> = ({ data }) => {
       
        <style jsx global>{`
         @media print {
-          body * {
-            visibility: hidden;
+          body > :not(.label-print-area) {
+            display: none;
           }
-          #receipt, #receipt * {
-            visibility: visible;
-          }
-          #receipt {
+          .label-print-area {
             position: absolute;
-            left: 0;
             top: 0;
+            left: 0;
             width: 100%;
           }
         }
