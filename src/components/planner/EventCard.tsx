@@ -50,6 +50,9 @@ export function EventCard({
         const completed = event.checklist.filter(item => item.completed).length;
         return (completed / event.checklist.length) * 100;
     }, [event.checklist]);
+
+    const completedCount = useMemo(() => event.checklist?.filter(item => item.completed).length || 0, [event.checklist]);
+    const totalCount = useMemo(() => event.checklist?.length || 0, [event.checklist]);
     
     const handleAddChecklistItem = () => {
         if (newChecklistItem.trim()) {
@@ -65,15 +68,16 @@ export function EventCard({
         }
     };
 
-    const cardContent = (
+    return (
         <div 
             className={cn(
-                "p-2 rounded-lg bg-card border w-full h-full flex flex-col cursor-pointer transition-all duration-300", 
+                "p-2 rounded-lg bg-card border w-full h-full flex flex-col cursor-pointer transition-all duration-300 overflow-hidden", 
                 typeStyles[event.type],
                 event.type === 'blocked' && "bg-[repeating-linear-gradient(-45deg,transparent,transparent_4px,hsl(var(--muted))_4px,hsl(var(--muted))_5px)]"
             )}
             onClick={() => setIsExpanded(!isExpanded)}
         >
+            {/* Header */}
             <div className="flex items-start justify-between gap-2 flex-shrink-0">
                 <div className="flex items-center gap-2 min-w-0">
                     <Icon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
@@ -82,65 +86,58 @@ export function EventCard({
                 <p className="text-xs text-muted-foreground flex-shrink-0">{format(event.startTime, 'h:mm a')}</p>
             </div>
             
-            {isExpanded && (
-                 <ScrollArea className="flex-grow mt-2 pr-2">
-                    <div className="space-y-3">
-                        {event.notes && <p className="text-xs text-muted-foreground">{event.notes}</p>}
-                        {event.location && (
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <MapPin className="w-3 h-3" />
-                                <span>{event.location}</span>
-                            </div>
-                        )}
-                        {event.checklist && event.checklist.length > 0 && (
-                            <div className="space-y-2 pt-2">
-                                <div className="flex items-center justify-between">
-                                    <h4 className="font-medium text-xs flex items-center gap-1.5"><CheckSquare className="w-3.5 h-3.5" /> Checklist</h4>
-                                    <span className="text-xs text-muted-foreground">{Math.round(checklistProgress)}%</span>
-                                </div>
-                                <Progress value={checklistProgress} className="h-1" />
-                                <div className="space-y-1.5 pt-1">
-                                    {event.checklist.map((item) => (
-                                        <div key={item.id} className="flex items-center gap-2 text-xs">
-                                            <Checkbox id={item.id} checked={item.completed} onCheckedChange={(checked) => onChecklistItemToggle(event.id, item.id, !!checked)} />
-                                            <label htmlFor={item.id} className={cn("flex-1", item.completed && "line-through text-muted-foreground")}>{item.text}</label>
-                                            <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive" onClick={() => onRemoveChecklistItem(event.id, item.id)}><Trash2 className="h-3 w-3"/></Button>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                         <div className="flex gap-2">
-                            <Input 
-                                placeholder="Add checklist item..."
-                                value={newChecklistItem}
-                                onChange={(e) => setNewChecklistItem(e.target.value)}
-                                onKeyDown={handleChecklistKeyDown}
-                                onClick={(e) => e.stopPropagation()}
-                                className="h-7 text-xs"
-                            />
-                            <Button type="button" size="icon" variant="outline" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); handleAddChecklistItem(); }}><PlusCircle className="h-4 w-4"/></Button>
+            {/* Body */}
+            <ScrollArea className="flex-grow mt-2 pr-2" style={{ display: isExpanded ? 'block' : 'none' }}>
+                <div className="space-y-3">
+                    {event.notes && <p className="text-xs text-muted-foreground">{event.notes}</p>}
+                    {event.location && (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <MapPin className="w-3 h-3" />
+                            <span>{event.location}</span>
                         </div>
+                    )}
+                    {event.checklist && event.checklist.length > 0 && (
+                        <div className="space-y-1.5 pt-1">
+                            {event.checklist.map((item) => (
+                                <div key={item.id} className="flex items-center gap-2 text-xs" onClick={e => e.stopPropagation()}>
+                                    <Checkbox id={item.id} checked={item.completed} onCheckedChange={(checked) => onChecklistItemToggle(event.id, item.id, !!checked)} />
+                                    <label htmlFor={item.id} className={cn("flex-1", item.completed && "line-through text-muted-foreground")}>{item.text}</label>
+                                    <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive" onClick={() => onRemoveChecklistItem(event.id, item.id)}><Trash2 className="h-3 w-3"/></Button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                     <div className="flex gap-2" onClick={e => e.stopPropagation()}>
+                        <Input 
+                            placeholder="Add checklist item..."
+                            value={newChecklistItem}
+                            onChange={(e) => setNewChecklistItem(e.target.value)}
+                            onKeyDown={handleChecklistKeyDown}
+                            className="h-7 text-xs"
+                        />
+                        <Button type="button" size="icon" variant="outline" className="h-7 w-7" onClick={handleAddChecklistItem}><PlusCircle className="h-4 w-4"/></Button>
                     </div>
-                </ScrollArea>
-            )}
-
-            {isExpanded && (
-                 <div className="flex-shrink-0 mt-2 pt-2 border-t flex justify-end gap-2">
-                    <Button variant="ghost" size="xs" onClick={(e) => { e.stopPropagation(); onDeleteEvent(event.id); }} className="text-destructive"><Trash2 className="w-3 h-3 mr-1"/> Delete</Button>
-                    <Button variant="outline" size="xs" onClick={(e) => { e.stopPropagation(); onEditEvent(event);}}><Edit className="w-3 h-3 mr-1"/> Edit</Button>
                 </div>
-            )}
+            </ScrollArea>
+            
+            {/* Footer */}
+            <div className="flex-shrink-0 mt-auto pt-2">
+                {event.checklist && event.checklist.length > 0 && (
+                     <div className="space-y-1">
+                        <div className="flex justify-between items-center text-xs text-muted-foreground">
+                             <div className="flex items-center gap-1.5"><CheckSquare className="w-3.5 h-3.5"/><span>Checklist</span></div>
+                             <span>{completedCount}/{totalCount}</span>
+                        </div>
+                        <Progress value={checklistProgress} className="h-1" />
+                    </div>
+                )}
+                 {isExpanded && (
+                    <div className="flex justify-end gap-2 mt-2">
+                        <Button variant="ghost" size="xs" onClick={(e) => { e.stopPropagation(); onDeleteEvent(event.id); }} className="text-destructive"><Trash2 className="w-3 h-3 mr-1"/> Delete</Button>
+                    </div>
+                )}
+            </div>
         </div>
     );
-
-    if (isExpanded) {
-        return (
-            <div className="absolute w-full h-full p-2 z-10">
-                {cardContent}
-            </div>
-        )
-    }
-
-    return cardContent;
 }
+
