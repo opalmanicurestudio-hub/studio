@@ -1,5 +1,4 @@
 
-      
 'use client';
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
@@ -27,6 +26,7 @@ import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '../ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Label } from '../ui/label';
+import { PrintReceipt, type ReceiptData } from './PrintReceipt';
 
 type EditableFormulaItem = {
     id: string; // productId
@@ -68,6 +68,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
   const videoRef = useRef<HTMLVideoElement>(null);
+  
+  const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
 
 
   useEffect(() => {
@@ -82,6 +84,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         setEditableFormula(defaultFormula);
         setRetailItems([]);
         setFormulaName('Default Service Formula');
+        setAmountTendered(null);
+        setReceiptData(null);
     }
   }, [service, open]);
 
@@ -99,7 +103,10 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     }, 0);
   }, [retailItems, inventory]);
   
-  const grandTotal = (service?.price || 0) + retailTotal;
+  const subtotal = (service?.price || 0) + retailTotal;
+  const mockTax = subtotal * 0.07; // 7% tax for demo
+  const grandTotal = subtotal + mockTax;
+  
   const changeDue = amountTendered !== null ? amountTendered - grandTotal : null;
 
   const handleQuantityChange = (productId: string, newQuantity: number) => {
@@ -168,6 +175,41 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
 
     return { updatedInventory: tempInventory, displayCorrections: editableFormula, newCorrections, warnings };
   }, [editableFormula, inventory, appointment.id]);
+  
+  const handleCompleteAndPrint = () => {
+    if (!client || !service) return;
+
+    const finalReceiptData: ReceiptData = {
+        business: { name: 'ClarityFlow Salon', phone: '555-123-4567' },
+        clientName: client.name,
+        date: new Date(),
+        items: [
+            { name: service.name, quantity: 1, price: service.price },
+            ...retailItems.map(item => {
+                const product = inventory.find(p => p.id === item.id);
+                const price = product?.costPerUnit ? product.costPerUnit * 1.75 : 0;
+                return { name: item.name, quantity: item.quantity, price: price };
+            }),
+        ],
+        subtotal: subtotal,
+        tax: mockTax,
+        total: grandTotal,
+        payment: {
+            method: 'Cash', // This would be dynamic
+            amountTendered: amountTendered || grandTotal,
+            changeDue: changeDue !== null && changeDue >= 0 ? changeDue : 0,
+        }
+    };
+    setReceiptData(finalReceiptData);
+    
+    // Defer print action to allow state to update and component to render
+    setTimeout(() => {
+      window.print();
+    }, 100);
+    
+    onConfirmCheckout(updatedInventory, newCorrections)
+  };
+
 
   const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
   const [isRetailBrowserOpen, setIsRetailBrowserOpen] = useState(false);
@@ -201,15 +243,44 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         }
     }
   }, [isScannerOpen, toast]);
+  
+  const suggestedAmounts = useMemo(() => {
+    if (grandTotal <= 0) return [];
+    const amounts = [1, 5, 10, 20, 50, 100];
+    const suggestions = new Set<number>();
+
+    // Suggest next highest bill
+    for (const amount of amounts) {
+        if (amount > grandTotal) {
+            suggestions.add(amount);
+            break;
+        }
+    }
+    // Suggest next round numbers
+    let nextRound = Math.ceil(grandTotal / 10) * 10;
+    if (nextRound <= grandTotal) nextRound += 10;
+    for(let i=0; i<3; i++){
+        if (nextRound > grandTotal) suggestions.add(nextRound);
+        nextRound += 10;
+    }
+    
+    return Array.from(suggestions).sort((a,b) => a-b).slice(0, 4);
+
+  }, [grandTotal]);
+
 
   if (!client || !service) {
     return null;
+  }
+  
+  if (receiptData) {
+      return <PrintReceipt data={receiptData} />;
   }
 
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent className="sm:max-w-2xl print:hidden">
           <DialogHeader>
             <DialogTitle>Complete Appointment & Checkout</DialogTitle>
             <DialogDescription>
@@ -356,16 +427,13 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                                     type="number" 
                                     placeholder={grandTotal.toFixed(2)}
                                     value={amountTendered || ''}
-                                    onChange={(e) => setAmountTendered(parseFloat(e.target.value))}
+                                    onChange={(e) => setAmountTendered(parseFloat(e.target.value) || null)}
                                   />
                               </div>
                                <div className="flex justify-center gap-2">
-                                  {[20, 50, 100].map(amount => {
-                                      const nextBill = Math.ceil(grandTotal / amount) * amount;
-                                      return (
-                                        <Button key={amount} variant="outline" size="sm" onClick={() => setAmountTendered(nextBill)}>${nextBill}</Button>
-                                      )
-                                  })}
+                                  {suggestedAmounts.map(amount => (
+                                      <Button key={amount} variant="outline" size="sm" onClick={() => setAmountTendered(amount)}>${amount}</Button>
+                                  ))}
                                    <Button variant="outline" size="sm" onClick={() => setAmountTendered(grandTotal)}>Exact</Button>
                                </div>
                               {changeDue !== null && (
@@ -385,9 +453,9 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
               </Card>
           </div>
           </ScrollArea>
-          <DialogFooter>
+          <DialogFooter className="print:hidden">
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button onClick={() => onConfirmCheckout(updatedInventory, newCorrections)} disabled={warnings.some(w => w.includes('Insufficient stock'))}>
+            <Button onClick={handleCompleteAndPrint} disabled={warnings.some(w => w.includes('Insufficient stock'))}>
               Complete & Print Receipt
             </Button>
           </DialogFooter>
@@ -438,5 +506,3 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     </>
   );
 };
-
-    
