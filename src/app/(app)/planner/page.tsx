@@ -1,162 +1,131 @@
-
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
-import { appointments as initialAppointments, clients, services, inventory as initialInventory, stockCorrections as initialStockCorrections, type InventoryItem, type Service, type Appointment, type StockCorrection } from '@/lib/data';
-import { format, addDays, subDays, startOfWeek, setHours, startOfDay } from 'date-fns';
-import { useState, useMemo, useCallback } from 'react';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Carousel, CarouselContent, CarouselItem, type CarouselApi } from '@/components/ui/carousel';
-import { cn } from '@/lib/utils';
-import React from 'react';
+import { PlusCircle, ChevronLeft, ChevronRight, CheckCircle } from 'lucide-react';
+import { appointments as initialAppointments, clients, services, type Appointment } from '@/lib/data';
+import { format, addDays, subDays, startOfWeek } from 'date-fns';
+import { useState, useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
+import { useInventory } from '@/context/InventoryContext';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { cn } from '@/lib/utils';
 
 
-const DayTimeline = ({ date, appointmentsForDay, onCompleteClick }: { date: Date; appointmentsForDay: any[]; onCompleteClick: (appointment: Appointment) => void; }) => {
-  const hours = Array.from({ length: 13 }, (_, i) => i + 8); // 8am to 8pm
+const AppointmentItem = ({ appointment, onCompleteClick }: { appointment: Appointment; onCompleteClick: (apt: Appointment) => void; }) => {
+    const client = clients.find(c => c.id === appointment.clientId);
+    const service = services.find(s => s.id === appointment.serviceId);
 
-  const getPosition = (time: Date) => {
-    const timelineStart = setHours(startOfDay(time), 8);
-    const minutes = (time.getTime() - timelineStart.getTime()) / 1000 / 60;
-    return (minutes / 60) * 80; // 80px per hour
-  };
+    if (!client || !service) return null;
 
-  const getHeight = (startTime: Date, endTime: Date) => {
-    const minutes = (endTime.getTime() - startTime.getTime()) / 1000 / 60;
-    return (minutes / 60) * 80;
-  };
-
-  const dailyTotals = useMemo(() => {
-    return appointmentsForDay
-      .filter(apt => apt.status === 'completed')
-      .reduce(
-        (acc, apt) => {
-          const service = services.find(s => s.id === apt.serviceId);
-          if (service) {
-            acc.revenue += service.price;
-            acc.costs += service.cost;
-            acc.net += service.profit;
-          }
-          return acc;
-        },
-        { revenue: 0, costs: 0, net: 0 }
-      );
-  }, [appointmentsForDay]);
-
-
-  return (
-    <Card className="flex flex-col h-full bg-muted/20">
-      <CardHeader className="flex flex-col items-stretch p-4 border-b">
-        <div className="flex items-center justify-between">
-            <CardTitle className="text-base font-medium">
-            {format(date, 'EEE')}
-            <span className="ml-2 font-normal text-muted-foreground">
-                {format(date, 'd')}
-            </span>
-            </CardTitle>
-        </div>
-        <div className='grid grid-cols-2 gap-2 mt-4'>
-            <Button variant="secondary" size="sm"><FileText className='mr-2 h-4 w-4'/>Day Log</Button>
-            <Button variant="secondary" size="sm"><PlusCircle className='mr-2 h-4 w-4'/>Add Entry</Button>
-        </div>
-      </CardHeader>
-      <CardContent className="flex-1 p-0 overflow-y-auto">
-            <div className="relative pr-4">
-              {hours.map((hour) => (
-                <div key={hour} className="relative h-20 border-t border-dashed">
-                  <span className="absolute -top-3 left-2 text-xs text-muted-foreground">
-                    {format(setHours(date, hour), 'ha')}
-                  </span>
-                </div>
-              ))}
-              {appointmentsForDay.map((apt) => {
-                const client = clients.find((c) => c.id === apt.clientId);
-                const service = services.find((s) => s.id === apt.serviceId);
-                if (!client || !service) return null;
-                
-                const top = getPosition(apt.startTime);
-                const height = getHeight(apt.startTime, apt.endTime);
-                const duration = (apt.endTime.getTime() - apt.startTime.getTime()) / 1000 / 60;
-
-                return (
-                  <div
-                    key={apt.id}
-                    className={cn(
-                      "absolute left-12 right-2 rounded-lg border p-2 text-sm flex flex-col",
-                      {
-                        "bg-blue-500/10 border-blue-500/20 text-blue-900 dark:text-blue-200": apt.status === 'confirmed',
-                        "bg-green-500/10 border-green-500/20 text-green-900 dark:text-green-200": apt.status === 'completed',
-                        "bg-red-500/10 border-red-500/20 text-red-900 dark:text-red-200 line-through": apt.status === 'canceled',
-                      }
-                    )}
-                    style={{ top: `${top}px`, minHeight: `${height}px` }}
-                  >
-                    <div className='flex justify-between items-start gap-1'>
-                        <div className="font-semibold text-xs">{client.name}</div>
-                        <Badge variant="outline" className={cn('capitalize text-[10px] font-medium border-current h-5', {
-                            "bg-blue-500/10 text-current": apt.status === 'confirmed',
-                            "bg-green-500/10 text-current": apt.status === 'completed',
-                            "bg-red-500/10 text-current": apt.status === 'canceled',
-                        })}>
-                          {apt.status}
-                        </Badge>
+    const statusStyles = {
+        confirmed: 'border-l-4 border-blue-500',
+        completed: 'border-l-4 border-green-500',
+        canceled: 'border-l-4 border-red-500 opacity-70',
+    };
+    
+    return (
+        <div className={cn("p-4 rounded-lg bg-card border flex flex-col gap-3", statusStyles[appointment.status])}>
+            <div className="flex items-start justify-between gap-4">
+                <div className="flex items-center gap-3">
+                    <Avatar className="w-10 h-10">
+                        <AvatarImage src={client.avatarUrl} alt={client.name} />
+                        <AvatarFallback>{client.name.charAt(0)}</AvatarFallback>
+                    </Avatar>
+                    <div>
+                        <p className="font-semibold text-sm">{client.name}</p>
+                        <p className="text-xs text-muted-foreground">{service.name}</p>
                     </div>
-                    
-                    <div className="text-current/80 text-xs">{service.name}</div>
-                    <div className="text-[10px] text-current/60 mt-1">
-                      {format(apt.startTime, 'h:mm a')} - {format(apt.endTime, 'h:mm a')} ({duration} min)
+                </div>
+                 <Badge variant={appointment.status === 'completed' ? 'default' : 'secondary'} className="capitalize shrink-0">{appointment.status}</Badge>
+            </div>
+            <div className="text-xs text-muted-foreground">
+                {format(appointment.startTime, 'h:mm a')} - {format(appointment.endTime, 'h:mm a')}
+            </div>
+            {appointment.status === 'confirmed' && (
+                <div className="flex gap-2 pt-2 border-t -mb-1 -mx-2 px-2">
+                    <Button variant="ghost" size="sm" className="flex-1 text-muted-foreground">Cancel</Button>
+                    <Button variant="secondary" size="sm" className="flex-1" onClick={() => onCompleteClick(appointment)}>
+                        <CheckCircle className="mr-2 h-4 w-4" />
+                        Complete
+                    </Button>
+                </div>
+            )}
+        </div>
+    );
+};
+
+const DayCard = ({ date, appointments, onCompleteClick }: { date: Date; appointments: Appointment[]; onCompleteClick: (apt: Appointment) => void; }) => {
+    const dailyTotals = useMemo(() => {
+        return appointments
+        .filter(apt => apt.status === 'completed')
+        .reduce(
+            (acc, apt) => {
+            const service = services.find(s => s.id === apt.serviceId);
+            if (service) {
+                acc.revenue += service.price;
+                acc.costs += service.cost;
+                acc.net += service.profit;
+            }
+            return acc;
+            },
+            { revenue: 0, costs: 0, net: 0 }
+        );
+    }, [appointments]);
+
+    return (
+        <Card className="overflow-hidden">
+            <CardHeader className="flex flex-row items-center justify-between p-4 bg-muted/50 border-b">
+                 <div className="flex items-baseline gap-2">
+                    <p className="text-2xl font-bold">{format(date, 'd')}</p>
+                    <p className="text-sm font-medium text-muted-foreground">{format(date, 'EEEE')}</p>
+                </div>
+            </CardHeader>
+            <CardContent className="p-4 space-y-4">
+                {appointments.length > 0 ? (
+                    appointments.map(apt => (
+                        <AppointmentItem key={apt.id} appointment={apt} onCompleteClick={onCompleteClick} />
+                    ))
+                ) : (
+                    <div className="text-center py-12 text-muted-foreground text-sm space-y-4">
+                        <p>No appointments scheduled for this day.</p>
+                        <Button variant="secondary">
+                            <PlusCircle className="mr-2 h-4 w-4" />
+                            Add Appointment
+                        </Button>
                     </div>
-                    {apt.status === 'confirmed' && (
-                        <div className='mt-auto pt-2 grid grid-cols-2 gap-1'>
-                             <Button size="xs" variant="ghost" className="h-6 text-xs" onClick={() => {}}>Cancel</Button>
-                             <Button size="xs" className="h-6 text-xs" onClick={() => onCompleteClick(apt)}>Complete</Button>
+                )}
+            </CardContent>
+            {appointments.length > 0 && (
+                <CardFooter className="p-2 border-t bg-muted/50">
+                    <div className="grid grid-cols-3 gap-2 w-full text-center">
+                        <div className="rounded-md bg-green-500/10 p-2">
+                            <p className="text-xs text-green-800/80 dark:text-green-400/80">Revenue</p>
+                            <p className="font-bold text-sm text-green-800 dark:text-green-400">${dailyTotals.revenue.toFixed(2)}</p>
                         </div>
-                    )}
-                    {apt.status === 'completed' && (
-                        <div className='mt-auto pt-2 grid grid-cols-3 gap-1 text-[10px] border-t border-current/10'>
-                            <div><span className='text-current/60'>Price:</span> ${service.price.toFixed(2)}</div>
-                            <div className='text-red-500'><span className='text-current/60'>Cost:</span> ${service.cost.toFixed(2)}</div>
-                            <div className='text-green-600 dark:text-green-400'><span className='text-current/60'>Net:</span> ${service.profit.toFixed(2)}</div>
+                        <div className="rounded-md bg-red-500/10 p-2">
+                            <p className="text-xs text-red-800/80 dark:text-red-400/80">Costs</p>
+                            <p className="font-bold text-sm text-red-800 dark:text-red-400">${dailyTotals.costs.toFixed(2)}</p>
                         </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-      </CardContent>
-       <CardFooter className="p-2 border-t bg-background/50">
-            <div className="grid grid-cols-3 gap-2 w-full text-center">
-                <div className="rounded-md bg-green-500/10 p-2">
-                    <p className="text-xs text-green-800/80 dark:text-green-400/80">Revenue</p>
-                    <p className="font-bold text-sm text-green-800 dark:text-green-400">${dailyTotals.revenue.toFixed(2)}</p>
-                </div>
-                <div className="rounded-md bg-red-500/10 p-2">
-                    <p className="text-xs text-red-800/80 dark:text-red-400/80">Costs</p>
-                    <p className="font-bold text-sm text-red-800 dark:text-red-400">${dailyTotals.costs.toFixed(2)}</p>
-                </div>
-                <div className="rounded-md bg-blue-500/10 p-2">
-                    <p className="text-xs text-blue-800/80 dark:text-blue-400/80">Net Profit</p>
-                    <p className="font-bold text-sm text-blue-800 dark:text-blue-400">${dailyTotals.net.toFixed(2)}</p>
-                </div>
-            </div>
-       </CardFooter>
-    </Card>
-  );
+                        <div className="rounded-md bg-blue-500/10 p-2">
+                            <p className="text-xs text-blue-800/80 dark:text-blue-400/80">Net Profit</p>
+                            <p className="font-bold text-sm text-blue-800 dark:text-blue-400">${dailyTotals.net.toFixed(2)}</p>
+                        </div>
+                    </div>
+                </CardFooter>
+            )}
+        </Card>
+    );
 };
 
 export default function PlannerPage() {
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [api, setApi] = React.useState<CarouselApi>()
-  const [current, setCurrent] = React.useState(new Date().getDay())
   const [appointments, setAppointments] = useState(initialAppointments);
-  const [inventory, setInventory] = useState(initialInventory);
-  const [stockCorrections, setStockCorrections] = useState(initialStockCorrections);
+  const { inventory, setInventory, addStockCorrection } = useInventory();
+
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const { toast } = useToast();
@@ -171,45 +140,24 @@ export default function PlannerPage() {
     setIsCheckoutOpen(true);
   };
 
-  const handleCheckout = (updatedInventory: InventoryItem[], newCorrections: StockCorrection[]) => {
+  const handleCheckout = (updatedInventory, newCorrections) => {
     if (!selectedAppointment) return;
 
     setAppointments(prev => prev.map(apt => apt.id === selectedAppointment.id ? { ...apt, status: 'completed' } : apt));
     setInventory(updatedInventory);
-    setStockCorrections(prev => [...prev, ...newCorrections]);
+    newCorrections.forEach(addStockCorrection);
     
     toast({
         title: "Appointment Completed",
         description: `Inventory levels have been updated and ${newCorrections.length} stock correction(s) logged.`
-    })
+    });
     setIsCheckoutOpen(false);
     setSelectedAppointment(null);
   };
 
-  React.useEffect(() => {
-    if (!api) return;
- 
-    setCurrent(api.selectedScrollSnap())
- 
-    api.on("select", () => {
-      setCurrent(api.selectedScrollSnap())
-    })
-  }, [api])
-
-  const handleNextWeek = () => {
-    setCurrentDate(addDays(currentDate, 7));
-  };
-
-  const handlePrevWeek = () => {
-    setCurrentDate(subDays(currentDate, 7));
-  };
-  
-  const handleToday = () => {
-    const today = new Date();
-    if (format(today, 'yyyy-MM-dd') !== format(currentDate, 'yyyy-MM-dd')) {
-        setCurrentDate(today);
-    }
-  }
+  const handleNextWeek = () => setCurrentDate(addDays(currentDate, 7));
+  const handlePrevWeek = () => setCurrentDate(subDays(currentDate, 7));
+  const handleToday = () => setCurrentDate(new Date());
 
   const selectedAppointmentData = useMemo(() => {
     if (!selectedAppointment) return null;
@@ -220,59 +168,36 @@ export default function PlannerPage() {
 
   return (
     <div className="flex h-screen w-full flex-col">
-      <AppHeader title="Weekly Planner" />
-      <div className="flex items-center justify-between gap-4 p-4">
-        <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" onClick={handlePrevWeek}><ChevronLeft /></Button>
-             <Button variant="outline" onClick={handleToday}>Today</Button>
-            <Button variant="outline" size="icon" onClick={handleNextWeek}><ChevronRight /></Button>
+      <AppHeader title="Planner" />
+      <div className="sticky top-16 z-10 bg-background/95 backdrop-blur-sm p-4 border-b">
+        <div className="flex items-center justify-between gap-4 max-w-4xl mx-auto">
+            <div className="flex items-center gap-2">
+                <Button variant="outline" size="icon" onClick={handlePrevWeek}><ChevronLeft /></Button>
+                <Button variant="outline" size="icon" onClick={handleNextWeek}><ChevronRight /></Button>
+                <Button variant="outline" onClick={handleToday}>Today</Button>
+            </div>
+            <p className='font-semibold text-center'>{format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMMM yyyy')}</p>
+            <Button>
+            <PlusCircle className="mr-2 h-4 w-4" />
+            Add
+            </Button>
         </div>
-        <div className='hidden md:block'>
-             <p className='font-medium'>{format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMMM yyyy')}</p>
-        </div>
-        <Button>
-          <PlusCircle className="mr-2 h-4 w-4" />
-          Add Appointment
-        </Button>
       </div>
-      <main className="flex-1 overflow-hidden p-4 pt-0">
-        <div className="hidden h-full md:grid grid-cols-7 gap-2 lg:gap-4">
+      <main className="flex-1 overflow-y-auto">
+        <div className="p-4 md:p-6 space-y-6 max-w-4xl mx-auto">
           {weekDays.map((date) => {
-            const appointmentsForDay = appointments.filter(
-              (apt) => format(apt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd')
-            );
+            const appointmentsForDay = appointments
+                .filter(apt => format(apt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'))
+                .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
             return (
-              <DayTimeline
+              <DayCard
                 key={date.toString()}
                 date={date}
-                appointmentsForDay={appointmentsForDay}
+                appointments={appointmentsForDay}
                 onCompleteClick={handleCompleteClick}
               />
             );
           })}
-        </div>
-        <div className="md:hidden h-full pb-6">
-            <Carousel setApi={setApi} className="h-full" opts={{startIndex: current, loop: true}}>
-                <CarouselContent className='h-full'>
-                {weekDays.map((date, index) => {
-                    const appointmentsForDay = appointments.filter(
-                    (apt) => format(apt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd')
-                    );
-                    return (
-                      <CarouselItem key={index} className='h-full'>
-                         <DayTimeline
-                            date={date}
-                            appointmentsForDay={appointmentsForDay}
-                            onCompleteClick={handleCompleteClick}
-                         />
-                      </CarouselItem>
-                    );
-                })}
-                </CarouselContent>
-            </Carousel>
-             <div className="py-2 text-center text-sm text-muted-foreground">
-                {format(weekDays[current] || new Date(), 'MMMM d, yyyy')}
-            </div>
         </div>
       </main>
       {selectedAppointmentData && (
