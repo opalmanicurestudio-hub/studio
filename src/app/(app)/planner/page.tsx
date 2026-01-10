@@ -96,6 +96,7 @@ const DayTimeline = ({
     onChecklistItemToggle,
     onUpdateEvent,
     dailyTransactions,
+    onAddTransaction,
 }: { 
     date: Date; 
     appointments: Appointment[]; 
@@ -109,6 +110,7 @@ const DayTimeline = ({
     onChecklistItemToggle: (eventId: string, checklistItemId: string, completed: boolean) => void;
     onUpdateEvent: (updatedEvent: Event) => void;
     dailyTransactions: Transaction[] | null;
+    onAddTransaction: (transaction: any) => void;
 }) => {
     const dailyTotals = useMemo(() => {
         const appointmentRevenue = appointments
@@ -186,6 +188,7 @@ const DayTimeline = ({
                         onChecklistItemToggle={onChecklistItemToggle}
                         onUpdateEvent={onUpdateEvent}
                         onEditEvent={onEditEvent}
+                        onAddTransaction={onAddTransaction}
                     />
                 </div>
             );
@@ -378,26 +381,6 @@ export default function PlannerPage() {
         title: "Event Added",
         description: `"${newEvent.title}" has been added to your calendar.`
     });
-
-    if (newEvent.type !== 'blocked' && newEvent.cost && newEvent.cost > 0 && firestore) {
-        const transactionRef = collection(firestore, 'tenants', tenantId, 'transactions');
-        const newTransaction: Omit<Transaction, 'id'> = {
-            date: newEvent.startTime.toISOString(),
-            description: newEvent.title,
-            clientOrVendor: newEvent.location || 'Internal',
-            type: 'expense',
-            context: newEvent.type === 'business' ? 'Business' : 'Personal',
-            category: newEvent.type === 'business' ? 'General Business' : 'General Personal',
-            amount: newEvent.cost,
-            hasReceipt: false
-        };
-        addDocumentNonBlocking(transactionRef, newTransaction);
-        toast({
-            title: "Expense Logged",
-            description: `An expense of $${newEvent.cost.toFixed(2)} for "${newEvent.title}" has been recorded in your ledger.`
-        });
-    }
-
     setIsAddEventOpen(false);
   };
 
@@ -408,6 +391,20 @@ export default function PlannerPage() {
             description: `"${updatedEvent.title}" has been updated.`
         });
         setIsEditEventOpen(false);
+    }
+    
+    const handleAddTransaction = (transaction: Omit<Transaction, 'id' | 'date'>) => {
+        if (!firestore) return;
+        const transactionRef = collection(firestore, 'tenants', tenantId, 'transactions');
+        const newTransaction = {
+            ...transaction,
+            date: currentVisibleDate.toISOString(),
+        };
+        addDocumentNonBlocking(transactionRef, newTransaction);
+        toast({
+            title: "Expense Logged",
+            description: `An expense of $${transaction.amount.toFixed(2)} for "${transaction.description}" has been recorded in your ledger.`
+        });
     }
 
   const handleUpdateStatus = (appointmentId: string, status: Appointment['status']) => {
@@ -571,7 +568,7 @@ export default function PlannerPage() {
                                 appointments={appointmentsForDay} 
                                 events={eventsForDay} 
                                 onCompleteClick={handleCompleteClick} 
-                                onUpdateStatus={handleUpdateStatus} 
+                                onUpdateStatus={onUpdateStatus} 
                                 onDeleteAppointment={handleDeleteAppointment} 
                                 onPrintReceipt={handlePrintReceipt} 
                                 onEditAppointment={handleEditClick}
@@ -579,6 +576,7 @@ export default function PlannerPage() {
                                 onChecklistItemToggle={handleChecklistItemToggle}
                                 onUpdateEvent={handleUpdateEvent}
                                 dailyTransactions={dailyTransactions}
+                                onAddTransaction={handleAddTransaction}
                             />
                         </CarouselItem>
                     )

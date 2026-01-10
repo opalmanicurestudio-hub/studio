@@ -5,7 +5,7 @@
 import React, { useState } from 'react';
 import { type Event, type EventChecklistItem } from '@/lib/data';
 import { cn } from '@/lib/utils';
-import { Briefcase, User, Lock, MapPin, CheckSquare, DollarSign, Upload, Edit } from 'lucide-react';
+import { Briefcase, User, Lock, MapPin, CheckSquare, DollarSign, Edit, Link, FilePlus, Receipt } from 'lucide-react';
 import { format } from 'date-fns';
 import { Checkbox } from '../ui/checkbox';
 import { Separator } from '../ui/separator';
@@ -22,22 +22,24 @@ import {
 import { ScrollArea } from '../ui/scroll-area';
 import { Button } from '../ui/button';
 import { ImageUpload } from '../shared/ImageUpload';
-import { EditEventDialog } from './EditEventDialog';
-
+import { AddTransactionDialog } from './AddTransactionDialog';
 
 interface EventCardProps {
     event: Event,
     onChecklistItemToggle: (eventId: string, checklistItemId: string, completed: boolean) => void;
     onUpdateEvent: (updatedEvent: Event) => void;
     onEditEvent: (event: Event) => void;
+    onAddTransaction: (transaction: any) => void;
 }
 
-const EventDetailsContent = ({ event, onChecklistItemToggle, onUpdateEvent, onEditEvent }: {
+const EventDetailsContent = ({ event, onChecklistItemToggle, onUpdateEvent, onEditEvent, onAddTransaction }: {
     event: Event,
     onChecklistItemToggle: (eventId: string, checklistItemId: string, completed: boolean) => void;
     onUpdateEvent: (updatedEvent: Event) => void;
     onEditEvent: (event: Event) => void;
+    onAddTransaction: (transaction: any) => void;
 }) => {
+    const [isAddTransactionOpen, setIsAddTransactionOpen] = useState(false);
     
     if (event.type === 'blocked') {
         return (
@@ -64,12 +66,6 @@ const EventDetailsContent = ({ event, onChecklistItemToggle, onUpdateEvent, onEd
                                     <span>{event.location}</span>
                                 </div>
                             )}
-                            {event.cost && event.cost > 0 && (
-                                <div className="flex items-center gap-2">
-                                    <DollarSign className="w-4 h-4 flex-shrink-0" />
-                                    <span>Cost: ${event.cost.toFixed(2)}</span>
-                                </div>
-                            )}
                         </div>
                     </div>
 
@@ -90,9 +86,23 @@ const EventDetailsContent = ({ event, onChecklistItemToggle, onUpdateEvent, onEd
                     )}
                     
                     <Separator />
+
+                     <div className="space-y-3">
+                        <h4 className="font-medium text-sm flex items-center gap-2"><DollarSign className="w-4 h-4"/> Financials</h4>
+                        {event.cost && event.cost > 0 && (
+                             <div className="flex items-center justify-between p-3 rounded-md bg-muted/50 text-sm">
+                                <span className="font-medium">Associated Cost</span>
+                                <span className="font-semibold">${event.cost.toFixed(2)}</span>
+                            </div>
+                        )}
+                        <Button variant="outline" size="sm" onClick={() => setIsAddTransactionOpen(true)}><FilePlus className="w-4 h-4 mr-2"/> Log an Expense</Button>
+                    </div>
+
+                    
+                    <Separator />
                     
                     <div className="space-y-3">
-                        <h4 className="font-medium text-sm flex items-center gap-2"><Upload className="w-4 h-4"/> Receipts</h4>
+                        <h4 className="font-medium text-sm flex items-center gap-2"><Receipt className="w-4 h-4"/> Receipts</h4>
                         <div className="p-4 text-center border-2 border-dashed rounded-lg">
                             <p className="text-sm text-muted-foreground mb-2">No receipts uploaded.</p>
                             <ImageUpload onImageUploaded={(url) => console.log('Receipt uploaded:', url)} />
@@ -106,6 +116,15 @@ const EventDetailsContent = ({ event, onChecklistItemToggle, onUpdateEvent, onEd
                     Edit Event
                 </Button>
             </SheetFooter>
+            <AddTransactionDialog
+                open={isAddTransactionOpen}
+                onOpenChange={setIsAddTransactionOpen}
+                event={event}
+                onConfirm={(newTransaction) => {
+                    onAddTransaction(newTransaction);
+                    setIsAddTransactionOpen(false);
+                }}
+            />
         </>
     )
 }
@@ -115,6 +134,7 @@ export function EventCard({
     onChecklistItemToggle,
     onUpdateEvent,
     onEditEvent,
+    onAddTransaction,
 }: EventCardProps) {
 
     const isMobile = useIsMobile();
@@ -153,10 +173,13 @@ export function EventCard({
         </div>
     );
     
+    const DialogOrSheet = isMobile ? Sheet : Sheet;
+    const DialogOrSheetContent = isMobile ? SheetContent : SheetContent;
+
     return (
-        <Sheet>
+        <DialogOrSheet>
             <SheetTrigger asChild>{TriggerCard}</SheetTrigger>
-            <SheetContent side={isMobile ? "bottom" : "right"} className={cn(isMobile ? "h-[90dvh]" : "sm:max-w-md", "flex flex-col p-0")}>
+            <DialogOrSheetContent side={isMobile ? "bottom" : "right"} className={cn(isMobile ? "h-[90dvh]" : "sm:max-w-md", "flex flex-col p-0")}>
                  <SheetHeader className="p-6 pb-4">
                     <SheetTitle>{event.title}</SheetTitle>
                     <SheetDescription>
@@ -164,8 +187,8 @@ export function EventCard({
                     </SheetDescription>
                 </SheetHeader>
                 <Separator />
-                <EventDetailsContent event={event} onChecklistItemToggle={onChecklistItemToggle} onUpdateEvent={onUpdateEvent} onEditEvent={onEditEvent} />
-            </SheetContent>
-        </Sheet>
+                <EventDetailsContent event={event} onChecklistItemToggle={onChecklistItemToggle} onUpdateEvent={onUpdateEvent} onEditEvent={onEditEvent} onAddTransaction={onAddTransaction} />
+            </DialogOrSheetContent>
+        </DialogOrSheet>
     )
 }

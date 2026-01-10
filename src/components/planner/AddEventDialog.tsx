@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, KeyboardEvent } from 'react';
@@ -51,7 +52,6 @@ const AddEventForm = ({
     const [endTime, setEndTime] = useState<string>('10:00');
     const [notes, setNotes] = useState('');
     const [location, setLocation] = useState('');
-    const [cost, setCost] = useState<number | undefined>(undefined);
     const [checklist, setChecklist] = useState<Omit<EventChecklistItem, 'id'>[]>([]);
     const [newChecklistItem, setNewChecklistItem] = useState('');
 
@@ -99,8 +99,6 @@ const AddEventForm = ({
             endTime: endDateTime,
             notes,
             location,
-            cost: cost,
-            isWriteOff: type !== 'blocked', // Simplified: all business/personal costs are write-offs for the ledger
             checklist: checklist.map((item, index) => ({...item, id: `cl-${Date.now()}-${index}`}))
         };
         onConfirm(newEvent);
@@ -198,15 +196,6 @@ const AddEventForm = ({
                             <Label htmlFor="location">Location</Label>
                             <Input id="location" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g., 123 Main St or 'Zoom'" />
                         </div>
-                        {type !== 'blocked' && (
-                            <div className="space-y-2">
-                                <Label htmlFor="cost">Cost</Label>
-                                <div className="relative">
-                                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                    <Input id="cost" type="number" value={cost || ''} onChange={(e) => setCost(parseFloat(e.target.value) || undefined)} placeholder="0.00" className="pl-8" />
-                                </div>
-                            </div>
-                        )}
                         <div className="space-y-2">
                             <Label>Checklist</Label>
                             <div className='space-y-2'>

@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, KeyboardEvent, useEffect } from 'react';
@@ -54,7 +55,6 @@ const EditEventForm = ({
     const [endTime, setEndTime] = useState(format(event.endTime, 'HH:mm'));
     const [notes, setNotes] = useState(event.notes || '');
     const [location, setLocation] = useState(event.location || '');
-    const [cost, setCost] = useState<number | undefined>(event.cost);
     const [checklist, setChecklist] = useState<EventChecklistItem[]>(event.checklist || []);
     const [newChecklistItem, setNewChecklistItem] = useState('');
 
@@ -66,7 +66,6 @@ const EditEventForm = ({
         setEndTime(format(event.endTime, 'HH:mm'));
         setNotes(event.notes || '');
         setLocation(event.location || '');
-        setCost(event.cost);
         setChecklist(event.checklist || []);
     }, [event]);
 
@@ -115,8 +114,6 @@ const EditEventForm = ({
             endTime: endDateTime,
             notes,
             location,
-            cost: cost,
-            isWriteOff: type !== 'blocked',
             checklist: checklist,
         };
         onConfirm(updatedEvent);
@@ -214,15 +211,7 @@ const EditEventForm = ({
                             <Label htmlFor="location-edit">Location</Label>
                             <Input id="location-edit" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g., 123 Main St or 'Zoom'" />
                         </div>
-                        {type !== 'blocked' && (
-                            <div className="space-y-2">
-                                <Label htmlFor="cost-edit">Cost</Label>
-                                <div className="relative">
-                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                        <Input id="cost-edit" type="number" value={cost || ''} onChange={(e) => setCost(parseFloat(e.target.value) || undefined)} placeholder="0.00" className="pl-8" />
-                                </div>
-                            </div>
-                        )}
+                        
                         <div className="space-y-2">
                             <Label>Checklist</Label>
                             <div className='space-y-2'>
