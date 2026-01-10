@@ -33,6 +33,7 @@ const AppointmentItem = ({ appointment, onCompleteClick }: { appointment: Appoin
         confirmed: 'border-l-4 border-blue-500',
         completed: 'border-l-4 border-green-500',
         canceled: 'border-l-4 border-red-500 opacity-70',
+        deposit_pending: 'border-l-4 border-pink-500',
     };
     
     return (
@@ -161,7 +162,7 @@ export default function PlannerPage() {
     setIsCheckoutOpen(true);
   };
 
-  const handleCheckout = (updatedInventory, newCorrections) => {
+  const handleCheckout = (updatedInventory: any, newCorrections: any) => {
     if (!selectedAppointment) return;
 
     setAppointments(prev => prev.map(apt => apt.id === selectedAppointment.id ? { ...apt, status: 'completed' } : apt));
