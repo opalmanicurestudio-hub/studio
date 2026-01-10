@@ -181,18 +181,21 @@ export const services: Service[] = [
 
 const today = new Date();
 export const appointments: Appointment[] = [
+  { id: 'apt-0', clientId: 'cli-4', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 8), 0), endTime: setMinutes(setHours(startOfDay(today), 8), 50), status: 'completed' },
   { id: 'apt-1', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 9), 30), endTime: setMinutes(setHours(startOfDay(today), 10), 20), status: 'confirmed' },
   { id: 'apt-2', clientId: 'cli-2', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 11), 0), endTime: setMinutes(setHours(startOfDay(today), 11), 50), status: 'completed' },
-  { id: 'apt-6', clientId: 'cli-2', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 11), 30), endTime: setMinutes(setHours(startOfDay(today), 12), 20), status: 'deposit_pending' },
-  { id: 'apt-3', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(addDays(today,1)), 14), 0), endTime: setMinutes(setHours(startOfDay(addDays(today,1)), 14), 50), status: 'confirmed' },
+  { id: 'apt-6', clientId: 'cli-2', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 14), 0), endTime: setMinutes(setHours(startOfDay(today), 14), 50), status: 'deposit_pending' },
+  { id: 'apt-3', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 15), 0), endTime: setMinutes(setHours(startOfDay(today), 15), 50), status: 'confirmed' },
   { id: 'apt-4', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today, 2)), 10), 0), endTime: setMinutes(setHours(startOfDay(subDays(today,2)), 10), 50), status: 'completed' },
-  { id: 'apt-5', clientId: 'cli-5', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 13), 0), endTime: setMinutes(setHours(startOfDay(today), 13), 50), status: 'cancelled' },
+  { id: 'apt-5', clientId: 'cli-5', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 16), 0), endTime: setMinutes(setHours(startOfDay(today), 16), 50), status: 'cancelled' },
+  { id: 'apt-7', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 11), 0), endTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 11), 50), status: 'confirmed' },
 ];
 
 export const events: Event[] = [
     { id: 'evt-1', title: 'Lunch with Mom', type: 'personal', startTime: setMinutes(setHours(startOfDay(today), 12), 30), endTime: setMinutes(setHours(startOfDay(today), 13), 30)},
-    { id: 'evt-2', title: 'Team Meeting', type: 'business', startTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 9), 0), endTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 10), 0), notes: 'Discuss Q3 marketing plan.'},
-    { id: 'evt-3', title: 'Dentist', type: 'personal', startTime: setMinutes(setHours(startOfDay(subDays(today, 1)), 15), 0), endTime: setMinutes(setHours(startOfDay(subDays(today, 1)), 16), 0)},
+    { id: 'evt-2', title: 'Content Planning', type: 'business', startTime: setMinutes(setHours(startOfDay(today), 9), 0), endTime: setMinutes(setHours(startOfDay(today), 9), 30), notes: 'Plan next week\'s social posts.'},
+    { id: 'evt-3', title: 'Pick up supplies', type: 'business', startTime: setMinutes(setHours(startOfDay(today), 17), 0), endTime: setMinutes(setHours(startOfDay(today), 17), 30)},
+    { id: 'evt-4', title: 'Dentist', type: 'personal', startTime: setMinutes(setHours(startOfDay(addDays(today, 2)), 15), 0), endTime: setMinutes(setHours(startOfDay(addDays(today, 2)), 16), 0)},
 ];
 
 export const quotes: Quote[] = [
