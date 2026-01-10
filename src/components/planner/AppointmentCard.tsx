@@ -15,6 +15,11 @@ import {
   Briefcase,
   FileText,
   FlaskConical,
+  Edit,
+  Trash2,
+  CheckCircle,
+  XCircle,
+  Clock10,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -23,6 +28,10 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuPortal,
 } from '@/components/ui/dropdown-menu';
 import {
   Dialog,
@@ -49,7 +58,8 @@ interface AppointmentCardProps {
   service: Service;
   style: React.CSSProperties;
   tmhr: number;
-  onViewDetails: () => void;
+  onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void;
+  onDelete: (appointmentId: string) => void;
 }
 
 const AppointmentDetails = ({
@@ -67,7 +77,16 @@ const AppointmentDetails = ({
     const revenue = service.price;
     const totalDuration = differenceInMinutes(appointment.endTime, appointment.startTime);
     const timeCost = (totalDuration / 60) * tmhr;
-    const productCost = (service.products || []).reduce((sum, p) => sum + (p.costPerUnit || 0), 0);
+    
+    let productsToUse = service.products || [];
+    if (client.customFormula && client.customFormula.length > 0) {
+      productsToUse = client.customFormula.map(cf => ({
+        ...inventory.find(i => i.id === cf.productId)!,
+        quantityUsed: cf.quantityUsed,
+      }));
+    }
+    const productCost = productsToUse.reduce((sum, p) => sum + (p.costPerUnit || 0), 0);
+
     const equipmentCost = (service.equipment || []).reduce((sum, e) => {
         const lifespanInMinutes = (e.lifespanYears || 5) * 365 * 8 * 60;
         const costPerMinute = (e.costPerUnit || 0) / lifespanInMinutes;
@@ -78,7 +97,7 @@ const AppointmentDetails = ({
     const netProfit = revenue - breakEvenCost;
 
     return { revenue, breakEvenCost, netProfit, timeCost, productCost, equipmentCost };
-  }, [service, appointment, tmhr]);
+  }, [service, appointment, tmhr, client]);
 
   return (
     <div className="p-6 space-y-6">
@@ -102,7 +121,6 @@ const AppointmentDetails = ({
                   <p className="font-bold text-xl text-destructive">${breakEvenCost.toFixed(2)}</p>
               </div>
               <div>
-                  <p className="text-xs text-muted-foreground">Net Profit</p>
                   <p className={cn("font-bold text-xl", netProfit >= 0 ? 'text-primary' : 'text-destructive')}>
                     ${netProfit.toFixed(2)}
                   </p>
@@ -119,7 +137,7 @@ const AppointmentDetails = ({
         
         <div className="space-y-4">
             <h4 className="font-medium text-sm">Client Intel</h4>
-             {client.customFormula && (
+             {client.customFormula && client.customFormula.length > 0 && (
                 <div className='space-y-3'>
                     <h5 className='font-semibold text-xs flex items-center gap-2'><FlaskConical className="w-4 h-4 text-blue-500"/>Custom Formula</h5>
                      <div className='p-3 rounded-md bg-blue-500/5 border border-blue-500/20 space-y-2'>
@@ -133,8 +151,8 @@ const AppointmentDetails = ({
                 </div>
             )}
             <div className="text-sm space-y-2">
-                {client.notes && !client.customFormula && <div className="flex items-start gap-2"><FileText className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5"/><span>{client.notes}</span></div>}
-                {!client.medicalNotes && !client.allergyNotes && !client.sensoryNeeds && !client.notes && !client.customFormula && <p className="text-muted-foreground">No special notes for this client.</p>}
+                {client.notes && (!client.customFormula || client.customFormula.length === 0) && <div className="flex items-start gap-2"><FileText className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5"/><span>{client.notes}</span></div>}
+                {!client.medicalNotes && !client.allergyNotes && !client.sensoryNeeds && !client.notes && (!client.customFormula || client.customFormula.length === 0) && <p className="text-muted-foreground">No special notes for this client.</p>}
                 {client.medicalNotes && <div className="flex items-center gap-2"><ShieldPlus className="w-4 h-4 text-red-500 flex-shrink-0"/><span>{client.medicalNotes}</span></div>}
                 {client.allergyNotes && <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-yellow-500 flex-shrink-0"/><span>{client.allergyNotes}</span></div>}
                 {client.sensoryNeeds && <div className="flex items-center gap-2"><Ear className="w-4 h-4 text-blue-500 flex-shrink-0"/><span>{client.sensoryNeeds}</span></div>}
@@ -152,11 +170,13 @@ export function AppointmentCard({
   service,
   style,
   tmhr,
-}: Omit<AppointmentCardProps, 'onViewDetails'>) {
+  onUpdateStatus,
+  onDelete
+}: AppointmentCardProps) {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const isMobile = useIsMobile();
 
-  const statusStyles: { [key: string]: string } = {
+  const statusStyles: { [key in Appointment['status']]: string } = {
     confirmed: 'bg-blue-100 dark:bg-blue-900/30 border-blue-500',
     completed: 'bg-green-100 dark:bg-green-900/30 border-green-500',
     cancelled: 'bg-red-200/50 dark:bg-red-900/30 border-red-500',
@@ -194,9 +214,23 @@ export function AppointmentCard({
                 <DropdownMenuItem onSelect={() => setIsDetailsOpen(true)}>
                     <FileText className="mr-2 h-4 w-4"/>View Details
                 </DropdownMenuItem>
-                <DropdownMenuItem>Change Status</DropdownMenuItem>
-                <DropdownMenuItem>Edit Details</DropdownMenuItem>
-                <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
+                 <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                       <Clock10 className="mr-2 h-4 w-4"/> Change Status
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuPortal>
+                        <DropdownMenuSubContent>
+                            <DropdownMenuItem onSelect={() => onUpdateStatus(appointment.id, 'confirmed')}><CheckCircle className="mr-2 h-4 w-4 text-blue-500"/>Confirmed</DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => onUpdateStatus(appointment.id, 'cancelled')}><XCircle className="mr-2 h-4 w-4 text-red-500"/>Cancelled</DropdownMenuItem>
+                        </DropdownMenuSubContent>
+                    </DropdownMenuPortal>
+                </DropdownMenuSub>
+                <DropdownMenuItem>
+                  <Edit className="mr-2 h-4 w-4"/> Edit Details
+                </DropdownMenuItem>
+                <DropdownMenuItem className="text-destructive" onSelect={() => onDelete(appointment.id)}>
+                   <Trash2 className="mr-2 h-4 w-4"/> Delete
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
         </div>

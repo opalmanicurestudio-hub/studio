@@ -48,10 +48,10 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
 
     let productsToDeduct: { id?: string; productId?: string; quantityUsed: number; name?: string; productName?: string }[] = [];
     
-    if (client?.customFormula) {
+    if (client?.customFormula && client.customFormula.length > 0) {
         productsToDeduct = client.customFormula.map(item => ({
             productId: item.productId,
-            name: item.productName,
+            productName: item.productName,
             quantityUsed: item.quantityUsed,
         }));
     } else if (service?.products) {
@@ -233,7 +233,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                     <CardDescription>The following stock adjustments will be made.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                    {client.customFormula && (
+                    {client.customFormula && client.customFormula.length > 0 && (
                       <div className="p-3 rounded-md bg-blue-500/10 text-blue-700 dark:text-blue-300 text-sm flex items-start gap-2">
                         <FileText className="w-4 h-4 mt-0.5 flex-shrink-0" />
                         Applying custom formula from client profile.

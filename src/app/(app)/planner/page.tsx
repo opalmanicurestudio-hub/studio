@@ -3,9 +3,9 @@
 
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event } from '@/lib/data';
-import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes } from 'date-fns';
+import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast } from 'date-fns';
 import { useState, useMemo, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
@@ -37,7 +37,7 @@ import {
 } from '@/components/ui/accordion';
 import { AppointmentCard } from '@/components/planner/AppointmentCard';
 
-const DayTimeline = ({ date, appointments, events, onCompleteClick }: { date: Date; appointments: Appointment[]; events: Event[]; onCompleteClick: (apt: Appointment) => void; }) => {
+const DayTimeline = ({ date, appointments, events, onCompleteClick, onUpdateStatus, onDelete }: { date: Date; appointments: Appointment[]; events: Event[]; onCompleteClick: (apt: Appointment) => void; onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void; onDelete: (appointmentId: string) => void; }) => {
     const dailyTotals = useMemo(() => {
         return appointments
         .filter(apt => apt.status === 'completed')
@@ -126,18 +126,27 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick }: { date: Da
                            const height = totalDuration / 60 * 96;
 
                            return (
-                               <AppointmentCard
-                                    key={appointment.id}
-                                    appointment={appointment}
-                                    client={client}
-                                    service={service}
-                                    tmhr={tmhr}
-                                    onViewDetails={() => {}}
-                                    style={{
-                                        top: `${top}px`,
-                                        height: `${height}px`,
-                                    }}
-                               />
+                               <div key={appointment.id} className="absolute w-full" style={{ top: `${top}px`, height: `${height}px` }}>
+                                    <AppointmentCard
+                                        appointment={appointment}
+                                        client={client}
+                                        service={service}
+                                        tmhr={tmhr}
+                                        style={{ height: '100%'}}
+                                        onUpdateStatus={onUpdateStatus}
+                                        onDelete={onDelete}
+                                    />
+                                    {isPast(appointment.endTime) && appointment.status !== 'completed' && appointment.status !== 'cancelled' && (
+                                        <Button
+                                            size="sm"
+                                            className="absolute -bottom-4 right-2 z-10"
+                                            onClick={() => onCompleteClick(appointment)}
+                                        >
+                                            <CheckCircle className="mr-2 h-4 w-4" />
+                                            Complete
+                                        </Button>
+                                    )}
+                               </div>
                            );
                         })}
                     </div>
@@ -234,6 +243,23 @@ export default function PlannerPage() {
     setIsAddEventOpen(false);
   };
 
+  const handleUpdateStatus = (appointmentId: string, status: Appointment['status']) => {
+    setAppointments(prev => prev.map(apt => apt.id === appointmentId ? { ...apt, status } : apt));
+    toast({
+        title: "Status Updated",
+        description: `Appointment status changed to ${status}.`
+    });
+  };
+
+  const handleDeleteAppointment = (appointmentId: string) => {
+    setAppointments(prev => prev.filter(apt => apt.id !== appointmentId));
+     toast({
+        variant: "destructive",
+        title: "Appointment Deleted",
+        description: `The appointment has been removed from your calendar.`
+    });
+  };
+
   const handleNextWeek = () => setCurrentDate(addDays(currentDate, 7));
   const handlePrevWeek = () => setCurrentDate(subDays(currentDate, 7));
   const handleToday = () => {
@@ -305,7 +331,7 @@ export default function PlannerPage() {
                         .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
                     return (
                         <CarouselItem key={index} className="h-full basis-full">
-                            <DayTimeline date={date} appointments={appointmentsForDay} events={eventsForDay} onCompleteClick={handleCompleteClick} />
+                            <DayTimeline date={date} appointments={appointmentsForDay} events={eventsForDay} onCompleteClick={handleCompleteClick} onUpdateStatus={handleUpdateStatus} onDelete={handleDeleteAppointment} />
                         </CarouselItem>
                     )
                  })}
