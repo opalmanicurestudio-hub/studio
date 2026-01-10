@@ -89,15 +89,8 @@ const EventDetailsContent = ({ event, onChecklistItemToggle, onUpdateEvent, onEd
 
                      <div className="space-y-3">
                         <h4 className="font-medium text-sm flex items-center gap-2"><DollarSign className="w-4 h-4"/> Financials</h4>
-                        {event.cost && event.cost > 0 && (
-                             <div className="flex items-center justify-between p-3 rounded-md bg-muted/50 text-sm">
-                                <span className="font-medium">Associated Cost</span>
-                                <span className="font-semibold">${event.cost.toFixed(2)}</span>
-                            </div>
-                        )}
                         <Button variant="outline" size="sm" onClick={() => setIsAddTransactionOpen(true)}><FilePlus className="w-4 h-4 mr-2"/> Log an Expense</Button>
                     </div>
-
                     
                     <Separator />
                     
