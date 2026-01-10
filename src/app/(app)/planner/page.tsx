@@ -42,10 +42,12 @@ const AppointmentItem = ({ appointment, onCompleteClick }: { appointment: Appoin
 
     if (!client || !service) return null;
 
+    const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
+
     const statusStyles = {
         confirmed: 'border-l-4 border-blue-500',
         completed: 'border-l-4 border-green-500',
-        canceled: 'border-l-4 border-red-500 opacity-70',
+        cancelled: 'border-l-4 border-red-500 opacity-70',
         deposit_pending: 'border-l-4 border-pink-500',
     };
     
@@ -66,6 +68,7 @@ const AppointmentItem = ({ appointment, onCompleteClick }: { appointment: Appoin
             </div>
             <div className="text-xs text-muted-foreground">
                 {format(appointment.startTime, 'h:mm a')} - {format(appointment.endTime, 'h:mm a')}
+                {totalPadding > 0 && <span className="text-muted-foreground/80"> (+{totalPadding} min pad)</span>}
             </div>
             {appointment.status === 'confirmed' && (
                 <div className="flex gap-2 pt-2 border-t -mb-1 -mx-2 px-2">
@@ -130,7 +133,7 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick }: { date: Da
                     </AccordionItem>
                 </Accordion>
             </div>
-            <ScrollArea className="h-[calc(100vh-230px)]">
+            <ScrollArea className="flex-1" style={{ height: 'calc(100vh - 230px)' }}>
                  <div className="p-4 space-y-4">
                     {allItems.length > 0 ? (
                         allItems.map(item => (
@@ -302,10 +305,10 @@ export default function PlannerPage() {
          <Carousel setApi={setApi} className="h-full w-full" opts={{startIndex: currentDayIndex}}>
             <CarouselContent className="h-full">
                  {weekDays.map((date, index) => {
-                    const appointmentsForDay = appointments
+                    const appointmentsForDay = initialAppointments
                         .filter(apt => format(apt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'))
                         .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
-                    const eventsForDay = events
+                    const eventsForDay = initialEvents
                         .filter(evt => format(evt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'))
                         .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
                     return (
