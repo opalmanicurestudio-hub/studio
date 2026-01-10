@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { AlertCircle, CheckCircle, FileText, FlaskConical, PlusCircle, Trash2, Library, Wand, QrCode, Search, AlertTriangle, ShoppingCart, CreditCard, Banknote, Gift } from 'lucide-react';
+import { AlertCircle, CheckCircle, FileText, FlaskConical, PlusCircle, Trash2, Library, Wand, QrCode, Search, AlertTriangle, ShoppingCart, CreditCard, Banknote, Gift, Coins } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type StockCorrection, type CustomFormula } from '@/lib/data';
 import { format } from 'date-fns';
 import { Input } from '../ui/input';
@@ -63,7 +63,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   const [editableFormula, setEditableFormula] = useState<EditableFormulaItem[]>([]);
   const [retailItems, setRetailItems] = useState<EditableFormulaItem[]>([]);
   
-  const [amountTendered, setAmountTendered] = useState<number | null>(null);
+  const [amountTendered, setAmountTendered] = useState<number>(0);
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
@@ -84,7 +84,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         setEditableFormula(defaultFormula);
         setRetailItems([]);
         setFormulaName('Default Service Formula');
-        setAmountTendered(null);
+        setAmountTendered(0);
         setReceiptData(null);
     }
   }, [service, open]);
@@ -107,7 +107,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   const mockTax = subtotal * 0.07; // 7% tax for demo
   const grandTotal = subtotal + mockTax;
   
-  const changeDue = amountTendered !== null ? amountTendered - grandTotal : null;
+  const changeDue = amountTendered > 0 ? amountTendered - grandTotal : 0;
 
   const handleQuantityChange = (productId: string, newQuantity: number) => {
     setEditableFormula(prev => prev.map(item => item.id === productId ? { ...item, quantity: newQuantity } : item));
@@ -197,7 +197,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         payment: {
             method: 'Cash', // This would be dynamic
             amountTendered: amountTendered || grandTotal,
-            changeDue: changeDue !== null && changeDue >= 0 ? changeDue : 0,
+            changeDue: changeDue > 0 ? changeDue : 0,
         }
     };
     setReceiptData(finalReceiptData);
@@ -244,29 +244,11 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     }
   }, [isScannerOpen, toast]);
   
-  const suggestedAmounts = useMemo(() => {
-    if (grandTotal <= 0) return [];
-    const amounts = [1, 5, 10, 20, 50, 100];
-    const suggestions = new Set<number>();
+  const denominations = [100, 50, 20, 10, 5, 1, 0.25, 0.10, 0.05, 0.01];
 
-    // Suggest next highest bill
-    for (const amount of amounts) {
-        if (amount > grandTotal) {
-            suggestions.add(amount);
-            break;
-        }
-    }
-    // Suggest next round numbers
-    let nextRound = Math.ceil(grandTotal / 10) * 10;
-    if (nextRound <= grandTotal) nextRound += 10;
-    for(let i=0; i<3; i++){
-        if (nextRound > grandTotal) suggestions.add(nextRound);
-        nextRound += 10;
-    }
-    
-    return Array.from(suggestions).sort((a,b) => a-b).slice(0, 4);
-
-  }, [grandTotal]);
+  const handleDenominationClick = (amount: number) => {
+    setAmountTendered(prev => prev + amount);
+  }
 
 
   if (!client || !service) {
@@ -420,30 +402,28 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                               </div>
                           </TabsContent>
                           <TabsContent value="cash" className="pt-4 space-y-4">
-                              <div className="space-y-2">
-                                  <Label htmlFor="amount-tendered">Amount Tendered</Label>
-                                  <Input 
-                                    id="amount-tendered" 
-                                    type="number" 
-                                    placeholder={grandTotal.toFixed(2)}
-                                    value={amountTendered || ''}
-                                    onChange={(e) => setAmountTendered(parseFloat(e.target.value) || null)}
-                                  />
+                              <div className="grid grid-cols-2 gap-4">
+                                  <div className="space-y-2">
+                                      <Label>Amount Tendered</Label>
+                                      <div className='p-4 text-2xl font-bold text-center bg-muted rounded-md'>
+                                          ${amountTendered.toFixed(2)}
+                                      </div>
+                                  </div>
+                                   <div className="space-y-2">
+                                      <Label>Change Due</Label>
+                                       <div className={`p-4 text-2xl font-bold text-center rounded-md ${changeDue >= 0 ? 'bg-green-500/10 text-green-600' : 'bg-red-500/10 text-red-600'}`}>
+                                          ${Math.abs(changeDue).toFixed(2)}
+                                      </div>
+                                  </div>
                               </div>
-                               <div className="flex justify-center gap-2">
-                                  {suggestedAmounts.map(amount => (
-                                      <Button key={amount} variant="outline" size="sm" onClick={() => setAmountTendered(amount)}>${amount}</Button>
+                              <div className="grid grid-cols-5 gap-2">
+                                  {denominations.map(amount => (
+                                      <Button key={amount} variant="outline" onClick={() => handleDenominationClick(amount)}>
+                                          {amount >= 1 ? `$${amount}` : `${amount * 100}¢`}
+                                      </Button>
                                   ))}
-                                   <Button variant="outline" size="sm" onClick={() => setAmountTendered(grandTotal)}>Exact</Button>
-                               </div>
-                              {changeDue !== null && (
-                                <Alert variant={changeDue < 0 ? 'destructive' : 'default'}>
-                                    <AlertTitle>{changeDue >= 0 ? 'Change Due' : 'Amount Remaining'}</AlertTitle>
-                                    <AlertDescription className="text-2xl font-bold">
-                                        ${Math.abs(changeDue).toFixed(2)}
-                                    </AlertDescription>
-                                </Alert>
-                              )}
+                              </div>
+                               <Button variant="secondary" className="w-full" onClick={() => setAmountTendered(0)}>Clear</Button>
                           </TabsContent>
                           <TabsContent value="other" className="pt-4">
                                <Button variant="outline" className="w-full" size="lg">Record Manual Payment (Venmo, etc.)</Button>
