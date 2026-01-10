@@ -4,7 +4,7 @@
 import React from 'react';
 import { type Event } from '@/lib/data';
 import { cn } from '@/lib/utils';
-import { Briefcase, User, Lock, MapPin, CheckSquare, MoreHorizontal } from 'lucide-react';
+import { Briefcase, User, Lock, MapPin, CheckSquare, MoreHorizontal, FileText, Upload, Link as LinkIcon } from 'lucide-react';
 import { format } from 'date-fns';
 import { Progress } from '../ui/progress';
 import { Checkbox } from '../ui/checkbox';
@@ -18,8 +18,11 @@ import {
   SheetTitle,
   SheetDescription,
   SheetTrigger,
+  SheetFooter
 } from '@/components/ui/sheet';
 import { ScrollArea } from '../ui/scroll-area';
+import { Button } from '../ui/button';
+import { ImageUpload } from '../shared/ImageUpload';
 
 
 interface EventCardProps {
@@ -32,23 +35,27 @@ const EventDetailsContent = ({ event, onChecklistItemToggle }: EventCardProps) =
     const totalCount = React.useMemo(() => event.checklist?.length || 0, [event.checklist]);
 
     return (
-        <div className="space-y-4">
-            {event.notes && <p className="text-sm text-muted-foreground">{event.notes}</p>}
-            {event.location && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <MapPin className="w-4 h-4" />
-                    <span>{event.location}</span>
-                </div>
-            )}
+        <div className="space-y-6">
+            <div className="space-y-2">
+                <h4 className="font-medium text-sm">Details</h4>
+                {event.notes && <p className="text-sm text-muted-foreground">{event.notes}</p>}
+                {event.location && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <MapPin className="w-4 h-4" />
+                        <span>{event.location}</span>
+                    </div>
+                )}
+            </div>
+
             {event.checklist && event.checklist.length > 0 && (
                 <div className="space-y-3">
                     <div className="flex justify-between items-center text-sm">
-                        <h5 className="font-medium flex items-center gap-2"><CheckSquare className="w-4 h-4"/> Checklist</h5>
+                        <h4 className="font-medium flex items-center gap-2"><CheckSquare className="w-4 h-4"/> Checklist</h4>
                         <span className="text-muted-foreground">{completedCount}/{totalCount} completed</span>
                     </div>
                     <div className="space-y-2">
                     {event.checklist.map((item) => (
-                        <div key={item.id} className="flex items-center gap-3">
+                        <div key={item.id} className="flex items-center gap-3 p-2 rounded-md bg-muted/50">
                             <Checkbox id={item.id} checked={item.completed} onCheckedChange={(checked) => onChecklistItemToggle(event.id, item.id, !!checked)} />
                             <label htmlFor={item.id} className={cn("text-sm flex-1", item.completed && "line-through text-muted-foreground")}>{item.text}</label>
                         </div>
@@ -56,6 +63,24 @@ const EventDetailsContent = ({ event, onChecklistItemToggle }: EventCardProps) =
                     </div>
                 </div>
             )}
+            
+            <Separator />
+            
+            <div className="space-y-3">
+                <h4 className="font-medium text-sm flex items-center gap-2"><LinkIcon className="w-4 h-4"/> Linked Transactions</h4>
+                <div className="p-4 text-center border-2 border-dashed rounded-lg">
+                    <p className="text-sm text-muted-foreground mb-2">No transactions linked.</p>
+                    <Button variant="outline" size="sm">Assign Transaction</Button>
+                </div>
+            </div>
+            
+            <div className="space-y-3">
+                <h4 className="font-medium text-sm flex items-center gap-2"><Upload className="w-4 h-4"/> Receipts</h4>
+                <div className="p-4 text-center border-2 border-dashed rounded-lg">
+                    <p className="text-sm text-muted-foreground mb-2">No receipts uploaded.</p>
+                    <ImageUpload onImageUploaded={(url) => console.log('Receipt uploaded:', url)} />
+                </div>
+            </div>
         </div>
     )
 }
@@ -81,9 +106,13 @@ export function EventCard({
     }
     
     const checklistProgress = React.useMemo(() => {
-        if (!event.checklist || event.checklist.length === 0) return 0;
+        if (!event.checklist || event.checklist.length === 0) return null;
         const completed = event.checklist.filter(item => item.completed).length;
-        return (completed / event.checklist.length) * 100;
+        const total = event.checklist.length;
+        return {
+            progress: (completed / total) * 100,
+            text: `${completed}/${total}`
+        };
     }, [event.checklist]);
 
     const TriggerCard = (
@@ -107,52 +136,37 @@ export function EventCard({
             </div>
             
             <div className="flex-shrink-0 mt-auto pt-2">
-                {event.checklist && event.checklist.length > 0 && (
+                {checklistProgress && (
                     <div className="space-y-1">
-                        <Progress value={checklistProgress} className="h-1" />
+                        <div className="flex justify-between items-center text-[10px] text-muted-foreground">
+                            <span>Checklist</span>
+                            <span>{checklistProgress.text}</span>
+                        </div>
+                        <Progress value={checklistProgress.progress} className="h-1" />
                     </div>
                 )}
             </div>
         </div>
     );
     
-    if (isMobile) {
-        return (
-            <Sheet>
-                <SheetTrigger asChild>{TriggerCard}</SheetTrigger>
-                <SheetContent side="bottom" className="h-[90dvh] flex flex-col">
-                     <SheetHeader className="text-left">
-                        <SheetTitle>{event.title}</SheetTitle>
-                        <SheetDescription>
-                             {format(event.startTime, 'EEEE, LLL d')} &middot; {format(event.startTime, 'h:mm a')} - {format(event.endTime, 'h:mm a')}
-                        </SheetDescription>
-                    </SheetHeader>
-                    <Separator />
-                    <ScrollArea className="flex-1 -mx-6 px-6">
-                        <EventDetailsContent event={event} onChecklistItemToggle={onChecklistItemToggle} />
-                    </ScrollArea>
-                </SheetContent>
-            </Sheet>
-        )
-    }
-
     return (
-        <Popover>
-            <PopoverTrigger asChild>
-                {TriggerCard}
-            </PopoverTrigger>
-            <PopoverContent className="w-80" side="right" align="start">
-                <div className="space-y-4">
-                    <div className="space-y-1.5">
-                        <h4 className="font-semibold leading-none">{event.title}</h4>
-                        <p className="text-sm text-muted-foreground">
-                            {format(event.startTime, 'h:mm a')} - {format(event.endTime, 'h:mm a')}
-                        </p>
-                    </div>
-                    <Separator />
+        <Sheet>
+            <SheetTrigger asChild>{TriggerCard}</SheetTrigger>
+            <SheetContent side={isMobile ? "bottom" : "right"} className={cn(isMobile ? "h-[90dvh]" : "sm:max-w-md", "flex flex-col")}>
+                 <SheetHeader className="pr-6">
+                    <SheetTitle>{event.title}</SheetTitle>
+                    <SheetDescription>
+                         {format(event.startTime, 'EEEE, LLL d')} &middot; {format(event.startTime, 'h:mm a')} - {format(event.endTime, 'h:mm a')}
+                    </SheetDescription>
+                </SheetHeader>
+                <Separator />
+                <ScrollArea className="flex-1 -mr-6 pr-6">
                     <EventDetailsContent event={event} onChecklistItemToggle={onChecklistItemToggle} />
-                </div>
-            </PopoverContent>
-        </Popover>
-    );
+                </ScrollArea>
+                <SheetFooter className="pt-4 border-t">
+                    <Button variant="outline" className="w-full">Edit Event</Button>
+                </SheetFooter>
+            </SheetContent>
+        </Sheet>
+    )
 }
