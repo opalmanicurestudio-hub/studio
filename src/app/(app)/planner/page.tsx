@@ -2,13 +2,11 @@
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, CheckCircle } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment } from '@/lib/data';
 import { format, addDays, subDays, startOfWeek } from 'date-fns';
 import { useState, useMemo, useEffect } from 'react';
-import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
 import { useInventory } from '@/context/InventoryContext';
@@ -18,12 +16,11 @@ import {
   Carousel,
   CarouselContent,
   CarouselItem,
-  CarouselNext,
-  CarouselPrevious,
   type CarouselApi,
 } from "@/components/ui/carousel"
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog';
+import { Badge } from '@/components/ui/badge';
 
 const AppointmentItem = ({ appointment, onCompleteClick }: { appointment: Appointment; onCompleteClick: (apt: Appointment) => void; }) => {
     const client = clients.find(c => c.id === appointment.clientId);
@@ -60,7 +57,7 @@ const AppointmentItem = ({ appointment, onCompleteClick }: { appointment: Appoin
                 <div className="flex gap-2 pt-2 border-t -mb-1 -mx-2 px-2">
                     <Button variant="ghost" size="sm" className="flex-1 text-muted-foreground">Cancel</Button>
                     <Button variant="secondary" size="sm" className="flex-1" onClick={() => onCompleteClick(appointment)}>
-                        <CheckCircle className="mr-2 h-4 w-4" />
+                        <PlusCircle className="mr-2 h-4 w-4" />
                         Complete
                     </Button>
                 </div>
@@ -129,6 +126,7 @@ const DayTimeline = ({ date, appointments, onCompleteClick }: { date: Date; appo
 };
 
 export default function PlannerPage() {
+  const [isClient, setIsClient] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [appointments, setAppointments] = useState(initialAppointments);
   const { inventory, setInventory, addStockCorrection } = useInventory();
@@ -139,7 +137,14 @@ export default function PlannerPage() {
   const { toast } = useToast();
   
   const [api, setApi] = useState<CarouselApi>()
-  const [currentDayIndex, setCurrentDayIndex] = useState(startOfWeek(new Date()).getDay());
+  const [currentDayIndex, setCurrentDayIndex] = useState(0);
+
+  useEffect(() => {
+    // This effect runs only on the client, after hydration
+    setIsClient(true);
+    setCurrentDate(new Date());
+    setCurrentDayIndex(new Date().getDay()); // Set initial day index
+  }, []);
 
   const weekDays = useMemo(() => {
     const start = startOfWeek(currentDate, { weekStartsOn: 0 });
@@ -202,6 +207,17 @@ export default function PlannerPage() {
   }, [selectedAppointment]);
   
   const currentVisibleDate = weekDays[currentDayIndex];
+  
+  if (!isClient) {
+    return (
+      <div className="flex h-full w-full flex-col">
+        <AppHeader title="Planner" />
+        <div className="flex items-center justify-center flex-1">
+          <Loader className="h-8 w-8 animate-spin" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full w-full flex-col">
