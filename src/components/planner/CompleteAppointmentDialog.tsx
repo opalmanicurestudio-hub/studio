@@ -26,7 +26,122 @@ import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '../ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Label } from '../ui/label';
-import { PrintReceipt, type ReceiptData } from './PrintReceipt';
+
+// --- Start of PrintReceipt Component ---
+export interface ReceiptData {
+  business: {
+    name: string;
+    phone: string;
+  };
+  clientName: string;
+  date: Date;
+  items: {
+    name: string;
+    quantity: number;
+    price: number;
+  }[];
+  subtotal: number;
+  tax: number;
+  total: number;
+  payment: {
+    method: string;
+    amountTendered: number;
+    changeDue: number;
+  };
+}
+
+interface PrintReceiptProps {
+  data: ReceiptData;
+}
+
+export const PrintReceipt: React.FC<PrintReceiptProps> = ({ data }) => {
+  return (
+    <div id="receipt" className="p-4 bg-white text-black font-mono text-sm max-w-sm mx-auto">
+      <div className="text-center space-y-1 mb-6">
+        <h1 className="text-xl font-bold">{data.business.name}</h1>
+        <p>{data.business.phone}</p>
+        <p>{format(data.date, 'MMM d, yyyy h:mm a')}</p>
+      </div>
+
+      <div className="mb-4">
+        <p>
+          <span className="font-semibold">Client:</span> {data.clientName}
+        </p>
+      </div>
+
+      <Separator className="my-2 border-dashed border-black" />
+
+      <div className="space-y-2">
+        {data.items.map((item, index) => (
+          <div key={index} className="flex justify-between">
+            <div>
+              <p>{item.name}</p>
+              {item.quantity > 1 && <p className="pl-4 text-xs">({item.quantity} @ ${item.price.toFixed(2)})</p>}
+            </div>
+            <p>${(item.quantity * item.price).toFixed(2)}</p>
+          </div>
+        ))}
+      </div>
+
+      <Separator className="my-2 border-dashed border-black" />
+
+      <div className="space-y-1">
+        <div className="flex justify-between">
+          <p>Subtotal</p>
+          <p>${data.subtotal.toFixed(2)}</p>
+        </div>
+        <div className="flex justify-between">
+          <p>Tax</p>
+          <p>${data.tax.toFixed(2)}</p>
+        </div>
+        <div className="flex justify-between font-bold text-base">
+          <p>Total</p>
+          <p>${data.total.toFixed(2)}</p>
+        </div>
+      </div>
+
+      <Separator className="my-2 border-dashed border-black" />
+
+      <div className="space-y-1">
+        <div className="flex justify-between">
+          <p>Payment Method</p>
+          <p>{data.payment.method}</p>
+        </div>
+        <div className="flex justify-between">
+          <p>Amount Tendered</p>
+          <p>${data.payment.amountTendered.toFixed(2)}</p>
+        </div>
+        <div className="flex justify-between">
+          <p>Change Due</p>
+          <p>${data.payment.changeDue.toFixed(2)}</p>
+        </div>
+      </div>
+
+      <div className="text-center mt-8">
+        <p>Thank you for your business!</p>
+      </div>
+      
+       <style jsx global>{`
+        @media print {
+          body * {
+            visibility: hidden;
+          }
+          #receipt, #receipt * {
+            visibility: visible;
+          }
+          #receipt {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+          }
+        }
+      `}</style>
+    </div>
+  );
+};
+// --- End of PrintReceipt Component ---
+
 
 type EditableFormulaItem = {
     id: string; // productId
@@ -179,6 +294,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   const handleCompleteAndPrint = () => {
     if (!client || !service) return;
 
+    onConfirmCheckout(updatedInventory, newCorrections)
+
     const finalReceiptData: ReceiptData = {
         business: { name: 'ClarityFlow Salon', phone: '555-123-4567' },
         clientName: client.name,
@@ -205,9 +322,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     // Defer print action to allow state to update and component to render
     setTimeout(() => {
       window.print();
+      onOpenChange(false);
     }, 100);
-    
-    onConfirmCheckout(updatedInventory, newCorrections)
   };
 
 
@@ -478,7 +594,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                 </Alert>
             )}
           </div>
-           <DialogFooter className="p-4 pt-0">
+           <DialogFooter className="p-4 pt-0 flex-col gap-2">
                 <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button>
           </DialogFooter>
         </DialogContent>

@@ -210,7 +210,8 @@ export default function PlannerPage() {
         title: "Appointment Completed",
         description: `Inventory levels have been updated and ${newCorrections.length} stock correction(s) logged.`
     });
-    setIsCheckoutOpen(false);
+    // We no longer close the dialog from here. It closes itself after printing.
+    // setIsCheckoutOpen(false); 
     setSelectedAppointment(null);
   };
   
@@ -334,7 +335,6 @@ export default function PlannerPage() {
             open={isCheckoutOpen}
             onOpenChange={setIsCheckoutOpen}
             appointmentData={selectedAppointmentData}
-            inventory={inventory}
             onConfirmCheckout={handleCheckout}
         />
       )}
