@@ -1,6 +1,6 @@
-
 'use client';
 
+import { useMemo } from 'react';
 import { type Event, type EventChecklistItem } from '@/lib/data';
 import { cn } from '@/lib/utils';
 import { Briefcase, User, MapPin, CheckSquare, Square, DollarSign } from 'lucide-react';
