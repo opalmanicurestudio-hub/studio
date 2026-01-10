@@ -52,6 +52,7 @@ import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { type Appointment, type Client, type Service, inventory, CustomFormula } from '@/lib/data';
+import { ScrollArea } from '../ui/scroll-area';
 
 interface AppointmentCardProps {
   appointment: Appointment;
@@ -117,65 +118,68 @@ const AppointmentDetails = ({
   }, [service, appointment, tmhr, client]);
 
   return (
-    <div className="p-6 space-y-6">
-        <div className="space-y-2">
-            <h3 className="font-semibold text-lg">{client.name}</h3>
-            <p className="text-muted-foreground text-sm">{service.name}</p>
-            <p className="text-muted-foreground text-sm">{format(appointment.startTime, 'EEEE, LLL d, yyyy')} from {format(appointment.startTime, 'h:mm a')} to {format(appointment.endTime, 'h:mm a')}</p>
-        </div>
+    <ScrollArea className="max-h-[80vh] p-6">
+        <div className="space-y-6">
+            <div className="space-y-2">
+                <h3 className="font-semibold text-lg">{client.name}</h3>
+                <p className="text-muted-foreground text-sm">{service.name}</p>
+                <p className="text-muted-foreground text-sm">{format(appointment.startTime, 'EEEE, LLL d, yyyy')} from {format(appointment.startTime, 'h:mm a')} to {format(appointment.endTime, 'h:mm a')}</p>
+            </div>
 
-        <Separator />
+            <Separator />
 
-        <div className="space-y-4">
-            <h4 className="font-medium text-sm">Financials</h4>
-            <div className="grid grid-cols-3 text-center rounded-lg bg-muted p-4">
-              <div>
-                  <p className="text-xs text-muted-foreground">Revenue</p>
-                  <p className="font-bold text-xl">${revenue.toFixed(2)}</p>
+            <div className="space-y-4">
+                <h4 className="font-medium text-sm">Financials</h4>
+                <div className="grid grid-cols-3 text-center rounded-lg bg-muted p-4">
+                  <div>
+                      <p className="text-xs text-muted-foreground">Revenue</p>
+                      <p className="font-bold text-xl">${revenue.toFixed(2)}</p>
+                  </div>
+                  <div>
+                      <p className="text-xs text-muted-foreground">Cost</p>
+                      <p className="font-bold text-xl text-destructive">${breakEvenCost.toFixed(2)}</p>
+                  </div>
+                  <div>
+                      <p className="font-bold text-xs text-muted-foreground">Net Profit</p>
+                      <p className={cn("font-bold text-xl", netProfit >= 0 ? 'text-primary' : 'text-destructive')}>
+                        ${netProfit.toFixed(2)}
+                      </p>
+                  </div>
               </div>
-              <div>
-                  <p className="text-xs text-muted-foreground">Cost</p>
-                  <p className="font-bold text-xl text-destructive">${breakEvenCost.toFixed(2)}</p>
+              <div className="text-xs space-y-2 text-muted-foreground">
+                 <div className="flex justify-between"><span className="flex items-center gap-1.5"><Clock className="w-3 h-3"/>Time Cost</span> <span>${timeCost.toFixed(2)}</span></div>
+                 <div className="flex justify-between"><span className="flex items-center gap-1.5"><Briefcase className="w-3 h-3"/>Product Cost</span> <span>${productCost.toFixed(2)}</span></div>
+                 <div className="flex justify-between"><span className="flex items-center gap-1.5"><Briefcase className="w-3 h-3"/>Equipment Cost</span> <span>${equipmentCost.toFixed(2)}</span></div>
               </div>
-              <div>
-                  <p className={cn("font-bold text-xl", netProfit >= 0 ? 'text-primary' : 'text-destructive')}>
-                    ${netProfit.toFixed(2)}
-                  </p>
-              </div>
-          </div>
-          <div className="text-xs space-y-2 text-muted-foreground">
-             <div className="flex justify-between"><span className="flex items-center gap-1.5"><Clock className="w-3 h-3"/>Time Cost</span> <span>${timeCost.toFixed(2)}</span></div>
-             <div className="flex justify-between"><span className="flex items-center gap-1.5"><Briefcase className="w-3 h-3"/>Product Cost</span> <span>${productCost.toFixed(2)}</span></div>
-             <div className="flex justify-between"><span className="flex items-center gap-1.5"><Briefcase className="w-3 h-3"/>Equipment Cost</span> <span>${equipmentCost.toFixed(2)}</span></div>
-          </div>
-        </div>
+            </div>
 
-        <Separator />
-        
-        <div className="space-y-4">
-            <h4 className="font-medium text-sm">Client Intel</h4>
-             {client.customFormulas && client.customFormulas.length > 0 && (
-                <div className='space-y-3'>
-                    <h5 className='font-semibold text-xs flex items-center gap-2'><FlaskConical className="w-4 h-4 text-blue-500"/>Custom Formula: {client.customFormulas[0].name}</h5>
-                     <div className='p-3 rounded-md bg-blue-500/5 border border-blue-500/20 space-y-2'>
-                        {client.customFormulas[0].items.map((item, index) => (
-                            <div key={index} className='text-sm'>
-                                <p className='font-medium'>{item.quantityUsed}{item.unit} {item.productName}</p>
-                                {item.note && <p className='text-xs text-muted-foreground pl-4'>&ndash; {item.note}</p>}
-                            </div>
-                        ))}
+            <Separator />
+            
+            <div className="space-y-4">
+                <h4 className="font-medium text-sm">Client Intel</h4>
+                 {client.customFormulas && client.customFormulas.length > 0 && (
+                    <div className='space-y-3'>
+                        <h5 className='font-semibold text-xs flex items-center gap-2'><FlaskConical className="w-4 h-4 text-blue-500"/>Custom Formula: {client.customFormulas[0].name}</h5>
+                         <div className='p-3 rounded-md bg-blue-500/5 border border-blue-500/20 space-y-2'>
+                            {client.customFormulas[0].items.map((item, index) => (
+                                <div key={index} className='text-sm'>
+                                    <p className='font-medium'>{item.quantityUsed}{item.unit} {item.productName}</p>
+                                    {item.note && <p className='text-xs text-muted-foreground pl-4'>&ndash; {item.note}</p>}
+                                </div>
+                            ))}
+                        </div>
                     </div>
+                )}
+                <div className="text-sm space-y-2">
+                    {client.medicalNotes && <div className="flex items-center gap-2"><ShieldPlus className="w-4 h-4 text-red-500 flex-shrink-0"/><span>{client.medicalNotes}</span></div>}
+                    {client.allergyNotes && <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-yellow-500 flex-shrink-0"/><span>{client.allergyNotes}</span></div>}
+                    {client.sensoryNeeds && <div className="flex items-center gap-2"><Ear className="w-4 h-4 text-blue-500 flex-shrink-0"/><span>{client.sensoryNeeds}</span></div>}
+                    {client.inspirationPhotoUrl && <div className="flex items-center gap-2"><ImageIcon className="w-4 h-4 flex-shrink-0"/><span>Client has inspiration photo</span></div>}
+                    {client.isMember && <div className="flex items-center gap-2"><Award className="w-4 h-4 flex-shrink-0"/><span>Client is a member</span></div>}
                 </div>
-            )}
-            <div className="text-sm space-y-2">
-                {client.medicalNotes && <div className="flex items-center gap-2"><ShieldPlus className="w-4 h-4 text-red-500 flex-shrink-0"/><span>{client.medicalNotes}</span></div>}
-                {client.allergyNotes && <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-yellow-500 flex-shrink-0"/><span>{client.allergyNotes}</span></div>}
-                {client.sensoryNeeds && <div className="flex items-center gap-2"><Ear className="w-4 h-4 text-blue-500 flex-shrink-0"/><span>{client.sensoryNeeds}</span></div>}
-                {client.inspirationPhotoUrl && <div className="flex items-center gap-2"><ImageIcon className="w-4 h-4 flex-shrink-0"/><span>Client has inspiration photo</span></div>}
-                {client.isMember && <div className="flex items-center gap-2"><Award className="w-4 h-4 flex-shrink-0"/><span>Client is a member</span></div>}
             </div>
         </div>
-    </div>
+    </ScrollArea>
   )
 }
 
@@ -286,16 +290,14 @@ export function AppointmentCard({
       )}
       
       <DialogOrSheet open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
-        <DialogOrSheetContent className={cn(isMobile && "h-[90vh] flex flex-col")}>
-          <SheetHeader>
+        <DialogOrSheetContent className={cn(isMobile ? "h-[90vh] flex flex-col p-0" : "p-0")}>
+          <SheetHeader className="p-6 pb-0">
             <SheetTitle>Appointment Details</SheetTitle>
             <SheetDescription>
                 A full breakdown of this appointment.
             </SheetDescription>
           </SheetHeader>
-          <div className={cn(isMobile && "flex-1 overflow-y-auto")}>
-            <AppointmentDetails appointment={appointment} client={client} service={service} tmhr={tmhr} />
-          </div>
+          <AppointmentDetails appointment={appointment} client={client} service={service} tmhr={tmhr} />
         </DialogOrSheetContent>
       </DialogOrSheet>
     </div>
