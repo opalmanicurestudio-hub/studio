@@ -6,14 +6,22 @@ import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, CheckCircle } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment } from '@/lib/data';
 import { format, addDays, subDays, startOfWeek } from 'date-fns';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
 import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
-
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  CarouselNext,
+  CarouselPrevious,
+  type CarouselApi,
+} from "@/components/ui/carousel"
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 const AppointmentItem = ({ appointment, onCompleteClick }: { appointment: Appointment; onCompleteClick: (apt: Appointment) => void; }) => {
     const client = clients.find(c => c.id === appointment.clientId);
@@ -58,7 +66,7 @@ const AppointmentItem = ({ appointment, onCompleteClick }: { appointment: Appoin
     );
 };
 
-const DayCard = ({ date, appointments, onCompleteClick }: { date: Date; appointments: Appointment[]; onCompleteClick: (apt: Appointment) => void; }) => {
+const DayTimeline = ({ date, appointments, onCompleteClick }: { date: Date; appointments: Appointment[]; onCompleteClick: (apt: Appointment) => void; }) => {
     const dailyTotals = useMemo(() => {
         return appointments
         .filter(apt => apt.status === 'completed')
@@ -77,30 +85,26 @@ const DayCard = ({ date, appointments, onCompleteClick }: { date: Date; appointm
     }, [appointments]);
 
     return (
-        <Card className="overflow-hidden">
-            <CardHeader className="flex flex-row items-center justify-between p-4 bg-muted/50 border-b">
-                 <div className="flex items-baseline gap-2">
-                    <p className="text-2xl font-bold">{format(date, 'd')}</p>
-                    <p className="text-sm font-medium text-muted-foreground">{format(date, 'EEEE')}</p>
+        <div className="flex flex-col h-full">
+            <ScrollArea className="flex-1">
+                <div className="p-4 space-y-4">
+                    {appointments.length > 0 ? (
+                        appointments.map(apt => (
+                            <AppointmentItem key={apt.id} appointment={apt} onCompleteClick={onCompleteClick} />
+                        ))
+                    ) : (
+                        <div className="text-center pt-20 text-muted-foreground text-sm space-y-4">
+                            <p>No appointments scheduled for this day.</p>
+                            <Button variant="secondary">
+                                <PlusCircle className="mr-2 h-4 w-4" />
+                                Add Appointment
+                            </Button>
+                        </div>
+                    )}
                 </div>
-            </CardHeader>
-            <CardContent className="p-4 space-y-4">
-                {appointments.length > 0 ? (
-                    appointments.map(apt => (
-                        <AppointmentItem key={apt.id} appointment={apt} onCompleteClick={onCompleteClick} />
-                    ))
-                ) : (
-                    <div className="text-center py-12 text-muted-foreground text-sm space-y-4">
-                        <p>No appointments scheduled for this day.</p>
-                        <Button variant="secondary">
-                            <PlusCircle className="mr-2 h-4 w-4" />
-                            Add Appointment
-                        </Button>
-                    </div>
-                )}
-            </CardContent>
-            {appointments.length > 0 && (
-                <CardFooter className="p-2 border-t bg-muted/50">
+            </ScrollArea>
+             {appointments.length > 0 && (
+                <div className="p-2 border-t bg-background">
                     <div className="grid grid-cols-3 gap-2 w-full text-center">
                         <div className="rounded-md bg-green-500/10 p-2">
                             <p className="text-xs text-green-800/80 dark:text-green-400/80">Revenue</p>
@@ -115,9 +119,9 @@ const DayCard = ({ date, appointments, onCompleteClick }: { date: Date; appointm
                             <p className="font-bold text-sm text-blue-800 dark:text-blue-400">${dailyTotals.net.toFixed(2)}</p>
                         </div>
                     </div>
-                </CardFooter>
+                </div>
             )}
-        </Card>
+        </div>
     );
 };
 
@@ -129,11 +133,28 @@ export default function PlannerPage() {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const { toast } = useToast();
+  
+  const [api, setApi] = useState<CarouselApi>()
+  const [currentDayIndex, setCurrentDayIndex] = useState(0)
 
   const weekDays = useMemo(() => {
     const start = startOfWeek(currentDate, { weekStartsOn: 0 });
     return Array.from({ length: 7 }, (_, i) => addDays(start, i));
   }, [currentDate]);
+  
+  useEffect(() => {
+    if (!api) return;
+    
+    const handleSelect = () => {
+        setCurrentDayIndex(api.selectedScrollSnap())
+    }
+    api.on("select", handleSelect)
+    
+    return () => {
+      api.off("select", handleSelect)
+    }
+  }, [api])
+
 
   const handleCompleteClick = (appointment: Appointment) => {
     setSelectedAppointment(appointment);
@@ -165,40 +186,42 @@ export default function PlannerPage() {
     const service = services.find(s => s.id === selectedAppointment.serviceId);
     return { appointment: selectedAppointment, client, service };
   }, [selectedAppointment]);
+  
+  const currentVisibleDate = weekDays[currentDayIndex];
 
   return (
-    <div className="flex h-screen w-full flex-col">
+    <div className="flex h-full w-full flex-col">
       <AppHeader title="Planner" />
-      <div className="sticky top-16 z-10 bg-background/95 backdrop-blur-sm p-4 border-b">
-        <div className="flex items-center justify-between gap-4 max-w-4xl mx-auto">
-            <div className="flex items-center gap-2">
-                <Button variant="outline" size="icon" onClick={handlePrevWeek}><ChevronLeft /></Button>
-                <Button variant="outline" size="icon" onClick={handleNextWeek}><ChevronRight /></Button>
-                <Button variant="outline" onClick={handleToday}>Today</Button>
-            </div>
-            <p className='font-semibold text-center'>{format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMMM yyyy')}</p>
-            <Button>
-            <PlusCircle className="mr-2 h-4 w-4" />
-            Add
-            </Button>
-        </div>
+      <div className="flex items-center justify-between gap-4 p-4 border-b">
+          <div className="flex items-center gap-2">
+              <Button variant="outline" size="icon" onClick={handlePrevWeek}><ChevronLeft /></Button>
+              <Button variant="outline" size="icon" onClick={handleNextWeek}><ChevronRight /></Button>
+              <Button variant="outline" onClick={handleToday}>Today</Button>
+          </div>
+           <div className='text-center'>
+               <p className='font-semibold'>{format(currentVisibleDate, 'EEEE, LLL d')}</p>
+               <p className='text-xs text-muted-foreground'>{format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMMM yyyy')}</p>
+           </div>
+          <Button>
+          <PlusCircle className="mr-2 h-4 w-4" />
+          Add
+          </Button>
       </div>
-      <main className="flex-1 overflow-y-auto">
-        <div className="p-4 md:p-6 space-y-6 max-w-4xl mx-auto">
-          {weekDays.map((date) => {
-            const appointmentsForDay = appointments
-                .filter(apt => format(apt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'))
-                .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
-            return (
-              <DayCard
-                key={date.toString()}
-                date={date}
-                appointments={appointmentsForDay}
-                onCompleteClick={handleCompleteClick}
-              />
-            );
-          })}
-        </div>
+      <main className="flex-1 relative">
+         <Carousel setApi={setApi} className="h-full w-full">
+            <CarouselContent className="h-full">
+                 {weekDays.map((date, index) => {
+                    const appointmentsForDay = appointments
+                        .filter(apt => format(apt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'))
+                        .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
+                    return (
+                        <CarouselItem key={index} className="h-full basis-full">
+                            <DayTimeline date={date} appointments={appointmentsForDay} onCompleteClick={handleCompleteClick} />
+                        </CarouselItem>
+                    )
+                 })}
+            </CarouselContent>
+        </Carousel>
       </main>
       {selectedAppointmentData && (
         <CompleteAppointmentDialog

@@ -9,7 +9,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <InventoryProvider>
         <SidebarProvider>
           <AppSidebar />
-          <SidebarInset>{children}</SidebarInset>
+          <SidebarInset className="flex flex-col overflow-hidden">{children}</SidebarInset>
         </SidebarProvider>
       </InventoryProvider>
     </FirebaseClientProvider>
