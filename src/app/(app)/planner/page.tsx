@@ -3,9 +3,9 @@
 
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, MoreHorizontal, DollarSign, Clock } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event } from '@/lib/data';
-import { format, addDays, subDays, startOfWeek, setHours, setMinutes, startOfDay } from 'date-fns';
+import { format, addDays, subDays, startOfWeek } from 'date-fns';
 import { useState, useMemo, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
@@ -170,8 +170,8 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick }: { date: Da
 export default function PlannerPage() {
   const [isClient, setIsClient] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [events, setEvents] = useState<Event[]>([]);
+  const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
+  const [events, setEvents] = useState<Event[]>(initialEvents);
   const { inventory, setInventory, addStockCorrection } = useInventory();
 
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
@@ -185,13 +185,10 @@ export default function PlannerPage() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // This effect runs only on the client, after hydration
     const today = new Date();
     const start = startOfWeek(today, { weekStartsOn: 0 });
     const todayIndex = Array.from({ length: 7 }, (_, i) => addDays(start, i)).findIndex(d => format(d, 'yyyy-MM-dd') === format(today, 'yyyy-MM-dd'));
     
-    setAppointments(initialAppointments);
-    setEvents(initialEvents);
     setCurrentDate(today);
     setCurrentDayIndex(todayIndex);
     setIsClient(true);
@@ -349,6 +346,7 @@ export default function PlannerPage() {
         onOpenChange={setIsAddAppointmentOpen}
         clients={clients}
         services={services}
+        appointments={appointments}
         onConfirm={handleAddAppointment}
       />
       <AddEventDialog 
