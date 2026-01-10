@@ -156,9 +156,12 @@ export default function PlannerPage() {
     setIsClient(true);
     const today = new Date();
     setCurrentDate(today);
-    setCurrentDayIndex(today.getDay()); // Set initial day index
     setAppointments(initialAppointments);
     setEvents(initialEvents);
+    // Find today's index in the initial week view
+    const start = startOfWeek(today, { weekStartsOn: 0 });
+    const todayIndex = Array.from({ length: 7 }, (_, i) => addDays(start, i)).findIndex(d => format(d, 'yyyy-MM-dd') === format(today, 'yyyy-MM-dd'));
+    setCurrentDayIndex(todayIndex);
   }, []);
 
   const weekDays = useMemo(() => {
@@ -222,7 +225,16 @@ export default function PlannerPage() {
 
   const handleNextWeek = () => setCurrentDate(addDays(currentDate, 7));
   const handlePrevWeek = () => setCurrentDate(subDays(currentDate, 7));
-  const handleToday = () => setCurrentDate(new Date());
+  const handleToday = () => {
+    const today = new Date();
+    setCurrentDate(today);
+    const start = startOfWeek(today, { weekStartsOn: 0 });
+    const todayIndex = Array.from({ length: 7 }, (_, i) => addDays(start, i)).findIndex(d => format(d, 'yyyy-MM-dd') === format(today, 'yyyy-MM-dd'));
+    if (api) {
+        api.scrollTo(todayIndex);
+    }
+  };
+
 
   const selectedAppointmentData = useMemo(() => {
     if (!selectedAppointment) return null;
@@ -313,3 +325,4 @@ export default function PlannerPage() {
     </div>
   );
 }
+
