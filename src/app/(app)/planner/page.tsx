@@ -122,7 +122,7 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick }: { date: Da
 
                            const totalDuration = service.duration + (service.padBefore || 0) + (service.padAfter || 0);
 
-                           const top = (getHours(appointment.startTime) - 8 + getMinutes(appointment.startTime) / 60) * 96 - ((service.padBefore || 0) / 60 * 96);
+                           const top = (getHours(appointment.startTime) - 8 + getMinutes(appointment.startTime) / 60) * 96;
                            const height = totalDuration / 60 * 96;
 
                            return (
@@ -132,6 +132,7 @@ const DayTimeline = ({ date, appointments, events, onCompleteClick }: { date: Da
                                     client={client}
                                     service={service}
                                     tmhr={tmhr}
+                                    onViewDetails={() => {}}
                                     style={{
                                         top: `${top}px`,
                                         height: `${height}px`,
