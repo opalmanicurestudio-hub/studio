@@ -247,20 +247,18 @@ export function AppointmentCard({
             <div className='flex-1 min-w-0'>
                 <p className="font-semibold text-xs leading-tight truncate">{client.name}</p>
                 <p className="text-[11px] text-muted-foreground truncate">{service.name}</p>
+                <div className="mt-2 flex items-center justify-between text-xs">
+                 <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[appointment.status]?.className)}>{statusDisplay[appointment.status]?.text}</Badge>
+                  <p className="text-[10px] text-muted-foreground">{format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
+                </div>
             </div>
             <div className="text-right flex-shrink-0">
-                <p className={cn("font-semibold text-xs", netProfit >= 0 ? "text-primary" : "text-destructive")}>${netProfit.toFixed(2)}</p>
+                <p className="font-semibold text-xs text-primary">${netProfit.toFixed(2)}</p>
                 <p className="text-xs text-green-600 dark:text-green-400">Rev: ${revenue.toFixed(2)}</p>
                 <p className="text-xs text-red-600 dark:text-red-400">Cost: ${breakEvenCost.toFixed(2)}</p>
-            </div>
-        </div>
-
-        <div className="mt-1">
-            <div className="flex items-center justify-between text-xs">
-                 <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[appointment.status]?.className)}>{statusDisplay[appointment.status]?.text}</Badge>
                  <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => e.stopPropagation()}>
+                        <Button variant="ghost" size="icon" className="h-6 w-6 mt-1" onClick={(e) => e.stopPropagation()}>
                             <MoreHorizontal className="h-4 w-4" />
                         </Button>
                     </DropdownMenuTrigger>
@@ -298,9 +296,7 @@ export function AppointmentCard({
                     </DropdownMenuContent>
                 </DropdownMenu>
             </div>
-             <p className="text-[10px] text-muted-foreground mt-1">{format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
         </div>
-
       </div>
     </div>
   );
