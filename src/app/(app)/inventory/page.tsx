@@ -37,6 +37,15 @@ import { cn } from '@/lib/utils';
 import { isPast, parseISO } from 'date-fns';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useInventory } from '@/context/InventoryContext';
+import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel';
+import { EditLocationDialog } from '@/components/inventory/EditLocationDialog';
+
+const KPI_CARDS = [
+    { title: "Total Inventory Value", value: "$1,850.75", icon: Package, description: "Landed cost of all stock" },
+    { title: "Potential Revenue", value: "$4,320.00", icon: Hammer, description: "Retail value of sellable stock" },
+    { title: "At-Risk Stock", value: "$75.00", icon: PackageX, description: "Value of expired/expiring items" },
+    { title: "Items to Reorder", value: "3", icon: ClipboardList, description: "Products at or below reorder point" }
+];
 
 const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff, onLogUse }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (item: InventoryItem) => void, onLogUse: (item: InventoryItem) => void }) => {
     
@@ -51,7 +60,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
     const detailHref = `/inventory/${item.id}`;
     
     return (
-        <Card className={cn("w-72 shrink-0 transition-all duration-200 hover:shadow-xl hover:-translate-y-1", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
+        <Card className={cn("w-full transition-all duration-200 hover:shadow-xl hover:-translate-y-1", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
             <CardContent className="p-3 space-y-3">
                 <div className="grid grid-cols-[auto,1fr,auto] items-start gap-3">
                     <Link href={detailHref} className='w-16 h-16 bg-muted rounded-md flex-shrink-0'>
@@ -185,7 +194,9 @@ const ProductShelf = ({
             <ScrollArea>
                 <div className="flex w-max space-x-4 pb-4">
                     {items.map((item) => (
-                       <ProductCard key={item.id} item={item} {...props} />
+                       <div key={item.id} className="w-72 shrink-0">
+                         <ProductCard item={item} {...props} />
+                       </div>
                     ))}
                 </div>
                 <ScrollBar orientation="horizontal" />
@@ -194,18 +205,19 @@ const ProductShelf = ({
     );
 };
 
-const LocationCard = ({ location, items, locationTypes }: { location: Location, items: InventoryItem[], locationTypes: LocationType[] }) => {
+const LocationCard = ({ location, items, locationTypes, onEdit }: { location: Location, items: InventoryItem[], locationTypes: LocationType[], onEdit: (location: Location) => void }) => {
     const locationType = locationTypes.find(lt => lt.id === location.locationTypeId);
 
     const Icon = useMemo(() => {
-        switch (locationType?.icon) {
+        if (!locationType) return MapPin;
+        switch (locationType.icon) {
             case 'Box': return Box;
             case 'Building': return Building;
             case 'Store': return Store;
             case 'ClipboardList': return ClipboardList;
             default: return MapPin;
         }
-    }, [locationType?.icon]);
+    }, [locationType]);
 
     return (
         <Card>
@@ -225,7 +237,7 @@ const LocationCard = ({ location, items, locationTypes }: { location: Location, 
                             <Button variant="ghost" size="icon" className="h-8 w-8 -mt-2 -mr-2 flex-shrink-0"><MoreHorizontal className="h-4 w-4" /></Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent>
-                            <DropdownMenuItem>Edit Location</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => onEdit(location)}>Edit Location</DropdownMenuItem>
                             <DropdownMenuItem className="text-destructive">Delete Location</DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
@@ -267,12 +279,10 @@ export default function InventoryPage() {
   const { toast } = useToast();
   
   const [activeTab, setActiveTab] = useState('professional');
-  const [isClient, setIsClient] = useState(false);
   const [isAddLocationDialogOpen, setAddLocationDialogOpen] = useState(false);
+  const [isEditLocationDialogOpen, setIsEditLocationDialogOpen] = useState(false);
+  const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
 
-  useEffect(() => {
-    setIsClient(true);
-  }, []);
   
   const professionalColor: InventoryItem[] = inventory.filter(
     (item) => item.type === 'professional' && item.category === 'Color'
@@ -304,6 +314,21 @@ export default function InventoryPage() {
         title: "Location Added",
         description: `New location "${newLocation.name}" has been created.`
     });
+  }
+  
+  const handleOpenEditLocationDialog = (location: Location) => {
+    setSelectedLocation(location);
+    setIsEditLocationDialogOpen(true);
+  };
+  
+  const handleUpdateLocation = (updatedLocation: Location) => {
+    setLocations(prev => prev.map(loc => loc.id === updatedLocation.id ? updatedLocation : loc));
+    toast({
+        title: "Location Updated",
+        description: `Location "${updatedLocation.name}" has been saved.`
+    });
+    setIsEditLocationDialogOpen(false);
+    setSelectedLocation(null);
   }
 
   const handleAddNewLocationType = (name: string, icon: string) => {
@@ -337,21 +362,51 @@ export default function InventoryPage() {
     setIsLogUseOpen(true);
   };
 
-  if (!isClient) {
-    return (
-        <div className="flex flex-col h-screen">
-            <AppHeader title="Inventory Hub" />
-            <main className="flex-1 p-4 md:p-8">
-            </main>
-        </div>
-    );
-  }
-
-
   return (
-    <div className="flex h-screen w-full flex-col">
+    <div className="h-screen w-full flex flex-col">
       <AppHeader title="Inventory Hub" />
       <main className="flex-1 flex flex-col p-4 md:p-8 space-y-6 overflow-hidden">
+        
+        <Carousel
+            opts={{
+                align: "start",
+                loop: false,
+            }}
+            className="w-full md:hidden"
+        >
+            <CarouselContent>
+                {KPI_CARDS.map((kpi, index) => (
+                    <CarouselItem key={index} className="basis-4/5">
+                        <Card>
+                            <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
+                                <CardTitle className="text-sm font-medium">{kpi.title}</CardTitle>
+                                <kpi.icon className="h-4 w-4 text-muted-foreground" />
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-2xl font-bold">{kpi.value}</div>
+                                <p className="text-xs text-muted-foreground">{kpi.description}</p>
+                            </CardContent>
+                        </Card>
+                    </CarouselItem>
+                ))}
+            </CarouselContent>
+        </Carousel>
+
+        <div className="hidden md:grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+             {KPI_CARDS.map((kpi, index) => (
+                <Card key={index}>
+                    <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">{kpi.title}</CardTitle>
+                        <kpi.icon className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">{kpi.value}</div>
+                        <p className="text-xs text-muted-foreground">{kpi.description}</p>
+                    </CardContent>
+                </Card>
+            ))}
+        </div>
+
         <div className="flex flex-col sm:flex-row items-center gap-2">
             <div className="relative flex-1 w-full">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -382,9 +437,9 @@ export default function InventoryPage() {
             </div>
         </div>
           
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
              <ScrollArea>
-                <TabsList>
+                <TabsList className="inline-flex">
                     {tabOptions.map((option) => (
                         <TabsTrigger key={option.value} value={option.value}>
                         {option.label}
@@ -393,11 +448,9 @@ export default function InventoryPage() {
                 </TabsList>
                 <ScrollBar orientation="horizontal" />
             </ScrollArea>
-        </Tabs>
         
-        <div className='flex-1 space-y-8 overflow-y-auto -mr-4 pr-4'>
-            {activeTab === 'professional' && (
-            (professionalColor.length > 0 || professionalStyling.length > 0 || professionalCare.length > 0) ? (
+            <TabsContent value="professional" className='flex-1 space-y-8 overflow-y-auto -mr-4 pr-4 mt-6'>
+            {(professionalColor.length > 0 || professionalStyling.length > 0 || professionalCare.length > 0) ? (
                 <>
                 <ProductShelf title="Color" items={professionalColor} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
                 <ProductShelf title="Styling" items={professionalStyling} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
@@ -405,28 +458,28 @@ export default function InventoryPage() {
                 </>
             ) : (
                 <EmptyState message="No professional products found." />
-            )
             )}
-            {activeTab === 'retail' && (
-                retailItems.length > 0 ? (
+            </TabsContent>
+            <TabsContent value="retail" className='flex-1 space-y-8 overflow-y-auto -mr-4 pr-4 mt-6'>
+                {retailItems.length > 0 ? (
                     <ProductShelf title="Retail Products" items={retailItems} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
-                ) : <EmptyState message="No retail products found." />
-            )}
-            {activeTab === 'equipment' && (
-                equipmentItems.length > 0 ? (
+                ) : <EmptyState message="No retail products found." />}
+            </TabsContent>
+             <TabsContent value="equipment" className='flex-1 space-y-8 overflow-y-auto -mr-4 pr-4 mt-6'>
+                {equipmentItems.length > 0 ? (
                     <ProductShelf title="Capital Equipment" items={equipmentItems} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
-                ) : <EmptyState message="No equipment found." />
-            )}
-            {activeTab === 'locations' && (
-                 locations.length > 0 ? (
+                ) : <EmptyState message="No equipment found." />}
+            </TabsContent>
+            <TabsContent value="locations" className='flex-1 overflow-y-auto -mr-4 pr-4 mt-6'>
+                 {locations.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                         {locations.map(loc => (
-                            <LocationCard key={loc.id} location={loc} items={inventory.slice(0,3)} locationTypes={locationTypes}/>
+                            <LocationCard key={loc.id} location={loc} items={inventory.slice(0,3)} locationTypes={locationTypes} onEdit={handleOpenEditLocationDialog}/>
                         ))}
                     </div>
-                 ) : <EmptyState message="No locations created yet." />
-            )}
-        </div>
+                 ) : <EmptyState message="No locations created yet." />}
+            </TabsContent>
+        </Tabs>
       </main>
       <AddLocationDialog 
         open={isAddLocationDialogOpen}
@@ -435,6 +488,16 @@ export default function InventoryPage() {
         locationTypes={locationTypes}
         onAddNewLocationType={handleAddNewLocationType}
       />
+      {selectedLocation && (
+        <EditLocationDialog
+          open={isEditLocationDialogOpen}
+          onOpenChange={setIsEditLocationDialogOpen}
+          location={selectedLocation}
+          onSave={handleUpdateLocation}
+          locationTypes={locationTypes}
+          onAddNewLocationType={handleAddNewLocationType}
+        />
+      )}
     </div>
   );
 }
