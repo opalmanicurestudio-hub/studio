@@ -46,7 +46,7 @@ interface CompleteAppointmentDialogProps {
     client: Client | undefined;
     service: Service | undefined;
   };
-  onConfirmCheckout: (updatedInventory: InventoryItem[], newCorrections: StockCorrection[]) => void;
+  onConfirmCheckout: (updatedInventory: InventoryItem[], newCorrections: StockCorrection[], absorbedCost: number) => void;
 }
 
 export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps> = ({
@@ -205,7 +205,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   }, [editableFormula, inventory, appointment.id]);
   
   const handleCompleteAppointment = () => {
-    onConfirmCheckout(updatedInventory, newCorrections)
+    onConfirmCheckout(updatedInventory, newCorrections, absorbedCost)
   };
 
 

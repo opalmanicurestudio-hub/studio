@@ -313,7 +313,7 @@ export default function PlannerPage() {
   }, [currentDate]);
 
   const weeklyKpis = useMemo(() => {
-    if (!currentDate) return { weeklyRevenue: 0, projectedRevenue: 0, weeklyBreakEven: 0, weeklyNetProfit: 0 };
+    if (!currentDate) return { weeklyRevenue: 0, projectedRevenue: 0, weeklyBreakEven: 0, weeklyNetProfit: 0, absorbedCosts: 0 };
     const start = startOfWeek(currentDate, { weekStartsOn: 0 });
     const end = endOfDay(addDays(start, 6));
     const weekInterval = { start, end };
@@ -330,7 +330,7 @@ export default function PlannerPage() {
         return acc + (service?.price || 0);
     }, 0);
     
-    const potentialRevenue = confirmedAppointments.reduce((acc, apt) => {
+    const projectedRevenue = weeklyRevenue + confirmedAppointments.reduce((acc, apt) => {
         const service = services.find(s => s.id === apt.serviceId);
         return acc + (service?.price || 0);
     }, 0);
@@ -348,11 +348,14 @@ export default function PlannerPage() {
         return acc;
     }, 0);
 
+    const absorbedCosts = completedAppointments.reduce((acc, apt) => acc + (apt.absorbedCost || 0), 0);
+
     return {
         weeklyRevenue: weeklyRevenue,
-        projectedRevenue: weeklyRevenue + potentialRevenue,
+        projectedRevenue: projectedRevenue,
         weeklyBreakEven: monthlyCosts / 4,
         weeklyNetProfit: weeklyRevenue - weeklyCosts,
+        absorbedCosts: absorbedCosts,
     }
   }, [currentDate, appointments]);
 
@@ -372,10 +375,14 @@ export default function PlannerPage() {
     setIsEditEventOpen(true);
   }
 
-  const handleCheckout = (updatedInventory: any, newCorrections: any) => {
+  const handleCheckout = (updatedInventory: any, newCorrections: any, absorbedCost: number) => {
     if (!selectedAppointment) return;
 
-    const completedAppointment = { ...selectedAppointment, status: 'completed' as const };
+    const completedAppointment: Appointment = { 
+        ...selectedAppointment, 
+        status: 'completed' as const,
+        absorbedCost: absorbedCost
+    };
     setAppointments(prev => prev.map(apt => apt.id === selectedAppointment.id ? completedAppointment : apt));
     setInventory(updatedInventory);
     newCorrections.forEach(addStockCorrection);
@@ -390,7 +397,7 @@ export default function PlannerPage() {
   };
   
   const handleAddAppointment = (newAppointment: Omit<Appointment, 'id'>) => {
-    const newAptWithId = { ...newAppointment, id: `apt-${Date.now()}` };
+    const newAptWithId = { ...newAppointment, id: `apt-${Date.now()}`, absorbedCost: 0 };
     setAppointments(prev => [...prev, newAptWithId].sort((a,b) => a.startTime.getTime() - b.startTime.getTime()));
     toast({
         title: "Appointment Booked",
@@ -576,7 +583,7 @@ export default function PlannerPage() {
                         <DialogTitle>This Week's Financials</DialogTitle>
                         <DialogDescription>A summary of your performance for the week of {format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMM d')}.</DialogDescription>
                     </DialogHeader>
-                     <div className="pt-4 grid grid-cols-2 gap-4">
+                    <div className="pt-4 grid grid-cols-2 gap-4">
                         <Card>
                             <CardHeader className="pb-2">
                                 <CardTitle className="text-sm font-medium flex items-center gap-2"><TrendingUp className="w-4 h-4"/>Revenue</CardTitle>
@@ -604,12 +611,12 @@ export default function PlannerPage() {
                                <p className='text-xs text-muted-foreground'>Your weekly cost target.</p>
                             </CardContent>
                         </Card>
-                        <Card>
+                         <Card>
                             <CardHeader className="pb-2">
                                 <CardTitle className="text-sm font-medium flex items-center gap-2"><AlertTriangle className="w-4 h-4"/>Absorbed Costs</CardTitle>
                             </CardHeader>
                             <CardContent>
-                               <p className="text-2xl font-bold text-amber-500">$0.00</p>
+                               <p className="text-2xl font-bold text-amber-500">${weeklyKpis.absorbedCosts.toFixed(2)}</p>
                                <p className='text-xs text-muted-foreground'>Uncharged extra time/product.</p>
                             </CardContent>
                         </Card>
@@ -732,7 +739,7 @@ export default function PlannerPage() {
         <EditAppointmentDialog 
             open={isEditAppointmentOpen}
             onOpenChange={setIsEditAppointmentOpen}
-            appointment={selectedAppointment}
+            appointment={appointment}
             clients={clients}
             services={services}
             appointments={appointments}

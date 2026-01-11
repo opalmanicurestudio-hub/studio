@@ -127,6 +127,7 @@ export type Appointment = {
   status: 'confirmed' | 'completed' | 'cancelled' | 'deposit_pending';
   addOnIds?: string[];
   inspirationPhotoUrl?: string;
+  absorbedCost?: number;
 };
 
 export type EventChecklistItem = {
@@ -263,19 +264,19 @@ export const services: Service[] = [
 const today = new Date();
 export const appointments: Appointment[] = [
     // Today's appointments
-  { id: 'apt-0', clientId: 'cli-4', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 8), 0), endTime: setMinutes(setHours(startOfDay(today), 8), 50), status: 'completed' },
-  { id: 'apt-1', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today,1)), 9), 30), endTime: setMinutes(setHours(startOfDay(subDays(today,1)), 10), 20), status: 'confirmed', inspirationPhotoUrl: 'https://images.unsplash.com/photo-1596796242339-3c368369b139?w=400' },
-  { id: 'apt-2', clientId: 'cli-2', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 11), 0), endTime: setMinutes(setHours(startOfDay(today), 11), 50), status: 'completed', addOnIds: ['svc-addon-1'] },
-  { id: 'apt-6', clientId: 'cli-2', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 14), 0), endTime: setMinutes(setHours(startOfDay(today), 14), 50), status: 'deposit_pending' },
-  { id: 'apt-3', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 15), 0), endTime: setMinutes(setHours(startOfDay(today), 15), 50), status: 'confirmed' },
-  { id: 'apt-5', clientId: 'cli-5', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 16), 0), endTime: setMinutes(setHours(startOfDay(today), 16), 50), status: 'cancelled' },
+  { id: 'apt-0', clientId: 'cli-4', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 8), 0), endTime: setMinutes(setHours(startOfDay(today), 8), 50), status: 'completed', absorbedCost: 0 },
+  { id: 'apt-1', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today,1)), 9), 30), endTime: setMinutes(setHours(startOfDay(subDays(today,1)), 10), 20), status: 'confirmed', inspirationPhotoUrl: 'https://images.unsplash.com/photo-1596796242339-3c368369b139?w=400', absorbedCost: 0 },
+  { id: 'apt-2', clientId: 'cli-2', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 11), 0), endTime: setMinutes(setHours(startOfDay(today), 11), 50), status: 'completed', addOnIds: ['svc-addon-1'], absorbedCost: 0 },
+  { id: 'apt-6', clientId: 'cli-2', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 14), 0), endTime: setMinutes(setHours(startOfDay(today), 14), 50), status: 'deposit_pending', absorbedCost: 0 },
+  { id: 'apt-3', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 15), 0), endTime: setMinutes(setHours(startOfDay(today), 15), 50), status: 'confirmed', absorbedCost: 0 },
+  { id: 'apt-5', clientId: 'cli-5', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 16), 0), endTime: setMinutes(setHours(startOfDay(today), 16), 50), status: 'cancelled', absorbedCost: 0 },
 
   // Past appointments
-  { id: 'apt-4', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today, 2)), 10), 0), endTime: setMinutes(setHours(startOfDay(subDays(today,2)), 10), 50), status: 'completed' },
+  { id: 'apt-4', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today, 2)), 10), 0), endTime: setMinutes(setHours(startOfDay(subDays(today,2)), 10), 50), status: 'completed', absorbedCost: 0 },
   
   // Future appointments
-  { id: 'apt-7', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 11), 0), endTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 11), 50), status: 'confirmed' },
-  { id: 'apt-8', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(addDays(today, 3)), 10), 0), endTime: setMinutes(setHours(startOfDay(addDays(today, 3)), 10), 50), status: 'confirmed' },
+  { id: 'apt-7', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 11), 0), endTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 11), 50), status: 'confirmed', absorbedCost: 0 },
+  { id: 'apt-8', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(addDays(today, 3)), 10), 0), endTime: setMinutes(setHours(startOfDay(addDays(today, 3)), 10), 50), status: 'confirmed', absorbedCost: 0 },
 ];
 
 export const events: Event[] = [
