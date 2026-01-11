@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem } from '@/lib/data';
 import { billInstances as allBillInstances, billDefinitions, type Bill } from '@/lib/financial-data';
-import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes } from 'date-fns';
+import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes } from 'date-fns';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
@@ -61,8 +61,8 @@ const TimeIndicator = () => {
             const now = new Date();
             const dayStart = setHours(startOfDay(now), 8);
             const minutesFromStart = differenceInMinutes(now, dayStart);
-            // Each hour is 96px (h-24). 96px / 60 minutes = 1.6px per minute.
-            const newTop = minutesFromStart * 1.6;
+            // Each hour is 128px (h-32). 128px / 60 minutes = 2.1333px per minute.
+            const newTop = minutesFromStart * 2.1333;
             if (newTop >= 0) { // Only show if after 8 AM
                 setTop(newTop);
             }
@@ -177,11 +177,11 @@ const DayTimeline = ({
             const padAfter = service.padAfter || 0;
             const totalDuration = service.duration + padBefore + padAfter;
             
-            const actualStartTime = addMinutes(item.startTime, -padBefore);
+            const actualStartTime = subMinutes(item.startTime, padBefore);
             const minutesFromStart = differenceInMinutes(actualStartTime, dayStart);
             
-            const top = minutesFromStart * 1.6;
-            const height = totalDuration * 1.6;
+            const top = minutesFromStart * 2.1333; // 128px/60min = 2.1333px/min
+            const height = totalDuration * 2.1333;
 
             const style = { top: `${top}px`, height: `${height}px` };
 
@@ -206,8 +206,8 @@ const DayTimeline = ({
             );
         } else { // item.itemType === 'event'
              const minutesFromStart = differenceInMinutes(item.startTime, dayStart);
-             const top = minutesFromStart * 1.6;
-             const height = differenceInMinutes(item.endTime, item.startTime) * 1.6;
+             const top = minutesFromStart * 2.1333; // 128px/60min = 2.1333px/min
+             const height = differenceInMinutes(item.endTime, item.startTime) * 2.1333;
              const style = { top: `${top}px`, height: `${height}px` };
 
              const eventTransactions = dailyTransactions?.filter(t => t.relatedEventId === item.id) || [];
@@ -306,7 +306,7 @@ const DayTimeline = ({
                     {/* Time labels */}
                     <div className="flex flex-col text-right pr-4">
                         {hours.map(hour => (
-                            <div key={hour} className="h-24 -mt-2.5">
+                            <div key={hour} className="h-32 -mt-2.5">
                                 <span className="text-xs text-muted-foreground">{format(new Date(0, 0, 0, hour), 'ha')}</span>
                             </div>
                         ))}
@@ -314,7 +314,7 @@ const DayTimeline = ({
                      {/* Calendar grid */}
                     <div className="relative">
                         {hours.map(hour => (
-                           <div key={hour} className="h-24 border-t border-dashed"></div>
+                           <div key={hour} className="h-32 border-t border-dashed"></div>
                         ))}
 
                         {isToday(date) && <TimeIndicator />}
@@ -753,6 +753,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
