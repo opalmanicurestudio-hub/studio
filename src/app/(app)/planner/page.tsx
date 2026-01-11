@@ -442,8 +442,7 @@ export default function PlannerPage() {
         const transactionRef = collection(firestore, 'tenants', tenantId, 'transactions');
         const newTransaction = {
             ...transaction,
-            userId: user.uid, // Add user ID
-            date: currentVisibleDate.toISOString(),
+            date: Timestamp.fromDate(currentVisibleDate),
         };
         addDocumentNonBlocking(transactionRef, newTransaction);
         toast({
