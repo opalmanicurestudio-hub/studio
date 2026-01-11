@@ -74,4 +74,17 @@ export const billInstances: BillInstance[] = [
 export const transactions: Transaction[] = [
   // This is now mock data. The Ledger page fetches from Firestore.
   // You can use this to seed the database if needed.
+  {
+    id: 'txn-1',
+    date: new Date().toISOString(),
+    description: 'Parking for supply run',
+    clientOrVendor: 'City Parking',
+    type: 'expense',
+    context: 'Business',
+    category: 'Travel',
+    amount: 8.50,
+    paymentMethod: 'Business Credit Card',
+    hasReceipt: false,
+    relatedEventId: 'evt-3',
+  }
 ];
