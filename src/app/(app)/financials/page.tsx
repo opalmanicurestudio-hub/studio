@@ -285,7 +285,6 @@ const BusinessTab = ({
   return (
     <div>
       <h2 className="text-2xl font-semibold">What does it cost to keep the lights on?</h2>
-      <p className="text-muted-foreground mt-2">Log all your fixed, recurring business operating costs.</p>
       <div className="mt-6">
         <BillEditor
           categories={profileData.categories}
