@@ -6,7 +6,7 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem, bills as billDefinitions, type Bill } from '@/lib/data';
-import { billInstances } from '@/lib/financial-data';
+import { billInstances as allBillInstances } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO } from 'date-fns';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
@@ -230,21 +230,19 @@ const DayTimeline = ({
             </div>
              <ScrollArea className="flex-1" style={{ height: 'calc(100vh - 230px)' }}>
                 {billInstances.length > 0 && (
-                    <div className="p-4 border-b">
+                     <div className="p-4 border-b">
                         <h4 className="text-sm font-semibold mb-2">Bills Due Today</h4>
                         <Carousel
                             opts={{
                                 align: "start",
                                 dragFree: true,
                             }}
-                            className="w-full"
+                            className="w-full -ml-4"
                             >
-                            <CarouselContent className="-ml-2">
+                            <CarouselContent className="">
                                 {billInstances.map(instance => (
-                                <CarouselItem key={instance.id} className="pl-2 basis-auto">
-                                    <div className="w-72">
-                                        <BillDueDateCard instance={instance} />
-                                    </div>
+                                <CarouselItem key={instance.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3">
+                                    <BillDueDateCard instance={instance} />
                                 </CarouselItem>
                                 ))}
                             </CarouselContent>
@@ -282,6 +280,7 @@ export default function PlannerPage() {
   const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
   const [events, setEvents] = useState<Event[]>(initialEvents);
   const { inventory, setInventory, addStockCorrection } = useInventory();
+  const billInstances = allBillInstances;
 
   const { firestore, user } = useFirebase();
   const tenantId = 'tenant-abc'; // Replace with dynamic tenant ID
@@ -702,4 +701,5 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
