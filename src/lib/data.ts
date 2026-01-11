@@ -110,6 +110,7 @@ export type Appointment = {
   endTime: Date;
   status: 'confirmed' | 'completed' | 'cancelled' | 'deposit_pending';
   addOnIds?: string[];
+  inspirationPhotoUrl?: string;
 };
 
 export type EventChecklistItem = {
@@ -182,7 +183,7 @@ export const clients: Client[] = [
       }
     ],
     medicalNotes: 'Pregnant',
-    inspirationPhotoUrl: 'https://example.com/photo.jpg',
+    inspirationPhotoUrl: 'https://images.unsplash.com/photo-1596796242339-3c368369b139?w=400',
   },
   { id: 'cli-2', name: 'Marcus Holloway', email: 'marcus@example.com', phone: '310-555-0187', avatarUrl: 'https://picsum.photos/seed/102/100/100', lifetimeValue: 1890.00, lastAppointment: '2024-05-20T14:30:00.000Z', allergyNotes: 'Latex' },
   { id: 'cli-3', name: 'Anya Sharma', email: 'anya@example.com', phone: '773-555-0123', avatarUrl: 'https://picsum.photos/seed/103/100/100', lifetimeValue: 3200.50, lastAppointment: '2024-05-01T11:00:00.000Z' },
@@ -247,7 +248,7 @@ const today = new Date();
 export const appointments: Appointment[] = [
     // Today's appointments
   { id: 'apt-0', clientId: 'cli-4', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 8), 0), endTime: setMinutes(setHours(startOfDay(today), 8), 50), status: 'completed' },
-  { id: 'apt-1', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today,1)), 9), 30), endTime: setMinutes(setHours(startOfDay(subDays(today,1)), 10), 20), status: 'confirmed' },
+  { id: 'apt-1', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today,1)), 9), 30), endTime: setMinutes(setHours(startOfDay(subDays(today,1)), 10), 20), status: 'confirmed', inspirationPhotoUrl: 'https://images.unsplash.com/photo-1596796242339-3c368369b139?w=400' },
   { id: 'apt-2', clientId: 'cli-2', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 11), 0), endTime: setMinutes(setHours(startOfDay(today), 11), 50), status: 'completed', addOnIds: ['svc-addon-1'] },
   { id: 'apt-6', clientId: 'cli-2', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 14), 0), endTime: setMinutes(setHours(startOfDay(today), 14), 50), status: 'deposit_pending' },
   { id: 'apt-3', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 15), 0), endTime: setMinutes(setHours(startOfDay(today), 15), 50), status: 'confirmed' },

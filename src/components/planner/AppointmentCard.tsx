@@ -58,6 +58,7 @@ import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { type Appointment, type Client, type Service, inventory, CustomFormula, services } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
+import Image from 'next/image';
 
 interface AppointmentCardProps {
   appointment: Appointment;
@@ -111,6 +112,15 @@ const AppointmentDetails = ({
                 </div>
                 <p className="text-muted-foreground text-sm">{format(appointment.startTime, 'EEEE, LLL d, yyyy')} from {format(appointment.startTime, 'h:mm a')} to {format(appointment.endTime, 'h:mm a')}</p>
             </div>
+
+            {appointment.inspirationPhotoUrl && (
+                <div className="space-y-3">
+                    <h4 className="font-medium text-sm">Inspiration Photo</h4>
+                    <div className="rounded-lg overflow-hidden border">
+                        <Image src={appointment.inspirationPhotoUrl} alt="Inspiration" width={400} height={300} className="object-cover" />
+                    </div>
+                </div>
+            )}
 
             <Separator />
 
@@ -263,9 +273,9 @@ export function AppointmentCard({
                     {client.medicalNotes && <ShieldPlus className="h-3 w-3 text-red-500" />}
                     {client.allergyNotes && <AlertTriangle className="h-3 w-3 text-yellow-500" />}
                     {client.sensoryNeeds && <Ear className="h-3 w-3 text-blue-500" />}
-                    {client.inspirationPhotoUrl && <ImageIcon className="h-3 w-3 text-orange-400" />}
-                    {client.isMember && <Award className="h-3 w-3 text-amber-500" />}
+                    {(client.inspirationPhotoUrl || appointment.inspirationPhotoUrl) && <ImageIcon className="h-3 w-3 text-orange-400" />}
                     {appointment.addOnIds && <div className="flex items-center gap-0.5 text-cyan-500"><PlusCircle className="h-3 w-3" /><span className="text-xs font-bold">{appointment.addOnIds.length}</span></div>}
+                    {client.isMember && <Award className="h-3 w-3 text-amber-500" />}
                 </div>
             </div>
             <div className="text-right flex-shrink-0">
