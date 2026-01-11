@@ -23,6 +23,7 @@ import { Button } from '../ui/button';
 import { ImageUpload } from '../shared/ImageUpload';
 import { AddTransactionDialog } from './AddTransactionDialog';
 import { type Transaction } from '@/lib/financial-data';
+import { Progress } from '../ui/progress';
 
 interface EventCardProps {
     event: Event,
@@ -152,33 +153,70 @@ export function EventCard({
         }, 150); // Delay to allow sheet to close before dialog opens
     };
     
+    const checklistProgress = useMemo(() => {
+        if (!event.checklist || event.checklist.length === 0) return 0;
+        const completed = event.checklist.filter(item => item.completed).length;
+        return (completed / event.checklist.length) * 100;
+    }, [event.checklist]);
+
     const TriggerCard = (
         <div 
             className={cn(
-                "p-2 rounded-lg bg-card border w-full h-full flex flex-col cursor-pointer transition-all duration-300 overflow-hidden", 
+                "p-3 rounded-lg bg-card border w-full h-full flex flex-col cursor-pointer transition-all duration-300 overflow-hidden", 
                 typeStyles[event.type],
                 event.type === 'blocked' && "bg-[repeating-linear-gradient(-45deg,transparent,transparent_4px,hsl(var(--muted))_4px,hsl(var(--muted))_5px)]"
             )}
         >
             <div className="flex items-start justify-between gap-2 flex-shrink-0">
                 <div className="flex items-center gap-2 min-w-0">
-                    <Icon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                    <p className="font-semibold text-xs truncate flex-1">{event.title}</p>
+                    <Icon className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+                    <p className="font-semibold text-sm truncate flex-1">{event.title}</p>
                 </div>
-                <p className="text-xs text-muted-foreground flex-shrink-0">{format(event.startTime, 'h:mm a')}</p>
+                <div className="text-right flex-shrink-0">
+                     <p className="text-xs text-muted-foreground">{format(event.startTime, 'h:mm a')} - {format(event.endTime, 'h:mm a')}</p>
+                     {totalCost > 0 && (
+                        <div className="flex items-center justify-end gap-1 text-xs font-semibold text-destructive">
+                            <DollarSign className="w-3 h-3" />
+                            <span>{totalCost.toFixed(2)}</span>
+                        </div>
+                    )}
+                </div>
             </div>
 
-             {totalCost > 0 && (
-                <div className="mt-auto pt-1 text-right">
-                    <div className="flex items-center justify-end gap-1 text-xs font-semibold text-destructive">
-                        <DollarSign className="w-3 h-3" />
-                        <span>{totalCost.toFixed(2)}</span>
+            <div className="flex-grow mt-2 overflow-y-auto space-y-3">
+                {event.location && (
+                    <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                        <MapPin className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                        <span className="truncate">{event.location}</span>
                     </div>
+                )}
+                 {event.notes && (
+                    <p className="text-xs text-muted-foreground line-clamp-2">{event.notes}</p>
+                )}
+                 {event.checklist && event.checklist.length > 0 && (
+                     <div className="space-y-2">
+                        {event.checklist.slice(0, 2).map(item => (
+                             <div key={item.id} className="flex items-center gap-2">
+                                <Checkbox 
+                                    id={`card-${item.id}`} 
+                                    checked={item.completed} 
+                                    onCheckedChange={(checked) => onChecklistItemToggle(event.id, item.id, !!checked)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="w-3.5 h-3.5"
+                                />
+                                <label htmlFor={`card-${item.id}`} className={cn("text-xs flex-1 truncate", item.completed && "line-through text-muted-foreground")}>{item.text}</label>
+                            </div>
+                        ))}
+                        {event.checklist.length > 2 && <p className="text-xs text-muted-foreground">+ {event.checklist.length - 2} more items</p>}
+                     </div>
+                 )}
+            </div>
+
+            {event.checklist && event.checklist.length > 0 && (
+                <div className="mt-auto pt-2">
+                    <Progress value={checklistProgress} className="h-1" />
                 </div>
             )}
-            
-            <div className="flex-grow mt-2 overflow-y-auto">
-            </div>
         </div>
     );
     
