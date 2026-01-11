@@ -200,26 +200,24 @@ const AppointmentDetails = ({
 
             <div className="space-y-4">
                 <h4 className="font-medium text-sm">Financials</h4>
-                <div className="grid grid-cols-3 text-center rounded-lg bg-muted p-4">
-                  <div>
-                      <p className="text-xs text-muted-foreground">Revenue</p>
-                      <p className="font-bold text-xl">${revenue.toFixed(2)}</p>
-                  </div>
-                  <div>
-                      <p className="text-xs text-muted-foreground">Cost</p>
-                      <p className="font-bold text-xl text-destructive">${breakEvenCost.toFixed(2)}</p>
-                  </div>
-                  <div>
-                      <p className="font-bold text-xs text-muted-foreground">Net Profit</p>
-                      <p className={cn("font-bold text-xl", netProfit >= 0 ? 'text-primary' : 'text-destructive')}>
-                        ${netProfit.toFixed(2)}
-                      </p>
-                  </div>
-              </div>
-              <div className="text-xs space-y-2 text-muted-foreground">
-                 <div className="flex justify-between"><span className="flex items-center gap-1.5"><Clock className="w-3 h-3"/>Time Cost</span> <span>${timeCost.toFixed(2)}</span></div>
-                 <div className="flex justify-between"><span className="flex items-center gap-1.5"><Briefcase className="w-3 h-3"/>Product Cost</span> <span>${productCost.toFixed(2)}</span></div>
-                 <div className="flex justify-between"><span className="flex items-center gap-1.5"><Briefcase className="w-3 h-3"/>Equipment Cost</span> <span>${equipmentCost.toFixed(2)}</span></div>
+                 <div className="grid grid-cols-3 gap-2 w-full text-center">
+                    <div className="rounded-md bg-green-500/10 p-4">
+                        <p className="text-sm text-green-800/80 dark:text-green-400/80">Revenue</p>
+                        <p className="font-bold text-2xl text-green-800 dark:text-green-400">${revenue.toFixed(2)}</p>
+                    </div>
+                    <div className="rounded-md bg-red-500/10 p-4">
+                        <p className="text-sm text-red-800/80 dark:text-red-400/80">Cost</p>
+                        <p className="font-bold text-2xl text-red-800 dark:text-red-400">${breakEvenCost.toFixed(2)}</p>
+                    </div>
+                    <div className="rounded-md bg-blue-500/10 p-4">
+                        <p className="text-sm text-blue-800/80 dark:text-blue-400/80">Net Profit</p>
+                        <p className="font-bold text-2xl text-blue-800 dark:text-blue-400">${netProfit.toFixed(2)}</p>
+                    </div>
+                </div>
+              <div className="text-xs space-y-2 text-muted-foreground pt-2">
+                 <div className="flex justify-between items-center"><span className="flex items-center gap-1.5"><Clock className="w-3 h-3"/>Time Cost</span> <span className='font-mono'>${timeCost.toFixed(2)}</span></div>
+                 <div className="flex justify-between items-center"><span className="flex items-center gap-1.5"><Briefcase className="w-3 h-3"/>Product Cost</span> <span className='font-mono'>${productCost.toFixed(2)}</span></div>
+                 <div className="flex justify-between items-center"><span className="flex items-center gap-1.5"><Briefcase className="w-3 h-3"/>Equipment Cost</span> <span className='font-mono'>${equipmentCost.toFixed(2)}</span></div>
               </div>
             </div>
             
