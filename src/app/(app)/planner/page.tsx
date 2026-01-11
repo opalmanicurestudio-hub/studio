@@ -6,7 +6,7 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem, bills as billDefinitions, type Bill } from '@/lib/data';
-import { billInstances, type BillInstance } from '@/lib/financial-data';
+import { billInstances } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO } from 'date-fns';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
@@ -610,7 +610,7 @@ export default function PlannerPage() {
                                 events={eventsForDay} 
                                 billInstances={billsForDay}
                                 onCompleteClick={handleCompleteClick} 
-                                onUpdateStatus={onUpdateStatus} 
+                                onUpdateStatus={handleUpdateStatus} 
                                 onDeleteAppointment={handleDeleteAppointment} 
                                 onPrintReceipt={handlePrintReceipt} 
                                 onEditAppointment={handleEditClick}
