@@ -70,7 +70,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
     const detailHref = item.type === 'equipment' ? `/inventory/equipment/${item.id}` : `/inventory/product/${item.id}`;
     
     return (
-        <Card className={cn("w-full transition-all duration-200 hover:shadow-xl hover:-translate-y-1", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
+        <Card className={cn("w-72 shrink-0 transition-all duration-200 hover:shadow-xl hover:-translate-y-1", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
             <CardContent className="p-3 space-y-3">
                 <div className="grid grid-cols-[auto,1fr,auto] items-start gap-3">
                     <Link href={detailHref} className='w-16 h-16 bg-muted rounded-md flex-shrink-0'>
@@ -1003,11 +1003,9 @@ export default function InventoryPage() {
         <div className="space-y-4">
             <h2 className="text-xl font-bold">{title}</h2>
             <ScrollArea>
-                <div className="flex w-max space-x-4 pb-4">
+                <div className="flex flex-nowrap space-x-4 pb-4">
                     {items.map((item) => (
-                        <div key={item.id} className='w-72'>
-                             <ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
-                        </div>
+                        <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
                     ))}
                 </div>
                 <ScrollBar orientation="horizontal" />
@@ -1212,7 +1210,7 @@ export default function InventoryPage() {
 
         <div className='space-y-8'>
           {isMobile ? (
-             <div className="grid grid-cols-2 gap-4">
+             <div className="grid grid-cols-1 gap-4">
                 {activeTab === 'locations' ? (
                    locations.length > 0 ? (
                         locations.map(location => (
@@ -1421,4 +1419,5 @@ export default function InventoryPage() {
     </div>
   );
 }
+
 
