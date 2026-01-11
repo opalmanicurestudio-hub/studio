@@ -47,6 +47,8 @@ import { collection, query, where, Timestamp } from 'firebase/firestore';
 import { type Transaction, type BillInstance } from '@/lib/financial-data';
 import { EditEventDialog } from '@/components/planner/EditEventDialog';
 import { BillDueDateCard } from '@/components/planner/BillDueDateCard';
+import { useIsMobile } from '@/hooks/use-mobile';
+
 
 const TimeIndicator = () => {
     const [top, setTop] = useState(0);
@@ -295,6 +297,7 @@ const DayTimeline = ({
 };
 
 export default function PlannerPage() {
+  const isMobile = useIsMobile();
   const [isClient, setIsClient] = useState(false);
   const [currentDate, setCurrentDate] = useState<Date | null>(null);
   const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
@@ -531,9 +534,18 @@ export default function PlannerPage() {
     const start = startOfWeek(today, { weekStartsOn: 0 });
     const todayIndex = Array.from({ length: 7 }, (_, i) => addDays(start, i)).findIndex(d => format(d, 'yyyy-MM-dd') === format(today, 'yyyy-MM-dd'));
     if (api && todayIndex >= 0) {
-        api.scrollTo(todayIndex);
+        api.scrollTo(todayIndex, true);
+    } else {
+        setCurrentDayIndex(todayIndex >=0 ? todayIndex : 0);
     }
   };
+
+  const handleDayClick = (index: number) => {
+    if (api) {
+        api.scrollTo(index, true);
+    }
+    setCurrentDayIndex(index);
+  }
 
 
   const selectedAppointmentData = useMemo(() => {
@@ -569,6 +581,12 @@ export default function PlannerPage() {
     setReceiptToPrint(receiptData);
   }
 
+  const appointmentsForDay = appointments
+      .filter(apt => format(apt.startTime, 'yyyy-MM-dd') === format(currentVisibleDate, 'yyyy-MM-dd'))
+      .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
+  const eventsForDay = events
+      .filter(evt => format(evt.startTime, 'yyyy-MM-dd') === format(currentVisibleDate, 'yyyy-MM-dd'))
+      .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
   
   if (!isClient || !currentDate) {
     return (
@@ -610,7 +628,6 @@ export default function PlannerPage() {
         </div>
       </div>
       
-      {/* Day navigation for desktop */}
       <div className="hidden md:flex items-center justify-between gap-2 p-2 border-b bg-muted/50">
         <ScrollArea className="w-full whitespace-nowrap">
             <div className="flex items-center justify-between gap-2">
@@ -619,7 +636,7 @@ export default function PlannerPage() {
                         key={index} 
                         variant={currentDayIndex === index ? 'secondary' : 'ghost'}
                         className="flex-1 flex-col h-auto py-2"
-                        onClick={() => api?.scrollTo(index)}
+                        onClick={() => handleDayClick(index)}
                     >
                         <span className="text-xs">{format(day, 'EEE')}</span>
                         <span className="text-lg font-bold">{format(day, 'd')}</span>
@@ -631,39 +648,58 @@ export default function PlannerPage() {
       </div>
 
       <main className="flex-1 min-h-0">
-         <Carousel setApi={setApi} className="h-full w-full" opts={{startIndex: currentDayIndex, align: 'start' }}>
-            <CarouselContent className="h-full">
-                 {weekDays.map((date, index) => {
-                    const appointmentsForDay = appointments
-                        .filter(apt => format(apt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'))
-                        .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
-                    const eventsForDay = events
-                        .filter(evt => format(evt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'))
-                        .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
-                    
-                    return (
-                        <CarouselItem key={index} className="h-full basis-full">
-                            <DayTimeline 
-                                date={date} 
-                                appointments={appointmentsForDay} 
-                                events={eventsForDay} 
-                                billInstances={billInstances.filter(bi => format(parseISO(bi.dueDate), 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'))}
-                                onCompleteClick={handleCompleteClick} 
-                                onUpdateStatus={handleUpdateStatus} 
-                                onDeleteAppointment={handleDeleteAppointment} 
-                                onPrintReceipt={handlePrintReceipt} 
-                                onEditAppointment={handleEditClick}
-                                onEditEvent={handleEditEventClick}
-                                onChecklistItemToggle={handleChecklistItemToggle}
-                                onUpdateEvent={handleUpdateEvent}
-                                dailyTransactions={dailyTransactions}
-                                onAddTransaction={handleAddTransaction}
-                            />
-                        </CarouselItem>
-                    )
-                 })}
-            </CarouselContent>
-        </Carousel>
+        {isMobile ? (
+             <Carousel setApi={setApi} className="h-full w-full" opts={{startIndex: currentDayIndex, align: 'start' }}>
+                <CarouselContent className="h-full">
+                     {weekDays.map((date, index) => {
+                        const appointmentsForDayMobile = appointments
+                            .filter(apt => format(apt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'))
+                            .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
+                        const eventsForDayMobile = events
+                            .filter(evt => format(evt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'))
+                            .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
+                        
+                        return (
+                            <CarouselItem key={index} className="h-full basis-full">
+                                <DayTimeline 
+                                    date={date} 
+                                    appointments={appointmentsForDayMobile} 
+                                    events={eventsForDayMobile} 
+                                    billInstances={billInstances.filter(bi => format(parseISO(bi.dueDate), 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'))}
+                                    onCompleteClick={handleCompleteClick} 
+                                    onUpdateStatus={handleUpdateStatus} 
+                                    onDeleteAppointment={handleDeleteAppointment} 
+                                    onPrintReceipt={handlePrintReceipt} 
+                                    onEditAppointment={handleEditClick}
+                                    onEditEvent={handleEditEventClick}
+                                    onChecklistItemToggle={handleChecklistItemToggle}
+                                    onUpdateEvent={handleUpdateEvent}
+                                    dailyTransactions={dailyTransactions}
+                                    onAddTransaction={handleAddTransaction}
+                                />
+                            </CarouselItem>
+                        )
+                     })}
+                </CarouselContent>
+            </Carousel>
+        ) : (
+            <DayTimeline 
+                date={currentVisibleDate} 
+                appointments={appointmentsForDay} 
+                events={eventsForDay} 
+                billInstances={billInstances}
+                onCompleteClick={handleCompleteClick} 
+                onUpdateStatus={handleUpdateStatus} 
+                onDeleteAppointment={handleDeleteAppointment} 
+                onPrintReceipt={handlePrintReceipt} 
+                onEditAppointment={handleEditClick}
+                onEditEvent={handleEditEventClick}
+                onChecklistItemToggle={handleChecklistItemToggle}
+                onUpdateEvent={handleUpdateEvent}
+                dailyTransactions={dailyTransactions}
+                onAddTransaction={handleAddTransaction}
+            />
+        )}
       </main>
       {selectedAppointmentData && (
         <CompleteAppointmentDialog
@@ -725,3 +761,4 @@ export default function PlannerPage() {
     </div>
   );
 }
+
