@@ -25,6 +25,8 @@ import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '../ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Label } from '../ui/label';
+import { Switch } from '../ui/switch';
+import { cn } from '@/lib/utils';
 
 type EditableFormulaItem = {
     id: string; // productId
@@ -67,6 +69,10 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
   const videoRef = useRef<HTMLVideoElement>(null);
   
+  const [actualDuration, setActualDuration] = useState(service?.duration || 0);
+  const [applyAdditionalCharges, setApplyAdditionalCharges] = useState(true);
+
+  
   useEffect(() => {
     if (open && service) {
         const defaultFormula = service.products?.map(p => ({
@@ -80,14 +86,42 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         setRetailItems([]);
         setFormulaName('Default Service Formula');
         setAmountTendered(0);
+        setActualDuration(service.duration);
+        setApplyAdditionalCharges(true);
     }
   }, [service, open]);
 
-  const { actualCost, additionalCost } = useMemo(() => {
-    const cost = editableFormula.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
-    const additional = service ? cost - service.cost : cost;
-    return { actualCost: cost, additionalCost: additional > 0 ? additional : 0 };
-  }, [editableFormula, service]);
+  const { initialBreakEven, finalBreakEven, additionalCharge, absorbedCost } = useMemo(() => {
+    if (!service) return { initialBreakEven: 0, finalBreakEven: 0, additionalCharge: 0, absorbedCost: 0 };
+    
+    const tmhr = (typeof window !== 'undefined' && parseFloat(localStorage.getItem('tmhr') || '50')) || 50;
+
+    const initialProductCost = (service.products || []).reduce((acc, p) => {
+        const inventoryItem = inventory.find(i => i.id === p.id);
+        const cost = inventoryItem?.costPerUnit || 0;
+        return acc + (cost * p.quantityUsed);
+    }, 0);
+    const initialTimeCost = ((service.duration + (service.padBefore || 0) + (service.padAfter || 0)) / 60) * tmhr;
+    const initialBreakEvenCost = initialProductCost + initialTimeCost;
+
+    const finalProductCost = editableFormula.reduce((acc, item) => {
+        const inventoryItem = inventory.find(i => i.id === item.id);
+        const cost = inventoryItem?.costPerUnit || 0;
+        return acc + (cost * item.quantity);
+    }, 0);
+    const finalTimeCost = ((actualDuration + (service.padBefore || 0) + (service.padAfter || 0)) / 60) * tmhr;
+    const finalBreakEvenCost = finalProductCost + finalTimeCost;
+    
+    const additionalChargeValue = Math.max(0, finalBreakEvenCost - initialBreakEvenCost);
+    const absorbedCostValue = applyAdditionalCharges ? 0 : additionalChargeValue;
+
+    return {
+        initialBreakEven: initialBreakEvenCost,
+        finalBreakEven: finalBreakEvenCost,
+        additionalCharge: additionalChargeValue,
+        absorbedCost: absorbedCostValue
+    };
+  }, [service, actualDuration, editableFormula, inventory, applyAdditionalCharges]);
 
   const retailTotal = useMemo(() => {
     return retailItems.reduce((acc, item) => {
@@ -97,7 +131,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     }, 0);
   }, [retailItems, inventory]);
   
-  const subtotal = (service?.price || 0) + retailTotal;
+  const subtotal = (service?.price || 0) + retailTotal + (applyAdditionalCharges ? additionalCharge : 0);
   const mockTax = subtotal * 0.07; // 7% tax for demo
   const grandTotal = subtotal + mockTax;
   
@@ -131,7 +165,6 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         unit: 'unit',
         costPerUnit: p.costPerUnit || 0,
       }));
-      // This is the key change: ensure we get the full list of selected products, not just the newly added ones
       setRetailItems(newItems);
   }
   
@@ -249,9 +282,24 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                   <CardHeader>
                       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                           <div>
-                              <CardTitle>Service Formula & Usage</CardTitle>
-                              <CardDescription>What was actually used for this service?</CardDescription>
+                              <CardTitle>Service Actuals</CardTitle>
+                              <CardDescription>Log what was actually used for this service.</CardDescription>
                           </div>
+                      </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="actual-duration">Actual Duration (minutes)</Label>
+                        <Input 
+                            id="actual-duration"
+                            type="number"
+                            value={actualDuration}
+                            onChange={(e) => setActualDuration(parseInt(e.target.value) || 0)}
+                        />
+                      </div>
+                      <Separator />
+                       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                          <h4 className="font-medium">Product Formula</h4>
                           {client.customFormulas && client.customFormulas.length > 0 && (
                             <div className="w-full sm:w-auto sm:min-w-[200px]">
                                 <Select onValueChange={handleApplyClientFormula}>
@@ -267,8 +315,6 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                             </div>
                           )}
                       </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
                        <div className="p-3 rounded-md bg-muted/50 text-muted-foreground text-sm flex items-start gap-2">
                           <FlaskConical className="w-4 h-4 mt-0.5 flex-shrink-0" />
                           <p>Currently applying: <span className="font-semibold text-foreground">{formulaName}</span></p>
@@ -345,10 +391,45 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                       <CardTitle>Payment & Checkout</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
+                      <div className="p-4 rounded-lg bg-muted/50 space-y-2 text-sm">
+                        <div className='flex justify-between'><span>Base Service Price:</span><span>${service.price.toFixed(2)}</span></div>
+                        <div className='flex justify-between'><span>Retail:</span><span>${retailTotal.toFixed(2)}</span></div>
+                        
+                        {additionalCharge > 0 && (
+                             <div className='flex justify-between items-center p-3 my-2 -mx-3 rounded-lg bg-amber-500/10'>
+                                <div className="space-y-1">
+                                    <Label htmlFor="apply-charges" className="font-medium text-amber-900 dark:text-amber-300">Apply Additional Charges?</Label>
+                                    <p className="text-xs text-amber-700 dark:text-amber-400">Caused by extra time/product.</p>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <span className="font-semibold text-amber-900 dark:text-amber-300">+${additionalCharge.toFixed(2)}</span>
+                                    <Switch 
+                                        id="apply-charges" 
+                                        checked={applyAdditionalCharges} 
+                                        onCheckedChange={setApplyAdditionalCharges} 
+                                    />
+                                </div>
+                            </div>
+                        )}
+                         <Separator className="my-2" />
+                        <div className='flex justify-between font-semibold'><span>Subtotal:</span><span>${subtotal.toFixed(2)}</span></div>
+                        <div className='flex justify-between'><span>Taxes (7%):</span><span>${mockTax.toFixed(2)}</span></div>
+                      </div>
                       <div className="p-4 rounded-lg bg-primary/10 text-center">
                           <p className="text-sm font-medium text-primary">Total Due</p>
                           <p className="text-5xl font-bold text-primary">${grandTotal.toFixed(2)}</p>
                       </div>
+
+                      {absorbedCost > 0 && (
+                          <Alert variant="destructive" className="bg-orange-500/5 border-orange-500/30 text-orange-800 dark:text-orange-300 [&>svg]:text-orange-500">
+                              <AlertCircle className="h-4 w-4" />
+                              <AlertTitle>Absorbed Cost</AlertTitle>
+                              <AlertDescription>
+                                  You are absorbing <span className="font-bold">${absorbedCost.toFixed(2)}</span> in extra costs for this service.
+                              </AlertDescription>
+                          </Alert>
+                      )}
+
                       <Tabs defaultValue="card" className="w-full">
                           <TabsList className="grid w-full grid-cols-3">
                               <TabsTrigger value="card"><CreditCard className="w-4 h-4 mr-2"/>Card</TabsTrigger>
