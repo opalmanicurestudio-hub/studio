@@ -28,6 +28,7 @@ import {
   PlusCircle,
   Mail,
   Phone,
+  MessageSquare,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -110,9 +111,12 @@ const AppointmentDetails = ({
                     <a href={`mailto:${client.email}`} className="flex items-center gap-2 hover:text-primary transition-colors">
                         <Mail className="w-4 h-4" /> {client.email}
                     </a>
-                    <a href={`tel:${client.phone}`} className="flex items-center gap-2 hover:text-primary transition-colors">
-                        <Phone className="w-4 h-4" /> {client.phone}
-                    </a>
+                     <div className="flex items-center gap-2">
+                        <Phone className="w-4 h-4" />
+                        <span>{client.phone}</span>
+                        <a href={`tel:${client.phone}`} className="ml-auto p-1.5 rounded-md hover:bg-muted"><Phone className="w-4 h-4 text-primary" /></a>
+                        <a href={`sms:${client.phone}`} className="p-1.5 rounded-md hover:bg-muted"><MessageSquare className="w-4 h-4 text-primary" /></a>
+                    </div>
                 </div>
                  <div className="text-muted-foreground text-sm pt-2">
                     <p>{service.name}</p>
