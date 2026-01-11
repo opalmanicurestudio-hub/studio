@@ -303,8 +303,8 @@ const DayTimeline = ({
                     {/* Time labels */}
                     <div className="flex flex-col text-right pr-4">
                         {hours.map(hour => (
-                            <div key={hour} className="h-32 -mt-2.5">
-                                <span className="text-xs text-muted-foreground">{format(new Date(0, 0, 0, hour), 'ha')}</span>
+                            <div key={hour} className="h-32 flex items-start">
+                                <span className="text-xs text-muted-foreground -translate-y-1/2">{format(new Date(0, 0, 0, hour), 'ha')}</span>
                             </div>
                         ))}
                     </div>
@@ -710,7 +710,7 @@ export default function PlannerPage() {
         <EditAppointmentDialog 
             open={isEditAppointmentOpen}
             onOpenChange={setIsEditAppointmentOpen}
-            appointment={selectedAppointment}
+            appointment={appointment}
             clients={clients}
             services={services}
             appointments={appointments}
@@ -750,6 +750,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
