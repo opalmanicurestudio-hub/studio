@@ -96,6 +96,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     
     const tmhr = (typeof window !== 'undefined' && parseFloat(localStorage.getItem('tmhr') || '50')) || 50;
 
+    // Calculate initial cost based on the service's default formula and duration
     const initialProductCost = (service.products || []).reduce((acc, p) => {
         const inventoryItem = inventory.find(i => i.id === p.id);
         const cost = inventoryItem?.costPerUnit || 0;
@@ -104,6 +105,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     const initialTimeCost = ((service.duration + (service.padBefore || 0) + (service.padAfter || 0)) / 60) * tmhr;
     const initialBreakEvenCost = initialProductCost + initialTimeCost;
 
+    // Calculate final cost based on the edited formula and actual duration
     const finalProductCost = editableFormula.reduce((acc, item) => {
         const inventoryItem = inventory.find(i => i.id === item.id);
         const cost = inventoryItem?.costPerUnit || 0;
@@ -399,7 +401,9 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                              <div className='flex justify-between items-center p-3 my-2 -mx-3 rounded-lg bg-amber-500/10'>
                                 <div className="space-y-1">
                                     <Label htmlFor="apply-charges" className="font-medium text-amber-900 dark:text-amber-300">Apply Additional Charges?</Label>
-                                    <p className="text-xs text-amber-700 dark:text-amber-400">Caused by extra time/product.</p>
+                                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                                        Initial Cost: ${initialBreakEven.toFixed(2)} vs Final Cost: ${finalBreakEven.toFixed(2)}
+                                    </p>
                                 </div>
                                 <div className="flex items-center gap-3">
                                     <span className="font-semibold text-amber-900 dark:text-amber-300">+${additionalCharge.toFixed(2)}</span>
