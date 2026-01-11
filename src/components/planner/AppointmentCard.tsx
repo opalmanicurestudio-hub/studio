@@ -192,6 +192,7 @@ export function AppointmentCard({
   onEdit,
 }: AppointmentCardProps) {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
   const isMobile = useIsMobile();
 
   const addOnServices = useMemo(() => {
@@ -273,7 +274,11 @@ export function AppointmentCard({
                     {client.medicalNotes && <ShieldPlus className="h-3 w-3 text-red-500" />}
                     {client.allergyNotes && <AlertTriangle className="h-3 w-3 text-yellow-500" />}
                     {client.sensoryNeeds && <Ear className="h-3 w-3 text-blue-500" />}
-                    {(client.inspirationPhotoUrl || appointment.inspirationPhotoUrl) && <ImageIcon className="h-3 w-3 text-orange-400" />}
+                    {(client.inspirationPhotoUrl || appointment.inspirationPhotoUrl) && (
+                        <button onClick={(e) => { e.stopPropagation(); setIsImageViewerOpen(true); }} className="focus:outline-none">
+                            <ImageIcon className="h-3 w-3 text-orange-400" />
+                        </button>
+                    )}
                     {appointment.addOnIds && <div className="flex items-center gap-0.5 text-cyan-500"><PlusCircle className="h-3 w-3" /><span className="text-xs font-bold">{appointment.addOnIds.length}</span></div>}
                     {client.isMember && <Award className="h-3 w-3 text-amber-500" />}
                 </div>
@@ -347,6 +352,7 @@ export function AppointmentCard({
 
   const DialogOrSheet = isMobile ? Sheet : Dialog;
   const DialogOrSheetContent = isMobile ? SheetContent : DialogContent;
+  const imageUrl = appointment.inspirationPhotoUrl || client.inspirationPhotoUrl;
 
   return (
     <div
@@ -386,6 +392,19 @@ export function AppointmentCard({
           />
         </DialogOrSheetContent>
       </DialogOrSheet>
+
+      {imageUrl && (
+          <Dialog open={isImageViewerOpen} onOpenChange={setIsImageViewerOpen}>
+              <DialogContent className="max-w-xl">
+                  <DialogHeader>
+                      <DialogTitle>Inspiration Photo</DialogTitle>
+                  </DialogHeader>
+                  <div className="p-4">
+                      <Image src={imageUrl} alt="Inspiration" width={600} height={400} className="rounded-lg object-contain" />
+                  </div>
+              </DialogContent>
+          </Dialog>
+      )}
     </div>
   );
 }
