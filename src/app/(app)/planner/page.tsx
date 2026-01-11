@@ -32,20 +32,16 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from '@/components/ui/accordion';
-import { AppointmentCard } from '@/components/planner/AppointmentCard';
-import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
-import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogTrigger,
+  DialogDescription,
 } from '@/components/ui/dialog';
+import { AppointmentCard } from '@/components/planner/AppointmentCard';
+import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
 import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, Timestamp } from 'firebase/firestore';
@@ -228,85 +224,86 @@ const DayTimeline = ({
 
     return (
         <div className="flex flex-col h-full">
-            <div className="p-4 border-b">
-                <Accordion type="single" collapsible className="w-full" defaultValue="summary">
-                    <AccordionItem value="summary" className='border-0'>
-                        <AccordionTrigger className='p-0 hover:no-underline text-sm font-medium'>
-                            Daily Summary
-                        </AccordionTrigger>
-                        <AccordionContent className='pt-4'>
-                            <div className="grid grid-cols-3 gap-2 w-full text-center">
-                                <div className="rounded-md bg-green-500/10 p-2">
-                                    <p className="text-xs text-green-800/80 dark:text-green-400/80">Revenue</p>
-                                    <p className="font-bold text-sm text-green-800 dark:text-green-400">${dailyTotals.revenue.toFixed(2)}</p>
-                                </div>
-                                <div className="rounded-md bg-red-500/10 p-2">
-                                    <p className="text-xs text-red-800/80 dark:text-red-400/80">Costs</p>
-                                    <p className="font-bold text-sm text-red-800 dark:text-red-400">${dailyTotals.costs.toFixed(2)}</p>
-                                </div>
-                                <div className="rounded-md bg-blue-500/10 p-2">
-                                    <p className="text-xs text-blue-800/80 dark:text-blue-400/80">Net Profit</p>
-                                    <p className="font-bold text-sm text-blue-800 dark:text-blue-400">${dailyTotals.net.toFixed(2)}</p>
+             <div className="p-4 border-b flex items-center justify-between gap-2">
+                <Dialog>
+                    <DialogTrigger asChild>
+                        <Button variant="outline" className="flex-1">Daily Summary</Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Daily Summary for {format(date, 'MMM d')}</DialogTitle>
+                        </DialogHeader>
+                         <div className="grid grid-cols-3 gap-2 w-full text-center">
+                            <div className="rounded-md bg-green-500/10 p-4">
+                                <p className="text-sm text-green-800/80 dark:text-green-400/80">Revenue</p>
+                                <p className="font-bold text-2xl text-green-800 dark:text-green-400">${dailyTotals.revenue.toFixed(2)}</p>
+                            </div>
+                            <div className="rounded-md bg-red-500/10 p-4">
+                                <p className="text-sm text-red-800/80 dark:text-red-400/80">Costs</p>
+                                <p className="font-bold text-2xl text-red-800 dark:text-red-400">${dailyTotals.costs.toFixed(2)}</p>
+                            </div>
+                            <div className="rounded-md bg-blue-500/10 p-4">
+                                <p className="text-sm text-blue-800/80 dark:text-blue-400/80">Net Profit</p>
+                                <p className="font-bold text-2xl text-blue-800 dark:text-blue-400">${dailyTotals.net.toFixed(2)}</p>
+                            </div>
+                        </div>
+                    </DialogContent>
+                </Dialog>
+
+                {billInstances.length > 0 && (
+                    <Dialog>
+                         <DialogTrigger asChild>
+                            <Button variant="outline" className="flex-1 relative">
+                                Bills Due Today
+                                {billInstances.length > 0 && (
+                                   <BellRing className="h-4 w-4 text-primary animate-pulse ml-2" />
+                                )}
+                            </Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                             <DialogHeader>
+                                <DialogTitle>Bills Due Today</DialogTitle>
+                                <DialogDescription>{billInstances.length} bill(s) require attention.</DialogDescription>
+                            </DialogHeader>
+                             <div className="flex justify-between items-center mb-2">
+                                <span className="text-xs text-muted-foreground">
+                                    {currentBillIndex + 1} of {billInstances.length}
+                                </span>
+                                <div className="flex items-center gap-2">
+                                    <Button
+                                        variant="outline"
+                                        size="icon"
+                                        className="h-6 w-6"
+                                        onClick={() => setCurrentBillIndex(prev => (prev - 1 + billInstances.length) % billInstances.length)}
+                                        disabled={billInstances.length <= 1}
+                                    >
+                                        <ChevronLeft className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        size="icon"
+                                        className="h-6 w-6"
+                                        onClick={() => setCurrentBillIndex(prev => (prev + 1) % billInstances.length)}
+                                        disabled={billInstances.length <= 1}
+                                    >
+                                        <ChevronRight className="h-4 w-4" />
+                                    </Button>
                                 </div>
                             </div>
-                        </AccordionContent>
-                    </AccordionItem>
-                </Accordion>
+                            {billInstances[currentBillIndex] && (
+                                <BillDueDateCard instance={billInstances[currentBillIndex]} />
+                            )}
+                        </DialogContent>
+                    </Dialog>
+                )}
             </div>
-             {billInstances.length > 0 && (
-                <div className="border-b">
-                     <Accordion type="single" collapsible className="w-full px-4" defaultValue='bills'>
-                        <AccordionItem value="bills" className="border-b-0 group">
-                            <AccordionTrigger className="text-sm font-medium p-0 py-4 hover:no-underline relative">
-                                <div className="flex items-center justify-between w-full">
-                                    <div className="flex items-center gap-2">
-                                        Bills Due Today
-                                        {billInstances.length > 0 && (
-                                            <BellRing className="h-4 w-4 text-primary animate-pulse" />
-                                        )}
-                                    </div>
-                                </div>
-                            </AccordionTrigger>
-                            <AccordionContent className="pb-4">
-                                <div className="flex justify-between items-center mb-2">
-                                    <span className="text-xs text-muted-foreground">
-                                        {currentBillIndex + 1} of {billInstances.length}
-                                    </span>
-                                    <div className="flex items-center gap-2">
-                                        <Button
-                                            variant="outline"
-                                            size="icon"
-                                            className="h-6 w-6"
-                                            onClick={() => setCurrentBillIndex(prev => (prev - 1 + billInstances.length) % billInstances.length)}
-                                            disabled={billInstances.length <= 1}
-                                        >
-                                            <ChevronLeft className="h-4 w-4" />
-                                        </Button>
-                                        <Button
-                                            variant="outline"
-                                            size="icon"
-                                            className="h-6 w-6"
-                                            onClick={() => setCurrentBillIndex(prev => (prev + 1) % billInstances.length)}
-                                            disabled={billInstances.length <= 1}
-                                        >
-                                            <ChevronRight className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                </div>
-                                {billInstances[currentBillIndex] && (
-                                    <BillDueDateCard instance={billInstances[currentBillIndex]} />
-                                )}
-                            </AccordionContent>
-                        </AccordionItem>
-                     </Accordion>
-                </div>
-            )}
+
             <ScrollArea className="flex-1" style={{ height: 'calc(100vh - 230px)' }}>
                 <div className="relative grid grid-cols-[auto,1fr] p-4">
                     {/* Time labels */}
                     <div className="flex flex-col text-right pr-4">
                         {hours.map(hour => (
-                            <div key={hour} className="h-32">
+                            <div key={hour} className="h-32 -mt-2.5">
                                 <span className="text-xs text-muted-foreground">{format(new Date(0, 0, 0, hour), 'ha')}</span>
                             </div>
                         ))}
@@ -753,6 +750,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
