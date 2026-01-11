@@ -104,7 +104,7 @@ const DayTimeline = ({
     date: Date; 
     appointments: Appointment[]; 
     events: Event[]; 
-    billInstances: BillInstance[];
+    billInstances: (BillInstance & { definition: Bill })[];
     onCompleteClick: (apt: Appointment) => void; 
     onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void; 
     onDeleteAppointment: (appointmentId: string) => void; 
@@ -147,16 +147,6 @@ const DayTimeline = ({
         return [...appointments.map(a => ({...a, itemType: 'appointment'})), ...events.map(e => ({...e, itemType: 'event'}))]
             .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
     }, [appointments, events]);
-
-    const dueBills = useMemo(() => {
-        return billInstances
-            .filter(instance => format(parseISO(instance.dueDate), 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'))
-            .map(instance => {
-                const definition = billDefinitions.find(def => def.id === instance.billDefinitionId);
-                return { ...instance, definition: definition! };
-            })
-            .filter(item => item.definition);
-    }, [date, billInstances]);
 
     const hours = Array.from({ length: 15 }, (_, i) => i + 8); // 8 AM to 10 PM
     const [tmhr, setTmhr] = useState(0);
@@ -239,10 +229,10 @@ const DayTimeline = ({
                 </Accordion>
             </div>
              <ScrollArea className="flex-1" style={{ height: 'calc(100vh - 230px)' }}>
-                {dueBills.length > 0 && (
+                {billInstances.length > 0 && (
                     <div className="p-4 border-b">
                         <h4 className="text-sm font-semibold mb-2">Bills Due Today</h4>
-                        {dueBills.map(bill => <BillDueDateCard key={bill.id} bill={bill.definition} />)}
+                        {billInstances.map(instance => <BillDueDateCard key={instance.id} instance={instance} />)}
                     </div>
                 )}
                 <div className="relative grid grid-cols-[auto,1fr] p-4">
@@ -605,15 +595,22 @@ export default function PlannerPage() {
                     const eventsForDay = events
                         .filter(evt => format(evt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'))
                         .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
+                     const billsForDay = billInstances
+                        .filter(instance => format(parseISO(instance.dueDate), 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'))
+                        .map(instance => {
+                            const definition = billDefinitions.find(def => def.id === instance.billDefinitionId);
+                            return { ...instance, definition: definition! };
+                        })
+                        .filter(item => item.definition);
                     return (
                         <CarouselItem key={index} className="h-full basis-full">
                             <DayTimeline 
                                 date={date} 
                                 appointments={appointmentsForDay} 
                                 events={eventsForDay} 
-                                billInstances={billInstances}
+                                billInstances={billsForDay}
                                 onCompleteClick={handleCompleteClick} 
-                                onUpdateStatus={handleUpdateStatus} 
+                                onUpdateStatus={onUpdateStatus} 
                                 onDeleteAppointment={handleDeleteAppointment} 
                                 onPrintReceipt={handlePrintReceipt} 
                                 onEditAppointment={handleEditClick}
