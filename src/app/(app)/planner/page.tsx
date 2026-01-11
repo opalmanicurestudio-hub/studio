@@ -167,8 +167,11 @@ const DayTimeline = ({
 
 
     const renderItem = (item: any) => {
-        const top = (getHours(item.startTime) - 8 + getMinutes(item.startTime) / 60) * 96;
-        const height = differenceInMinutes(item.endTime, item.startTime) / 60 * 96;
+        const dayStart = setHours(startOfDay(date), 8);
+        const minutesFromStart = differenceInMinutes(item.startTime, dayStart);
+        const top = minutesFromStart * 1.6; // 96px per hour / 60 mins = 1.6px per minute
+
+        const height = differenceInMinutes(item.endTime, item.startTime) * 1.6;
         const style = { top: `${top}px`, height: `${height}px` };
 
         if (item.itemType === 'appointment') {
@@ -177,7 +180,7 @@ const DayTimeline = ({
             if (!client || !service) return null;
            
             return (
-                <div key={item.id} className="absolute w-full" style={style}>
+                <div key={item.id} className="absolute w-full px-2" style={style}>
                     <AppointmentCard
                         appointment={item}
                         client={client}
@@ -243,7 +246,7 @@ const DayTimeline = ({
                             <AccordionTrigger className="text-sm font-medium p-0 py-4 hover:no-underline relative">
                                 <div className="flex items-center justify-between w-full">
                                     <div className="flex items-center gap-2">
-                                        <span>Bills Due Today</span>
+                                        Bills Due Today
                                         {billInstances.length > 0 && (
                                             <BellRing className="h-4 w-4 text-primary hidden group-data-[state=closed]:block animate-pulse" />
                                         )}
@@ -736,6 +739,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
