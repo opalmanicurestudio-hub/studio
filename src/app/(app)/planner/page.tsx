@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -269,7 +268,7 @@ const DayTimeline = ({
                 )}
             </div>
 
-            <ScrollArea className="md:h-[calc(100vh-230px)]">
+            <ScrollArea className="flex-1">
                 <div className="grid grid-cols-[auto,1fr] p-4">
                     {/* Time labels */}
                     <div className="flex flex-col text-right pr-4">
@@ -573,7 +572,7 @@ export default function PlannerPage() {
   
   if (!isClient || !currentDate) {
     return (
-      <div className="flex h-full w-full flex-col">
+      <div className="flex h-screen w-full flex-col">
         <AppHeader title="Planner" />
         <div className="flex items-center justify-center flex-1">
           <Loader className="h-8 w-8 animate-spin" />
@@ -583,7 +582,7 @@ export default function PlannerPage() {
   }
   
   return (
-    <div className="flex h-screen w-full flex-col overflow-hidden">
+    <div className="flex h-screen w-full flex-col">
       <AppHeader title="Planner" />
       <div className="flex flex-col gap-4 p-4 border-b">
         <div className='text-center'>
@@ -631,7 +630,7 @@ export default function PlannerPage() {
         </ScrollArea>
       </div>
 
-      <main className="flex-1 overflow-hidden">
+      <main className="flex-1 min-h-0">
          <Carousel setApi={setApi} className="h-full w-full" opts={{startIndex: currentDayIndex, align: 'start' }}>
             <CarouselContent className="h-full">
                  {weekDays.map((date, index) => {
@@ -728,4 +727,4 @@ export default function PlannerPage() {
 }
 
 
-
+    
