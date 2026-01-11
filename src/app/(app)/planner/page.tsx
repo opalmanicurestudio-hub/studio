@@ -214,20 +214,30 @@ const DayTimeline = ({
 
     return (
         <div className="flex flex-col h-full">
-             <div className="p-4 border-b grid grid-cols-3 gap-2">
-                <div className="rounded-md bg-green-500/10 p-2 text-center">
-                    <p className="text-xs text-green-800/80 dark:text-green-400/80">Revenue</p>
-                    <p className="font-bold text-lg text-green-800 dark:text-green-400">${dailyTotals.revenue.toFixed(2)}</p>
-                </div>
-                <div className="rounded-md bg-red-500/10 p-2 text-center">
-                    <p className="text-xs text-red-800/80 dark:text-red-400/80">Costs</p>
-                    <p className="font-bold text-lg text-red-800 dark:text-red-400">${dailyTotals.costs.toFixed(2)}</p>
-                </div>
-                <div className="rounded-md bg-blue-500/10 p-2 text-center">
-                    <p className="text-xs text-blue-800/80 dark:text-blue-400/80">Net Profit</p>
-                    <p className="font-bold text-lg text-blue-800 dark:text-blue-400">${dailyTotals.net.toFixed(2)}</p>
-                </div>
-            </div>
+            <Accordion type="single" collapsible className="w-full border-b" defaultValue='item-1'>
+                <AccordionItem value="item-1">
+                    <AccordionTrigger className="p-4 font-semibold text-sm">
+                        Daily Financial Summary
+                    </AccordionTrigger>
+                    <AccordionContent>
+                         <div className="p-4 pt-0 grid grid-cols-3 gap-2">
+                            <div className="rounded-md bg-green-500/10 p-2 text-center">
+                                <p className="text-xs text-green-800/80 dark:text-green-400/80">Revenue</p>
+                                <p className="font-bold text-lg text-green-800 dark:text-green-400">${dailyTotals.revenue.toFixed(2)}</p>
+                            </div>
+                            <div className="rounded-md bg-red-500/10 p-2 text-center">
+                                <p className="text-xs text-red-800/80 dark:text-red-400/80">Costs</p>
+                                <p className="font-bold text-lg text-red-800 dark:text-red-400">${dailyTotals.costs.toFixed(2)}</p>
+                            </div>
+                            <div className="rounded-md bg-blue-500/10 p-2 text-center">
+                                <p className="text-xs text-blue-800/80 dark:text-blue-400/80">Net Profit</p>
+                                <p className="font-bold text-lg text-blue-800 dark:text-blue-400">${dailyTotals.net.toFixed(2)}</p>
+                            </div>
+                        </div>
+                    </AccordionContent>
+                </AccordionItem>
+            </Accordion>
+            
 
             <ScrollArea className="flex-1">
                 <div className="grid grid-cols-[auto,1fr] p-4">
@@ -583,7 +593,7 @@ export default function PlannerPage() {
                    <DialogTrigger asChild>
                       <Button variant="outline"><BarChart className="w-4 h-4 mr-2" /> KPIs</Button>
                   </DialogTrigger>
-                   <DialogContent className="max-w-3xl">
+                   <DialogContent className="max-w-4xl">
                       <DialogHeader>
                           <DialogTitle>This Week's Financials</DialogTitle>
                           <DialogDescription>A summary of your performance for the week of {format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMM d')}.</DialogDescription>
@@ -777,4 +787,5 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
