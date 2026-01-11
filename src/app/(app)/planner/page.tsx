@@ -44,6 +44,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { EventCard } from '@/components/planner/EventCard';
 
 
 const TimeIndicator = () => {
@@ -572,22 +573,19 @@ export default function PlannerPage() {
             <Button variant="outline" size="icon" onClick={handlePrevDay}><ChevronLeft /></Button>
             <Button variant="outline" size="icon" onClick={handleNextDay}><ChevronRight /></Button>
             <Button variant="outline" onClick={handleToday}>Today</Button>
-        </div>
-        <div className='text-center'>
-            <p className='text-lg font-semibold'>{format(currentDate, 'EEEE, LLL d')}</p>
-            <p className='text-xs text-muted-foreground'>{format(currentDate, 'MMMM yyyy')}</p>
+            <p className='text-lg font-semibold ml-4'>{format(currentDate, 'EEEE, LLL d')}</p>
         </div>
         <div className="flex items-center gap-2">
              <Dialog>
                  <DialogTrigger asChild>
                     <Button variant="outline"><BarChart className="w-4 h-4 mr-2" /> KPIs</Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-3xl">
+                 <DialogContent className="max-w-3xl">
                     <DialogHeader>
                         <DialogTitle>This Week's Financials</DialogTitle>
                         <DialogDescription>A summary of your performance for the week of {format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMM d')}.</DialogDescription>
                     </DialogHeader>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-4">
                         <Card>
                             <CardHeader className="pb-2">
                                 <CardTitle className="text-sm font-medium flex items-center gap-2"><TrendingUp className="w-4 h-4"/>Revenue</CardTitle>
@@ -624,9 +622,7 @@ export default function PlannerPage() {
                                <p className='text-xs text-muted-foreground'>Uncharged extra time/product.</p>
                             </CardContent>
                         </Card>
-                    </div>
-                    <div className="mt-4">
-                        <Card className="col-span-2">
+                        <Card className="col-span-1 sm:col-span-2">
                             <CardHeader className="pb-2">
                                 <CardTitle className="text-sm font-medium">Net Profit / Loss</CardTitle>
                             </CardHeader>
