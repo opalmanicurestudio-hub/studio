@@ -63,10 +63,17 @@ export const billDefinitions: BillDefinition[] = [
 ];
 
 export const billInstances: BillInstance[] = [
-    { id: 'bi1', billDefinitionId: 'b1', dueDate: '2024-07-01T00:00:00.000Z', status: 'paid', amountDue: 1200.00, amountPaid: 1200.00 },
+    // Scenario: June rent is past due
+    { id: 'bi-june-rent', billDefinitionId: 'b1', dueDate: '2024-06-01T00:00:00.000Z', status: 'overdue', amountDue: 1200.00, amountPaid: 0 },
+    // Scenario: July rent is due
+    { id: 'bi1', billDefinitionId: 'b1', dueDate: '2024-07-01T00:00:00.000Z', status: 'unpaid', amountDue: 1200.00, amountPaid: 0 },
+    // Scenario: August rent is upcoming
+    { id: 'bi-aug-rent', billDefinitionId: 'b1', dueDate: '2024-08-01T00:00:00.000Z', status: 'unpaid', amountDue: 1200.00, amountPaid: 0 },
+
+    // Other examples
     { id: 'bi2', billDefinitionId: 'p1', dueDate: '2024-07-01T00:00:00.000Z', status: 'paid', amountDue: 2000.00, amountPaid: 2000.00 },
     { id: 'bi3', billDefinitionId: 'p12', dueDate: '2024-06-15T00:00:00.000Z', status: 'overdue', amountDue: 150.00, amountPaid: 0 },
-    { id: 'bi4', billDefinitionId: 'p11', dueDate: '2024-07-25T00:00:00.000Z', status: 'partially-paid', amountDue: 350.00, amountPaid: 200.00 },
+    { id: 'bi4', billDefinitionId: 'p11', dueDate: '2024-07-25T00:00:00.000Z', status: 'unpaid', amountDue: 350.00, amountPaid: 0 },
     { id: 'bi5', billDefinitionId: 'b2', dueDate: '2024-08-05T00:00:00.000Z', status: 'unpaid', amountDue: 49.00, amountPaid: 0 },
 ];
 
@@ -99,5 +106,20 @@ export const transactions: Transaction[] = [
     paymentMethod: 'Business Checking',
     hasReceipt: true,
     relatedBillInstanceId: 'bi1',
-  }
+  },
+   {
+    id: 'txn-event-expense',
+    date: new Date().toISOString(),
+    description: 'Expense for: Pick up supplies',
+    clientOrVendor: 'ProNailSupply',
+    type: 'expense' as const,
+    context: 'Business',
+    category: 'Supplies',
+    amount: 75.50,
+    paymentMethod: 'Business Credit Card',
+    paymentMethodIdentifier: '**** 4567',
+    hasReceipt: true,
+    receiptUrl: 'https://picsum.photos/seed/receipt1/400/600',
+    relatedEventId: 'evt-3'
+  },
 ];
