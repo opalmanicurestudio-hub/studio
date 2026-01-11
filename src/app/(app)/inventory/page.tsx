@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -1003,7 +1002,7 @@ export default function InventoryPage() {
         <div className="space-y-4">
             <h2 className="text-xl font-bold">{title}</h2>
             <ScrollArea>
-                <div className="flex flex-nowrap space-x-4 pb-4">
+                <div className="flex space-x-4 pb-4">
                     {items.map((item) => (
                         <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
                     ))}
@@ -1136,9 +1135,9 @@ export default function InventoryPage() {
   }
 
   return (
-    <div className="flex min-h-screen w-full flex-col">
+    <div className="flex h-screen w-full flex-col">
       <AppHeader title="Inventory Hub" />
-      <main className="flex-1 p-4 md:p-8 space-y-6">
+      <main className="flex-1 p-4 md:p-8 space-y-6 overflow-y-auto">
 
         {kpiSection}
 
@@ -1419,5 +1418,3 @@ export default function InventoryPage() {
     </div>
   );
 }
-
-
