@@ -580,6 +580,7 @@ export default function PlannerPage() {
                         <Card>
                             <CardHeader className="pb-2">
                                 <CardTitle className="text-sm font-medium flex items-center gap-2"><TrendingUp className="w-4 h-4"/>Revenue</CardTitle>
+                                <CardDescription className='text-xs'>From completed appointments.</CardDescription>
                             </CardHeader>
                             <CardContent>
                                 <p className="text-2xl font-bold">${weeklyKpis.weeklyRevenue.toFixed(2)}</p>
@@ -588,25 +589,28 @@ export default function PlannerPage() {
                         <Card>
                             <CardHeader className="pb-2">
                                 <CardTitle className="text-sm font-medium flex items-center gap-2"><DollarSign className="w-4 h-4"/>Projected</CardTitle>
+                                <CardDescription className='text-xs'>Includes confirmed bookings.</CardDescription>
                             </CardHeader>
                             <CardContent>
                                 <p className="text-2xl font-bold">${weeklyKpis.projectedRevenue.toFixed(2)}</p>
                             </CardContent>
                         </Card>
-                         <Card>
+                        <Card>
                             <CardHeader className="pb-2">
-                                <CardTitle className="text-sm font-medium">Net Profit</CardTitle>
+                                <CardTitle className="text-sm font-medium">Break-Even</CardTitle>
+                                 <CardDescription className='text-xs'>Your weekly cost target.</CardDescription>
                             </CardHeader>
                             <CardContent>
-                               <p className={cn("text-2xl font-bold", weeklyKpis.weeklyNetProfit >= 0 ? "text-green-500" : "text-destructive")}>${weeklyKpis.weeklyNetProfit.toFixed(2)}</p>
+                               <p className="text-2xl font-bold text-destructive">${weeklyKpis.weeklyBreakEven.toFixed(2)}</p>
                             </CardContent>
                         </Card>
                         <Card>
                             <CardHeader className="pb-2">
-                                <CardTitle className="text-sm font-medium">Absorbed Costs</CardTitle>
+                                <CardTitle className="text-sm font-medium">Net Profit</CardTitle>
+                                <CardDescription className='text-xs'>Revenue minus service costs.</CardDescription>
                             </CardHeader>
                             <CardContent>
-                               <p className="text-2xl font-bold">$0.00</p>
+                               <p className={cn("text-2xl font-bold", weeklyKpis.weeklyNetProfit >= 0 ? "text-green-500" : "text-destructive")}>${weeklyKpis.weeklyNetProfit.toFixed(2)}</p>
                             </CardContent>
                         </Card>
                     </div>
@@ -759,5 +763,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
+    
 
     
