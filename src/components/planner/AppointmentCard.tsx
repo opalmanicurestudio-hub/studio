@@ -271,12 +271,6 @@ export function AppointmentCard({
             <div className="text-right flex-shrink-0">
                 <div className='text-xs space-y-0.5 text-right'>
                     <div className="flex items-center justify-end gap-1.5">
-                        <span className="text-muted-foreground">Profit:</span>
-                        <span className={cn("font-semibold", netProfit >= 0 ? 'text-primary' : 'text-destructive')}>
-                          ${netProfit.toFixed(2)}
-                        </span>
-                    </div>
-                     <div className="flex items-center justify-end gap-1.5">
                         <span className="text-muted-foreground">Rev:</span>
                         <span className="text-green-600 dark:text-green-400">${revenue.toFixed(2)}</span>
                     </div>
@@ -284,14 +278,57 @@ export function AppointmentCard({
                         <span className="text-muted-foreground">Cost:</span>
                         <span className="text-red-600 dark:text-red-400">${breakEvenCost.toFixed(2)}</span>
                     </div>
+                    <div className="flex items-center justify-end gap-1.5">
+                        <span className="text-muted-foreground">Profit:</span>
+                        <span className={cn("font-semibold", netProfit >= 0 ? 'text-primary' : 'text-destructive')}>
+                          ${netProfit.toFixed(2)}
+                        </span>
+                    </div>
                 </div>
             </div>
         </div>
-        <div className="mt-1">
+        <div className="mt-1 flex items-end justify-between">
             <div className="flex flex-col items-start">
                 <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[appointment.status]?.className)}>{statusDisplay[appointment.status]?.text}</Badge>
                 <p className="text-[10px] text-muted-foreground">{format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
             </div>
+             <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
+                <DropdownMenuItem onClick={() => onCompleteClick(appointment)}>
+                    <CheckCircle className="mr-2" /> Complete Appointment
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onEdit(appointment)}>
+                    <Edit className="mr-2" /> Edit Appointment
+                </DropdownMenuItem>
+                <DropdownMenuSub>
+                    <DropdownMenuSubTrigger><Clock10 className="mr-2"/> Change Status</DropdownMenuSubTrigger>
+                    <DropdownMenuPortal>
+                        <DropdownMenuSubContent>
+                            <DropdownMenuItem onClick={() => onUpdateStatus(appointment.id, 'confirmed')}>Confirmed</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => onUpdateStatus(appointment.id, 'cancelled')}>Cancelled</DropdownMenuItem>
+                             <DropdownMenuItem onClick={() => onUpdateStatus(appointment.id, 'deposit_pending')}>Awaiting Payment</DropdownMenuItem>
+                        </DropdownMenuSubContent>
+                    </DropdownMenuPortal>
+                </DropdownMenuSub>
+                 <DropdownMenuItem onClick={() => onPrintReceipt(appointment)} disabled={appointment.status !== 'completed'}>
+                    <Printer className="mr-2" /> Print Receipt
+                </DropdownMenuItem>
+                <Separator />
+                <DropdownMenuItem className="text-destructive" onClick={() => onDelete(appointment.id)}>
+                    <Trash2 className="mr-2" /> Delete Appointment
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
         </div>
       </div>
     </div>
