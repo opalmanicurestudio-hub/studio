@@ -114,8 +114,40 @@ const AppointmentDetails = ({
   return (
     <ScrollArea className="h-[80vh] p-6">
         <div className="space-y-6">
-            <div className="space-y-2">
-                <h3 className="font-semibold text-lg">{client.name}</h3>
+             <div className="space-y-2">
+                <div className="flex justify-between items-start gap-4">
+                    <h3 className="font-semibold text-lg">{client.name}</h3>
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm">
+                                <MoreHorizontal className="w-4 h-4 mr-2" />
+                                Actions
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-56">
+                            <DropdownMenuItem asChild>
+                                <Link href={`/clients/${client.id}`}>
+                                    <UserIcon className="w-4 h-4 mr-2"/>
+                                    View Client Profile
+                                </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => onEdit(appointment)}>
+                                <Edit className="w-4 h-4 mr-2"/>
+                                Edit Appointment
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => {
+                                toast({ title: 'Confirmation Resent', description: `An email confirmation has been resent to ${client.email}.`})
+                            }}>
+                                <Send className="w-4 h-4 mr-2"/>
+                                Resend Confirmation
+                            </DropdownMenuItem>
+                            <DropdownMenuItem>
+                                <Book className="w-4 h-4 mr-2"/>
+                                Book New Appointment
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
                 <div className="text-muted-foreground text-sm space-y-1">
                     <a href={`mailto:${client.email}`} className="flex items-center gap-2 hover:text-primary transition-colors">
                         <Mail className="w-4 h-4" /> {client.email}
@@ -198,42 +230,6 @@ const AppointmentDetails = ({
                     {client.sensoryNeeds && <div className="flex items-center gap-2"><Ear className="w-4 h-4 text-blue-500 flex-shrink-0"/><span>{client.sensoryNeeds}</span></div>}
                     {client.isMember && <div className="flex items-center gap-2"><Award className="w-4 h-4 flex-shrink-0"/><span>Client is a member</span></div>}
                 </div>
-            </div>
-            
-            <Separator />
-
-            <div className="space-y-3">
-              <h4 className="font-medium text-sm">Actions</h4>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="w-full">
-                        <MoreHorizontal className="w-4 h-4 mr-2" />
-                        Appointment Actions
-                    </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
-                    <DropdownMenuItem asChild>
-                        <Link href={`/clients/${client.id}`}>
-                            <UserIcon className="w-4 h-4 mr-2"/>
-                            View Client Profile
-                        </Link>
-                    </DropdownMenuItem>
-                     <DropdownMenuItem onClick={() => onEdit(appointment)}>
-                        <Edit className="w-4 h-4 mr-2"/>
-                        Edit Appointment
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => {
-                        toast({ title: 'Confirmation Resent', description: `An email confirmation has been resent to ${client.email}.`})
-                    }}>
-                        <Send className="w-4 h-4 mr-2"/>
-                        Resend Confirmation
-                    </DropdownMenuItem>
-                    <DropdownMenuItem>
-                        <Book className="w-4 h-4 mr-2"/>
-                        Book New Appointment
-                    </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
             </div>
         </div>
     </ScrollArea>
