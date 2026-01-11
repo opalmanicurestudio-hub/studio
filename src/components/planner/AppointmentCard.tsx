@@ -242,72 +242,60 @@ export function AppointmentCard({
         onClick={() => setIsDetailsOpen(true)}
     >
       <div className="flex-grow flex flex-col justify-between min-h-0">
-        <div>
-          <div className="flex items-start justify-between">
-              <div>
-                  <p className="font-semibold text-xs leading-tight truncate">{client.name}</p>
-                  <p className="text-xs text-muted-foreground truncate">{service.name}</p>
-              </div>
-              <div className="flex items-center gap-1">
-                  <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[appointment.status]?.className)}>{statusDisplay[appointment.status]?.text}</Badge>
-                  <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-6 w-6 -mr-1" onClick={(e) => e.stopPropagation()}>
-                              <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
-                          <DropdownMenuItem onSelect={() => setIsDetailsOpen(true)}>
-                              <FileText className="mr-2 h-4 w-4"/>View Details
-                          </DropdownMenuItem>
-                          <DropdownMenuSub>
-                              <DropdownMenuSubTrigger>
-                                  <Clock10 className="mr-2 h-4 w-4"/> Change Status
-                              </DropdownMenuSubTrigger>
-                              <DropdownMenuPortal>
-                                  <DropdownMenuSubContent>
-                                      {appointment.status !== 'completed' && (
-                                          <DropdownMenuItem onSelect={() => onCompleteClick(appointment)}>
-                                          <CheckCircle className="mr-2 h-4 w-4 text-green-500"/>Mark as Completed
-                                          </DropdownMenuItem>
-                                      )}
-                                      <DropdownMenuItem onSelect={() => onUpdateStatus(appointment.id, 'confirmed')}><CheckCircle className="mr-2 h-4 w-4 text-blue-500"/>Confirmed</DropdownMenuItem>
-                                      <DropdownMenuItem onSelect={() => onUpdateStatus(appointment.id, 'cancelled')}><XCircle className="mr-2 h-4 w-4 text-red-500"/>Cancelled</DropdownMenuItem>
-                                  </DropdownMenuSubContent>
-                              </DropdownMenuPortal>
-                          </DropdownMenuSub>
-                          {appointment.status === 'completed' && (
-                              <DropdownMenuItem onSelect={() => onPrintReceipt(appointment)}>
-                                  <Printer className="mr-2 h-4 w-4"/>Print Receipt
-                              </DropdownMenuItem>
-                          )}
-                          <DropdownMenuItem onSelect={() => onEdit(appointment)}>
-                              <Edit className="mr-2 h-4 w-4"/> Edit Details
-                          </DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive" onSelect={() => onDelete(appointment.id)}>
-                              <Trash2 className="mr-2 h-4 w-4"/> Delete
-                          </DropdownMenuItem>
-                      </DropdownMenuContent>
-                  </DropdownMenu>
-              </div>
-          </div>
+        <div className="flex items-start justify-between">
+            <div className='flex-1 min-w-0'>
+                <p className="font-semibold text-xs leading-tight truncate">{client.name}</p>
+                <p className="text-[11px] text-muted-foreground truncate">{service.name}</p>
+            </div>
+            <div className={cn("text-sm font-bold", netProfit >= 0 ? "text-primary" : "text-destructive")}>
+                ${netProfit.toFixed(2)}
+            </div>
         </div>
 
         <div className="mt-1">
-            <div className="grid grid-cols-3 text-[10px] text-center">
-                <div className="text-green-600 dark:text-green-400">
-                    <p className="font-bold">${revenue.toFixed(2)}</p>
-                    <p className="text-[8px] uppercase tracking-wider font-semibold opacity-70">Revenue</p>
-                </div>
-                <div className="text-red-600 dark:text-red-400">
-                    <p className="font-bold">${breakEvenCost.toFixed(2)}</p>
-                    <p className="text-[8px] uppercase tracking-wider font-semibold opacity-70">Cost</p>
-                </div>
-                <div className={cn("font-bold", netProfit >= 0 ? "text-primary" : "text-destructive")}>
-                    <p>${netProfit.toFixed(2)}</p>
-                    <p className="text-[8px] uppercase tracking-wider font-semibold opacity-70">Profit</p>
-                </div>
+            <div className="flex items-center justify-between text-xs">
+                 <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[appointment.status]?.className)}>{statusDisplay[appointment.status]?.text}</Badge>
+                 <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => e.stopPropagation()}>
+                            <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
+                        <DropdownMenuItem onSelect={() => setIsDetailsOpen(true)}>
+                            <FileText className="mr-2 h-4 w-4"/>View Details
+                        </DropdownMenuItem>
+                        <DropdownMenuSub>
+                            <DropdownMenuSubTrigger>
+                                <Clock10 className="mr-2 h-4 w-4"/> Change Status
+                            </DropdownMenuSubTrigger>
+                            <DropdownMenuPortal>
+                                <DropdownMenuSubContent>
+                                    {appointment.status !== 'completed' && (
+                                        <DropdownMenuItem onSelect={() => onCompleteClick(appointment)}>
+                                        <CheckCircle className="mr-2 h-4 w-4 text-green-500"/>Mark as Completed
+                                        </DropdownMenuItem>
+                                    )}
+                                    <DropdownMenuItem onSelect={() => onUpdateStatus(appointment.id, 'confirmed')}><CheckCircle className="mr-2 h-4 w-4 text-blue-500"/>Confirmed</DropdownMenuItem>
+                                    <DropdownMenuItem onSelect={() => onUpdateStatus(appointment.id, 'cancelled')}><XCircle className="mr-2 h-4 w-4 text-red-500"/>Cancelled</DropdownMenuItem>
+                                </DropdownMenuSubContent>
+                            </DropdownMenuPortal>
+                        </DropdownMenuSub>
+                        {appointment.status === 'completed' && (
+                            <DropdownMenuItem onSelect={() => onPrintReceipt(appointment)}>
+                                <Printer className="mr-2 h-4 w-4"/>Print Receipt
+                            </DropdownMenuItem>
+                        )}
+                        <DropdownMenuItem onSelect={() => onEdit(appointment)}>
+                            <Edit className="mr-2 h-4 w-4"/> Edit Details
+                        </DropdownMenuItem>
+                        <DropdownMenuItem className="text-destructive" onSelect={() => onDelete(appointment.id)}>
+                            <Trash2 className="mr-2 h-4 w-4"/> Delete
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
             </div>
+             <p className="text-[10px] text-muted-foreground mt-1">{format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
         </div>
 
       </div>
