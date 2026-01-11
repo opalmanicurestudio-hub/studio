@@ -22,6 +22,8 @@ import {
   XCircle,
   Clock10,
   Printer,
+  TrendingUp,
+  Receipt,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -73,50 +75,24 @@ const AppointmentDetails = ({
     client,
     service,
     tmhr,
+    revenue,
+    breakEvenCost,
+    netProfit,
+    timeCost,
+    productCost,
+    equipmentCost,
 }: {
     appointment: Appointment;
     client: Client;
     service: Service;
     tmhr: number;
+    revenue: number;
+    breakEvenCost: number;
+    netProfit: number;
+    timeCost: number;
+    productCost: number;
+    equipmentCost: number;
 }) => {
-    const { revenue, breakEvenCost, netProfit, timeCost, productCost, equipmentCost } = useMemo(() => {
-    const revenue = service.price;
-    const totalDuration = differenceInMinutes(appointment.endTime, appointment.startTime);
-    const timeCost = (totalDuration / 60) * tmhr;
-    
-    let productsToUse: { productId?: string; quantityUsed: number; productName?: string; costPerUnit?: number; id?:string }[] = service.products || [];
-
-    if (client.customFormulas && client.customFormulas.length > 0) {
-      // For simplicity, using the first formula. A real app might let you choose.
-      productsToUse = client.customFormulas[0].items.map(cf => {
-          const productData = inventory.find(i => i.id === cf.productId);
-          return {
-            ...productData,
-            productId: cf.productId,
-            productName: cf.productName,
-            quantityUsed: cf.quantityUsed,
-            costPerUnit: productData?.costPerUnit || 0,
-        }
-      });
-    }
-
-    const productCost = productsToUse.reduce((sum, p) => {
-        const productData = inventory.find(i => i.id === (p.id || p.productId));
-        return sum + ((productData?.costPerUnit || 0) * (p.quantityUsed || 1));
-    }, 0);
-
-
-    const equipmentCost = (service.equipment || []).reduce((sum, e) => {
-        const lifespanInMinutes = (e.lifespanYears || 5) * 365 * 8 * 60;
-        const costPerMinute = (e.costPerUnit || 0) / lifespanInMinutes;
-        return sum + (costPerMinute * totalDuration);
-    }, 0);
-
-    const breakEvenCost = timeCost + productCost + equipmentCost;
-    const netProfit = revenue - breakEvenCost;
-
-    return { revenue, breakEvenCost, netProfit, timeCost, productCost, equipmentCost };
-  }, [service, appointment, tmhr, client]);
 
   return (
     <ScrollArea className="h-[80vh] p-6">
@@ -199,6 +175,46 @@ export function AppointmentCard({
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const isMobile = useIsMobile();
 
+  const { revenue, breakEvenCost, netProfit, timeCost, productCost, equipmentCost } = useMemo(() => {
+    const revenue = service.price;
+    const totalDuration = differenceInMinutes(appointment.endTime, appointment.startTime);
+    const timeCost = (totalDuration / 60) * tmhr;
+    
+    let productsToUse: { productId?: string; quantityUsed: number; productName?: string; costPerUnit?: number; id?:string }[] = service.products || [];
+
+    if (client.customFormulas && client.customFormulas.length > 0) {
+      // For simplicity, using the first formula. A real app might let you choose.
+      productsToUse = client.customFormulas[0].items.map(cf => {
+          const productData = inventory.find(i => i.id === cf.productId);
+          return {
+            ...productData,
+            productId: cf.productId,
+            productName: cf.productName,
+            quantityUsed: cf.quantityUsed,
+            costPerUnit: productData?.costPerUnit || 0,
+        }
+      });
+    }
+
+    const productCost = productsToUse.reduce((sum, p) => {
+        const productData = inventory.find(i => i.id === (p.id || p.productId));
+        return sum + ((productData?.costPerUnit || 0) * (p.quantityUsed || 1));
+    }, 0);
+
+
+    const equipmentCost = (service.equipment || []).reduce((sum, e) => {
+        const lifespanInMinutes = (e.lifespanYears || 5) * 365 * 8 * 60;
+        const costPerMinute = (e.costPerUnit || 0) / lifespanInMinutes;
+        return sum + (costPerMinute * totalDuration);
+    }, 0);
+
+    const breakEvenCost = timeCost + productCost + equipmentCost;
+    const netProfit = revenue - breakEvenCost;
+
+    return { revenue, breakEvenCost, netProfit, timeCost, productCost, equipmentCost };
+  }, [service, appointment, tmhr, client]);
+
+
   const statusDisplay: { [key in Appointment['status']]: { text: string; className: string } } = {
     confirmed: { text: 'Confirmed', className: 'bg-blue-500/10 border-blue-500/30 text-blue-800 dark:text-blue-300' },
     completed: { text: 'Completed', className: 'bg-green-500/10 border-green-500/30 text-green-800 dark:text-green-300' },
@@ -277,10 +293,20 @@ export function AppointmentCard({
           </div>
         </div>
 
-        <div className="flex items-end justify-between mt-1">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Clock className="w-3 h-3"/>
-                <span>{format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</span>
+        <div className="mt-1">
+            <div className="grid grid-cols-3 text-[10px] text-center">
+                <div className="text-green-600 dark:text-green-400">
+                    <p className="font-bold">${revenue.toFixed(2)}</p>
+                    <p className="text-[8px] uppercase tracking-wider font-semibold opacity-70">Revenue</p>
+                </div>
+                <div className="text-red-600 dark:text-red-400">
+                    <p className="font-bold">${breakEvenCost.toFixed(2)}</p>
+                    <p className="text-[8px] uppercase tracking-wider font-semibold opacity-70">Cost</p>
+                </div>
+                <div className={cn("font-bold", netProfit >= 0 ? "text-primary" : "text-destructive")}>
+                    <p>${netProfit.toFixed(2)}</p>
+                    <p className="text-[8px] uppercase tracking-wider font-semibold opacity-70">Profit</p>
+                </div>
             </div>
         </div>
 
@@ -315,9 +341,21 @@ export function AppointmentCard({
                 A full breakdown of this appointment.
             </SheetDescription>
           </SheetHeader>
-          <AppointmentDetails appointment={appointment} client={client} service={service} tmhr={tmhr} />
+          <AppointmentDetails 
+            appointment={appointment} 
+            client={client} 
+            service={service} 
+            tmhr={tmhr}
+            revenue={revenue}
+            breakEvenCost={breakEvenCost}
+            netProfit={netProfit}
+            timeCost={timeCost}
+            productCost={productCost}
+            equipmentCost={equipmentCost}
+          />
         </DialogOrSheetContent>
       </DialogOrSheet>
     </div>
   );
 }
+
