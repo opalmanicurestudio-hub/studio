@@ -34,13 +34,11 @@ interface EventCardProps {
     onAddTransaction: (transaction: any) => void;
 }
 
-const EventDetailsContent = ({ event, transactions, onChecklistItemToggle, onUpdateEvent, onEditEvent, onAddTransaction, onLogExpenseClick }: {
+const EventDetailsContent = ({ event, transactions, onChecklistItemToggle, onEditEvent, onLogExpenseClick }: {
     event: Event,
     transactions: Transaction[],
     onChecklistItemToggle: (eventId: string, checklistItemId: string, completed: boolean) => void;
-    onUpdateEvent: (updatedEvent: Event) => void;
     onEditEvent: (event: Event) => void;
-    onAddTransaction: (transaction: any) => void;
     onLogExpenseClick: () => void;
 }) => {
     
@@ -105,8 +103,9 @@ const EventDetailsContent = ({ event, transactions, onChecklistItemToggle, onUpd
                                 ))}
                             </div>
                         ) : (
-                            <Button variant="outline" size="sm" onClick={onLogExpenseClick}><FilePlus className="w-4 h-4 mr-2"/> Log an Expense</Button>
+                            <p className="text-sm text-muted-foreground text-center p-4 border rounded-md">No expenses logged for this event.</p>
                         )}
+                        <Button variant="outline" size="sm" onClick={onLogExpenseClick}><FilePlus className="w-4 h-4 mr-2"/> Log an Expense</Button>
                     </div>
                     
                     <Separator />
@@ -158,9 +157,9 @@ export function EventCard({
     const totalCost = transactions.reduce((acc, t) => acc + t.amount, 0);
 
     const handleLogExpenseClick = () => {
-        setIsSheetOpen(false); // Close the details sheet first
+        setIsSheetOpen(false);
         setTimeout(() => {
-            setIsAddTransactionOpen(true); // Then open the transaction dialog
+            setIsAddTransactionOpen(true);
         }, 150);
     };
     
