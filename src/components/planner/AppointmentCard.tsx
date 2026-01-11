@@ -30,6 +30,8 @@ import {
   Mail,
   Phone,
   MessageSquare,
+  Send,
+  User as UserIcon,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -63,6 +65,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { type Appointment, type Client, type Service, inventory, CustomFormula, services } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import Image from 'next/image';
+import Link from 'next/link';
 
 interface AppointmentCardProps {
   appointment: Appointment;
@@ -89,6 +92,7 @@ const AppointmentDetails = ({
     productCost,
     equipmentCost,
     addOnServices,
+    onEdit,
 }: {
     appointment: Appointment;
     client: Client;
@@ -101,6 +105,7 @@ const AppointmentDetails = ({
     productCost: number;
     equipmentCost: number;
     addOnServices: Service[];
+    onEdit: (appointment: Appointment) => void;
 }) => {
 
   return (
@@ -124,8 +129,10 @@ const AppointmentDetails = ({
                     {addOnServices.map(addon => (
                         <p key={addon.id} className="text-xs pl-4">+ {addon.name}</p>
                     ))}
-                     <p className='text-muted-foreground'>{format(appointment.startTime, 'EEEE, LLL d, yyyy')}</p>
-                    <p className='text-muted-foreground'>{format(appointment.startTime, 'h:mm a')} - {format(appointment.endTime, 'h:mm a')}</p>
+                    <div className='flex flex-col'>
+                      <span className='font-medium'>{format(appointment.startTime, 'EEEE, LLL d, yyyy')}</span>
+                      <span>{format(appointment.startTime, 'h:mm a')} - {format(appointment.endTime, 'h:mm a')}</span>
+                    </div>
                 </div>
             </div>
 
@@ -164,7 +171,7 @@ const AppointmentDetails = ({
                  <div className="flex justify-between"><span className="flex items-center gap-1.5"><Briefcase className="w-3 h-3"/>Equipment Cost</span> <span>${equipmentCost.toFixed(2)}</span></div>
               </div>
             </div>
-
+            
             <Separator />
             
             <div className="space-y-4">
@@ -186,9 +193,34 @@ const AppointmentDetails = ({
                     {client.medicalNotes && <div className="flex items-center gap-2"><ShieldPlus className="w-4 h-4 text-red-500 flex-shrink-0"/><span>{client.medicalNotes}</span></div>}
                     {client.allergyNotes && <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-yellow-500 flex-shrink-0"/><span>{client.allergyNotes}</span></div>}
                     {client.sensoryNeeds && <div className="flex items-center gap-2"><Ear className="w-4 h-4 text-blue-500 flex-shrink-0"/><span>{client.sensoryNeeds}</span></div>}
-                    {client.inspirationPhotoUrl && !appointment.inspirationPhotoUrl && <div className="flex items-center gap-2"><ImageIcon className="w-4 h-4 flex-shrink-0"/><span>Client has inspiration photo on file</span></div>}
                     {client.isMember && <div className="flex items-center gap-2"><Award className="w-4 h-4 flex-shrink-0"/><span>Client is a member</span></div>}
                 </div>
+            </div>
+            
+            <Separator />
+
+            <div className="space-y-3">
+              <h4 className="font-medium text-sm">Actions</h4>
+              <div className="grid grid-cols-2 gap-2">
+                <Button variant="outline" asChild>
+                  <Link href={`/clients/${client.id}`}>
+                    <UserIcon className="w-4 h-4 mr-2"/>
+                    View Client
+                  </Link>
+                </Button>
+                <Button variant="outline" onClick={() => onEdit(appointment)}>
+                  <Edit className="w-4 h-4 mr-2"/>
+                  Edit Appointment
+                </Button>
+                 <Button variant="outline">
+                  <Send className="w-4 h-4 mr-2"/>
+                  Resend Confirmation
+                </Button>
+                 <Button variant="outline">
+                  <PlusCircle className="w-4 h-4 mr-2"/>
+                  Book New
+                </Button>
+              </div>
             </div>
         </div>
     </ScrollArea>
@@ -268,7 +300,7 @@ export function AppointmentCard({
 
   const MainContent = () => {
     const serviceNameDisplay = addOnServices.length > 0
-        ? `${service.name} + ${addOnServices.map(s => s.name).join(', ')}`
+        ? `${service.name} + ${addOnServices.length} add-on(s)`
         : service.name;
 
     return (
@@ -295,7 +327,6 @@ export function AppointmentCard({
                             <ImageIcon className="h-3 w-3 text-orange-400" />
                         </button>
                     )}
-                    {appointment.addOnIds && <div className="flex items-center gap-0.5 text-cyan-500"><PlusCircle className="h-3 w-3" /><span className="text-xs font-bold">{appointment.addOnIds.length}</span></div>}
                     {client.isMember && <Award className="h-3 w-3 text-amber-500" />}
                 </div>
             </div>
@@ -405,6 +436,7 @@ export function AppointmentCard({
             productCost={productCost}
             equipmentCost={equipmentCost}
             addOnServices={addOnServices}
+            onEdit={onEdit}
           />
         </DialogOrSheetContent>
       </DialogOrSheet>
