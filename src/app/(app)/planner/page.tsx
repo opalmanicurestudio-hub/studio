@@ -214,7 +214,7 @@ const DayTimeline = ({
 
     return (
         <div className="flex flex-col h-full">
-            <Accordion type="single" collapsible className="w-full border-b" defaultValue='item-1'>
+            <Accordion type="single" collapsible className="w-full border-b">
                 <AccordionItem value="item-1">
                     <AccordionTrigger className="p-4 font-semibold text-sm">
                         Daily Financial Summary
@@ -617,33 +617,33 @@ export default function PlannerPage() {
                                   <p className='text-xs text-muted-foreground'>Includes confirmed bookings.</p>
                               </CardContent>
                           </Card>
-                          <Card>
-                              <CardHeader className="pb-2">
-                                  <CardTitle className="text-sm font-medium">Break-Even</CardTitle>
-                              </CardHeader>
-                              <CardContent>
-                                 <p className="text-2xl font-bold text-destructive">${weeklyKpis.weeklyBreakEven.toFixed(2)}</p>
-                                 <p className='text-xs text-muted-foreground'>Your weekly cost target.</p>
-                              </CardContent>
-                          </Card>
-                          <Card>
-                              <CardHeader className="pb-2">
-                                  <CardTitle className="text-sm font-medium flex items-center gap-2"><AlertTriangle className="w-4 h-4"/>Absorbed Costs</CardTitle>
-                              </CardHeader>
-                              <CardContent>
-                                 <p className="text-2xl font-bold text-amber-500">${weeklyKpis.absorbedCosts.toFixed(2)}</p>
-                                 <p className='text-xs text-muted-foreground'>Uncharged extra time/product.</p>
-                              </CardContent>
-                          </Card>
-                          <Card className="col-span-full">
-                              <CardHeader className="pb-2">
-                                  <CardTitle className="text-sm font-medium">Net Profit / Loss</CardTitle>
-                              </CardHeader>
-                              <CardContent>
-                                 <p className={cn("text-3xl font-bold", weeklyKpis.weeklyNetProfit >= 0 ? "text-green-500" : "text-destructive")}>${weeklyKpis.weeklyNetProfit.toFixed(2)}</p>
-                                 <p className='text-xs text-muted-foreground'>Revenue minus service costs.</p>
-                              </CardContent>
-                          </Card>
+                           <Card>
+                                <CardHeader className="pb-2">
+                                    <CardTitle className="text-sm font-medium">Break-Even</CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    <p className="text-2xl font-bold text-destructive">${weeklyKpis.weeklyBreakEven.toFixed(2)}</p>
+                                    <p className='text-xs text-muted-foreground'>Your weekly cost target.</p>
+                                </CardContent>
+                            </Card>
+                            <Card>
+                                <CardHeader className="pb-2">
+                                    <CardTitle className="text-sm font-medium flex items-center gap-2"><AlertTriangle className="w-4 h-4"/>Absorbed Costs</CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    <p className="text-2xl font-bold text-amber-500">${weeklyKpis.absorbedCosts.toFixed(2)}</p>
+                                    <p className='text-xs text-muted-foreground'>Uncharged extra time/product.</p>
+                                </CardContent>
+                            </Card>
+                            <Card className="col-span-full">
+                                <CardHeader className="pb-2">
+                                    <CardTitle className="text-sm font-medium">Net Profit / Loss</CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    <p className={cn("text-3xl font-bold", weeklyKpis.weeklyNetProfit >= 0 ? "text-green-500" : "text-destructive")}>${weeklyKpis.weeklyNetProfit.toFixed(2)}</p>
+                                    <p className='text-xs text-muted-foreground'>Revenue minus service costs.</p>
+                                </CardContent>
+                            </Card>
                       </div>
                   </DialogContent>
                </Dialog>
@@ -787,5 +787,6 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
