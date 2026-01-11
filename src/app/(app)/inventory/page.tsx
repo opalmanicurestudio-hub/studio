@@ -1231,9 +1231,11 @@ export default function InventoryPage() {
                     )
                 ) : (
                     filteredItems.length > 0 ? (
-                        filteredItems.map(item => (
-                            <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
-                        ))
+                        <div className="flex flex-col items-center gap-4">
+                          {filteredItems.map(item => (
+                              <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
+                          ))}
+                        </div>
                     ) : (
                         <div className="col-span-2">
                             <EmptyState message={`No ${activeTab} products yet.`} />
