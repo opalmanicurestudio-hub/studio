@@ -230,8 +230,8 @@ const DayTimeline = ({
             </div>
              <ScrollArea className="flex-1" style={{ height: 'calc(100vh - 230px)' }}>
                 {billInstances.length > 0 && (
-                     <div className="p-4 border-b">
-                        <h4 className="text-sm font-semibold mb-2">Bills Due Today</h4>
+                     <div className="border-b">
+                        <h4 className="text-sm font-semibold mb-2 px-4 pt-4">Bills Due Today</h4>
                         <Carousel
                             opts={{
                                 align: "start",
@@ -239,10 +239,12 @@ const DayTimeline = ({
                             }}
                             className="w-full -ml-4"
                             >
-                            <CarouselContent className="">
+                            <CarouselContent>
                                 {billInstances.map(instance => (
                                 <CarouselItem key={instance.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3">
-                                    <BillDueDateCard instance={instance} />
+                                    <div className="p-1">
+                                        <BillDueDateCard instance={instance} />
+                                    </div>
                                 </CarouselItem>
                                 ))}
                             </CarouselContent>
@@ -701,5 +703,6 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
