@@ -600,28 +600,30 @@ export default function PlannerPage() {
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden">
       <AppHeader title="Planner" />
-      <div className="flex items-center justify-between gap-4 p-4 border-b">
-          <div className="flex items-center gap-2">
-              <Button variant="outline" size="icon" onClick={handlePrevWeek}><ChevronLeft /></Button>
-              <Button variant="outline" size="icon" onClick={handleNextWeek}><ChevronRight /></Button>
-              <Button variant="outline" onClick={handleToday}>Today</Button>
-          </div>
-           <div className='text-center'>
-               <p className='font-semibold'>{format(currentVisibleDate, 'EEEE, LLL d')}</p>
-               <p className='text-xs text-muted-foreground'>{format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMMM yyyy')}</p>
-           </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-                <Button>
-                    <PlusCircle className="mr-2 h-4 w-4" />
-                    Add
-                </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-                <DropdownMenuItem onSelect={() => setIsAddAppointmentOpen(true)}>Add Appointment</DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setIsAddEventOpen(true)}>Add Event</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+      <div className="flex flex-col gap-4 p-4 border-b">
+        <div className='text-center'>
+            <p className='text-xl font-semibold'>{format(currentVisibleDate, 'EEEE, LLL d')}</p>
+            <p className='text-sm text-muted-foreground'>{format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMMM yyyy')}</p>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+                <Button variant="outline" size="icon" onClick={handlePrevWeek}><ChevronLeft /></Button>
+                <Button variant="outline" size="icon" onClick={handleNextWeek}><ChevronRight /></Button>
+            </div>
+            <Button variant="outline" onClick={handleToday} className='flex-1'>Today</Button>
+             <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                  <Button className="flex-1">
+                      <PlusCircle className="mr-2 h-4 w-4" />
+                      Add
+                  </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                  <DropdownMenuItem onSelect={() => setIsAddAppointmentOpen(true)}>Add Appointment</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setIsAddEventOpen(true)}>Add Event</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+        </div>
       </div>
       
       {/* Day navigation for desktop */}
@@ -734,5 +736,6 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
