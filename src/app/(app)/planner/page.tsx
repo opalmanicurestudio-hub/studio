@@ -606,8 +606,8 @@ export default function PlannerPage() {
                             <div className="text-lg font-bold">${weeklyKpis.weeklyRevenue.toFixed(2)}</div>
                         </div>
                          <div className="p-2 bg-muted/50 rounded-lg">
-                            <div className="text-xs font-medium text-muted-foreground flex items-center gap-2"><DollarSign className="w-3 h-3"/>Break-Even</div>
-                            <div className="text-lg font-bold">${weeklyKpis.weeklyBreakEven.toFixed(2)}</div>
+                            <div className="text-xs font-medium text-muted-foreground flex items-center gap-2"><DollarSign className="w-3 h-3"/>Projected</div>
+                            <div className="text-lg font-bold">${weeklyKpis.projectedRevenue.toFixed(2)}</div>
                         </div>
                          <div className="p-2 bg-muted/50 rounded-lg col-span-2">
                             <div className="text-xs font-medium text-muted-foreground">Net Profit</div>
@@ -625,11 +625,11 @@ export default function PlannerPage() {
                 <div className="p-4 bg-muted/50 rounded-lg">
                     <div className="text-sm font-medium text-muted-foreground flex items-center gap-2"><TrendingUp className="w-4 h-4"/>Weekly Revenue</div>
                     <div className="text-2xl font-bold">${weeklyKpis.weeklyRevenue.toFixed(2)}</div>
-                    <p className="text-xs text-muted-foreground">Projected: ${weeklyKpis.projectedRevenue.toFixed(2)}</p>
                 </div>
                 <div className="p-4 bg-muted/50 rounded-lg">
-                    <div className="text-sm font-medium text-muted-foreground flex items-center gap-2"><DollarSign className="w-4 h-4"/>Weekly Break-Even</div>
-                    <div className="text-2xl font-bold">${weeklyKpis.weeklyBreakEven.toFixed(2)}</div>
+                    <div className="text-sm font-medium text-muted-foreground flex items-center gap-2"><DollarSign className="w-4 h-4"/>Projected Revenue</div>
+                    <div className="text-2xl font-bold">${weeklyKpis.projectedRevenue.toFixed(2)}</div>
+                    <p className="text-xs text-muted-foreground">Includes confirmed bookings</p>
                 </div>
                 <div className="p-4 bg-muted/50 rounded-lg">
                     <div className="text-sm font-medium text-muted-foreground">Net Profit</div>
