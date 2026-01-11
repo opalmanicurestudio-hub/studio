@@ -20,7 +20,7 @@ import {
   CarouselItem,
   type CarouselApi,
 } from "@/components/ui/carousel"
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog';
 import { Badge } from '@/components/ui/badge';
 import { AddEventDialog } from '@/components/planner/AddEventDialog';
@@ -49,7 +49,7 @@ import {
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
 import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, Timestamp } from 'firebase/firestore';
-import { type Transaction } from '@/lib/financial-data';
+import { type Transaction, type BillInstance } from '@/lib/financial-data';
 import { EditEventDialog } from '@/components/planner/EditEventDialog';
 import { BillDueDateCard } from '@/components/planner/BillDueDateCard';
 
@@ -232,7 +232,16 @@ const DayTimeline = ({
                 {billInstances.length > 0 && (
                     <div className="p-4 border-b">
                         <h4 className="text-sm font-semibold mb-2">Bills Due Today</h4>
-                        {billInstances.map(instance => <BillDueDateCard key={instance.id} instance={instance} />)}
+                        <ScrollArea className="w-full">
+                          <div className="flex space-x-4 pb-2">
+                            {billInstances.map(instance => (
+                                <div key={instance.id} className="w-72 flex-shrink-0">
+                                    <BillDueDateCard instance={instance} />
+                                </div>
+                            ))}
+                          </div>
+                          <ScrollBar orientation="horizontal" />
+                        </ScrollArea>
                     </div>
                 )}
                 <div className="relative grid grid-cols-[auto,1fr] p-4">

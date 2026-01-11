@@ -72,14 +72,14 @@ export const billInstances: BillInstance[] = [
     // Scenario: June rent is past due for the current year
     { id: 'bi-june-rent', billDefinitionId: 'b1', dueDate: '2024-06-01T00:00:00.000Z', status: 'overdue', amountDue: 1200.00, amountPaid: 0 },
     // Scenario: July rent is due for the current year
-    { id: 'bi-july-rent', billDefinitionId: 'b1', dueDate: '2024-07-01T00:00:00.000Z', status: 'unpaid', amountDue: 1200.00, amountPaid: 0 },
+    { id: 'bi-july-rent', billDefinitionId: 'b1', dueDate: '2024-07-01T00:00:00.000Z', status: 'paid', amountDue: 1200.00, amountPaid: 1200.00 },
     // Scenario: August rent is upcoming
     { id: 'bi-aug-rent', billDefinitionId: 'b1', dueDate: '2024-08-01T00:00:00.000Z', status: 'unpaid', amountDue: 1200.00, amountPaid: 0 },
 
     // Other examples
     { id: 'bi-july-personal-rent', billDefinitionId: 'p1', dueDate: '2024-07-01T00:00:00.000Z', status: 'paid', amountDue: 2000.00, amountPaid: 2000.00 },
     { id: 'bi-june-car-insurance', billDefinitionId: 'p12', dueDate: '2024-06-15T00:00:00.000Z', status: 'overdue', amountDue: 150.00, amountPaid: 0 },
-    { id: 'bi-july-car-payment', billDefinitionId: 'p11', dueDate: '2024-07-25T00:00:00.000Z', status: 'unpaid', amountDue: 350.00, amountPaid: 0 },
+    { id: 'bi-july-car-payment', billDefinitionId: 'p11', dueDate: new Date().toISOString(), status: 'unpaid', amountDue: 350.00, amountPaid: 0 },
     { id: 'bi-today-booking-software-overdue', billDefinitionId: 'b2', dueDate: new Date().toISOString(), status: 'overdue', amountDue: 49.00, amountPaid: 0 },
 ];
 
