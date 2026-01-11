@@ -5,8 +5,8 @@
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer } from 'lucide-react';
-import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem } from '@/lib/data';
-import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay } from 'date-fns';
+import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem, bills, type Bill } from '@/lib/data';
+import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate } from 'date-fns';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
@@ -50,6 +50,7 @@ import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking } f
 import { collection, query, where, Timestamp } from 'firebase/firestore';
 import { type Transaction } from '@/lib/financial-data';
 import { EditEventDialog } from '@/components/planner/EditEventDialog';
+import { BillDueDateCard } from '@/components/planner/BillDueDateCard';
 
 const TimeIndicator = () => {
     const [top, setTop] = useState(0);
@@ -144,6 +145,11 @@ const DayTimeline = ({
             .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
     }, [appointments, events]);
 
+    const dueBills = useMemo(() => {
+        const dayOfMonth = getDate(date);
+        return bills.filter(bill => bill.billingCycle === 'monthly' && bill.dueDay === dayOfMonth);
+    }, [date]);
+
     const hours = Array.from({ length: 15 }, (_, i) => i + 8); // 8 AM to 10 PM
     const [tmhr, setTmhr] = useState(0);
 
@@ -200,7 +206,7 @@ const DayTimeline = ({
     return (
         <div className="flex flex-col h-full">
             <div className="p-4 border-b">
-                <Accordion type="single" collapsible>
+                <Accordion type="single" collapsible className="w-full" defaultValue="summary">
                     <AccordionItem value="summary" className='border-0'>
                         <AccordionTrigger className='p-0 hover:no-underline text-sm font-medium'>
                             Daily Summary
@@ -225,6 +231,12 @@ const DayTimeline = ({
                 </Accordion>
             </div>
              <ScrollArea className="flex-1" style={{ height: 'calc(100vh - 230px)' }}>
+                {dueBills.length > 0 && (
+                    <div className="p-4 border-b">
+                        <h4 className="text-sm font-semibold mb-2">Bills Due Today</h4>
+                        {dueBills.map(bill => <BillDueDateCard key={bill.id} bill={bill} />)}
+                    </div>
+                )}
                 <div className="relative grid grid-cols-[auto,1fr] p-4">
                     {/* Time labels */}
                     <div className="flex flex-col text-right pr-4">
@@ -585,7 +597,7 @@ export default function PlannerPage() {
                                 appointments={appointmentsForDay} 
                                 events={eventsForDay} 
                                 onCompleteClick={handleCompleteClick} 
-                                onUpdateStatus={handleUpdateStatus} 
+                                onUpdateStatus={onUpdateStatus} 
                                 onDeleteAppointment={handleDeleteAppointment} 
                                 onPrintReceipt={handlePrintReceipt} 
                                 onEditAppointment={handleEditClick}
@@ -661,4 +673,3 @@ export default function PlannerPage() {
     </div>
   );
 }
-
