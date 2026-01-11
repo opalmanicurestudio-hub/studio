@@ -226,33 +226,6 @@ const DayTimeline = ({
                     <p className="text-xs text-blue-800/80 dark:text-blue-400/80">Net Profit</p>
                     <p className="font-bold text-lg text-blue-800 dark:text-blue-400">${dailyTotals.net.toFixed(2)}</p>
                 </div>
-
-                {billInstances.length > 0 && (
-                    <Dialog>
-                        <DialogTrigger asChild>
-                           <Button variant="outline" className="col-span-3 mt-2 relative">
-                               Bills Due Today
-                               <BellRing className="h-4 w-4 text-primary animate-pulse ml-2" />
-                           </Button>
-                       </DialogTrigger>
-                       <DialogContent>
-                            <DialogHeader>
-                               <DialogTitle>Bills Due Today</DialogTitle>
-                               <DialogDescription>{billInstances.length} bill(s) require attention.</DialogDescription>
-                           </DialogHeader>
-                           <ScrollArea className="w-full">
-                               <div className="flex w-max space-x-4 pb-4">
-                                   {billInstances.map(instance => (
-                                       <div key={instance.id} className="w-80">
-                                           <BillDueDateCard instance={instance} />
-                                       </div>
-                                   ))}
-                               </div>
-                               <ScrollBar orientation="horizontal" />
-                           </ScrollArea>
-                       </DialogContent>
-                   </Dialog>
-                )}
             </div>
 
             <ScrollArea className="flex-1">
@@ -588,65 +561,83 @@ export default function PlannerPage() {
     <div className="flex h-screen w-full flex-col">
       <AppHeaderClient title="Planner" />
 
-      {isMobile ? (
-        <div className="m-4">
-          <Accordion type="single" collapsible>
-            <AccordionItem value="kpis">
-              <AccordionTrigger>
-                <div className="flex items-center gap-2">
-                  <BarChart className="w-4 h-4" />
-                  <span>Weekly KPIs</span>
-                </div>
-              </AccordionTrigger>
-              <AccordionContent className="pt-2">
-                <Card>
-                    <CardContent className="p-4 grid grid-cols-2 gap-4">
-                        <div className="p-2 bg-muted/50 rounded-lg">
-                            <div className="text-xs font-medium text-muted-foreground flex items-center gap-2"><TrendingUp className="w-3 h-3"/>Revenue</div>
-                            <div className="text-lg font-bold">${weeklyKpis.weeklyRevenue.toFixed(2)}</div>
-                        </div>
-                         <div className="p-2 bg-muted/50 rounded-lg">
-                            <div className="text-xs font-medium text-muted-foreground flex items-center gap-2"><DollarSign className="w-3 h-3"/>Projected</div>
-                            <div className="text-lg font-bold">${weeklyKpis.projectedRevenue.toFixed(2)}</div>
-                        </div>
-                         <div className="p-2 bg-muted/50 rounded-lg col-span-2">
-                            <div className="text-xs font-medium text-muted-foreground">Net Profit</div>
-                            <div className={cn("text-xl font-bold", weeklyKpis.weeklyNetProfit >= 0 ? "text-green-500" : "text-destructive")}>${weeklyKpis.weeklyNetProfit.toFixed(2)}</div>
-                        </div>
-                    </CardContent>
-                </Card>
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
-        </div>
-      ) : (
-        <Card className="m-4">
-            <CardContent className="p-4 grid grid-cols-4 gap-4">
-                <div className="p-4 bg-muted/50 rounded-lg">
-                    <div className="text-sm font-medium text-muted-foreground flex items-center gap-2"><TrendingUp className="w-4 h-4"/>Weekly Revenue</div>
-                    <div className="text-2xl font-bold">${weeklyKpis.weeklyRevenue.toFixed(2)}</div>
-                </div>
-                <div className="p-4 bg-muted/50 rounded-lg">
-                    <div className="text-sm font-medium text-muted-foreground flex items-center gap-2"><DollarSign className="w-4 h-4"/>Projected Revenue</div>
-                    <div className="text-2xl font-bold">${weeklyKpis.projectedRevenue.toFixed(2)}</div>
-                    <p className="text-xs text-muted-foreground">Includes confirmed bookings</p>
-                </div>
-                <div className="p-4 bg-muted/50 rounded-lg">
-                    <div className="text-sm font-medium text-muted-foreground">Net Profit</div>
-                     <div className={cn("text-2xl font-bold", weeklyKpis.weeklyNetProfit >= 0 ? "text-green-500" : "text-destructive")}>${weeklyKpis.weeklyNetProfit.toFixed(2)}</div>
-                </div>
-                <div className="p-4 bg-muted/50 rounded-lg">
-                    <div className="text-sm font-medium text-muted-foreground">Absorbed Costs</div>
-                    <div className="text-2xl font-bold">$0.00</div>
-                </div>
-            </CardContent>
-        </Card>
-      )}
-
       <div className="flex flex-col gap-4 p-4 border-b">
         <div className='text-center'>
             <p className='text-xl font-semibold'>{format(currentDate, 'EEEE, LLL d')}</p>
             <p className='text-sm text-muted-foreground'>{format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMMM yyyy')}</p>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+             <Dialog>
+                 <DialogTrigger asChild>
+                    <Button variant="outline"><BarChart className="w-4 h-4 mr-2" /> Weekly KPIs</Button>
+                </DialogTrigger>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>This Week's Financials</DialogTitle>
+                        <DialogDescription>A summary of your performance for the week of {format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMM d')}.</DialogDescription>
+                    </DialogHeader>
+                     <div className="grid grid-cols-2 gap-4 pt-4">
+                        <Card>
+                            <CardHeader className="pb-2">
+                                <CardTitle className="text-sm font-medium flex items-center gap-2"><TrendingUp className="w-4 h-4"/>Revenue</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <p className="text-2xl font-bold">${weeklyKpis.weeklyRevenue.toFixed(2)}</p>
+                            </CardContent>
+                        </Card>
+                        <Card>
+                            <CardHeader className="pb-2">
+                                <CardTitle className="text-sm font-medium flex items-center gap-2"><DollarSign className="w-4 h-4"/>Projected</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <p className="text-2xl font-bold">${weeklyKpis.projectedRevenue.toFixed(2)}</p>
+                            </CardContent>
+                        </Card>
+                         <Card>
+                            <CardHeader className="pb-2">
+                                <CardTitle className="text-sm font-medium">Net Profit</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                               <p className={cn("text-2xl font-bold", weeklyKpis.weeklyNetProfit >= 0 ? "text-green-500" : "text-destructive")}>${weeklyKpis.weeklyNetProfit.toFixed(2)}</p>
+                            </CardContent>
+                        </Card>
+                        <Card>
+                            <CardHeader className="pb-2">
+                                <CardTitle className="text-sm font-medium">Absorbed Costs</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                               <p className="text-2xl font-bold">$0.00</p>
+                            </CardContent>
+                        </Card>
+                    </div>
+                </DialogContent>
+             </Dialog>
+            {billInstances.length > 0 && (
+                <Dialog>
+                    <DialogTrigger asChild>
+                        <Button variant="outline" className="relative">
+                            Bills Due Today
+                            <BellRing className="h-4 w-4 text-primary animate-pulse ml-2" />
+                        </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Bills Due Today</DialogTitle>
+                            <DialogDescription>{billInstances.length} bill(s) require attention.</DialogDescription>
+                        </DialogHeader>
+                        <ScrollArea className="w-full">
+                            <div className="flex w-max space-x-4 pb-4">
+                                {billInstances.map(instance => (
+                                    <div key={instance.id} className="w-80">
+                                        <BillDueDateCard instance={instance} />
+                                    </div>
+                                ))}
+                            </div>
+                            <ScrollBar orientation="horizontal" />
+                        </ScrollArea>
+                    </DialogContent>
+                </Dialog>
+            )}
         </div>
         <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
@@ -768,3 +759,5 @@ export default function PlannerPage() {
     </div>
   );
 }
+
+    
