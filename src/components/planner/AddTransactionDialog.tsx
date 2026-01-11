@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useEffect } from 'react';
@@ -242,8 +241,10 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
                     <DialogTitle>{title}</DialogTitle>
                     <DialogDescription>{description}</DialogDescription>
                 </DialogHeader>
-                <ScrollArea className="max-h-[60vh] pr-6 -mr-6">
-                  <AddTransactionForm />
+                <ScrollArea className="max-h-[60vh] -mr-6 pr-6">
+                    <div className="pl-6 py-4">
+                        <AddTransactionForm />
+                    </div>
                 </ScrollArea>
                 <DialogFooter className="pt-6">
                     <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
