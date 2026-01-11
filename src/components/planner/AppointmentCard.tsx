@@ -213,21 +213,6 @@ export function AppointmentCard({
   const mainHeight = `${(service.duration / totalDurationWithPadding) * 100}%`;
   const afterHeight = hasPadAfter ? `${(service.padAfter! / totalDurationWithPadding) * 100}%` : '0px';
   
-  const { breakEvenCost, netProfit } = useMemo(() => {
-    const revenue = service.price;
-    const totalDuration = differenceInMinutes(appointment.endTime, appointment.startTime);
-    const timeCost = (totalDuration / 60) * tmhr;
-    const productCost = (service.products || []).reduce((sum, p) => sum + ((p.costPerUnit || 0) * (p.quantityUsed || 1)), 0);
-    const equipmentCost = (service.equipment || []).reduce((sum, e) => {
-        const lifespanInMinutes = (e.lifespanYears || 5) * 365 * 8 * 60;
-        const costPerMinute = (e.costPerUnit || 0) / lifespanInMinutes;
-        return sum + (costPerMinute * totalDuration);
-    }, 0);
-    const breakEven = timeCost + productCost + equipmentCost;
-    const profit = revenue - breakEven;
-    return { breakEvenCost: breakEven, netProfit: profit };
-  }, [service, appointment, tmhr]);
-
 
   const MainContent = () => (
     <div 
@@ -239,8 +224,8 @@ export function AppointmentCard({
         )}
         onClick={() => setIsDetailsOpen(true)}
     >
-      <div className="flex flex-col flex-grow justify-between min-h-0">
-        <div className="flex-shrink-0">
+      <div className="flex-grow flex flex-col justify-between min-h-0">
+        <div>
           <div className="flex items-start justify-between">
               <div>
                   <p className="font-semibold text-xs leading-tight truncate">{client.name}</p>
@@ -291,27 +276,10 @@ export function AppointmentCard({
           </div>
         </div>
 
-        <div className="flex flex-col-reverse sm:flex-row sm:items-end sm:justify-between gap-1 mt-1 flex-grow">
+        <div className="flex items-end justify-between mt-1">
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Clock className="w-3 h-3"/>
                 <span>{format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</span>
-            </div>
-
-            <div className="grid grid-cols-3 gap-1 text-[10px] text-center flex-shrink-0">
-                <div>
-                    <p className="text-muted-foreground font-medium">Revenue</p>
-                    <p className="font-bold">${service.price.toFixed(2)}</p>
-                </div>
-                <div>
-                    <p className="text-muted-foreground font-medium">Cost</p>
-                    <p className="font-bold text-destructive">${breakEvenCost.toFixed(2)}</p>
-                </div>
-                <div>
-                    <p className="text-muted-foreground font-medium">Profit</p>
-                    <p className={cn("font-bold", netProfit >= 0 ? 'text-primary' : 'text-destructive')}>
-                        ${netProfit.toFixed(2)}
-                    </p>
-                </div>
             </div>
         </div>
 
@@ -352,4 +320,3 @@ export function AppointmentCard({
     </div>
   );
 }
-
