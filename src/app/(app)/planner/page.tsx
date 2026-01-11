@@ -1,11 +1,12 @@
+
 'use client';
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem } from '@/lib/data';
 import { billInstances as allBillInstances, billDefinitions, type Bill } from '@/lib/financial-data';
-import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes } from 'date-fns';
+import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval } from 'date-fns';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
@@ -41,6 +42,8 @@ import { type Transaction, type BillInstance } from '@/lib/financial-data';
 import { EditEventDialog } from '@/components/planner/EditEventDialog';
 import { BillDueDateCard } from '@/components/planner/BillDueDateCard';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 
 
 const TimeIndicator = () => {
@@ -209,36 +212,24 @@ const DayTimeline = ({
 
     return (
         <div className="flex flex-col h-full">
-             <div className="p-4 border-b flex items-center justify-between gap-2">
-                <Dialog>
-                    <DialogTrigger asChild>
-                        <Button variant="outline" className="flex-1">Daily Summary</Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                        <DialogHeader>
-                            <DialogTitle>Daily Summary for {format(date, 'MMM d')}</DialogTitle>
-                        </DialogHeader>
-                         <div className="grid grid-cols-3 gap-2 w-full text-center">
-                            <div className="rounded-md bg-green-500/10 p-4">
-                                <p className="text-sm text-green-800/80 dark:text-green-400/80">Revenue</p>
-                                <p className="font-bold text-2xl text-green-800 dark:text-green-400">${dailyTotals.revenue.toFixed(2)}</p>
-                            </div>
-                            <div className="rounded-md bg-red-500/10 p-4">
-                                <p className="text-sm text-red-800/80 dark:text-red-400/80">Costs</p>
-                                <p className="font-bold text-2xl text-red-800 dark:text-red-400">${dailyTotals.costs.toFixed(2)}</p>
-                            </div>
-                            <div className="rounded-md bg-blue-500/10 p-4">
-                                <p className="text-sm text-blue-800/80 dark:text-blue-400/80">Net Profit</p>
-                                <p className="font-bold text-2xl text-blue-800 dark:text-blue-400">${dailyTotals.net.toFixed(2)}</p>
-                            </div>
-                        </div>
-                    </DialogContent>
-                </Dialog>
+             <div className="p-4 border-b grid grid-cols-3 gap-2">
+                <div className="rounded-md bg-green-500/10 p-2 text-center">
+                    <p className="text-xs text-green-800/80 dark:text-green-400/80">Revenue</p>
+                    <p className="font-bold text-lg text-green-800 dark:text-green-400">${dailyTotals.revenue.toFixed(2)}</p>
+                </div>
+                <div className="rounded-md bg-red-500/10 p-2 text-center">
+                    <p className="text-xs text-red-800/80 dark:text-red-400/80">Costs</p>
+                    <p className="font-bold text-lg text-red-800 dark:text-red-400">${dailyTotals.costs.toFixed(2)}</p>
+                </div>
+                <div className="rounded-md bg-blue-500/10 p-2 text-center">
+                    <p className="text-xs text-blue-800/80 dark:text-blue-400/80">Net Profit</p>
+                    <p className="font-bold text-lg text-blue-800 dark:text-blue-400">${dailyTotals.net.toFixed(2)}</p>
+                </div>
 
                 {billInstances.length > 0 && (
                     <Dialog>
                         <DialogTrigger asChild>
-                           <Button variant="outline" className="flex-1 relative">
+                           <Button variant="outline" className="col-span-3 mt-2 relative">
                                Bills Due Today
                                <BellRing className="h-4 w-4 text-primary animate-pulse ml-2" />
                            </Button>
@@ -346,6 +337,50 @@ export default function PlannerPage() {
         })
         .filter(item => item.definition);
   }, [currentDate]);
+
+  const weeklyKpis = useMemo(() => {
+    if (!currentDate) return { weeklyRevenue: 0, projectedRevenue: 0, weeklyBreakEven: 0, weeklyNetProfit: 0 };
+    const start = startOfWeek(currentDate, { weekStartsOn: 0 });
+    const end = endOfDay(addDays(start, 6));
+    const weekInterval = { start, end };
+    
+    const appointmentsInWeek = appointments.filter(apt => 
+        apt.startTime >= weekInterval.start && apt.startTime <= weekInterval.end
+    );
+
+    const completedAppointments = appointmentsInWeek.filter(apt => apt.status === 'completed');
+    const confirmedAppointments = appointmentsInWeek.filter(apt => apt.status === 'confirmed');
+
+    const weeklyRevenue = completedAppointments.reduce((acc, apt) => {
+        const service = services.find(s => s.id === apt.serviceId);
+        return acc + (service?.price || 0);
+    }, 0);
+    
+    const potentialRevenue = confirmedAppointments.reduce((acc, apt) => {
+        const service = services.find(s => s.id === apt.serviceId);
+        return acc + (service?.price || 0);
+    }, 0);
+    
+    const weeklyCosts = completedAppointments.reduce((acc, apt) => {
+        const service = services.find(s => s.id === apt.serviceId);
+        return acc + (service?.cost || 0);
+    }, 0);
+    
+    const monthlyCosts = billDefinitions.reduce((acc, bill) => {
+        if (bill.billingCycle === 'monthly') return acc + bill.amount;
+        if (bill.billingCycle === 'weekly') return acc + (bill.amount * 4);
+        if (bill.billingCycle === 'quarterly') return acc + (bill.amount / 3);
+        if (bill.billingCycle === 'annually') return acc + (bill.amount / 12);
+        return acc;
+    }, 0);
+
+    return {
+        weeklyRevenue: weeklyRevenue,
+        projectedRevenue: weeklyRevenue + potentialRevenue,
+        weeklyBreakEven: monthlyCosts / 4,
+        weeklyNetProfit: weeklyRevenue - weeklyCosts,
+    }
+  }, [currentDate, appointments]);
 
 
   const handleCompleteClick = (appointment: Appointment) => {
@@ -551,6 +586,31 @@ export default function PlannerPage() {
   return (
     <div className="flex h-screen w-full flex-col">
       <AppHeaderClient title="Planner" />
+
+      {!isMobile && (
+        <Card className="m-4">
+            <CardContent className="p-4 grid grid-cols-4 gap-4">
+                <div className="p-4 bg-muted/50 rounded-lg">
+                    <div className="text-sm font-medium text-muted-foreground flex items-center gap-2"><TrendingUp className="w-4 h-4"/>Weekly Revenue</div>
+                    <div className="text-2xl font-bold">${weeklyKpis.weeklyRevenue.toFixed(2)}</div>
+                    <p className="text-xs text-muted-foreground">Projected: ${weeklyKpis.projectedRevenue.toFixed(2)}</p>
+                </div>
+                <div className="p-4 bg-muted/50 rounded-lg">
+                    <div className="text-sm font-medium text-muted-foreground flex items-center gap-2"><DollarSign className="w-4 h-4"/>Weekly Break-Even</div>
+                    <div className="text-2xl font-bold">${weeklyKpis.weeklyBreakEven.toFixed(2)}</div>
+                </div>
+                <div className="p-4 bg-muted/50 rounded-lg">
+                    <div className="text-sm font-medium text-muted-foreground">Net Profit</div>
+                     <div className={cn("text-2xl font-bold", weeklyKpis.weeklyNetProfit >= 0 ? "text-green-500" : "text-destructive")}>${weeklyKpis.weeklyNetProfit.toFixed(2)}</div>
+                </div>
+                <div className="p-4 bg-muted/50 rounded-lg">
+                    <div className="text-sm font-medium text-muted-foreground">Absorbed Costs</div>
+                    <div className="text-2xl font-bold">$0.00</div>
+                </div>
+            </CardContent>
+        </Card>
+      )}
+
       <div className="flex flex-col gap-4 p-4 border-b">
         <div className='text-center'>
             <p className='text-xl font-semibold'>{format(currentDate, 'EEEE, LLL d')}</p>
@@ -676,3 +736,4 @@ export default function PlannerPage() {
     </div>
   );
 }
+
