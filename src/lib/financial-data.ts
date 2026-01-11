@@ -1,5 +1,4 @@
 
-
 export type BillDefinition = {
   id: string;
   name: string;
@@ -80,7 +79,7 @@ export const billInstances: BillInstance[] = [
     { id: 'bi-july-personal-rent', billDefinitionId: 'p1', dueDate: '2024-07-01T00:00:00.000Z', status: 'paid', amountDue: 2000.00, amountPaid: 2000.00 },
     { id: 'bi-june-car-insurance', billDefinitionId: 'p12', dueDate: '2024-06-15T00:00:00.000Z', status: 'overdue', amountDue: 150.00, amountPaid: 0 },
     { id: 'bi-july-car-payment', billDefinitionId: 'p11', dueDate: '2024-07-25T00:00:00.000Z', status: 'unpaid', amountDue: 350.00, amountPaid: 0 },
-    { id: 'bi-aug-booking-software', billDefinitionId: 'b2', dueDate: '2024-08-05T00:00:00.000Z', status: 'unpaid', amountDue: 49.00, amountPaid: 0 },
+    { id: 'bi-today-booking-software', billDefinitionId: 'b2', dueDate: new Date().toISOString(), status: 'unpaid', amountDue: 49.00, amountPaid: 0 },
 ];
 
 
