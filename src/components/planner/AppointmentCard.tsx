@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -118,13 +119,14 @@ const AppointmentDetails = ({
                         <a href={`sms:${client.phone}`} className="p-1.5 rounded-md hover:bg-muted"><MessageSquare className="w-4 h-4 text-primary" /></a>
                     </div>
                 </div>
-                 <div className="text-muted-foreground text-sm pt-2">
-                    <p>{service.name}</p>
+                 <div className="text-muted-foreground text-sm pt-4 space-y-1">
+                    <p className="font-medium text-foreground">{service.name}</p>
                     {addOnServices.map(addon => (
                         <p key={addon.id} className="text-xs pl-4">+ {addon.name}</p>
                     ))}
+                     <p className='text-muted-foreground'>{format(appointment.startTime, 'EEEE, LLL d, yyyy')}</p>
+                    <p className='text-muted-foreground'>{format(appointment.startTime, 'h:mm a')} - {format(appointment.endTime, 'h:mm a')}</p>
                 </div>
-                <p className="text-muted-foreground text-sm">{format(appointment.startTime, 'EEEE, LLL d, yyyy')} from {format(appointment.startTime, 'h:mm a')} to {format(appointment.endTime, 'h:mm a')}</p>
             </div>
 
             {(appointment.inspirationPhotoUrl || client.inspirationPhotoUrl) && (
