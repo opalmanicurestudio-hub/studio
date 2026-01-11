@@ -763,7 +763,7 @@ export default function InventoryPage() {
     setLocationTypes(prev => [...prev, newLocationType]);
     return newLocationType;
   };
-
+  
   const handleNewProductCategory = (category: string) => {
     console.log("New product category added:", category);
   }
@@ -1126,7 +1126,7 @@ export default function InventoryPage() {
   
   if (!isClient) {
     return (
-      <div className="flex min-h-screen w-full flex-col">
+      <div className="flex flex-col">
         <AppHeader title="Inventory Hub" />
         <main className="flex-1 p-4 md:p-8 space-y-6">
         </main>
@@ -1135,9 +1135,9 @@ export default function InventoryPage() {
   }
 
   return (
-    <div className="flex h-screen w-full flex-col">
+    <div className="flex flex-col">
       <AppHeader title="Inventory Hub" />
-      <main className="flex-1 p-4 md:p-8 space-y-6 overflow-y-auto">
+      <main className="flex-1 p-4 md:p-8 space-y-6">
 
         {kpiSection}
 
