@@ -34,15 +34,15 @@ interface EventCardProps {
     onAddTransaction: (transaction: any) => void;
 }
 
-const EventDetailsContent = ({ event, transactions, onChecklistItemToggle, onUpdateEvent, onEditEvent, onAddTransaction }: {
+const EventDetailsContent = ({ event, transactions, onChecklistItemToggle, onUpdateEvent, onEditEvent, onAddTransaction, onLogExpenseClick }: {
     event: Event,
     transactions: Transaction[],
     onChecklistItemToggle: (eventId: string, checklistItemId: string, completed: boolean) => void;
     onUpdateEvent: (updatedEvent: Event) => void;
     onEditEvent: (event: Event) => void;
     onAddTransaction: (transaction: any) => void;
+    onLogExpenseClick: () => void;
 }) => {
-    const [isAddTransactionOpen, setIsAddTransactionOpen] = useState(false);
     
     if (event.type === 'blocked') {
         return (
@@ -105,7 +105,7 @@ const EventDetailsContent = ({ event, transactions, onChecklistItemToggle, onUpd
                                 ))}
                             </div>
                         ) : (
-                            <Button variant="outline" size="sm" onClick={() => setIsAddTransactionOpen(true)}><FilePlus className="w-4 h-4 mr-2"/> Log an Expense</Button>
+                            <Button variant="outline" size="sm" onClick={onLogExpenseClick}><FilePlus className="w-4 h-4 mr-2"/> Log an Expense</Button>
                         )}
                     </div>
                     
@@ -126,15 +126,6 @@ const EventDetailsContent = ({ event, transactions, onChecklistItemToggle, onUpd
                     Edit Event
                 </Button>
             </SheetFooter>
-            <AddTransactionDialog
-                open={isAddTransactionOpen}
-                onOpenChange={setIsAddTransactionOpen}
-                event={event}
-                onConfirm={(newTransaction) => {
-                    onAddTransaction(newTransaction);
-                    setIsAddTransactionOpen(false);
-                }}
-            />
         </>
     )
 }
@@ -147,7 +138,8 @@ export function EventCard({
     onEditEvent,
     onAddTransaction,
 }: EventCardProps) {
-
+    const [isSheetOpen, setIsSheetOpen] = useState(false);
+    const [isAddTransactionOpen, setIsAddTransactionOpen] = useState(false);
     const isMobile = useIsMobile();
 
     const typeStyles = {
@@ -164,6 +156,13 @@ export function EventCard({
     }
 
     const totalCost = transactions.reduce((acc, t) => acc + t.amount, 0);
+
+    const handleLogExpenseClick = () => {
+        setIsSheetOpen(false); // Close the details sheet first
+        setTimeout(() => {
+            setIsAddTransactionOpen(true); // Then open the transaction dialog
+        }, 150);
+    };
     
     const TriggerCard = (
         <div 
@@ -199,18 +198,38 @@ export function EventCard({
     const DialogOrSheetContent = isMobile ? SheetContent : SheetContent;
 
     return (
-        <DialogOrSheet>
-            <SheetTrigger asChild>{TriggerCard}</SheetTrigger>
-            <DialogOrSheetContent side={isMobile ? "bottom" : "right"} className={cn(isMobile ? "h-[90dvh]" : "sm:max-w-md", "flex flex-col p-0")}>
-                 <SheetHeader className="p-6 pb-4">
-                    <SheetTitle>{event.title}</SheetTitle>
-                    <SheetDescription>
-                         {format(event.startTime, 'EEEE, LLL d')} &middot; {format(event.startTime, 'h:mm a')} - {format(event.endTime, 'h:mm a')}
-                    </SheetDescription>
-                </SheetHeader>
-                <Separator />
-                <EventDetailsContent event={event} transactions={transactions} onChecklistItemToggle={onChecklistItemToggle} onUpdateEvent={onUpdateEvent} onEditEvent={onEditEvent} onAddTransaction={onAddTransaction} />
-            </DialogOrSheetContent>
-        </DialogOrSheet>
+        <>
+            <DialogOrSheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
+                <SheetTrigger asChild>{TriggerCard}</SheetTrigger>
+                <DialogOrSheetContent side={isMobile ? "bottom" : "right"} className={cn(isMobile ? "h-[90dvh]" : "sm:max-w-md", "flex flex-col p-0")}>
+                    <SheetHeader className="p-6 pb-4">
+                        <SheetTitle>{event.title}</SheetTitle>
+                        <SheetDescription>
+                            {format(event.startTime, 'EEEE, LLL d')} &middot; {format(event.startTime, 'h:mm a')} - {format(event.endTime, 'h:mm a')}
+                        </SheetDescription>
+                    </SheetHeader>
+                    <Separator />
+                    <EventDetailsContent 
+                        event={event} 
+                        transactions={transactions} 
+                        onChecklistItemToggle={onChecklistItemToggle} 
+                        onUpdateEvent={onUpdateEvent} 
+                        onEditEvent={onEditEvent} 
+                        onAddTransaction={onAddTransaction}
+                        onLogExpenseClick={handleLogExpenseClick}
+                    />
+                </DialogOrSheetContent>
+            </DialogOrSheet>
+
+            <AddTransactionDialog
+                open={isAddTransactionOpen}
+                onOpenChange={setIsAddTransactionOpen}
+                event={event}
+                onConfirm={(newTransaction) => {
+                    onAddTransaction(newTransaction);
+                    setIsAddTransactionOpen(false);
+                }}
+            />
+        </>
     )
 }
