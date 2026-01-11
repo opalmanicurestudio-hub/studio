@@ -69,7 +69,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
     const detailHref = item.type === 'equipment' ? `/inventory/equipment/${item.id}` : `/inventory/product/${item.id}`;
     
     return (
-        <Card className={cn("w-full transition-all duration-200 hover:shadow-xl hover:-translate-y-1", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
+        <Card className={cn("transition-all duration-200 hover:shadow-xl hover:-translate-y-1", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
             <CardContent className="p-3 space-y-3">
                 <div className="grid grid-cols-[auto,1fr,auto] items-start gap-3">
                     <Link href={detailHref} className='w-16 h-16 bg-muted rounded-md flex-shrink-0'>
@@ -537,6 +537,50 @@ const tabOptions = [
 ];
 
 
+const ProductShelf = ({ 
+    title, 
+    items,
+    onEdit, 
+    onToggleExperiment, 
+    onEndExperiment, 
+    onWriteOff, 
+    onLogUse,
+}: { 
+    title: string, 
+    items: InventoryItem[],
+    onEdit: (item: InventoryItem) => void,
+    onToggleExperiment: (item: InventoryItem) => void,
+    onEndExperiment: (item: InventoryItem) => void,
+    onWriteOff: (item: InventoryItem) => void,
+    onLogUse: (item: InventoryItem) => void,
+}) => {
+    if (items.length === 0) return null;
+    
+    return (
+        <div className="space-y-4">
+            <h2 className="text-xl font-bold">{title}</h2>
+             <ScrollArea>
+                <div className="flex w-max space-x-4 pb-4">
+                    {items.map((item) => (
+                        <div key={item.id} className="w-72 shrink-0">
+                            <ProductCard 
+                                item={item} 
+                                onEdit={onEdit} 
+                                onToggleExperiment={onToggleExperiment} 
+                                onEndExperiment={onEndExperiment} 
+                                onWriteOff={onWriteOff} 
+                                onLogUse={onLogUse} 
+                            />
+                        </div>
+                    ))}
+                </div>
+                <ScrollBar orientation="horizontal" />
+            </ScrollArea>
+        </div>
+    );
+};
+
+
 export default function InventoryPage() {
   const { inventory, setInventory, addStockCorrection, stockCorrections } = useInventory();
   const { toast } = useToast();
@@ -994,31 +1038,6 @@ export default function InventoryPage() {
     });
     return result;
 };
-  
-const ProductShelf = ({ title, items }: { title: string, items: InventoryItem[] }) => {
-    if (items.length === 0) return null;
-    
-    return (
-        <div className="space-y-4">
-            <h2 className="text-xl font-bold">{title}</h2>
-            <Carousel
-                opts={{
-                    align: "start",
-                    dragFree: true,
-                }}
-                className="w-full"
-            >
-                <CarouselContent className="-ml-2">
-                    {items.map((item, index) => (
-                        <CarouselItem key={index} className="pl-4 basis-full sm:basis-1/2 md:basis-1/3 lg:basis-1/4 xl:basis-1/5">
-                            <ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
-                        </CarouselItem>
-                    ))}
-                </CarouselContent>
-            </Carousel>
-        </div>
-    );
-};
 
   const kpiCards = [
     <Card key="total-value">
@@ -1239,9 +1258,9 @@ const ProductShelf = ({ title, items }: { title: string, items: InventoryItem[] 
                 ) : (
                     filteredItems.length > 0 ? (
                         <div className="flex flex-col items-center gap-4">
-                          {filteredItems.map(item => (
-                              <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
-                          ))}
+                            {filteredItems.map(item => (
+                                <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
+                            ))}
                         </div>
                     ) : (
                         <div className="col-span-2">
@@ -1269,25 +1288,25 @@ const ProductShelf = ({ title, items }: { title: string, items: InventoryItem[] 
                   <EmptyState message="No professional products yet. Add one to get started." />
                 ) : (
                   <>
-                    <ProductShelf title="Color" items={professionalColor} />
-                    <ProductShelf title="Styling" items={professionalStyling} />
-                    <ProductShelf title="Care" items={professionalCare} />
-                    <ProductShelf title="Tools" items={professionalTools} />
+                    <ProductShelf title="Color" items={professionalColor} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
+                    <ProductShelf title="Styling" items={professionalStyling} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
+                    <ProductShelf title="Care" items={professionalCare} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
+                    <ProductShelf title="Tools" items={professionalTools} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
                   </>
                 )
               )}
               {activeTab === 'retail' && (retailItems.length > 0 ? (
-                <ProductShelf title="Retail Products" items={retailItems} />
+                <ProductShelf title="Retail Products" items={retailItems} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
               ) : (
                 <EmptyState message="No retail items yet. Add one to get started." />
               ))}
               {activeTab === 'overhead' && (overheadItems.length > 0 ? (
-                 <ProductShelf title="Overhead Supplies" items={overheadItems} />
+                 <ProductShelf title="Overhead Supplies" items={overheadItems} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
               ) : (
                 <EmptyState message="No overhead items yet. Add one to get started." />
               ))}
               {activeTab === 'equipment' && (equipmentItems.length > 0 ? (
-                <ProductShelf title="Capital Equipment" items={equipmentItems} />
+                <ProductShelf title="Capital Equipment" items={equipmentItems} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
               ) : (
                 <EmptyState message="No equipment items yet. Add one to get started." />
               ))}
