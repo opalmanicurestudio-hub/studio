@@ -176,7 +176,7 @@ const DayTimeline = ({
             if (!client) return null;
            
             return (
-                <div key={item.id} className="absolute w-full px-2" style={style}>
+                <div key={item.id} className="absolute w-full pr-2" style={style}>
                     <AppointmentCard
                         appointment={item}
                         client={client}
@@ -199,7 +199,7 @@ const DayTimeline = ({
 
              const eventTransactions = dailyTransactions?.filter(t => t.relatedEventId === item.id) || [];
              return (
-                 <div key={item.id} className="absolute w-full px-2" style={style}>
+                 <div key={item.id} className="absolute w-full pr-2" style={style}>
                     <EventCard 
                         event={item}
                         transactions={eventTransactions}
@@ -243,41 +243,39 @@ const DayTimeline = ({
 
                 {billInstances.length > 0 && (
                     <Dialog>
-                         <DialogTrigger asChild>
-                            <Button variant="outline" className="flex-1 relative">
-                                Bills Due Today
-                                {billInstances.length > 0 && (
-                                   <BellRing className="h-4 w-4 text-primary animate-pulse ml-2" />
-                                )}
-                            </Button>
-                        </DialogTrigger>
-                        <DialogContent>
-                             <DialogHeader>
-                                <DialogTitle>Bills Due Today</DialogTitle>
-                                <DialogDescription>{billInstances.length} bill(s) require attention.</DialogDescription>
-                            </DialogHeader>
-                             <ScrollArea className="w-full">
-                                <div className="flex w-max space-x-4 pb-4">
-                                    {billInstances.map(instance => (
-                                        <div key={instance.id} className="w-80">
-                                            <BillDueDateCard instance={instance} />
-                                        </div>
-                                    ))}
-                                </div>
-                                <ScrollBar orientation="horizontal" />
-                            </ScrollArea>
-                        </DialogContent>
-                    </Dialog>
+                        <DialogTrigger asChild>
+                           <Button variant="outline" className="flex-1 relative">
+                               Bills Due Today
+                               <BellRing className="h-4 w-4 text-primary animate-pulse ml-2" />
+                           </Button>
+                       </DialogTrigger>
+                       <DialogContent>
+                            <DialogHeader>
+                               <DialogTitle>Bills Due Today</DialogTitle>
+                               <DialogDescription>{billInstances.length} bill(s) require attention.</DialogDescription>
+                           </DialogHeader>
+                           <ScrollArea className="w-full">
+                               <div className="flex w-max space-x-4 pb-4">
+                                   {billInstances.map(instance => (
+                                       <div key={instance.id} className="w-80">
+                                           <BillDueDateCard instance={instance} />
+                                       </div>
+                                   ))}
+                               </div>
+                               <ScrollBar orientation="horizontal" />
+                           </ScrollArea>
+                       </DialogContent>
+                   </Dialog>
                 )}
             </div>
 
             <ScrollArea className="flex-1" style={{ height: 'calc(100vh - 230px)' }}>
-                <div className="relative grid grid-cols-[auto,1fr] p-4">
+                <div className="grid grid-cols-[auto,1fr] p-4">
                     {/* Time labels */}
-                    <div className="flex flex-col text-right pr-4 -mt-2.5">
+                    <div className="flex flex-col text-right pr-4">
                         {hours.map(hour => (
-                            <div key={hour} className="h-32 flex items-start">
-                                <span className="text-xs text-muted-foreground -translate-y-1/2">{format(new Date(0, 0, 0, hour), 'ha')}</span>
+                            <div key={hour} className="h-32 -translate-y-2.5">
+                                <span className="text-xs text-muted-foreground">{format(new Date(0, 0, 0, hour), 'ha')}</span>
                             </div>
                         ))}
                     </div>
