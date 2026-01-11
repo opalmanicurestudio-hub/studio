@@ -284,7 +284,6 @@ const BusinessTab = ({
   if (!profileData) return null;
   return (
     <div>
-      <h2 className="text-2xl font-semibold">What does it cost to keep the lights on?</h2>
       <div className="mt-6">
         <BillEditor
           categories={profileData.categories}
