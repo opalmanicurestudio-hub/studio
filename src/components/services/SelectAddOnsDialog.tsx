@@ -55,6 +55,7 @@ export const SelectAddOnsDialog: React.FC<SelectAddOnsDialogProps> = ({
   const handleSave = () => {
     const selectedItems = allAddOns.filter(p => selectedIds.has(p.id));
     onSelect(selectedItems);
+    onOpenChange(false);
   };
 
   const filteredAddOns = allAddOns.filter(p =>
@@ -91,7 +92,7 @@ export const SelectAddOnsDialog: React.FC<SelectAddOnsDialogProps> = ({
                             onCheckedChange={() => handleToggle(addOn.id)}
                         />
                          <div className='w-10 h-10 bg-muted rounded-md flex-shrink-0'>
-                            <Image src={`https://picsum.photos/seed/svc${addOn.id}/100/100`} alt={addOn.name} width={40} height={40} className='rounded-md'/>
+                            <Image src={addOn.imageUrl || `https://picsum.photos/seed/svc${addOn.id}/100/100`} alt={addOn.name} width={40} height={40} className='rounded-md'/>
                         </div>
                         <label
                             htmlFor={`addon-${addOn.id}`}
