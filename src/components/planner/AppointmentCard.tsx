@@ -113,11 +113,11 @@ const AppointmentDetails = ({
                 <p className="text-muted-foreground text-sm">{format(appointment.startTime, 'EEEE, LLL d, yyyy')} from {format(appointment.startTime, 'h:mm a')} to {format(appointment.endTime, 'h:mm a')}</p>
             </div>
 
-            {appointment.inspirationPhotoUrl && (
+            {(appointment.inspirationPhotoUrl || client.inspirationPhotoUrl) && (
                 <div className="space-y-3">
                     <h4 className="font-medium text-sm">Inspiration Photo</h4>
                     <div className="rounded-lg overflow-hidden border">
-                        <Image src={appointment.inspirationPhotoUrl} alt="Inspiration" width={400} height={300} className="object-cover" />
+                        <Image src={appointment.inspirationPhotoUrl || client.inspirationPhotoUrl!} alt="Inspiration" width={400} height={300} className="object-cover" />
                     </div>
                 </div>
             )}
