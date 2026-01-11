@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -56,7 +57,7 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { type Appointment, type Client, type Service, inventory, CustomFormula } from '@/lib/data';
+import { type Appointment, type Client, type Service, inventory, CustomFormula, services } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 
 interface AppointmentCardProps {
@@ -83,6 +84,7 @@ const AppointmentDetails = ({
     timeCost,
     productCost,
     equipmentCost,
+    addOnServices,
 }: {
     appointment: Appointment;
     client: Client;
@@ -94,6 +96,7 @@ const AppointmentDetails = ({
     timeCost: number;
     productCost: number;
     equipmentCost: number;
+    addOnServices: Service[];
 }) => {
 
   return (
@@ -101,7 +104,12 @@ const AppointmentDetails = ({
         <div className="space-y-6">
             <div className="space-y-2">
                 <h3 className="font-semibold text-lg">{client.name}</h3>
-                <p className="text-muted-foreground text-sm">{service.name}</p>
+                 <div className="text-muted-foreground text-sm">
+                    <p>{service.name}</p>
+                    {addOnServices.map(addon => (
+                        <p key={addon.id} className="text-xs pl-4">+ {addon.name}</p>
+                    ))}
+                </div>
                 <p className="text-muted-foreground text-sm">{format(appointment.startTime, 'EEEE, LLL d, yyyy')} from {format(appointment.startTime, 'h:mm a')} to {format(appointment.endTime, 'h:mm a')}</p>
             </div>
 
@@ -177,44 +185,43 @@ export function AppointmentCard({
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const isMobile = useIsMobile();
 
+  const addOnServices = useMemo(() => {
+      return (appointment.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
+  }, [appointment.addOnIds]);
+
   const { revenue, breakEvenCost, netProfit, timeCost, productCost, equipmentCost } = useMemo(() => {
-    const revenue = service.price;
-    const totalDuration = differenceInMinutes(appointment.endTime, appointment.startTime);
-    const timeCost = (totalDuration / 60) * tmhr;
+    let totalRevenue = service.price;
     
-    let productsToUse: { productId?: string; quantityUsed: number; productName?: string; costPerUnit?: number; id?:string }[] = service.products || [];
+    const allServices = [service, ...addOnServices];
 
-    if (client.customFormulas && client.customFormulas.length > 0) {
-      // For simplicity, using the first formula. A real app might let you choose.
-      productsToUse = client.customFormulas[0].items.map(cf => {
-          const productData = inventory.find(i => i.id === cf.productId);
-          return {
-            ...productData,
-            productId: cf.productId,
-            productName: cf.productName,
-            quantityUsed: cf.quantityUsed,
-            costPerUnit: productData?.costPerUnit || 0,
-        }
-      });
-    }
+    let totalProductCost = 0;
+    let totalEquipmentCost = 0;
+    
+    allServices.forEach(s => {
+        if(s.type === 'addon') totalRevenue += s.price;
+        
+        let productsToUse: { productId?: string; quantityUsed: number; productName?: string; costPerUnit?: number; id?:string }[] = s.products || [];
+        totalProductCost += productsToUse.reduce((sum, p) => {
+            const productData = inventory.find(i => i.id === (p.id || p.productId));
+            return sum + ((productData?.costPerUnit || 0) * (p.quantityUsed || 1));
+        }, 0);
 
-    const productCost = productsToUse.reduce((sum, p) => {
-        const productData = inventory.find(i => i.id === (p.id || p.productId));
-        return sum + ((productData?.costPerUnit || 0) * (p.quantityUsed || 1));
-    }, 0);
+        totalEquipmentCost += (s.equipment || []).reduce((sum, e) => {
+            const totalDuration = differenceInMinutes(appointment.endTime, appointment.startTime);
+            const lifespanInMinutes = (e.lifespanYears || 5) * 365 * 8 * 60;
+            const costPerMinute = (e.costPerUnit || 0) / lifespanInMinutes;
+            return sum + (costPerMinute * totalDuration);
+        }, 0);
+    });
 
+    const totalDuration = differenceInMinutes(appointment.endTime, appointment.startTime);
+    const totalTimeCost = (totalDuration / 60) * tmhr;
 
-    const equipmentCost = (service.equipment || []).reduce((sum, e) => {
-        const lifespanInMinutes = (e.lifespanYears || 5) * 365 * 8 * 60;
-        const costPerMinute = (e.costPerUnit || 0) / lifespanInMinutes;
-        return sum + (costPerMinute * totalDuration);
-    }, 0);
+    const totalBreakEvenCost = totalTimeCost + totalProductCost + totalEquipmentCost;
+    const totalNetProfit = totalRevenue - totalBreakEvenCost;
 
-    const breakEvenCost = timeCost + productCost + equipmentCost;
-    const netProfit = revenue - breakEvenCost;
-
-    return { revenue, breakEvenCost, netProfit, timeCost, productCost, equipmentCost };
-  }, [service, appointment, tmhr, client]);
+    return { revenue: totalRevenue, breakEvenCost: totalBreakEvenCost, netProfit: totalNetProfit, timeCost: totalTimeCost, productCost: totalProductCost, equipmentCost: totalEquipmentCost };
+  }, [service, appointment, tmhr, client, addOnServices]);
 
 
   const statusDisplay: { [key in Appointment['status']]: { text: string; className: string } } = {
@@ -233,7 +240,12 @@ export function AppointmentCard({
   const afterHeight = hasPadAfter ? `${(service.padAfter! / totalDurationWithPadding) * 100}%` : '0px';
   
 
-  const MainContent = () => (
+  const MainContent = () => {
+    const serviceNameDisplay = addOnServices.length > 0
+        ? `${service.name} + ${addOnServices.map(s => s.name).join(', ')}`
+        : service.name;
+
+    return (
     <div 
         className={cn(
             'p-2 border rounded-lg w-full h-full flex flex-col justify-between cursor-pointer',
@@ -247,17 +259,17 @@ export function AppointmentCard({
         <div className="flex items-start justify-between">
             <div className='flex-1 min-w-0'>
                 <p className="font-semibold text-xs leading-tight truncate">{client.name}</p>
-                <p className="text-[11px] text-muted-foreground truncate">{service.name}</p>
+                <p className="text-[11px] text-muted-foreground truncate">{serviceNameDisplay}</p>
             </div>
             <div className="text-right flex-shrink-0">
-                <div className='text-xs space-y-0.5'>
+                <div className='text-xs space-y-0.5 text-right'>
                     <div className="flex items-center justify-end gap-1.5">
                         <span className="text-muted-foreground">Profit:</span>
                         <span className={cn("font-semibold", netProfit >= 0 ? 'text-primary' : 'text-destructive')}>
                           ${netProfit.toFixed(2)}
                         </span>
                     </div>
-                    <div className="flex items-center justify-end gap-1.5">
+                     <div className="flex items-center justify-end gap-1.5">
                         <span className="text-muted-foreground">Rev:</span>
                         <span className="text-green-600 dark:text-green-400">${revenue.toFixed(2)}</span>
                     </div>
@@ -284,7 +296,7 @@ export function AppointmentCard({
         </div>
       </div>
     </div>
-  );
+  )};
 
 
   const DialogOrSheet = isMobile ? Sheet : Dialog;
@@ -324,6 +336,7 @@ export function AppointmentCard({
             timeCost={timeCost}
             productCost={productCost}
             equipmentCost={equipmentCost}
+            addOnServices={addOnServices}
           />
         </DialogOrSheetContent>
       </DialogOrSheet>
