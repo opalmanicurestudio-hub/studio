@@ -5,7 +5,8 @@
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer } from 'lucide-react';
-import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem, bills as billDefinitions, billInstances, type BillInstance, type Bill } from '@/lib/data';
+import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem, bills as billDefinitions, type Bill } from '@/lib/data';
+import { billInstances, type BillInstance } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO } from 'date-fns';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
@@ -428,10 +429,18 @@ export default function PlannerPage() {
     }
     
     const handleAddTransaction = (transaction: Omit<Transaction, 'id' | 'date'>) => {
-        if (!firestore || !user) return;
+        if (!firestore || !user) {
+            toast({
+                variant: 'destructive',
+                title: 'Authentication Error',
+                description: 'You must be logged in to log an expense.',
+            });
+            return;
+        }
         const transactionRef = collection(firestore, 'tenants', tenantId, 'transactions');
         const newTransaction = {
             ...transaction,
+            userId: user.uid, // Add user ID
             date: currentVisibleDate.toISOString(),
         };
         addDocumentNonBlocking(transactionRef, newTransaction);
@@ -602,7 +611,7 @@ export default function PlannerPage() {
                                 appointments={appointmentsForDay} 
                                 events={eventsForDay} 
                                 onCompleteClick={handleCompleteClick} 
-                                onUpdateStatus={onUpdateStatus} 
+                                onUpdateStatus={handleUpdateStatus} 
                                 onDeleteAppointment={handleDeleteAppointment} 
                                 onPrintReceipt={handlePrintReceipt} 
                                 onEditAppointment={handleEditClick}
