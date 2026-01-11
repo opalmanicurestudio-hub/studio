@@ -69,7 +69,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
     const detailHref = item.type === 'equipment' ? `/inventory/equipment/${item.id}` : `/inventory/product/${item.id}`;
     
     return (
-        <Card className={cn("w-72 shrink-0 transition-all duration-200 hover:shadow-xl hover:-translate-y-1", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
+        <Card className={cn("w-full transition-all duration-200 hover:shadow-xl hover:-translate-y-1", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
             <CardContent className="p-3 space-y-3">
                 <div className="grid grid-cols-[auto,1fr,auto] items-start gap-3">
                     <Link href={detailHref} className='w-16 h-16 bg-muted rounded-md flex-shrink-0'>
@@ -995,26 +995,33 @@ export default function InventoryPage() {
     return result;
 };
   
-  const ProductShelf = ({ title, items }: { title: string, items: InventoryItem[] }) => {
+const ProductShelf = ({ title, items }: { title: string, items: InventoryItem[] }) => {
     if (items.length === 0) return null;
     
     return (
         <div className="space-y-4">
             <h2 className="text-xl font-bold">{title}</h2>
-            <ScrollArea>
-                <div className="flex space-x-4 pb-4">
-                    {items.map((item) => (
-                        <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
+            <Carousel
+                opts={{
+                    align: "start",
+                    dragFree: true,
+                }}
+                className="w-full"
+            >
+                <CarouselContent className="-ml-2">
+                    {items.map((item, index) => (
+                        <CarouselItem key={index} className="pl-4 basis-full sm:basis-1/2 md:basis-1/3 lg:basis-1/4 xl:basis-1/5">
+                            <ProductCard item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
+                        </CarouselItem>
                     ))}
-                </div>
-                <ScrollBar orientation="horizontal" />
-            </ScrollArea>
+                </CarouselContent>
+            </Carousel>
         </div>
     );
-  };
+};
 
   const kpiCards = [
-    <Card className="shrink-0" key="total-value">
+    <Card key="total-value">
         <CardHeader>
             <CardTitle>Total Inventory Value</CardTitle>
             <CardDescription>Real-time valuation of all your business assets.</CardDescription>
@@ -1041,7 +1048,7 @@ export default function InventoryPage() {
             </div>
         </CardContent>
     </Card>,
-    <Card className="shrink-0" key="top-usage">
+    <Card key="top-usage">
         <CardHeader>
             <CardTitle className="flex items-center gap-2"><BarChart className="text-muted-foreground"/> Top Product Usage</CardTitle>
         </CardHeader>
@@ -1057,7 +1064,7 @@ export default function InventoryPage() {
             )) : <p className="text-sm text-muted-foreground text-center py-8">No usage data yet.</p>}
         </CardContent>
     </Card>,
-    <Card className="shrink-0" key="risks">
+    <Card key="risks">
          <CardHeader>
             <CardTitle className="flex items-center gap-2"><AlertTriangle className="text-muted-foreground"/> Risks &amp; Spoilage</CardTitle>
         </CardHeader>
@@ -1135,7 +1142,7 @@ export default function InventoryPage() {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col">
       <AppHeader title="Inventory Hub" />
       <main className="flex-1 p-4 md:p-8 space-y-6 overflow-y-auto">
 
@@ -1420,3 +1427,5 @@ export default function InventoryPage() {
     </div>
   );
 }
+
+    
