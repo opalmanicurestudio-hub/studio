@@ -67,12 +67,12 @@ service cloud.firestore {
 
     /**
      * Returns true if the user is an owner of the specified tenant.
-     * CRITICAL: Relies on a 'tenants' custom claim on the user's auth token,
-     * which must be an array of tenant IDs the user owns.
-     * Example claim: { "tenants": ["tenant_abc", "tenant_xyz"] }
+     * This function performs a crucial cross-document read to verify that the
+     * `userId` on the tenant document matches the authenticated user's UID.
+     * This is a secure but slightly less performant alternative to custom claims.
      */
     function isTenantOwner(tenantId) {
-      return isSignedIn() && request.auth.token.tenants.hasAny([tenantId]);
+      return isSignedIn() && get(/databases/$(database)/documents/tenants/$(tenantId)).data.userId == request.auth.uid;
     }
 
     /**
@@ -236,7 +236,9 @@ service cloud.firestore {
      * @principle Enforces strict data privacy for a tenant's financial records.
      */
     match /tenants/{tenantId}/transactions/{transactionId} {
-        allow read, write: if isTenantOwner(tenantId);
+        allow list, get: if isTenantOwner(tenantId);
+        allow create: if isTenantOwner(tenantId) && newDocIsOwnedByCurrentUser();
+        allow update, delete: if isTenantOwner(tenantId) && resource.data.userId == request.auth.uid;
     }
 
     /**
@@ -249,5 +251,3 @@ service cloud.firestore {
     }
   }
 }
-
-    
