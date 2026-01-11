@@ -178,12 +178,13 @@ export const clients: Client[] = [
         ]
       }
     ],
-    medicalNotes: 'Pregnant' 
+    medicalNotes: 'Pregnant',
+    inspirationPhotoUrl: 'https://example.com/photo.jpg',
   },
   { id: 'cli-2', name: 'Marcus Holloway', email: 'marcus@example.com', phone: '310-555-0187', avatarUrl: 'https://picsum.photos/seed/102/100/100', lifetimeValue: 1890.00, lastAppointment: '2024-05-20T14:30:00.000Z', allergyNotes: 'Latex' },
   { id: 'cli-3', name: 'Anya Sharma', email: 'anya@example.com', phone: '773-555-0123', avatarUrl: 'https://picsum.photos/seed/103/100/100', lifetimeValue: 3200.50, lastAppointment: '2024-05-01T11:00:00.000Z' },
   { id: 'cli-4', name: 'Leo Gallagher', email: 'leo@example.com', phone: '415-555-0142', avatarUrl: 'https://picsum.photos/seed/104/100/100', lifetimeValue: 950.00, lastAppointment: '2024-04-22T16:00:00.000Z' },
-  { id: 'cli-5', name: 'Sofia Chen', email: 'sofia@example.com', phone: '212-555-0165', avatarUrl: 'https://picsum.photos/seed/105/100/100', lifetimeValue: 4500.00, lastAppointment: '2024-05-18T09:30:00.000Z', sensoryNeeds: 'Prefers quiet' },
+  { id: 'cli-5', name: 'Sofia Chen', email: 'sofia@example.com', phone: '212-555-0165', avatarUrl: 'https://picsum.photos/seed/105/100/100', lifetimeValue: 4500.00, lastAppointment: '2024-05-18T09:30:00.000Z', sensoryNeeds: 'Prefers quiet', isMember: true },
 ];
 
 export const inventory: InventoryItem[] = [

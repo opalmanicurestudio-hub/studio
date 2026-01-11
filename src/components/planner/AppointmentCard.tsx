@@ -25,6 +25,7 @@ import {
   TrendingUp,
   Receipt,
   ListChecks,
+  ShieldAlert,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -247,13 +248,9 @@ export function AppointmentCard({
             <div className='flex-1 min-w-0'>
                 <p className="font-semibold text-xs leading-tight truncate">{client.name}</p>
                 <p className="text-[11px] text-muted-foreground truncate">{service.name}</p>
-                <div className="mt-2 space-y-1">
-                    <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[appointment.status]?.className)}>{statusDisplay[appointment.status]?.text}</Badge>
-                    <p className="text-[10px] text-muted-foreground">{format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
-                </div>
             </div>
             <div className="text-right flex-shrink-0">
-                 <div className='text-xs space-y-0.5'>
+                <div className='text-xs space-y-0.5'>
                     <div className="flex items-center justify-end gap-1.5">
                         <span className="text-muted-foreground">Profit:</span>
                         <span className={cn("font-semibold", netProfit >= 0 ? 'text-primary' : 'text-destructive')}>
@@ -269,45 +266,19 @@ export function AppointmentCard({
                         <span className="text-red-600 dark:text-red-400">${breakEvenCost.toFixed(2)}</span>
                     </div>
                 </div>
-                 <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-6 w-6 mt-1" onClick={(e) => e.stopPropagation()}>
-                            <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
-                        <DropdownMenuItem onSelect={() => setIsDetailsOpen(true)}>
-                            <FileText className="mr-2 h-4 w-4"/>View Details
-                        </DropdownMenuItem>
-                        <DropdownMenuSub>
-                            <DropdownMenuSubTrigger>
-                                <Clock10 className="mr-2 h-4 w-4"/> Change Status
-                            </DropdownMenuSubTrigger>
-                            <DropdownMenuPortal>
-                                <DropdownMenuSubContent>
-                                    {appointment.status !== 'completed' && (
-                                        <DropdownMenuItem onSelect={() => onCompleteClick(appointment)}>
-                                        <CheckCircle className="mr-2 h-4 w-4 text-green-500"/>Mark as Completed
-                                        </DropdownMenuItem>
-                                    )}
-                                    <DropdownMenuItem onSelect={() => onUpdateStatus(appointment.id, 'confirmed')}><CheckCircle className="mr-2 h-4 w-4 text-blue-500"/>Confirmed</DropdownMenuItem>
-                                    <DropdownMenuItem onSelect={() => onUpdateStatus(appointment.id, 'cancelled')}><XCircle className="mr-2 h-4 w-4 text-red-500"/>Cancelled</DropdownMenuItem>
-                                </DropdownMenuSubContent>
-                            </DropdownMenuPortal>
-                        </DropdownMenuSub>
-                        {appointment.status === 'completed' && (
-                            <DropdownMenuItem onSelect={() => onPrintReceipt(appointment)}>
-                                <Printer className="mr-2 h-4 w-4"/>Print Receipt
-                            </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem onSelect={() => onEdit(appointment)}>
-                            <Edit className="mr-2 h-4 w-4"/> Edit Details
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive" onSelect={() => onDelete(appointment.id)}>
-                            <Trash2 className="mr-2 h-4 w-4"/> Delete
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
+            </div>
+        </div>
+        <div className="space-y-1 mt-1">
+             <div className="flex items-center space-x-1">
+                {client.medicalNotes && <ShieldPlus className="h-3 w-3 text-red-500" />}
+                {client.allergyNotes && <AlertTriangle className="h-3 w-3 text-yellow-500" />}
+                {client.sensoryNeeds && <Ear className="h-3 w-3 text-blue-500" />}
+                {client.inspirationPhotoUrl && <ImageIcon className="h-3 w-3 text-orange-400" />}
+                {client.isMember && <Award className="h-3 w-3 text-amber-500" />}
+            </div>
+            <div className="flex flex-col items-start">
+                <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[appointment.status]?.className)}>{statusDisplay[appointment.status]?.text}</Badge>
+                <p className="text-[10px] text-muted-foreground">{format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
             </div>
         </div>
       </div>

@@ -57,7 +57,7 @@ const TimeIndicator = () => {
             const now = new Date();
             const dayStart = setHours(startOfDay(now), 8);
             const minutesFromStart = differenceInMinutes(now, dayStart);
-            const newTop = minutesFromStart * (128 / 60); // 128px is h-32
+            const newTop = minutesFromStart * (160 / 60); // 160px is h-40
             if (newTop >= 0) {
                 setTop(newTop);
             }
@@ -167,8 +167,8 @@ const DayTimeline = ({
             const actualStartTime = subMinutes(item.startTime, padBefore);
             const minutesFromStart = differenceInMinutes(actualStartTime, dayStart);
             
-            const top = minutesFromStart * (128/60);
-            const height = totalDuration * (128/60);
+            const top = minutesFromStart * (160/60);
+            const height = totalDuration * (160/60);
 
             const style = { top: `${top}px`, height: `${height}px` };
 
@@ -193,8 +193,8 @@ const DayTimeline = ({
             );
         } else { // item.itemType === 'event'
              const minutesFromStart = differenceInMinutes(item.startTime, dayStart);
-             const top = minutesFromStart * (128/60);
-             const height = differenceInMinutes(item.endTime, item.startTime) * (128/60);
+             const top = minutesFromStart * (160/60);
+             const height = differenceInMinutes(item.endTime, item.startTime) * (160/60);
              const style = { top: `${top}px`, height: `${height}px` };
 
              const eventTransactions = dailyTransactions?.filter(t => t.relatedEventId === item.id) || [];
@@ -274,7 +274,7 @@ const DayTimeline = ({
                     {/* Time labels */}
                     <div className="flex flex-col text-right pr-4">
                         {hours.map(hour => (
-                            <div key={hour} className="h-32 -translate-y-2.5">
+                            <div key={hour} className="h-40 flex items-start">
                                 <span className="text-xs text-muted-foreground">{format(new Date(0, 0, 0, hour), 'ha')}</span>
                             </div>
                         ))}
@@ -282,7 +282,7 @@ const DayTimeline = ({
                      {/* Calendar grid */}
                     <div className="relative">
                         {hours.map(hour => (
-                           <div key={hour} className="h-32 border-t border-dashed"></div>
+                           <div key={hour} className="h-40 border-t border-dashed"></div>
                         ))}
 
                         {isToday(date) && <TimeIndicator />}
