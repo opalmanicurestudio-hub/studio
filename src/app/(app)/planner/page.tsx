@@ -600,7 +600,7 @@ export default function PlannerPage() {
   }
   
   return (
-    <div className="flex h-screen w-full flex-col">
+    <div className="flex h-screen w-full flex-col overflow-hidden">
       <AppHeader title="Planner" />
       <div className="flex flex-col gap-4 p-4 border-b">
         <div className='text-center'>
@@ -761,4 +761,3 @@ export default function PlannerPage() {
     </div>
   );
 }
-
