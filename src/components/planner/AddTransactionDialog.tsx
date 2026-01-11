@@ -36,7 +36,7 @@ import { type Event } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
 import { Textarea } from '../ui/textarea';
 import { ScrollArea } from '../ui/scroll-area';
-import { useIsMobile } from '@/hooks/use-is-mobile';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 const transactionSchema = z.object({
   amount: z.coerce.number().positive('Amount must be positive.'),
@@ -163,7 +163,7 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
   const methods = useForm<TransactionFormData>({
     resolver: zodResolver(transactionSchema),
     defaultValues: {
-      amount: undefined,
+      amount: 0,
       description: '',
       category: '',
       paymentMethod: '',
