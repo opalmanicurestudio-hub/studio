@@ -53,11 +53,11 @@ const locationSchema = z.object({
 
 type LocationFormData = z.infer<typeof locationSchema>;
 
-const iconMap: { [key: string]: LucideIcon } = {
-    Box,
-    Building,
-    Store,
-    ClipboardList,
+const iconMap: { [key: string]: { component: LucideIcon, label: string } } = {
+    Box: { component: Box, label: 'Box' },
+    Building: { component: Building, label: 'Building' },
+    Store: { component: Store, label: 'Store' },
+    ClipboardList: { component: ClipboardList, label: 'Clipboard' },
 };
 
 export const AddLocationDialog = ({
@@ -165,18 +165,15 @@ export const AddLocationDialog = ({
                         <div>
                             <Label className="mb-2 block">Icon</Label>
                              <RadioGroup value={newTypeIcon} onValueChange={setNewTypeIcon} className="grid grid-cols-4 gap-2">
-                                {Object.keys(iconMap).map(iconKey => {
-                                    const Icon = iconMap[iconKey];
-                                    return (
-                                        <div key={iconKey}>
-                                            <RadioGroupItem value={iconKey} id={iconKey} className="peer sr-only" />
-                                            <Label htmlFor={iconKey} className={cn("flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary whitespace-nowrap")}>
-                                                <Icon className="w-5 h-5 mb-1" />
-                                                {iconKey}
-                                            </Label>
-                                        </div>
-                                    )
-                                })}
+                                {Object.entries(iconMap).map(([iconKey, { component: Icon, label }]) => (
+                                    <div key={iconKey}>
+                                        <RadioGroupItem value={iconKey} id={iconKey} className="peer sr-only" />
+                                        <Label htmlFor={iconKey} className={cn("flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary whitespace-nowrap")}>
+                                            <Icon className="w-5 h-5 mb-1" />
+                                            {label}
+                                        </Label>
+                                    </div>
+                                ))}
                             </RadioGroup>
                         </div>
                         <div className="flex gap-2">
@@ -192,7 +189,7 @@ export const AddLocationDialog = ({
                         </SelectTrigger>
                         <SelectContent>
                             {locationTypes.map((type) => {
-                                const Icon = iconMap[type.icon];
+                                const Icon = iconMap[type.icon]?.component;
                                 return (
                                     <SelectItem key={type.id} value={type.id}>
                                         <div className="flex items-center gap-2">
