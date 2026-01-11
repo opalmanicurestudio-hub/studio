@@ -26,9 +26,11 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { type Event } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
+import { Textarea } from '../ui/textarea';
 
 const transactionSchema = z.object({
   amount: z.coerce.number().positive('Amount must be positive.'),
+  description: z.string().min(1, 'A description is required.'),
   category: z.string().min(1, 'Category is required.'),
   paymentMethod: z.string().min(1, 'Payment method is required.'),
   paymentMethodIdentifier: z.string().optional(),
@@ -58,13 +60,14 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
   } = useForm<TransactionFormData>({
     resolver: zodResolver(transactionSchema),
     defaultValues: {
+      description: `Expense for: ${event.title}`,
       category: event.type === 'business' ? 'Business Travel' : 'Personal Travel',
     }
   });
 
   const handleFormSubmit = (data: TransactionFormData) => {
     const newTransaction: Omit<Transaction, 'id' | 'date'> = {
-      description: `Expense for: ${event.title}`,
+      description: data.description,
       clientOrVendor: data.clientOrVendor || 'N/A',
       type: 'expense' as const,
       context: event.type === 'business' ? 'Business' : 'Personal',
@@ -90,6 +93,17 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
         </DialogHeader>
         <form onSubmit={handleSubmit(handleFormSubmit)} id="add-transaction-form">
           <div className="grid gap-4 py-4">
+             <Controller
+              name="description"
+              control={control}
+              render={({ field }) => (
+                <div className="space-y-2">
+                  <Label htmlFor="description">Description / Notes</Label>
+                  <Textarea id="description" placeholder="e.g., Coffee with client to discuss project" {...field} />
+                  {errors.description && <p className="text-sm text-destructive">{errors.description.message}</p>}
+                </div>
+              )}
+            />
             <Controller
               name="amount"
               control={control}
