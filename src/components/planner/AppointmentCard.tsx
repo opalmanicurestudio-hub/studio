@@ -32,6 +32,7 @@ import {
   Send,
   User as UserIcon,
   Book,
+  Calendar,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -161,7 +162,11 @@ const AppointmentDetails = ({
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => onEdit(appointment)}>
                                 <Edit className="w-4 h-4 mr-2"/>
-                                Edit Appointment
+                                Edit Details
+                            </DropdownMenuItem>
+                             <DropdownMenuItem onClick={() => onEdit(appointment)}>
+                                <Calendar className="w-4 h-4 mr-2"/>
+                                Reschedule
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => {
                                 toast({ title: 'Confirmation Resent', description: `An email confirmation has been resent to ${client.email}.`})
