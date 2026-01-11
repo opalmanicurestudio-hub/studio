@@ -597,7 +597,7 @@ export default function PlannerPage() {
                                 appointments={appointmentsForDay} 
                                 events={eventsForDay} 
                                 onCompleteClick={handleCompleteClick} 
-                                onUpdateStatus={onUpdateStatus} 
+                                onUpdateStatus={handleUpdateStatus} 
                                 onDeleteAppointment={handleDeleteAppointment} 
                                 onPrintReceipt={handlePrintReceipt} 
                                 onEditAppointment={handleEditClick}
