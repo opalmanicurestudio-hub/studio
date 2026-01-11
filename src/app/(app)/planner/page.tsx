@@ -232,16 +232,23 @@ const DayTimeline = ({
                 {billInstances.length > 0 && (
                     <div className="p-4 border-b">
                         <h4 className="text-sm font-semibold mb-2">Bills Due Today</h4>
-                        <ScrollArea className="w-full">
-                          <div className="flex space-x-4 pb-2">
-                            {billInstances.map(instance => (
-                                <div key={instance.id} className="w-72 flex-shrink-0">
-                                    <BillDueDateCard instance={instance} />
-                                </div>
-                            ))}
-                          </div>
-                          <ScrollBar orientation="horizontal" />
-                        </ScrollArea>
+                        <Carousel
+                            opts={{
+                                align: "start",
+                                dragFree: true,
+                            }}
+                            className="w-full"
+                            >
+                            <CarouselContent className="-ml-2">
+                                {billInstances.map(instance => (
+                                <CarouselItem key={instance.id} className="pl-2 basis-auto">
+                                    <div className="w-72">
+                                        <BillDueDateCard instance={instance} />
+                                    </div>
+                                </CarouselItem>
+                                ))}
+                            </CarouselContent>
+                        </Carousel>
                     </div>
                 )}
                 <div className="relative grid grid-cols-[auto,1fr] p-4">
@@ -695,3 +702,4 @@ export default function PlannerPage() {
     </div>
   );
 }
+
