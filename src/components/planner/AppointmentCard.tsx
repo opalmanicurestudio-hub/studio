@@ -199,11 +199,11 @@ export function AppointmentCard({
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const isMobile = useIsMobile();
 
-  const statusStyles: { [key in Appointment['status']]: string } = {
-    confirmed: 'bg-blue-100 dark:bg-blue-900/30 border-blue-500',
-    completed: 'bg-green-100 dark:bg-green-900/30 border-green-500',
-    cancelled: 'bg-red-200/50 dark:bg-red-900/30 border-red-500',
-    deposit_pending: 'bg-pink-100 dark:bg-pink-900/30 border-pink-500',
+  const statusDisplay: { [key in Appointment['status']]: { text: string; className: string } } = {
+    confirmed: { text: 'Confirmed', className: 'bg-blue-100 dark:bg-blue-900/30 border-blue-500' },
+    completed: { text: 'Completed', className: 'bg-green-100 dark:bg-green-900/30 border-green-500' },
+    cancelled: { text: 'Cancelled', className: 'bg-red-200/50 dark:bg-red-900/30 border-red-500' },
+    deposit_pending: { text: 'Awaiting Payment', className: 'bg-pink-100 dark:bg-pink-900/30 border-pink-500' },
   };
 
   const hasPadBefore = (service.padBefore || 0) > 0;
@@ -217,7 +217,7 @@ export function AppointmentCard({
   const MainContent = () => (
     <div className={cn(
         'p-2 border-l-4 w-full h-full flex flex-col justify-between',
-        statusStyles[appointment.status] || 'bg-gray-100 border-gray-500',
+        statusDisplay[appointment.status]?.className || 'bg-gray-100 border-gray-500',
         'bg-card',
         hasPadBefore ? '' : 'rounded-t-lg',
         hasPadAfter ? '' : 'rounded-b-lg'
@@ -227,7 +227,7 @@ export function AppointmentCard({
           <p className="text-xs text-muted-foreground truncate">{service.name}</p>
         </div>
         <div className="flex items-center justify-between mt-1">
-          <Badge variant="secondary" className="text-[10px] h-5 px-1.5 capitalize">{appointment.status}</Badge>
+          <Badge variant="secondary" className="text-[10px] h-5 px-1.5 capitalize">{statusDisplay[appointment.status]?.text}</Badge>
            <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-6 w-6 -mr-1 -mb-1">
