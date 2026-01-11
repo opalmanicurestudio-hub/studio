@@ -193,6 +193,49 @@ const ProductShelf = ({
     );
 };
 
+const LocationCard = ({ location, items, locationTypes }: { location: Location, items: InventoryItem[], locationTypes: any[] }) => {
+    const locationType = locationTypes.find(lt => lt.id === location.locationTypeId);
+
+    return (
+        <Card>
+            <CardHeader>
+                <div className="flex justify-between items-start">
+                    <div>
+                        <CardTitle>{location.name}</CardTitle>
+                        <CardDescription>{locationType?.name || 'Uncategorized'}</CardDescription>
+                    </div>
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 -mt-2 -mr-2"><MoreHorizontal className="h-4 w-4" /></Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent>
+                            <DropdownMenuItem>Edit Location</DropdownMenuItem>
+                            <DropdownMenuItem className="text-destructive">Delete Location</DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
+            </CardHeader>
+            <CardContent>
+                {location.description && <p className="text-sm text-muted-foreground mb-4">{location.description}</p>}
+                <div className="space-y-2">
+                    <h4 className="font-medium text-sm">Products in this location:</h4>
+                    {items.length > 0 ? (
+                        <div className="border rounded-md max-h-48 overflow-y-auto">
+                            {items.map(item => (
+                                <div key={item.id} className="flex items-center gap-3 p-2 border-b last:border-b-0">
+                                    <Image src={item.imageUrl || `https://picsum.photos/seed/inv${item.id}/40/40`} alt={item.name} width={24} height={24} className="rounded-sm" />
+                                    <span className="text-sm flex-1">{item.name}</span>
+                                    <Badge variant="outline">{item.totalStock}</Badge>
+                                </div>
+                            ))}
+                        </div>
+                    ) : <p className="text-sm text-muted-foreground text-center p-4 border rounded-md">No products assigned.</p>}
+                </div>
+            </CardContent>
+        </Card>
+    )
+}
+
 const tabOptions = [
     { value: 'professional', label: 'Professional' },
     { value: 'retail', label: 'Retail' },
@@ -202,11 +245,12 @@ const tabOptions = [
 
 
 export default function InventoryPage() {
-  const { inventory, setInventory, addStockCorrection, stockCorrections } = useInventory();
+  const { inventory, setInventory, addStockCorrection, stockCorrections, locations, setLocations, locationTypes, setLocationTypes } = useInventory();
   const { toast } = useToast();
   
   const [activeTab, setActiveTab] = useState('professional');
   const [isClient, setIsClient] = useState(false);
+  const [isAddLocationDialogOpen, setAddLocationDialogOpen] = useState(false);
 
   useEffect(() => {
     setIsClient(true);
@@ -234,6 +278,21 @@ export default function InventoryPage() {
   const [isWriteOffOpen, setIsWriteOffOpen] = useState(false);
   const [isLogUseOpen, setIsLogUseOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<InventoryItem | null>(null);
+  
+  const handleAddNewLocation = (newLocationData: Omit<Location, 'id'>) => {
+    const newLocation = { ...newLocationData, id: `loc-${Date.now()}`};
+    setLocations(prev => [...prev, newLocation]);
+    toast({
+        title: "Location Added",
+        description: `New location "${newLocation.name}" has been created.`
+    });
+  }
+
+  const handleAddNewLocationType = (name: string) => {
+    const newType = { id: `lt-${Date.now()}`, name };
+    setLocationTypes(prev => [...prev, newType]);
+    return newType;
+  }
 
   const handleOpenEditDialog = (product: InventoryItem) => {
     setSelectedProduct(product);
@@ -297,6 +356,9 @@ export default function InventoryPage() {
                 <DropdownMenuItem>
                     <Hammer className="mr-2 h-4 w-4" /> Add Equipment
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setAddLocationDialogOpen(true)}>
+                    <MapPin className="mr-2 h-4 w-4" /> Add Location
+                </DropdownMenuItem>
                 </DropdownMenuContent>
             </DropdownMenu>
             </div>
@@ -337,9 +399,24 @@ export default function InventoryPage() {
                     <ProductShelf title="Capital Equipment" items={equipmentItems} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
                 ) : <EmptyState message="No equipment found." />
             )}
-            {activeTab === 'locations' && <EmptyState message="Locations section coming soon." />}
+            {activeTab === 'locations' && (
+                 locations.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                        {locations.map(loc => (
+                            <LocationCard key={loc.id} location={loc} items={[]} locationTypes={locationTypes}/>
+                        ))}
+                    </div>
+                 ) : <EmptyState message="No locations created yet." />
+            )}
         </div>
       </main>
+      <AddLocationDialog 
+        open={isAddLocationDialogOpen}
+        onOpenChange={setAddLocationDialogOpen}
+        onSave={handleAddNewLocation}
+        locationTypes={locationTypes}
+        onAddNewLocationType={handleAddNewLocationType}
+      />
     </div>
   );
 }

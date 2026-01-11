@@ -6,8 +6,23 @@ import {
     inventory as initialInventory, 
     stockCorrections as initialStockCorrections, 
     type InventoryItem, 
-    type StockCorrection 
+    type StockCorrection,
+    type Location as LocationType,
 } from '@/lib/data';
+
+// Define initial locations and location types
+const initialLocationTypes = [
+  { id: 'lt-1', name: 'General Storage' },
+  { id: 'lt-2', name: 'Retail Display' },
+  { id: 'lt-3', name: 'Workstation' },
+];
+
+const initialLocations: LocationType[] = [
+  { id: 'loc-1', name: 'Back Room - Shelf A', locationTypeId: 'lt-1', description: 'Main storage for backstock color and developers.' },
+  { id: 'loc-2', name: 'Retail Display - Front', locationTypeId: 'lt-2', description: 'Client-facing retail shelves.' },
+  { id: 'loc-3', name: 'Styling Station 1', locationTypeId: 'lt-3' },
+];
+
 
 interface InventoryContextType {
   inventory: InventoryItem[];
@@ -15,6 +30,10 @@ interface InventoryContextType {
   stockCorrections: StockCorrection[];
   setStockCorrections: React.Dispatch<React.SetStateAction<StockCorrection[]>>;
   addStockCorrection: (correction: StockCorrection) => void;
+  locations: LocationType[];
+  setLocations: React.Dispatch<React.SetStateAction<LocationType[]>>;
+  locationTypes: { id: string, name: string }[];
+  setLocationTypes: React.Dispatch<React.SetStateAction<{ id: string, name: string }[]>>;
 }
 
 const InventoryContext = createContext<InventoryContextType | undefined>(undefined);
@@ -22,6 +41,9 @@ const InventoryContext = createContext<InventoryContextType | undefined>(undefin
 export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const [inventory, setInventory] = useState<InventoryItem[]>(initialInventory);
   const [stockCorrections, setStockCorrections] = useState<StockCorrection[]>(initialStockCorrections);
+  const [locations, setLocations] = useState<LocationType[]>(initialLocations);
+  const [locationTypes, setLocationTypes] = useState<{ id: string, name: string }[]>(initialLocationTypes);
+
 
   const addStockCorrection = useCallback((correction: StockCorrection) => {
     setStockCorrections(prev => [...prev, correction]);
@@ -33,6 +55,10 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     stockCorrections,
     setStockCorrections,
     addStockCorrection,
+    locations,
+    setLocations,
+    locationTypes,
+    setLocationTypes
   };
 
   return (

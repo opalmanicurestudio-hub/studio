@@ -31,6 +31,21 @@ export type Client = {
   isMember?: boolean;
 };
 
+export type LocationType = {
+  id: string;
+  name: string;
+};
+
+export type Location = {
+  id: string;
+  name: string;
+  locationTypeId: string;
+  description?: string;
+  environmentalNeeds?: string[];
+  customNeeds?: string;
+  photoUrl?: string;
+};
+
 export type MaintenanceRecord = {
   id: string;
   date: string; // ISO date string
