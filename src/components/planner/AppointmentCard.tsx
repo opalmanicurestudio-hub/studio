@@ -44,6 +44,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuPortal,
   DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
   Dialog,
@@ -95,6 +96,7 @@ const AppointmentDetails = ({
     addOnServices,
     onEdit,
     onUpdateStatus,
+    onDelete,
 }: {
     appointment: Appointment;
     client: Client;
@@ -109,6 +111,7 @@ const AppointmentDetails = ({
     addOnServices: Service[];
     onEdit: (appointment: Appointment) => void;
     onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void;
+    onDelete: (appointmentId: string) => void;
 }) => {
     const { toast } = useToast();
 
@@ -460,6 +463,7 @@ export function AppointmentCard({
             addOnServices={addOnServices}
             onEdit={onEdit}
             onUpdateStatus={onUpdateStatus}
+            onDelete={onDelete}
           />
         </DialogOrSheetContent>
       </DialogOrSheet>
