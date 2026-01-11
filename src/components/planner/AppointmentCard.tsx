@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -40,11 +39,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuPortal,
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import {
   Dialog,
@@ -95,6 +94,7 @@ const AppointmentDetails = ({
     equipmentCost,
     addOnServices,
     onEdit,
+    onUpdateStatus,
 }: {
     appointment: Appointment;
     client: Client;
@@ -108,6 +108,7 @@ const AppointmentDetails = ({
     equipmentCost: number;
     addOnServices: Service[];
     onEdit: (appointment: Appointment) => void;
+    onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void;
 }) => {
     const { toast } = useToast();
 
@@ -129,17 +130,18 @@ const AppointmentDetails = ({
                         <a href={`sms:${client.phone}`} className="p-1.5 rounded-md hover:bg-muted"><MessageSquare className="w-4 h-4 text-primary" /></a>
                     </div>
                 </div>
-                 <div className="text-muted-foreground text-sm pt-4 space-y-1">
-                    <p className="font-medium text-foreground">{service.name}</p>
-                    {addOnServices.map(addon => (
-                        <p key={addon.id} className="text-xs pl-4">+ {addon.name}</p>
-                    ))}
+                <div className="text-muted-foreground text-sm pt-4 space-y-2">
+                    <div>
+                      <p className='font-medium text-foreground'>{service.name}</p>
+                      {addOnServices.map(addon => (
+                          <p key={addon.id} className="text-xs pl-4">+ {addon.name}</p>
+                      ))}
+                    </div>
                     <div className='flex flex-col'>
                       <span className='font-medium'>{format(appointment.startTime, 'EEEE, LLL d, yyyy')}</span>
                       <span>{format(appointment.startTime, 'h:mm a')} - {format(appointment.endTime, 'h:mm a')}</span>
                     </div>
-                </div>
-                <div className="pt-2">
+                    <div className="pt-2">
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <Button variant="outline">
@@ -168,8 +170,17 @@ const AppointmentDetails = ({
                                 <Book className="w-4 h-4 mr-2"/>
                                 Book New Appointment
                             </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem 
+                                className="text-destructive"
+                                onClick={() => onUpdateStatus(appointment.id, 'cancelled')}
+                            >
+                                <XCircle className="w-4 h-4 mr-2" />
+                                Cancel Appointment
+                            </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
+                </div>
                 </div>
             </div>
 
@@ -448,6 +459,7 @@ export function AppointmentCard({
             equipmentCost={equipmentCost}
             addOnServices={addOnServices}
             onEdit={onEdit}
+            onUpdateStatus={onUpdateStatus}
           />
         </DialogOrSheetContent>
       </DialogOrSheet>
@@ -467,5 +479,3 @@ export function AppointmentCard({
     </div>
   );
 }
-
-
