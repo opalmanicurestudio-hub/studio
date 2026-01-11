@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -10,7 +11,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, MoreHorizontal, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX } from 'lucide-react';
+import { PlusCircle, MoreHorizontal, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList } from 'lucide-react';
 import { type InventoryItem, type StockCorrection } from '@/lib/data';
 import {
   DropdownMenu,
@@ -26,7 +27,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Input } from '@/components/ui/input';
 import { AddProductDialog } from '@/components/inventory/AddProductDialog';
 import { EditProductDialog } from '@/components/inventory/EditProductDialog';
-import { AddLocationDialog, type Location } from '@/components/inventory/AddLocationDialog';
+import { AddLocationDialog, type Location, type LocationType } from '@/components/inventory/AddLocationDialog';
 import { EndCostPerUseTestDialog } from '@/components/inventory/EndCostPerUseTestDialog';
 import { WriteOffDialog } from '@/components/inventory/WriteOffDialog';
 import { LogUseDialog } from '@/components/inventory/LogUseDialog';
@@ -193,20 +194,35 @@ const ProductShelf = ({
     );
 };
 
-const LocationCard = ({ location, items, locationTypes }: { location: Location, items: InventoryItem[], locationTypes: any[] }) => {
+const LocationCard = ({ location, items, locationTypes }: { location: Location, items: InventoryItem[], locationTypes: LocationType[] }) => {
     const locationType = locationTypes.find(lt => lt.id === location.locationTypeId);
+
+    const Icon = useMemo(() => {
+        switch (locationType?.icon) {
+            case 'Box': return Box;
+            case 'Building': return Building;
+            case 'Store': return Store;
+            case 'ClipboardList': return ClipboardList;
+            default: return MapPin;
+        }
+    }, [locationType?.icon]);
 
     return (
         <Card>
             <CardHeader>
-                <div className="flex justify-between items-start">
-                    <div>
-                        <CardTitle>{location.name}</CardTitle>
-                        <CardDescription>{locationType?.name || 'Uncategorized'}</CardDescription>
+                 <div className="flex justify-between items-start gap-4">
+                    <div className="flex items-center gap-4">
+                        <div className="p-3 bg-muted/50 rounded-lg">
+                            <Icon className="w-6 h-6 text-primary" />
+                        </div>
+                        <div>
+                            <CardTitle>{location.name}</CardTitle>
+                            <CardDescription>{locationType?.name || 'Uncategorized'}</CardDescription>
+                        </div>
                     </div>
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 -mt-2 -mr-2"><MoreHorizontal className="h-4 w-4" /></Button>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 -mt-2 -mr-2 flex-shrink-0"><MoreHorizontal className="h-4 w-4" /></Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent>
                             <DropdownMenuItem>Edit Location</DropdownMenuItem>
@@ -218,16 +234,18 @@ const LocationCard = ({ location, items, locationTypes }: { location: Location, 
             <CardContent>
                 {location.description && <p className="text-sm text-muted-foreground mb-4">{location.description}</p>}
                 <div className="space-y-2">
-                    <h4 className="font-medium text-sm">Products in this location:</h4>
+                    <h4 className="font-medium text-sm">Products at this location:</h4>
                     {items.length > 0 ? (
-                        <div className="border rounded-md max-h-48 overflow-y-auto">
-                            {items.map(item => (
-                                <div key={item.id} className="flex items-center gap-3 p-2 border-b last:border-b-0">
-                                    <Image src={item.imageUrl || `https://picsum.photos/seed/inv${item.id}/40/40`} alt={item.name} width={24} height={24} className="rounded-sm" />
-                                    <span className="text-sm flex-1">{item.name}</span>
-                                    <Badge variant="outline">{item.totalStock}</Badge>
-                                </div>
-                            ))}
+                        <div className="border rounded-md max-h-60">
+                           <ScrollArea className="h-full">
+                                {items.map((item, index) => (
+                                    <div key={item.id} className={cn("flex items-center gap-3 p-2", index < items.length - 1 && "border-b")}>
+                                        <Image src={item.imageUrl || `https://picsum.photos/seed/inv${item.id}/40/40`} alt={item.name} width={32} height={32} className="rounded-sm" />
+                                        <span className="text-sm flex-1 truncate">{item.name}</span>
+                                        <Badge variant="outline">{item.totalStock}</Badge>
+                                    </div>
+                                ))}
+                           </ScrollArea>
                         </div>
                     ) : <p className="text-sm text-muted-foreground text-center p-4 border rounded-md">No products assigned.</p>}
                 </div>
@@ -288,8 +306,8 @@ export default function InventoryPage() {
     });
   }
 
-  const handleAddNewLocationType = (name: string) => {
-    const newType = { id: `lt-${Date.now()}`, name };
+  const handleAddNewLocationType = (name: string, icon: string) => {
+    const newType = { id: `lt-${Date.now()}`, name, icon };
     setLocationTypes(prev => [...prev, newType]);
     return newType;
   }
@@ -403,7 +421,7 @@ export default function InventoryPage() {
                  locations.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                         {locations.map(loc => (
-                            <LocationCard key={loc.id} location={loc} items={[]} locationTypes={locationTypes}/>
+                            <LocationCard key={loc.id} location={loc} items={inventory.slice(0,3)} locationTypes={locationTypes}/>
                         ))}
                     </div>
                  ) : <EmptyState message="No locations created yet." />

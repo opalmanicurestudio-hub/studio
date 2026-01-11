@@ -8,13 +8,14 @@ import {
     type InventoryItem, 
     type StockCorrection,
     type Location as LocationType,
+    type LocationType as LocType,
 } from '@/lib/data';
 
 // Define initial locations and location types
-const initialLocationTypes = [
-  { id: 'lt-1', name: 'General Storage' },
-  { id: 'lt-2', name: 'Retail Display' },
-  { id: 'lt-3', name: 'Workstation' },
+const initialLocationTypes: LocType[] = [
+  { id: 'lt-1', name: 'General Storage', icon: 'Box' },
+  { id: 'lt-2', name: 'Retail Display', icon: 'Store' },
+  { id: 'lt-3', name: 'Workstation', icon: 'ClipboardList' },
 ];
 
 const initialLocations: LocationType[] = [
@@ -32,8 +33,8 @@ interface InventoryContextType {
   addStockCorrection: (correction: StockCorrection) => void;
   locations: LocationType[];
   setLocations: React.Dispatch<React.SetStateAction<LocationType[]>>;
-  locationTypes: { id: string, name: string }[];
-  setLocationTypes: React.Dispatch<React.SetStateAction<{ id: string, name: string }[]>>;
+  locationTypes: LocType[];
+  setLocationTypes: React.Dispatch<React.SetStateAction<LocType[]>>;
 }
 
 const InventoryContext = createContext<InventoryContextType | undefined>(undefined);
@@ -42,7 +43,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const [inventory, setInventory] = useState<InventoryItem[]>(initialInventory);
   const [stockCorrections, setStockCorrections] = useState<StockCorrection[]>(initialStockCorrections);
   const [locations, setLocations] = useState<LocationType[]>(initialLocations);
-  const [locationTypes, setLocationTypes] = useState<{ id: string, name: string }[]>(initialLocationTypes);
+  const [locationTypes, setLocationTypes] = useState<LocType[]>(initialLocationTypes);
 
 
   const addStockCorrection = useCallback((correction: StockCorrection) => {

@@ -34,6 +34,7 @@ export type Client = {
 export type LocationType = {
   id: string;
   name: string;
+  icon: string;
 };
 
 export type Location = {

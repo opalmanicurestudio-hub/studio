@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState } from 'react';
@@ -16,14 +17,17 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { PlusCircle, Upload, Save, Check } from 'lucide-react';
+import { PlusCircle, Upload, Save, Check, Box, Building, Store, ClipboardList, LucideIcon } from 'lucide-react';
 import { useForm, Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
+import { cn } from '@/lib/utils';
 
 export type LocationType = {
   id: string;
   name: string;
+  icon: string;
 };
 
 export type Location = {
@@ -49,6 +53,13 @@ const locationSchema = z.object({
 
 type LocationFormData = z.infer<typeof locationSchema>;
 
+const iconMap: { [key: string]: LucideIcon } = {
+    Box,
+    Building,
+    Store,
+    ClipboardList,
+};
+
 export const AddLocationDialog = ({
   open,
   onOpenChange,
@@ -60,10 +71,11 @@ export const AddLocationDialog = ({
   onOpenChange: (open: boolean) => void;
   onSave: (data: Omit<Location, 'id'>) => void;
   locationTypes: LocationType[];
-  onAddNewLocationType: (name: string) => LocationType;
+  onAddNewLocationType: (name: string, icon: string) => LocationType;
 }) => {
   const [isAddingType, setIsAddingType] = useState(false);
   const [newTypeName, setNewTypeName] = useState('');
+  const [newTypeIcon, setNewTypeIcon] = useState('Box');
 
   const {
     control,
@@ -101,7 +113,7 @@ export const AddLocationDialog = ({
   
   const handleAddNewType = () => {
     if (newTypeName.trim()) {
-        const newType = onAddNewLocationType(newTypeName.trim());
+        const newType = onAddNewLocationType(newTypeName.trim(), newTypeIcon);
         setValue('locationTypeId', newType.id, { shouldValidate: true });
         setNewTypeName('');
         setIsAddingType(false);
@@ -144,14 +156,33 @@ export const AddLocationDialog = ({
                 <div className="space-y-2">
                   <Label htmlFor="location-type">Location Type</Label>
                    {isAddingType ? (
-                    <div className="flex gap-2">
+                    <div className="p-4 border rounded-lg space-y-4">
                         <Input 
                             placeholder="Enter new type name..." 
                             value={newTypeName}
                             onChange={(e) => setNewTypeName(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleAddNewType()}
                         />
-                        <Button onClick={handleAddNewType} type="button"><Check className="h-4 w-4" /></Button>
+                        <div>
+                            <Label className="mb-2 block">Icon</Label>
+                             <RadioGroup value={newTypeIcon} onValueChange={setNewTypeIcon} className="grid grid-cols-4 gap-2">
+                                {Object.keys(iconMap).map(iconKey => {
+                                    const Icon = iconMap[iconKey];
+                                    return (
+                                        <div key={iconKey}>
+                                            <RadioGroupItem value={iconKey} id={iconKey} className="peer sr-only" />
+                                            <Label htmlFor={iconKey} className={cn("flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary")}>
+                                                <Icon className="w-5 h-5 mb-1" />
+                                                {iconKey}
+                                            </Label>
+                                        </div>
+                                    )
+                                })}
+                            </RadioGroup>
+                        </div>
+                        <div className="flex gap-2">
+                            <Button onClick={handleAddNewType} type="button" className="w-full">Save New Type</Button>
+                            <Button variant="outline" onClick={() => setIsAddingType(false)} type="button">Cancel</Button>
+                        </div>
                     </div>
                     ) : (
                     <div className="flex gap-2">
@@ -160,9 +191,17 @@ export const AddLocationDialog = ({
                             <SelectValue placeholder="Select a type" />
                         </SelectTrigger>
                         <SelectContent>
-                            {locationTypes.map((type) => (
-                                <SelectItem key={type.id} value={type.id}>{type.name}</SelectItem>
-                            ))}
+                            {locationTypes.map((type) => {
+                                const Icon = iconMap[type.icon];
+                                return (
+                                    <SelectItem key={type.id} value={type.id}>
+                                        <div className="flex items-center gap-2">
+                                           {Icon && <Icon className="w-4 h-4" />}
+                                           {type.name}
+                                        </div>
+                                    </SelectItem>
+                                )
+                            })}
                         </SelectContent>
                         </Select>
                         <Button variant="outline" size="icon" onClick={() => setIsAddingType(true)} type="button">
