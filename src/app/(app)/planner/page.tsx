@@ -228,29 +228,28 @@ const DayTimeline = ({
                     </AccordionItem>
                 </Accordion>
             </div>
-             <ScrollArea className="flex-1" style={{ height: 'calc(100vh - 230px)' }}>
-                {billInstances.length > 0 && (
-                     <div className="border-b">
-                        <h4 className="text-sm font-semibold mb-2 px-4 pt-4">Bills Due Today</h4>
-                        <Carousel
-                            opts={{
-                                align: "start",
-                                dragFree: true,
-                            }}
-                            className="w-full -ml-4"
-                            >
-                            <CarouselContent>
-                                {billInstances.map(instance => (
-                                <CarouselItem key={instance.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3">
-                                    <div className="p-1">
-                                        <BillDueDateCard instance={instance} />
-                                    </div>
-                                </CarouselItem>
-                                ))}
-                            </CarouselContent>
-                        </Carousel>
-                    </div>
-                )}
+             {billInstances.length > 0 && (
+                 <div className="border-b">
+                     <h4 className="text-sm font-semibold mb-2 px-4 pt-4">Bills Due Today</h4>
+                    <Carousel
+                        opts={{
+                            align: "start",
+                        }}
+                        className="w-full -ml-4"
+                        >
+                        <CarouselContent>
+                            {billInstances.map(instance => (
+                            <CarouselItem key={instance.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3">
+                                <div className="p-1">
+                                    <BillDueDateCard instance={instance} />
+                                </div>
+                            </CarouselItem>
+                            ))}
+                        </CarouselContent>
+                    </Carousel>
+                </div>
+            )}
+            <ScrollArea className="flex-1" style={{ height: 'calc(100vh - 230px)' }}>
                 <div className="relative grid grid-cols-[auto,1fr] p-4">
                     {/* Time labels */}
                     <div className="flex flex-col text-right pr-4">
@@ -281,9 +280,10 @@ export default function PlannerPage() {
   const [currentDate, setCurrentDate] = useState<Date | null>(null);
   const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
   const [events, setEvents] = useState<Event[]>(initialEvents);
-  const { inventory, setInventory, addStockCorrection } = useInventory();
   const billInstances = allBillInstances;
 
+  const { inventory, setInventory, addStockCorrection } = useInventory();
+  
   const { firestore, user } = useFirebase();
   const tenantId = 'tenant-abc'; // Replace with dynamic tenant ID
 
@@ -703,6 +703,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
