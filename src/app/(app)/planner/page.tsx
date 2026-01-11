@@ -571,101 +571,100 @@ export default function PlannerPage() {
     <div className="flex h-screen w-full flex-col">
       <AppHeaderClient title="Planner" />
       
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 p-4 border-b">
-          <div className="flex items-center gap-2">
-              <Button variant="outline" size="icon" onClick={handlePrevDay}><ChevronLeft /></Button>
-              <Button variant="outline" size="icon" onClick={handleNextDay}><ChevronRight /></Button>
-              <Button variant="outline" onClick={handleToday}>Today</Button>
-          </div>
-          <div className="flex-1 text-center">
-              <p className='text-lg font-semibold'>{format(currentDate, 'EEEE, LLL d')}</p>
-          </div>
-          <div className="flex items-center gap-2">
-               <Dialog>
-                   <DialogTrigger asChild>
-                      <Button variant="outline"><BarChart className="w-4 h-4 mr-2" /> KPIs</Button>
-                  </DialogTrigger>
-                   <DialogContent className="max-w-4xl">
-                      <DialogHeader>
-                          <DialogTitle>This Week's Financials</DialogTitle>
-                          <DialogDescription>A summary of your performance for the week of {format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMM d')}.</DialogDescription>
-                      </DialogHeader>
-                       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 py-4">
-                          <Card>
-                              <CardHeader className="pb-2">
-                                  <CardTitle className="text-sm font-medium flex items-center gap-2"><TrendingUp className="w-4 h-4"/>Revenue</CardTitle>
-                              </CardHeader>
-                              <CardContent>
-                                  <p className="text-2xl font-bold">${weeklyKpis.weeklyRevenue.toFixed(2)}</p>
-                                  <p className='text-xs text-muted-foreground'>From completed appointments.</p>
-                              </CardContent>
-                          </Card>
-                          <Card>
-                              <CardHeader className="pb-2">
-                                  <CardTitle className="text-sm font-medium flex items-center gap-2"><DollarSign className="w-4 h-4"/>Projected</CardTitle>
-                              </CardHeader>
-                              <CardContent>
-                                  <p className="text-2xl font-bold">${weeklyKpis.projectedRevenue.toFixed(2)}</p>
-                                  <p className='text-xs text-muted-foreground'>Includes confirmed bookings.</p>
-                              </CardContent>
-                          </Card>
-                           <Card>
-                                <CardHeader className="pb-2">
-                                    <CardTitle className="text-sm font-medium">Break-Even</CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <p className="text-2xl font-bold text-destructive">${weeklyKpis.weeklyBreakEven.toFixed(2)}</p>
-                                    <p className='text-xs text-muted-foreground'>Your weekly cost target.</p>
-                                </CardContent>
-                            </Card>
-                            <Card>
-                                <CardHeader className="pb-2">
-                                    <CardTitle className="text-sm font-medium flex items-center gap-2"><AlertTriangle className="w-4 h-4"/>Absorbed Costs</CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <p className="text-2xl font-bold text-amber-500">${weeklyKpis.absorbedCosts.toFixed(2)}</p>
-                                    <p className='text-xs text-muted-foreground'>Uncharged extra time/product.</p>
-                                </CardContent>
-                            </Card>
-                            <Card className="col-span-full">
-                                <CardHeader className="pb-2">
-                                    <CardTitle className="text-sm font-medium">Net Profit / Loss</CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <p className={cn("text-3xl font-bold", weeklyKpis.weeklyNetProfit >= 0 ? "text-green-500" : "text-destructive")}>${weeklyKpis.weeklyNetProfit.toFixed(2)}</p>
-                                    <p className='text-xs text-muted-foreground'>Revenue minus service costs.</p>
-                                </CardContent>
-                            </Card>
-                      </div>
-                  </DialogContent>
-               </Dialog>
-              {billInstances.length > 0 && (
-                  <Dialog>
-                      <DialogTrigger asChild>
-                          <Button variant="outline" className="relative">
-                              Bills Due
-                              <BellRing className="h-4 w-4 text-primary animate-pulse ml-2" />
-                          </Button>
-                      </DialogTrigger>
-                      <DialogContent>
-                          <DialogHeader>
-                              <DialogTitle>Bills Due Today</DialogTitle>
-                              <DialogDescription>{billInstances.length} bill(s) require attention.</DialogDescription>
-                          </DialogHeader>
-                          <ScrollArea className="w-full">
-                              <div className="flex w-max space-x-4 pb-4">
-                                  {billInstances.map(instance => (
-                                      <div key={instance.id} className="w-80">
-                                          <BillDueDateCard instance={instance} />
-                                      </div>
-                                  ))}
-                              </div>
-                              <ScrollBar orientation="horizontal" />
-                          </ScrollArea>
-                      </DialogContent>
-                  </Dialog>
-              )}
-               <DropdownMenu>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-4 border-b">
+        <div className="flex items-center gap-2">
+            <Button variant="outline" size="icon" onClick={handlePrevDay}><ChevronLeft /></Button>
+            <Button variant="outline" size="icon" onClick={handleNextDay}><ChevronRight /></Button>
+            <Button variant="outline" onClick={handleToday}>Today</Button>
+            <p className='text-lg font-semibold ml-4'>{format(currentDate, 'EEEE, LLL d')}</p>
+        </div>
+        
+        <div className="flex items-center gap-2 ml-auto">
+            <Dialog>
+                <DialogTrigger asChild>
+                    <Button variant="outline"><BarChart className="w-4 h-4 mr-2" /> KPIs</Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-4xl">
+                    <DialogHeader>
+                        <DialogTitle>This Week's Financials</DialogTitle>
+                        <DialogDescription>A summary of your performance for the week of {format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMM d')}.</DialogDescription>
+                    </DialogHeader>
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 py-4">
+                        <Card>
+                            <CardHeader className="pb-2">
+                                <CardTitle className="text-sm font-medium flex items-center gap-2"><TrendingUp className="w-4 h-4"/>Revenue</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <p className="text-2xl font-bold">${weeklyKpis.weeklyRevenue.toFixed(2)}</p>
+                                <p className='text-xs text-muted-foreground'>From completed appointments.</p>
+                            </CardContent>
+                        </Card>
+                        <Card>
+                            <CardHeader className="pb-2">
+                                <CardTitle className="text-sm font-medium flex items-center gap-2"><DollarSign className="w-4 h-4"/>Projected</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <p className="text-2xl font-bold">${weeklyKpis.projectedRevenue.toFixed(2)}</p>
+                                <p className='text-xs text-muted-foreground'>Includes confirmed bookings.</p>
+                            </CardContent>
+                        </Card>
+                        <Card>
+                            <CardHeader className="pb-2">
+                                <CardTitle className="text-sm font-medium">Break-Even</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <p className="text-2xl font-bold text-destructive">${weeklyKpis.weeklyBreakEven.toFixed(2)}</p>
+                                <p className='text-xs text-muted-foreground'>Your weekly cost target.</p>
+                            </CardContent>
+                        </Card>
+                        <Card>
+                            <CardHeader className="pb-2">
+                                <CardTitle className="text-sm font-medium flex items-center gap-2"><AlertTriangle className="w-4 h-4"/>Absorbed Costs</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <p className="text-2xl font-bold text-amber-500">${weeklyKpis.absorbedCosts.toFixed(2)}</p>
+                                <p className='text-xs text-muted-foreground'>Uncharged extra time/product.</p>
+                            </CardContent>
+                        </Card>
+                        <Card className="col-span-full">
+                            <CardHeader className="pb-2">
+                                <CardTitle className="text-sm font-medium">Net Profit / Loss</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <p className={cn("text-3xl font-bold", weeklyKpis.weeklyNetProfit >= 0 ? "text-green-500" : "text-destructive")}>${weeklyKpis.weeklyNetProfit.toFixed(2)}</p>
+                                <p className='text-xs text-muted-foreground'>Revenue minus service costs.</p>
+                            </CardContent>
+                        </Card>
+                    </div>
+                </DialogContent>
+            </Dialog>
+            {billInstances.length > 0 && (
+                <Dialog>
+                    <DialogTrigger asChild>
+                        <Button variant="outline" className="relative">
+                            Bills Due
+                            <BellRing className="h-4 w-4 text-primary animate-pulse ml-2" />
+                        </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Bills Due Today</DialogTitle>
+                            <DialogDescription>{billInstances.length} bill(s) require attention.</DialogDescription>
+                        </DialogHeader>
+                        <ScrollArea className="w-full">
+                            <div className="flex w-max space-x-4 pb-4">
+                                {billInstances.map(instance => (
+                                    <div key={instance.id} className="w-80">
+                                        <BillDueDateCard instance={instance} />
+                                    </div>
+                                ))}
+                            </div>
+                            <ScrollBar orientation="horizontal" />
+                        </ScrollArea>
+                    </DialogContent>
+                </Dialog>
+            )}
+            <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                     <Button>
                         <PlusCircle className="mr-2 h-4 w-4" />
@@ -676,19 +675,19 @@ export default function PlannerPage() {
                     <DropdownMenuItem onSelect={() => setIsAddAppointmentOpen(true)}>Add Appointment</DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => setIsAddEventOpen(true)}>Add Event</DropdownMenuItem>
                 </DropdownMenuContent>
-              </DropdownMenu>
-          </div>
+            </DropdownMenu>
+        </div>
       </div>
       
       {!isMobile && (
-      <div className="flex items-center justify-between gap-2 p-2 border-b bg-muted/50">
+      <div className="flex items-center gap-2 p-2 border-b bg-muted/50">
         <ScrollArea className="w-full whitespace-nowrap">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
                 {weekDays.map((day, index) => (
                     <Button 
                         key={index} 
                         variant={isToday(day) && format(day, 'yyyy-MM-dd') === format(currentDate, 'yyyy-MM-dd') ? 'default' : format(day, 'yyyy-MM-dd') === format(currentDate, 'yyyy-MM-dd') ? 'secondary' : 'ghost'}
-                        className="h-10 flex-1 flex-col py-1"
+                        className="h-14 flex-1 flex-col py-1 min-w-[120px]"
                         onClick={() => handleDayClick(day)}
                     >
                         <span className="text-xs">{format(day, 'EEE')}</span>
@@ -791,6 +790,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
