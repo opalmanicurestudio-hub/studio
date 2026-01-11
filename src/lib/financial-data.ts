@@ -63,18 +63,23 @@ export const billDefinitions: BillDefinition[] = [
 ];
 
 export const billInstances: BillInstance[] = [
-    // Scenario: June rent is past due
+    // --- YEAR-END ROLLOVER SCENARIO ---
+    // A bill from last year that is still overdue
+    { id: 'bi-dec-2023-insurance', billDefinitionId: 'b3', dueDate: '2023-12-20T00:00:00.000Z', status: 'overdue', amountDue: 100.00, amountPaid: 0 },
+    
+    // --- CURRENT YEAR SCENARIO ---
+    // Scenario: June rent is past due for the current year
     { id: 'bi-june-rent', billDefinitionId: 'b1', dueDate: '2024-06-01T00:00:00.000Z', status: 'overdue', amountDue: 1200.00, amountPaid: 0 },
-    // Scenario: July rent is due
-    { id: 'bi1', billDefinitionId: 'b1', dueDate: '2024-07-01T00:00:00.000Z', status: 'unpaid', amountDue: 1200.00, amountPaid: 0 },
+    // Scenario: July rent is due for the current year
+    { id: 'bi-july-rent', billDefinitionId: 'b1', dueDate: '2024-07-01T00:00:00.000Z', status: 'unpaid', amountDue: 1200.00, amountPaid: 0 },
     // Scenario: August rent is upcoming
     { id: 'bi-aug-rent', billDefinitionId: 'b1', dueDate: '2024-08-01T00:00:00.000Z', status: 'unpaid', amountDue: 1200.00, amountPaid: 0 },
 
     // Other examples
-    { id: 'bi2', billDefinitionId: 'p1', dueDate: '2024-07-01T00:00:00.000Z', status: 'paid', amountDue: 2000.00, amountPaid: 2000.00 },
-    { id: 'bi3', billDefinitionId: 'p12', dueDate: '2024-06-15T00:00:00.000Z', status: 'overdue', amountDue: 150.00, amountPaid: 0 },
-    { id: 'bi4', billDefinitionId: 'p11', dueDate: '2024-07-25T00:00:00.000Z', status: 'unpaid', amountDue: 350.00, amountPaid: 0 },
-    { id: 'bi5', billDefinitionId: 'b2', dueDate: '2024-08-05T00:00:00.000Z', status: 'unpaid', amountDue: 49.00, amountPaid: 0 },
+    { id: 'bi-july-personal-rent', billDefinitionId: 'p1', dueDate: '2024-07-01T00:00:00.000Z', status: 'paid', amountDue: 2000.00, amountPaid: 2000.00 },
+    { id: 'bi-june-car-insurance', billDefinitionId: 'p12', dueDate: '2024-06-15T00:00:00.000Z', status: 'overdue', amountDue: 150.00, amountPaid: 0 },
+    { id: 'bi-july-car-payment', billDefinitionId: 'p11', dueDate: '2024-07-25T00:00:00.000Z', status: 'unpaid', amountDue: 350.00, amountPaid: 0 },
+    { id: 'bi-aug-booking-software', billDefinitionId: 'b2', dueDate: '2024-08-05T00:00:00.000Z', status: 'unpaid', amountDue: 49.00, amountPaid: 0 },
 ];
 
 
@@ -105,7 +110,7 @@ export const transactions: Transaction[] = [
     amount: 1200.00,
     paymentMethod: 'Business Checking',
     hasReceipt: true,
-    relatedBillInstanceId: 'bi1',
+    relatedBillInstanceId: 'bi-july-rent',
   },
    {
     id: 'txn-event-expense',
