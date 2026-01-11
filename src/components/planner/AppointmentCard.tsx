@@ -200,18 +200,18 @@ const AppointmentDetails = ({
 
             <div className="space-y-4">
                 <h4 className="font-medium text-sm">Financials</h4>
-                 <div className="grid grid-cols-3 gap-2 w-full text-center">
-                    <div className="rounded-md bg-green-500/10 p-4">
-                        <p className="text-sm text-green-800/80 dark:text-green-400/80">Revenue</p>
-                        <p className="font-bold text-2xl text-green-800 dark:text-green-400">${revenue.toFixed(2)}</p>
+                 <div className="grid grid-cols-2 gap-4 w-full text-center">
+                    <div className="rounded-md bg-green-500/10 p-3">
+                        <p className="text-xs text-green-800/80 dark:text-green-400/80">Revenue</p>
+                        <p className="font-bold text-xl text-green-800 dark:text-green-400">${revenue.toFixed(2)}</p>
                     </div>
-                    <div className="rounded-md bg-red-500/10 p-4">
-                        <p className="text-sm text-red-800/80 dark:text-red-400/80">Cost</p>
-                        <p className="font-bold text-2xl text-red-800 dark:text-red-400">${breakEvenCost.toFixed(2)}</p>
+                    <div className="rounded-md bg-red-500/10 p-3">
+                        <p className="text-xs text-red-800/80 dark:text-red-400/80">Cost</p>
+                        <p className="font-bold text-xl text-red-800 dark:text-red-400">${breakEvenCost.toFixed(2)}</p>
                     </div>
-                    <div className="rounded-md bg-blue-500/10 p-4">
-                        <p className="text-sm text-blue-800/80 dark:text-blue-400/80">Net Profit</p>
-                        <p className="font-bold text-2xl text-blue-800 dark:text-blue-400">${netProfit.toFixed(2)}</p>
+                    <div className="rounded-md bg-blue-500/10 p-3 col-span-2">
+                        <p className="text-xs text-blue-800/80 dark:text-blue-400/80">Net Profit</p>
+                        <p className="font-bold text-xl text-blue-800 dark:text-blue-400">${netProfit.toFixed(2)}</p>
                     </div>
                 </div>
               <div className="text-xs space-y-2 text-muted-foreground pt-2">
