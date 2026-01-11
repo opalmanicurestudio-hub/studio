@@ -61,6 +61,7 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
   } = useForm<TransactionFormData>({
     resolver: zodResolver(transactionSchema),
     defaultValues: {
+      amount: 0,
       description: `Expense for: ${event.title}`,
       category: event.type === 'business' ? 'Business Travel' : 'Personal Travel',
     }
@@ -85,7 +86,7 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md flex flex-col">
         <DialogHeader>
           <DialogTitle>Log Expense for Event</DialogTitle>
           <DialogDescription>
@@ -93,7 +94,7 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit(handleFormSubmit)} id="add-transaction-form" className="flex-1 overflow-hidden">
-          <ScrollArea className="h-[60vh] pr-6">
+          <ScrollArea className="h-full pr-6">
             <div className="grid gap-4 py-4">
               <Controller
                 name="amount"
