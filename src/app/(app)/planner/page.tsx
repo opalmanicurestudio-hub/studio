@@ -88,7 +88,8 @@ const TimeIndicator = () => {
 const DayTimeline = ({ 
     date, 
     appointments, 
-    events, 
+    events,
+    billInstances,
     onCompleteClick, 
     onUpdateStatus, 
     onDeleteAppointment, 
@@ -103,6 +104,7 @@ const DayTimeline = ({
     date: Date; 
     appointments: Appointment[]; 
     events: Event[]; 
+    billInstances: BillInstance[];
     onCompleteClick: (apt: Appointment) => void; 
     onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void; 
     onDeleteAppointment: (appointmentId: string) => void; 
@@ -154,7 +156,7 @@ const DayTimeline = ({
                 return { ...instance, definition: definition! };
             })
             .filter(item => item.definition);
-    }, [date]);
+    }, [date, billInstances]);
 
     const hours = Array.from({ length: 15 }, (_, i) => i + 8); // 8 AM to 10 PM
     const [tmhr, setTmhr] = useState(0);
@@ -610,6 +612,7 @@ export default function PlannerPage() {
                                 date={date} 
                                 appointments={appointmentsForDay} 
                                 events={eventsForDay} 
+                                billInstances={billInstances}
                                 onCompleteClick={handleCompleteClick} 
                                 onUpdateStatus={handleUpdateStatus} 
                                 onDeleteAppointment={handleDeleteAppointment} 
