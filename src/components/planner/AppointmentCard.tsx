@@ -107,8 +107,12 @@ const AppointmentDetails = ({
             <div className="space-y-2">
                 <h3 className="font-semibold text-lg">{client.name}</h3>
                 <div className="text-muted-foreground text-sm space-y-1">
-                    <p className="flex items-center gap-2"><Mail className="w-4 h-4" /> {client.email}</p>
-                    <p className="flex items-center gap-2"><Phone className="w-4 h-4" /> {client.phone}</p>
+                    <a href={`mailto:${client.email}`} className="flex items-center gap-2 hover:text-primary transition-colors">
+                        <Mail className="w-4 h-4" /> {client.email}
+                    </a>
+                    <a href={`tel:${client.phone}`} className="flex items-center gap-2 hover:text-primary transition-colors">
+                        <Phone className="w-4 h-4" /> {client.phone}
+                    </a>
                 </div>
                  <div className="text-muted-foreground text-sm pt-2">
                     <p>{service.name}</p>
