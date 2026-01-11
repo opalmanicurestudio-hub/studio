@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -238,10 +237,16 @@ const DayTimeline = ({
             </div>
              {billInstances.length > 0 && (
                 <div className="border-b">
-                     <Accordion type="single" collapsible className="w-full px-4" defaultValue="bills">
-                        <AccordionItem value="bills" className="border-b-0">
-                            <AccordionTrigger className="text-sm font-medium p-0 py-4 hover:no-underline">
+                     <Accordion type="single" collapsible className="w-full px-4">
+                        <AccordionItem value="bills" className="border-b-0 group">
+                            <AccordionTrigger className="text-sm font-medium p-0 py-4 hover:no-underline relative">
                                 Bills Due Today
+                                {billInstances.length > 0 && (
+                                    <span className="absolute left-[-8px] top-1/2 -translate-y-1/2 hidden h-2 w-2 group-data-[state=closed]:flex">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+                                    </span>
+                                )}
                             </AccordionTrigger>
                             <AccordionContent className="pb-4">
                                 <div className="flex justify-between items-center mb-2">
@@ -735,9 +740,4 @@ export default function PlannerPage() {
   );
 }
 
-
-
-
-
-
-
+    
