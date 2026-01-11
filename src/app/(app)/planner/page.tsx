@@ -1,7 +1,6 @@
-
 'use client';
 
-import { AppHeader } from '@/components/shared/AppHeader';
+import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem } from '@/lib/data';
@@ -541,7 +540,7 @@ export default function PlannerPage() {
   if (!isClient || !currentDate) {
     return (
       <div className="flex h-screen w-full flex-col">
-        <AppHeader title="Planner" />
+        <AppHeaderClient title="Planner" />
         <div className="flex items-center justify-center flex-1">
           <Loader className="h-8 w-8 animate-spin" />
         </div>
@@ -551,7 +550,7 @@ export default function PlannerPage() {
   
   return (
     <div className="flex h-screen w-full flex-col">
-      <AppHeader title="Planner" />
+      <AppHeaderClient title="Planner" />
       <div className="flex flex-col gap-4 p-4 border-b">
         <div className='text-center'>
             <p className='text-xl font-semibold'>{format(currentDate, 'EEEE, LLL d')}</p>
