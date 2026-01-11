@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -42,12 +43,14 @@ const RescheduleAppointmentForm = ({
     client,
     service,
     appointments,
+    services,
     onConfirm
 }: { 
     appointment: Appointment;
     client: Client;
     service: Service;
     appointments: Appointment[];
+    services: Service[];
     onConfirm: (apt: Appointment) => void;
 }) => {
     const [date, setDate] = useState<Date>(appointment.startTime);
@@ -98,7 +101,7 @@ const RescheduleAppointmentForm = ({
         }
 
         return options;
-    }, [date, service, appointments, appointment.id, appointment.startTime]);
+    }, [date, service, appointments, appointment.id, appointment.startTime, services]);
 
     const handleSubmit = () => {
         if (!client || !service || !date || !startTime) return;
@@ -210,7 +213,7 @@ export const RescheduleDialog = ({
   const title = "Reschedule Appointment";
   const description = "Select a new date and time for this appointment.";
   
-  const FormContent = <RescheduleAppointmentForm appointment={appointment} client={client} service={service} appointments={appointments} onConfirm={onConfirm} />;
+  const FormContent = <RescheduleAppointmentForm appointment={appointment} client={client} service={service} appointments={appointments} services={services} onConfirm={onConfirm} />;
 
   if (isMobile) {
     return (
