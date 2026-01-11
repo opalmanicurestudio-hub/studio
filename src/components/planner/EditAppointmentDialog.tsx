@@ -33,10 +33,12 @@ import {
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CalendarIcon, PlusCircle } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Client, Service, Appointment } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes } from 'date-fns';
+import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
+import { Card, CardContent } from '../ui/card';
 
 const EditAppointmentForm = ({ 
     appointment,
@@ -55,6 +57,8 @@ const EditAppointmentForm = ({
     const [selectedServiceId, setSelectedServiceId] = useState<string>(appointment.serviceId);
     const [date, setDate] = useState<Date>(appointment.startTime);
     const [startTime, setStartTime] = useState<string>(format(appointment.startTime, 'HH:mm'));
+    const [selectedAddOns, setSelectedAddOns] = useState<Service[]>([]);
+    const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
 
     const selectedService = useMemo(() => services.find(s => s.id === selectedServiceId), [services, selectedServiceId]);
 
@@ -63,7 +67,11 @@ const EditAppointmentForm = ({
         setSelectedServiceId(appointment.serviceId);
         setDate(appointment.startTime);
         setStartTime(format(appointment.startTime, 'HH:mm'));
-    }, [appointment]);
+        const initialAddons = (appointment.addOnIds || [])
+            .map(id => services.find(s => s.id === id))
+            .filter((s): s is Service => !!s);
+        setSelectedAddOns(initialAddons);
+    }, [appointment, services]);
 
     const timeOptions = useMemo(() => {
         const options = [];
@@ -126,93 +134,133 @@ const EditAppointmentForm = ({
             serviceId: selectedServiceId,
             startTime: startDateTime,
             endTime: endDateTime,
+            addOnIds: selectedAddOns.map(s => s.id),
         };
         onConfirm(updatedAppointment);
     }
+
+    const removeAddOn = (addOnId: string) => {
+        setSelectedAddOns(prev => prev.filter(a => a.id !== addOnId));
+    };
     
     return (
-        <form id="edit-appointment-form" onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
-            <ScrollArea className="h-[70vh] pr-6">
-                <div className="space-y-6">
-                    <div className="space-y-4">
-                        <h3 className="text-lg font-medium">Client & Service</h3>
-                        <div className="space-y-2">
-                            <Label htmlFor="client-edit">Client</Label>
-                            <div className="flex gap-2">
-                                <Select value={selectedClientId} onValueChange={setSelectedClientId}>
-                                    <SelectTrigger id="client-edit">
-                                    <SelectValue placeholder="Select an existing client" />
+        <>
+            <form id="edit-appointment-form" onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
+                <ScrollArea className="h-[70vh] pr-6">
+                    <div className="space-y-6">
+                        <div className="space-y-4">
+                            <h3 className="text-lg font-medium">Client & Service</h3>
+                            <div className="space-y-2">
+                                <Label htmlFor="client-edit">Client</Label>
+                                <div className="flex gap-2">
+                                    <Select value={selectedClientId} onValueChange={setSelectedClientId}>
+                                        <SelectTrigger id="client-edit">
+                                        <SelectValue placeholder="Select an existing client" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                        {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="service-edit">Service</Label>
+                                <Select value={selectedServiceId} onValueChange={setSelectedServiceId}>
+                                    <SelectTrigger id="service-edit">
+                                    <SelectValue placeholder="Select a service" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                    {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                                    {services.filter(s => s.type === 'service').map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
                                     </SelectContent>
                                 </Select>
                             </div>
                         </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="service-edit">Service</Label>
-                            <Select value={selectedServiceId} onValueChange={setSelectedServiceId}>
-                                <SelectTrigger id="service-edit">
-                                <SelectValue placeholder="Select a service" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                {services.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    </div>
 
-                    <div className="space-y-4">
-                        <h3 className="text-lg font-medium">Date & Time</h3>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="date-edit">Date</Label>
-                                <Popover>
-                                    <PopoverTrigger asChild>
-                                    <Button
-                                        variant={"outline"}
-                                        className={cn(
-                                        "w-full justify-start text-left font-normal",
-                                        !date && "text-muted-foreground"
-                                        )}
-                                    >
-                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {date ? format(date, 'PPP') : <span>Pick a date</span>}
-                                    </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0">
-                                    <Calendar
-                                        mode="single"
-                                        selected={date}
-                                        onSelect={(d) => setDate(d || new Date())}
-                                        initialFocus
-                                    />
-                                    </PopoverContent>
-                                </Popover>
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="start-time-edit">Start Time</Label>
-                                <Select onValueChange={setStartTime} value={startTime}>
-                                    <SelectTrigger id="start-time-edit" disabled={!selectedService}>
-                                        <SelectValue placeholder="Select a time" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {timeOptions.map(time => (
-                                            <SelectItem key={time} value={time}>{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</SelectItem>
+                         <div className="space-y-4">
+                            <h3 className="text-lg font-medium">Add-on Services</h3>
+                                {selectedAddOns.length > 0 ? (
+                                <Card>
+                                    <CardContent className="p-2 space-y-2">
+                                        {selectedAddOns.map(item => (
+                                            <div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50">
+                                                <span className="text-sm font-medium">{item.name}</span>
+                                                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}>
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            </div>
                                         ))}
-                                    </SelectContent>
-                                </Select>
+                                    </CardContent>
+                                </Card>
+                            ) : (
+                                <Card>
+                                    <CardContent className="p-4 text-center text-sm text-muted-foreground">
+                                        No add-ons selected.
+                                    </CardContent>
+                                </Card>
+                            )}
+                            <Button variant="outline" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button>
+                        </div>
+
+
+                        <div className="space-y-4">
+                            <h3 className="text-lg font-medium">Date & Time</h3>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="date-edit">Date</Label>
+                                    <Popover>
+                                        <PopoverTrigger asChild>
+                                        <Button
+                                            variant={"outline"}
+                                            className={cn(
+                                            "w-full justify-start text-left font-normal",
+                                            !date && "text-muted-foreground"
+                                            )}
+                                        >
+                                            <CalendarIcon className="mr-2 h-4 w-4" />
+                                            {date ? format(date, 'PPP') : <span>Pick a date</span>}
+                                        </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-auto p-0">
+                                        <Calendar
+                                            mode="single"
+                                            selected={date}
+                                            onSelect={(d) => setDate(d || new Date())}
+                                            initialFocus
+                                        />
+                                        </PopoverContent>
+                                    </Popover>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="start-time-edit">Start Time</Label>
+                                    <Select onValueChange={setStartTime} value={startTime}>
+                                        <SelectTrigger id="start-time-edit" disabled={!selectedService}>
+                                            <SelectValue placeholder="Select a time" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {timeOptions.map(time => (
+                                                <SelectItem key={time} value={time}>{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
                             </div>
                         </div>
-                    </div>
 
-                    <div className="space-y-4">
-                        <h3 className="text-lg font-medium">Notes</h3>
-                        <Textarea rows={4} placeholder="Add any appointment-specific notes..."/>
+                        <div className="space-y-4">
+                            <h3 className="text-lg font-medium">Notes</h3>
+                            <Textarea rows={4} placeholder="Add any appointment-specific notes..."/>
+                        </div>
                     </div>
-                </div>
-            </ScrollArea>
-        </form>
+                </ScrollArea>
+            </form>
+             <SelectAddOnsDialog
+                open={isAddOnSelectorOpen}
+                onOpenChange={setIsAddOnSelectorOpen}
+                onSelect={setSelectedAddOns}
+                allAddOns={services.filter(s => s.type === 'addon')}
+                initialSelected={selectedAddOns}
+            />
+        </>
     )
 }
 
