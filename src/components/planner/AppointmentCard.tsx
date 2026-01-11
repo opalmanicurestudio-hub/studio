@@ -239,61 +239,63 @@ export function AppointmentCard({
         )}
         onClick={() => setIsDetailsOpen(true)}
     >
-        <div className="flex items-start justify-between">
-            <div>
-                <p className="font-semibold text-xs leading-tight truncate">{client.name}</p>
-                <p className="text-xs text-muted-foreground truncate">{service.name}</p>
-            </div>
-            <div className="flex items-center gap-1">
-                <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[appointment.status]?.className)}>{statusDisplay[appointment.status]?.text}</Badge>
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-6 w-6 -mr-1" onClick={(e) => e.stopPropagation()}>
-                            <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
-                        <DropdownMenuItem onSelect={() => setIsDetailsOpen(true)}>
-                            <FileText className="mr-2 h-4 w-4"/>View Details
-                        </DropdownMenuItem>
-                        <DropdownMenuSub>
-                            <DropdownMenuSubTrigger>
-                                <Clock10 className="mr-2 h-4 w-4"/> Change Status
-                            </DropdownMenuSubTrigger>
-                            <DropdownMenuPortal>
-                                <DropdownMenuSubContent>
-                                    {appointment.status !== 'completed' && (
-                                        <DropdownMenuItem onSelect={() => onCompleteClick(appointment)}>
-                                        <CheckCircle className="mr-2 h-4 w-4 text-green-500"/>Mark as Completed
-                                        </DropdownMenuItem>
-                                    )}
-                                    <DropdownMenuItem onSelect={() => onUpdateStatus(appointment.id, 'confirmed')}><CheckCircle className="mr-2 h-4 w-4 text-blue-500"/>Confirmed</DropdownMenuItem>
-                                    <DropdownMenuItem onSelect={() => onUpdateStatus(appointment.id, 'cancelled')}><XCircle className="mr-2 h-4 w-4 text-red-500"/>Cancelled</DropdownMenuItem>
-                                </DropdownMenuSubContent>
-                            </DropdownMenuPortal>
-                        </DropdownMenuSub>
-                        {appointment.status === 'completed' && (
-                            <DropdownMenuItem onSelect={() => onPrintReceipt(appointment)}>
-                                <Printer className="mr-2 h-4 w-4"/>Print Receipt
-                            </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem onSelect={() => onEdit(appointment)}>
-                            <Edit className="mr-2 h-4 w-4"/> Edit Details
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive" onSelect={() => onDelete(appointment.id)}>
-                            <Trash2 className="mr-2 h-4 w-4"/> Delete
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            </div>
-        </div>
-        <div className="flex flex-col items-start gap-1 mt-1 text-xs text-muted-foreground">
-           <div className='flex items-center gap-1.5'>
+      <div className="flex flex-col flex-grow justify-between min-h-0">
+        <div className="flex-shrink-0">
+          <div className="flex items-start justify-between">
+              <div>
+                  <p className="font-semibold text-xs leading-tight truncate">{client.name}</p>
+                  <p className="text-xs text-muted-foreground truncate">{service.name}</p>
+              </div>
+              <div className="flex items-center gap-1">
+                  <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[appointment.status]?.className)}>{statusDisplay[appointment.status]?.text}</Badge>
+                  <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-6 w-6 -mr-1" onClick={(e) => e.stopPropagation()}>
+                              <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
+                          <DropdownMenuItem onSelect={() => setIsDetailsOpen(true)}>
+                              <FileText className="mr-2 h-4 w-4"/>View Details
+                          </DropdownMenuItem>
+                          <DropdownMenuSub>
+                              <DropdownMenuSubTrigger>
+                                  <Clock10 className="mr-2 h-4 w-4"/> Change Status
+                              </DropdownMenuSubTrigger>
+                              <DropdownMenuPortal>
+                                  <DropdownMenuSubContent>
+                                      {appointment.status !== 'completed' && (
+                                          <DropdownMenuItem onSelect={() => onCompleteClick(appointment)}>
+                                          <CheckCircle className="mr-2 h-4 w-4 text-green-500"/>Mark as Completed
+                                          </DropdownMenuItem>
+                                      )}
+                                      <DropdownMenuItem onSelect={() => onUpdateStatus(appointment.id, 'confirmed')}><CheckCircle className="mr-2 h-4 w-4 text-blue-500"/>Confirmed</DropdownMenuItem>
+                                      <DropdownMenuItem onSelect={() => onUpdateStatus(appointment.id, 'cancelled')}><XCircle className="mr-2 h-4 w-4 text-red-500"/>Cancelled</DropdownMenuItem>
+                                  </DropdownMenuSubContent>
+                              </DropdownMenuPortal>
+                          </DropdownMenuSub>
+                          {appointment.status === 'completed' && (
+                              <DropdownMenuItem onSelect={() => onPrintReceipt(appointment)}>
+                                  <Printer className="mr-2 h-4 w-4"/>Print Receipt
+                              </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem onSelect={() => onEdit(appointment)}>
+                              <Edit className="mr-2 h-4 w-4"/> Edit Details
+                          </DropdownMenuItem>
+                          <DropdownMenuItem className="text-destructive" onSelect={() => onDelete(appointment.id)}>
+                              <Trash2 className="mr-2 h-4 w-4"/> Delete
+                          </DropdownMenuItem>
+                      </DropdownMenuContent>
+                  </DropdownMenu>
+              </div>
+          </div>
+          <div className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground">
             <Clock className="w-3 h-3"/>
-            <span>{format(appointment.startTime, 'h:mm a')}</span>
-           </div>
+            <span>{format(appointment.startTime, 'h:mm a')} - {format(appointment.endTime, 'h:mm a')}</span>
+          </div>
         </div>
-        <div className="grid grid-cols-3 gap-1 text-[10px] mt-auto pt-1 text-center">
+
+        <div className="grid grid-cols-3 gap-1 text-[10px] mt-1 pt-1 border-t border-current/10 text-center flex-shrink-0">
             <div>
                 <p className="text-muted-foreground font-medium">Revenue</p>
                 <p className="font-bold">${service.price.toFixed(2)}</p>
@@ -302,13 +304,14 @@ export function AppointmentCard({
                 <p className="text-muted-foreground font-medium">Cost</p>
                 <p className="font-bold text-destructive">${breakEvenCost.toFixed(2)}</p>
             </div>
-             <div>
+              <div>
                 <p className="text-muted-foreground font-medium">Profit</p>
                 <p className={cn("font-bold", netProfit >= 0 ? 'text-primary' : 'text-destructive')}>
                     ${netProfit.toFixed(2)}
                 </p>
             </div>
         </div>
+      </div>
     </div>
   );
 
@@ -324,7 +327,7 @@ export function AppointmentCard({
       {hasPadBefore && (
         <div style={{ height: beforeHeight }} className="bg-muted/30 rounded-t-lg flex items-center justify-center text-xs text-muted-foreground bg-[repeating-linear-gradient(-45deg,transparent,transparent_4px,hsl(var(--muted))_4px,hsl(var(--muted))_5px)]" />
       )}
-      <div style={{ height: mainHeight }}>
+      <div style={{ height: mainHeight }} className="min-h-fit">
         <MainContent />
       </div>
       {hasPadAfter && (
