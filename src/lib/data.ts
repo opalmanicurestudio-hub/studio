@@ -1,3 +1,4 @@
+
 import { BillDefinition, billDefinitions, billInstances } from './financial-data';
 import { addDays, subDays, setHours, setMinutes, startOfDay } from 'date-fns';
 
@@ -107,6 +108,7 @@ export type Appointment = {
   startTime: Date;
   endTime: Date;
   status: 'confirmed' | 'completed' | 'cancelled' | 'deposit_pending';
+  addOnIds?: string[];
 };
 
 export type EventChecklistItem = {
@@ -227,6 +229,17 @@ export const services: Service[] = [
         inventory.find(i => i.id === 'inv-7')!
     ]
   },
+  { 
+    id: 'svc-addon-1', 
+    name: 'Gel Polish',
+    type: 'addon',
+    category: 'Nails', 
+    duration: 15,
+    price: 20.00,
+    cost: 2.50,
+    profit: 17.50,
+    margin: 87.5,
+  },
 ];
 
 const today = new Date();
@@ -234,7 +247,7 @@ export const appointments: Appointment[] = [
     // Today's appointments
   { id: 'apt-0', clientId: 'cli-4', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 8), 0), endTime: setMinutes(setHours(startOfDay(today), 8), 50), status: 'completed' },
   { id: 'apt-1', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today,1)), 9), 30), endTime: setMinutes(setHours(startOfDay(subDays(today,1)), 10), 20), status: 'confirmed' },
-  { id: 'apt-2', clientId: 'cli-2', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 11), 0), endTime: setMinutes(setHours(startOfDay(today), 11), 50), status: 'completed' },
+  { id: 'apt-2', clientId: 'cli-2', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 11), 0), endTime: setMinutes(setHours(startOfDay(today), 11), 50), status: 'completed', addOnIds: ['svc-addon-1'] },
   { id: 'apt-6', clientId: 'cli-2', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 14), 0), endTime: setMinutes(setHours(startOfDay(today), 14), 50), status: 'deposit_pending' },
   { id: 'apt-3', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 15), 0), endTime: setMinutes(setHours(startOfDay(today), 15), 50), status: 'confirmed' },
   { id: 'apt-5', clientId: 'cli-5', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 16), 0), endTime: setMinutes(setHours(startOfDay(today), 16), 50), status: 'cancelled' },

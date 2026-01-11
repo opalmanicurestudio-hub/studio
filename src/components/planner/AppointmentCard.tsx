@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -26,6 +25,7 @@ import {
   Receipt,
   ListChecks,
   ShieldAlert,
+  PlusCircle,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -275,6 +275,7 @@ export function AppointmentCard({
                 {client.sensoryNeeds && <Ear className="h-3 w-3 text-blue-500" />}
                 {client.inspirationPhotoUrl && <ImageIcon className="h-3 w-3 text-orange-400" />}
                 {client.isMember && <Award className="h-3 w-3 text-amber-500" />}
+                {appointment.addOnIds && <div className="flex items-center gap-0.5 text-cyan-500"><PlusCircle className="h-3 w-3" /><span className="text-xs font-bold">{appointment.addOnIds.length}</span></div>}
             </div>
             <div className="flex flex-col items-start">
                 <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[appointment.status]?.className)}>{statusDisplay[appointment.status]?.text}</Badge>
