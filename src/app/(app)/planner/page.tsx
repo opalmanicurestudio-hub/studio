@@ -57,15 +57,14 @@ const TimeIndicator = () => {
             const now = new Date();
             const dayStart = setHours(startOfDay(now), 8);
             const minutesFromStart = differenceInMinutes(now, dayStart);
-            // Each hour is 128px (h-32). 128px / 60 minutes = 2.1333px per minute.
-            const newTop = minutesFromStart * 2.1333;
-            if (newTop >= 0) { // Only show if after 8 AM
+            const newTop = minutesFromStart * (128 / 60); // 128px is h-32
+            if (newTop >= 0) {
                 setTop(newTop);
             }
         };
 
-        updatePosition(); // Initial position
-        const interval = setInterval(updatePosition, 60000); // Update every minute
+        updatePosition();
+        const interval = setInterval(updatePosition, 60000);
 
         return () => clearInterval(interval);
     }, []);
@@ -112,8 +111,6 @@ const DayTimeline = ({
     dailyTransactions: Transaction[] | null;
     onAddTransaction: (transaction: any) => void;
 }) => {
-    const [currentBillIndex, setCurrentBillIndex] = useState(0);
-
     const dailyTotals = useMemo(() => {
         const appointmentRevenue = appointments
             .filter(apt => apt.status === 'completed')
@@ -156,12 +153,6 @@ const DayTimeline = ({
       }
     }, []);
 
-    useEffect(() => {
-        // When the date changes, reset to the first bill
-        setCurrentBillIndex(0);
-    }, [date]);
-
-
     const renderItem = (item: any) => {
         const dayStart = setHours(startOfDay(date), 8);
         
@@ -176,8 +167,8 @@ const DayTimeline = ({
             const actualStartTime = subMinutes(item.startTime, padBefore);
             const minutesFromStart = differenceInMinutes(actualStartTime, dayStart);
             
-            const top = minutesFromStart * 2.1333; // 128px/60min = 2.1333px/min
-            const height = totalDuration * 2.1333;
+            const top = minutesFromStart * (128/60);
+            const height = totalDuration * (128/60);
 
             const style = { top: `${top}px`, height: `${height}px` };
 
@@ -202,8 +193,8 @@ const DayTimeline = ({
             );
         } else { // item.itemType === 'event'
              const minutesFromStart = differenceInMinutes(item.startTime, dayStart);
-             const top = minutesFromStart * 2.1333; // 128px/60min = 2.1333px/min
-             const height = differenceInMinutes(item.endTime, item.startTime) * 2.1333;
+             const top = minutesFromStart * (128/60);
+             const height = differenceInMinutes(item.endTime, item.startTime) * (128/60);
              const style = { top: `${top}px`, height: `${height}px` };
 
              const eventTransactions = dailyTransactions?.filter(t => t.relatedEventId === item.id) || [];
@@ -265,34 +256,16 @@ const DayTimeline = ({
                                 <DialogTitle>Bills Due Today</DialogTitle>
                                 <DialogDescription>{billInstances.length} bill(s) require attention.</DialogDescription>
                             </DialogHeader>
-                             <div className="flex justify-between items-center mb-2">
-                                <span className="text-xs text-muted-foreground">
-                                    {currentBillIndex + 1} of {billInstances.length}
-                                </span>
-                                <div className="flex items-center gap-2">
-                                    <Button
-                                        variant="outline"
-                                        size="icon"
-                                        className="h-6 w-6"
-                                        onClick={() => setCurrentBillIndex(prev => (prev - 1 + billInstances.length) % billInstances.length)}
-                                        disabled={billInstances.length <= 1}
-                                    >
-                                        <ChevronLeft className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                        variant="outline"
-                                        size="icon"
-                                        className="h-6 w-6"
-                                        onClick={() => setCurrentBillIndex(prev => (prev + 1) % billInstances.length)}
-                                        disabled={billInstances.length <= 1}
-                                    >
-                                        <ChevronRight className="h-4 w-4" />
-                                    </Button>
+                             <ScrollArea className="w-full">
+                                <div className="flex w-max space-x-4 pb-4">
+                                    {billInstances.map(instance => (
+                                        <div key={instance.id} className="w-80">
+                                            <BillDueDateCard instance={instance} />
+                                        </div>
+                                    ))}
                                 </div>
-                            </div>
-                            {billInstances[currentBillIndex] && (
-                                <BillDueDateCard instance={billInstances[currentBillIndex]} />
-                            )}
+                                <ScrollBar orientation="horizontal" />
+                            </ScrollArea>
                         </DialogContent>
                     </Dialog>
                 )}
@@ -301,7 +274,7 @@ const DayTimeline = ({
             <ScrollArea className="flex-1" style={{ height: 'calc(100vh - 230px)' }}>
                 <div className="relative grid grid-cols-[auto,1fr] p-4">
                     {/* Time labels */}
-                    <div className="flex flex-col text-right pr-4">
+                    <div className="flex flex-col text-right pr-4 -mt-2.5">
                         {hours.map(hour => (
                             <div key={hour} className="h-32 flex items-start">
                                 <span className="text-xs text-muted-foreground -translate-y-1/2">{format(new Date(0, 0, 0, hour), 'ha')}</span>
@@ -710,7 +683,7 @@ export default function PlannerPage() {
         <EditAppointmentDialog 
             open={isEditAppointmentOpen}
             onOpenChange={setIsEditAppointmentOpen}
-            appointment={appointment}
+            appointment={selectedAppointment}
             clients={clients}
             services={services}
             appointments={appointments}
@@ -750,13 +723,3 @@ export default function PlannerPage() {
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
-
