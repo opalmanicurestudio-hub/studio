@@ -288,6 +288,10 @@
           "type": "string",
           "description": "The method of payment used for the transaction."
         },
+        "paymentMethodIdentifier": {
+            "type": "string",
+            "description": "An optional identifier for the payment method (e.g., account nickname or last 4 digits)."
+        },
         "hasReceipt": {
           "type": "boolean"
         }

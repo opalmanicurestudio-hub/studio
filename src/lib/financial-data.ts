@@ -31,6 +31,7 @@ export type Transaction = {
   category: string;
   amount: number;
   paymentMethod: string;
+  paymentMethodIdentifier?: string;
   hasReceipt: boolean;
   relatedBillInstanceId?: string; // Link to a bill instance
 };

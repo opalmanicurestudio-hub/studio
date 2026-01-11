@@ -31,6 +31,7 @@ const transactionSchema = z.object({
   amount: z.coerce.number().positive('Amount must be positive.'),
   category: z.string().min(1, 'Category is required.'),
   paymentMethod: z.string().min(1, 'Payment method is required.'),
+  paymentMethodIdentifier: z.string().optional(),
   clientOrVendor: z.string().optional(),
 });
 
@@ -70,6 +71,7 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
       category: data.category,
       amount: data.amount,
       paymentMethod: data.paymentMethod,
+      paymentMethodIdentifier: data.paymentMethodIdentifier,
       hasReceipt: false, // Default to false, can be updated later
     };
     onConfirm(newTransaction);
@@ -120,6 +122,16 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
                     </SelectContent>
                   </Select>
                   {errors.paymentMethod && <p className="text-sm text-destructive">{errors.paymentMethod.message}</p>}
+                </div>
+              )}
+            />
+            <Controller
+              name="paymentMethodIdentifier"
+              control={control}
+              render={({ field }) => (
+                <div className="space-y-2">
+                  <Label htmlFor="paymentMethodIdentifier">Account Identifier (Optional)</Label>
+                  <Input id="paymentMethodIdentifier" placeholder="e.g., Chase ****1234" {...field} />
                 </div>
               )}
             />

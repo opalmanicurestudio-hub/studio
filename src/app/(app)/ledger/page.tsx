@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -214,7 +214,7 @@ const TransactionRow = ({ transaction }: { transaction: Transaction }) => {
       <TableCell>
           <div className="flex items-center gap-2">
             <CreditCard className="w-4 h-4 text-muted-foreground"/>
-            <span>{transaction.paymentMethod}</span>
+            <span>{transaction.paymentMethod} {transaction.paymentMethodIdentifier && `(${transaction.paymentMethodIdentifier})`}</span>
           </div>
       </TableCell>
       <TableCell>{transaction.category}</TableCell>
@@ -299,7 +299,7 @@ const TransactionCard = ({ transaction }: { transaction: Transaction }) => {
                     </DropdownMenu>
                 </div>
                  <div className="flex items-center text-sm text-muted-foreground pt-2 border-t mt-4">
-                    <CreditCard className="w-4 h-4 mr-2"/> Paid with {transaction.paymentMethod}
+                    <CreditCard className="w-4 h-4 mr-2"/> Paid with {transaction.paymentMethod} {transaction.paymentMethodIdentifier && `(${transaction.paymentMethodIdentifier})`}
                 </div>
             </CardContent>
         </Card>
