@@ -168,7 +168,7 @@ export const EditLocationDialog = ({
                                       return (
                                           <div key={iconKey}>
                                               <RadioGroupItem value={iconKey} id={`edit-${iconKey}`} className="peer sr-only" />
-                                              <Label htmlFor={`edit-${iconKey}`} className={cn("flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary")}>
+                                              <Label htmlFor={`edit-${iconKey}`} className={cn("flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary whitespace-nowrap")}>
                                                   <Icon className="w-5 h-5 mb-1" />
                                                   {iconKey}
                                               </Label>
