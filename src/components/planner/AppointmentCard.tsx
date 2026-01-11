@@ -24,6 +24,7 @@ import {
   Printer,
   TrendingUp,
   Receipt,
+  ListChecks,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -248,9 +249,9 @@ export function AppointmentCard({
                 <p className="text-[11px] text-muted-foreground truncate">{service.name}</p>
             </div>
             <div className="text-right flex-shrink-0">
-                <p className={cn("font-bold", netProfit >= 0 ? "text-primary" : "text-destructive")}>${netProfit.toFixed(2)}</p>
-                <p className="text-[10px] text-green-600 dark:text-green-400">Rev: ${revenue.toFixed(2)}</p>
-                <p className="text-[10px] text-red-600 dark:text-red-400">Cost: ${breakEvenCost.toFixed(2)}</p>
+                <p className={cn("font-semibold text-xs", netProfit >= 0 ? "text-primary" : "text-destructive")}>${netProfit.toFixed(2)}</p>
+                <p className="text-xs text-green-600 dark:text-green-400">Rev: ${revenue.toFixed(2)}</p>
+                <p className="text-xs text-red-600 dark:text-red-400">Cost: ${breakEvenCost.toFixed(2)}</p>
             </div>
         </div>
 
@@ -348,4 +349,3 @@ export function AppointmentCard({
     </div>
   );
 }
-
