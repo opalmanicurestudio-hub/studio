@@ -3,7 +3,7 @@
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem } from '@/lib/data';
 import { billInstances as allBillInstances, billDefinitions, type Bill } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval } from 'date-fns';
@@ -44,6 +44,7 @@ import { BillDueDateCard } from '@/components/planner/BillDueDateCard';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 
 
 const TimeIndicator = () => {
@@ -587,7 +588,38 @@ export default function PlannerPage() {
     <div className="flex h-screen w-full flex-col">
       <AppHeaderClient title="Planner" />
 
-      {!isMobile && (
+      {isMobile ? (
+        <div className="m-4">
+          <Accordion type="single" collapsible>
+            <AccordionItem value="kpis">
+              <AccordionTrigger>
+                <div className="flex items-center gap-2">
+                  <BarChart className="w-4 h-4" />
+                  <span>Weekly KPIs</span>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent className="pt-2">
+                <Card>
+                    <CardContent className="p-4 grid grid-cols-2 gap-4">
+                        <div className="p-2 bg-muted/50 rounded-lg">
+                            <div className="text-xs font-medium text-muted-foreground flex items-center gap-2"><TrendingUp className="w-3 h-3"/>Revenue</div>
+                            <div className="text-lg font-bold">${weeklyKpis.weeklyRevenue.toFixed(2)}</div>
+                        </div>
+                         <div className="p-2 bg-muted/50 rounded-lg">
+                            <div className="text-xs font-medium text-muted-foreground flex items-center gap-2"><DollarSign className="w-3 h-3"/>Break-Even</div>
+                            <div className="text-lg font-bold">${weeklyKpis.weeklyBreakEven.toFixed(2)}</div>
+                        </div>
+                         <div className="p-2 bg-muted/50 rounded-lg col-span-2">
+                            <div className="text-xs font-medium text-muted-foreground">Net Profit</div>
+                            <div className={cn("text-xl font-bold", weeklyKpis.weeklyNetProfit >= 0 ? "text-green-500" : "text-destructive")}>${weeklyKpis.weeklyNetProfit.toFixed(2)}</div>
+                        </div>
+                    </CardContent>
+                </Card>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+        </div>
+      ) : (
         <Card className="m-4">
             <CardContent className="p-4 grid grid-cols-4 gap-4">
                 <div className="p-4 bg-muted/50 rounded-lg">
@@ -736,4 +768,3 @@ export default function PlannerPage() {
     </div>
   );
 }
-
