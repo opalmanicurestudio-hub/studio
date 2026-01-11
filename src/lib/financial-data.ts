@@ -1,4 +1,5 @@
 
+
 export type BillDefinition = {
   id: string;
   name: string;
@@ -34,6 +35,7 @@ export type Transaction = {
   paymentMethodIdentifier?: string;
   hasReceipt: boolean;
   relatedBillInstanceId?: string; // Link to a bill instance
+  relatedEventId?: string; // Link to an event
 };
 
 

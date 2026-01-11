@@ -181,10 +181,12 @@ const DayTimeline = ({
                 </div>
             );
         } else { // item.itemType === 'event'
+             const eventTransactions = dailyTransactions?.filter(t => t.relatedEventId === item.id) || [];
              return (
                  <div key={item.id} className="absolute w-full px-2" style={style}>
                     <EventCard 
-                        event={item} 
+                        event={item}
+                        transactions={eventTransactions}
                         onChecklistItemToggle={onChecklistItemToggle}
                         onUpdateEvent={onUpdateEvent}
                         onEditEvent={onEditEvent}
@@ -376,6 +378,21 @@ export default function PlannerPage() {
 
   const handleAddEvent = (newEvent: Omit<Event, 'id'>) => {
     const newEventWithId = { ...newEvent, id: `evt-${Date.now()}` };
+    if (newEvent.cost && newEvent.cost > 0 && newEvent.type !== 'blocked') {
+        const newTransaction = {
+            description: `Expense for: ${newEvent.title}`,
+            clientOrVendor: 'N/A',
+            type: 'expense' as const,
+            context: newEvent.type === 'business' ? 'Business' : 'Personal',
+            category: newEvent.type === 'business' ? 'Business Travel' : 'Personal Travel',
+            amount: newEvent.cost,
+            paymentMethod: 'Unknown',
+            hasReceipt: false,
+            relatedEventId: newEventWithId.id
+        };
+        handleAddTransaction(newTransaction)
+    }
+
     setEvents(prev => [...prev, newEventWithId].sort((a,b) => a.startTime.getTime() - b.startTime.getTime()));
     toast({
         title: "Event Added",

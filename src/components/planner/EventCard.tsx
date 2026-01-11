@@ -23,17 +23,20 @@ import { ScrollArea } from '../ui/scroll-area';
 import { Button } from '../ui/button';
 import { ImageUpload } from '../shared/ImageUpload';
 import { AddTransactionDialog } from './AddTransactionDialog';
+import { type Transaction } from '@/lib/financial-data';
 
 interface EventCardProps {
     event: Event,
+    transactions: Transaction[],
     onChecklistItemToggle: (eventId: string, checklistItemId: string, completed: boolean) => void;
     onUpdateEvent: (updatedEvent: Event) => void;
     onEditEvent: (event: Event) => void;
     onAddTransaction: (transaction: any) => void;
 }
 
-const EventDetailsContent = ({ event, onChecklistItemToggle, onUpdateEvent, onEditEvent, onAddTransaction }: {
+const EventDetailsContent = ({ event, transactions, onChecklistItemToggle, onUpdateEvent, onEditEvent, onAddTransaction }: {
     event: Event,
+    transactions: Transaction[],
     onChecklistItemToggle: (eventId: string, checklistItemId: string, completed: boolean) => void;
     onUpdateEvent: (updatedEvent: Event) => void;
     onEditEvent: (event: Event) => void;
@@ -89,7 +92,21 @@ const EventDetailsContent = ({ event, onChecklistItemToggle, onUpdateEvent, onEd
 
                      <div className="space-y-3">
                         <h4 className="font-medium text-sm flex items-center gap-2"><DollarSign className="w-4 h-4"/> Financials</h4>
-                        <Button variant="outline" size="sm" onClick={() => setIsAddTransactionOpen(true)}><FilePlus className="w-4 h-4 mr-2"/> Log an Expense</Button>
+                        {transactions.length > 0 ? (
+                             <div className="space-y-2">
+                                {transactions.map(t => (
+                                    <div key={t.id} className="flex justify-between items-center bg-muted/50 p-3 rounded-md">
+                                        <div className='text-sm'>
+                                            <p className='font-medium'>{t.description}</p>
+                                            <p className='text-xs text-muted-foreground'>{t.paymentMethod}</p>
+                                        </div>
+                                        <p className="font-semibold text-sm text-destructive">-${t.amount.toFixed(2)}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <Button variant="outline" size="sm" onClick={() => setIsAddTransactionOpen(true)}><FilePlus className="w-4 h-4 mr-2"/> Log an Expense</Button>
+                        )}
                     </div>
                     
                     <Separator />
@@ -124,6 +141,7 @@ const EventDetailsContent = ({ event, onChecklistItemToggle, onUpdateEvent, onEd
 
 export function EventCard({ 
     event,
+    transactions,
     onChecklistItemToggle,
     onUpdateEvent,
     onEditEvent,
@@ -144,6 +162,8 @@ export function EventCard({
         case 'business': Icon = Briefcase; break;
         case 'blocked': Icon = Lock; break;
     }
+
+    const totalCost = transactions.reduce((acc, t) => acc + t.amount, 0);
     
     const TriggerCard = (
         <div 
@@ -160,6 +180,15 @@ export function EventCard({
                 </div>
                 <p className="text-xs text-muted-foreground flex-shrink-0">{format(event.startTime, 'h:mm a')}</p>
             </div>
+
+             {totalCost > 0 && (
+                <div className="mt-auto pt-1 text-right">
+                    <div className="flex items-center justify-end gap-1 text-xs font-semibold text-destructive">
+                        <DollarSign className="w-3 h-3" />
+                        <span>{totalCost.toFixed(2)}</span>
+                    </div>
+                </div>
+            )}
             
             <div className="flex-grow mt-2 overflow-y-auto">
             </div>
@@ -180,7 +209,7 @@ export function EventCard({
                     </SheetDescription>
                 </SheetHeader>
                 <Separator />
-                <EventDetailsContent event={event} onChecklistItemToggle={onChecklistItemToggle} onUpdateEvent={onUpdateEvent} onEditEvent={onEditEvent} onAddTransaction={onAddTransaction} />
+                <EventDetailsContent event={event} transactions={transactions} onChecklistItemToggle={onChecklistItemToggle} onUpdateEvent={onUpdateEvent} onEditEvent={onEditEvent} onAddTransaction={onAddTransaction} />
             </DialogOrSheetContent>
         </DialogOrSheet>
     )

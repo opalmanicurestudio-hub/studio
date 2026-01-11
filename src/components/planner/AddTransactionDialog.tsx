@@ -63,7 +63,7 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
   });
 
   const handleFormSubmit = (data: TransactionFormData) => {
-    const newTransaction = {
+    const newTransaction: Omit<Transaction, 'id' | 'date'> = {
       description: `Expense for: ${event.title}`,
       clientOrVendor: data.clientOrVendor || 'N/A',
       type: 'expense' as const,
@@ -73,6 +73,7 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
       paymentMethod: data.paymentMethod,
       paymentMethodIdentifier: data.paymentMethodIdentifier,
       hasReceipt: false, // Default to false, can be updated later
+      relatedEventId: event.id,
     };
     onConfirm(newTransaction);
     reset();

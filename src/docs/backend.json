@@ -294,6 +294,10 @@
         },
         "hasReceipt": {
           "type": "boolean"
+        },
+        "relatedEventId": {
+            "type": "string",
+            "description": "The ID of the event this transaction is related to."
         }
       },
       "required": ["id", "date", "description", "type", "context", "category", "amount", "paymentMethod"]
