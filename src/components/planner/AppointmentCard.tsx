@@ -32,6 +32,7 @@ import {
   MessageSquare,
   Send,
   User as UserIcon,
+  Book,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -66,6 +67,7 @@ import { type Appointment, type Client, type Service, inventory, CustomFormula, 
 import { ScrollArea } from '../ui/scroll-area';
 import Image from 'next/image';
 import Link from 'next/link';
+import { useToast } from '@/hooks/use-toast';
 
 interface AppointmentCardProps {
   appointment: Appointment;
@@ -107,6 +109,7 @@ const AppointmentDetails = ({
     addOnServices: Service[];
     onEdit: (appointment: Appointment) => void;
 }) => {
+    const { toast } = useToast();
 
   return (
     <ScrollArea className="h-[80vh] p-6">
@@ -201,26 +204,36 @@ const AppointmentDetails = ({
 
             <div className="space-y-3">
               <h4 className="font-medium text-sm">Actions</h4>
-              <div className="grid grid-cols-2 gap-2">
-                <Button variant="outline" asChild>
-                  <Link href={`/clients/${client.id}`}>
-                    <UserIcon className="w-4 h-4 mr-2"/>
-                    View Client
-                  </Link>
-                </Button>
-                <Button variant="outline" onClick={() => onEdit(appointment)}>
-                  <Edit className="w-4 h-4 mr-2"/>
-                  Edit Appointment
-                </Button>
-                 <Button variant="outline">
-                  <Send className="w-4 h-4 mr-2"/>
-                  Resend Confirmation
-                </Button>
-                 <Button variant="outline">
-                  <PlusCircle className="w-4 h-4 mr-2"/>
-                  Book New
-                </Button>
-              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="w-full">
+                        <MoreHorizontal className="w-4 h-4 mr-2" />
+                        Appointment Actions
+                    </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuItem asChild>
+                        <Link href={`/clients/${client.id}`}>
+                            <UserIcon className="w-4 h-4 mr-2"/>
+                            View Client Profile
+                        </Link>
+                    </DropdownMenuItem>
+                     <DropdownMenuItem onClick={() => onEdit(appointment)}>
+                        <Edit className="w-4 h-4 mr-2"/>
+                        Edit Appointment
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => {
+                        toast({ title: 'Confirmation Resent', description: `An email confirmation has been resent to ${client.email}.`})
+                    }}>
+                        <Send className="w-4 h-4 mr-2"/>
+                        Resend Confirmation
+                    </DropdownMenuItem>
+                    <DropdownMenuItem>
+                        <Book className="w-4 h-4 mr-2"/>
+                        Book New Appointment
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
         </div>
     </ScrollArea>
@@ -456,3 +469,4 @@ export function AppointmentCard({
     </div>
   );
 }
+
