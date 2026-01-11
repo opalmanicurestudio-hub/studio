@@ -3,7 +3,7 @@
 
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem } from '@/lib/data';
 import { billInstances as allBillInstances, billDefinitions, type Bill } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO } from 'date-fns';
@@ -237,42 +237,41 @@ const DayTimeline = ({
             </div>
              {billInstances.length > 0 && (
                 <div className="border-b">
-                     <Accordion type="single" collapsible className="w-full px-4">
+                     <Accordion type="single" collapsible className="w-full px-4" defaultValue='bills'>
                         <AccordionItem value="bills" className="border-b-0 group">
                             <AccordionTrigger className="text-sm font-medium p-0 py-4 hover:no-underline relative">
-                                Bills Due Today
-                                {billInstances.length > 0 && (
-                                    <span className="absolute left-[-8px] top-1/2 -translate-y-1/2 hidden h-2 w-2 group-data-[state=closed]:flex">
-                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
-                                    </span>
-                                )}
+                                <div className="flex items-center justify-between w-full">
+                                    <span>Bills Due Today</span>
+                                    {billInstances.length > 0 && (
+                                        <BellRing className="h-4 w-4 text-primary hidden group-data-[state=closed]:block" />
+                                    )}
+                                </div>
                             </AccordionTrigger>
                             <AccordionContent className="pb-4">
                                 <div className="flex justify-between items-center mb-2">
-                                    {billInstances.length > 1 && (
-                                        <div className="flex items-center gap-2 ml-auto">
-                                            <span className="text-xs text-muted-foreground">
-                                                {currentBillIndex + 1} of {billInstances.length}
-                                            </span>
-                                            <Button
-                                                variant="outline"
-                                                size="icon"
-                                                className="h-6 w-6"
-                                                onClick={() => setCurrentBillIndex(prev => (prev - 1 + billInstances.length) % billInstances.length)}
-                                            >
-                                                <ChevronLeft className="h-4 w-4" />
-                                            </Button>
-                                            <Button
-                                                variant="outline"
-                                                size="icon"
-                                                className="h-6 w-6"
-                                                onClick={() => setCurrentBillIndex(prev => (prev + 1) % billInstances.length)}
-                                            >
-                                                <ChevronRight className="h-4 w-4" />
-                                            </Button>
-                                        </div>
-                                    )}
+                                    <span className="text-xs text-muted-foreground">
+                                        {currentBillIndex + 1} of {billInstances.length}
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                        <Button
+                                            variant="outline"
+                                            size="icon"
+                                            className="h-6 w-6"
+                                            onClick={() => setCurrentBillIndex(prev => (prev - 1 + billInstances.length) % billInstances.length)}
+                                            disabled={billInstances.length <= 1}
+                                        >
+                                            <ChevronLeft className="h-4 w-4" />
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            size="icon"
+                                            className="h-6 w-6"
+                                            onClick={() => setCurrentBillIndex(prev => (prev + 1) % billInstances.length)}
+                                            disabled={billInstances.length <= 1}
+                                        >
+                                            <ChevronRight className="h-4 w-4" />
+                                        </Button>
+                                    </div>
                                 </div>
                                 {billInstances[currentBillIndex] && (
                                     <BillDueDateCard instance={billInstances[currentBillIndex]} />
@@ -501,18 +500,11 @@ export default function PlannerPage() {
     }
 
   const handleUpdateStatus = (appointmentId: string, status: Appointment['status']) => {
-    if (status === 'completed') {
-        const appointmentToComplete = appointments.find(apt => apt.id === appointmentId);
-        if (appointmentToComplete) {
-            handleCompleteClick(appointmentToComplete);
-        }
-    } else {
-        setAppointments(prev => prev.map(apt => apt.id === appointmentId ? { ...apt, status } : apt));
-        toast({
-            title: "Status Updated",
-            description: `Appointment status changed to ${status}.`
-        });
-    }
+    setAppointments(prev => prev.map(apt => apt.id === appointmentId ? { ...apt, status } : apt));
+    toast({
+        title: "Status Updated",
+        description: `Appointment status changed to ${status}.`
+    });
   };
 
   const handleDeleteAppointment = (appointmentId: string) => {
@@ -740,4 +732,3 @@ export default function PlannerPage() {
   );
 }
 
-    
