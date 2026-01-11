@@ -268,7 +268,7 @@ const DayTimeline = ({
                 )}
             </div>
 
-            <ScrollArea className="flex-1 md:h-[calc(100vh-230px)]">
+            <ScrollArea className="flex-1">
                 <div className="grid grid-cols-[auto,1fr] p-4">
                     {/* Time labels */}
                     <div className="flex flex-col text-right pr-4">
@@ -582,7 +582,7 @@ export default function PlannerPage() {
   }
   
   return (
-    <div className="flex h-screen w-full flex-col overflow-hidden">
+    <div className="flex h-screen w-full flex-col">
       <AppHeader title="Planner" />
       <div className="flex flex-col gap-4 p-4 border-b">
         <div className='text-center'>
@@ -725,8 +725,3 @@ export default function PlannerPage() {
     </div>
   );
 }
-
-
-    
-
-    
