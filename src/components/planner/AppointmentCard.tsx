@@ -199,10 +199,10 @@ export function AppointmentCard({
   const isMobile = useIsMobile();
 
   const statusDisplay: { [key in Appointment['status']]: { text: string; className: string } } = {
-    confirmed: { text: 'Confirmed', className: 'bg-blue-100 dark:bg-blue-900/30 border-blue-500' },
-    completed: { text: 'Completed', className: 'bg-green-100 dark:bg-green-900/30 border-green-500' },
-    cancelled: { text: 'Cancelled', className: 'bg-red-200/50 dark:bg-red-900/30 border-red-500' },
-    deposit_pending: { text: 'Awaiting Payment', className: 'bg-pink-100 dark:bg-pink-900/30 border-pink-500' },
+    confirmed: { text: 'Confirmed', className: 'bg-blue-500/10 border-blue-500/30 text-blue-800 dark:text-blue-300' },
+    completed: { text: 'Completed', className: 'bg-green-500/10 border-green-500/30 text-green-800 dark:text-green-300' },
+    cancelled: { text: 'Cancelled', className: 'bg-red-500/10 border-red-500/30 text-red-800 dark:text-red-300' },
+    deposit_pending: { text: 'Awaiting Payment', className: 'bg-pink-500/10 border-pink-500/30 text-pink-800 dark:text-pink-300' },
   };
 
   const hasPadBefore = (service.padBefore || 0) > 0;
@@ -212,25 +212,43 @@ export function AppointmentCard({
   const beforeHeight = hasPadBefore ? `${(service.padBefore! / totalDurationWithPadding) * 100}%` : '0px';
   const mainHeight = `${(service.duration / totalDurationWithPadding) * 100}%`;
   const afterHeight = hasPadAfter ? `${(service.padAfter! / totalDurationWithPadding) * 100}%` : '0px';
+  
+  const { breakEvenCost, netProfit } = useMemo(() => {
+    const revenue = service.price;
+    const totalDuration = differenceInMinutes(appointment.endTime, appointment.startTime);
+    const timeCost = (totalDuration / 60) * tmhr;
+    const productCost = (service.products || []).reduce((sum, p) => sum + ((p.costPerUnit || 0) * (p.quantityUsed || 1)), 0);
+    const equipmentCost = (service.equipment || []).reduce((sum, e) => {
+        const lifespanInMinutes = (e.lifespanYears || 5) * 365 * 8 * 60;
+        const costPerMinute = (e.costPerUnit || 0) / lifespanInMinutes;
+        return sum + (costPerMinute * totalDuration);
+    }, 0);
+    const breakEven = timeCost + productCost + equipmentCost;
+    const profit = revenue - breakEven;
+    return { breakEvenCost: breakEven, netProfit: profit };
+  }, [service, appointment, tmhr]);
+
 
   const MainContent = () => (
-    <div className={cn(
-        'p-2 border-l-4 w-full h-full flex flex-col justify-between',
-        statusDisplay[appointment.status]?.className || 'bg-gray-100 border-gray-500',
-        'bg-card',
-        hasPadBefore ? '' : 'rounded-t-lg',
-        hasPadAfter ? '' : 'rounded-b-lg'
-    )}>
+    <div 
+        className={cn(
+            'p-2 border rounded-lg w-full h-full flex flex-col justify-between cursor-pointer',
+            statusDisplay[appointment.status]?.className || 'bg-gray-100 border-gray-500',
+            hasPadBefore ? 'rounded-t-none' : '',
+            hasPadAfter ? 'rounded-b-none' : ''
+        )}
+        onClick={() => setIsDetailsOpen(true)}
+    >
         <div className="flex items-start justify-between">
             <div>
                 <p className="font-semibold text-xs leading-tight truncate">{client.name}</p>
                 <p className="text-xs text-muted-foreground truncate">{service.name}</p>
             </div>
             <div className="flex items-center gap-1">
-                <Badge variant="secondary" className="text-[10px] h-5 px-1.5 capitalize">{statusDisplay[appointment.status]?.text}</Badge>
+                <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[appointment.status]?.className)}>{statusDisplay[appointment.status]?.text}</Badge>
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-6 w-6 -mr-1">
+                        <Button variant="ghost" size="icon" className="h-6 w-6 -mr-1" onClick={(e) => e.stopPropagation()}>
                             <MoreHorizontal className="h-4 w-4" />
                         </Button>
                     </DropdownMenuTrigger>
@@ -269,8 +287,27 @@ export function AppointmentCard({
                 </DropdownMenu>
             </div>
         </div>
-        <div className="flex items-center justify-between mt-1">
-          {/* This space can be used for something else later if needed */}
+        <div className="flex flex-col items-start gap-1 mt-1 text-xs text-muted-foreground">
+           <div className='flex items-center gap-1.5'>
+            <Clock className="w-3 h-3"/>
+            <span>{format(appointment.startTime, 'h:mm a')}</span>
+           </div>
+        </div>
+        <div className="grid grid-cols-3 gap-1 text-[10px] mt-auto pt-1 text-center">
+            <div>
+                <p className="text-muted-foreground font-medium">Revenue</p>
+                <p className="font-bold">${service.price.toFixed(2)}</p>
+            </div>
+            <div>
+                <p className="text-muted-foreground font-medium">Cost</p>
+                <p className="font-bold text-destructive">${breakEvenCost.toFixed(2)}</p>
+            </div>
+             <div>
+                <p className="text-muted-foreground font-medium">Profit</p>
+                <p className={cn("font-bold", netProfit >= 0 ? 'text-primary' : 'text-destructive')}>
+                    ${netProfit.toFixed(2)}
+                </p>
+            </div>
         </div>
     </div>
   );
