@@ -19,6 +19,7 @@ export interface ReceiptData {
   }[];
   subtotal: number;
   tax: number;
+  tip: number;
   total: number;
   payment: {
     method: string;
@@ -93,6 +94,12 @@ export const PrintReceipt: React.FC<PrintReceiptProps> = ({ data }) => {
           <p>Tax</p>
           <p>${data.tax.toFixed(2)}</p>
         </div>
+        {data.tip > 0 && (
+            <div className="flex justify-between">
+                <p>Tip</p>
+                <p>${data.tip.toFixed(2)}</p>
+            </div>
+        )}
         <div className="flex justify-between font-bold text-base">
           <p>Total</p>
           <p>${data.total.toFixed(2)}</p>
@@ -106,14 +113,18 @@ export const PrintReceipt: React.FC<PrintReceiptProps> = ({ data }) => {
           <p>Payment Method</p>
           <p>{data.payment.method}</p>
         </div>
-        <div className="flex justify-between">
-          <p>Amount Tendered</p>
-          <p>${data.payment.amountTendered.toFixed(2)}</p>
-        </div>
-        <div className="flex justify-between">
-          <p>Change Due</p>
-          <p>${data.payment.changeDue.toFixed(2)}</p>
-        </div>
+        {data.payment.method === 'Cash' && (
+            <>
+                <div className="flex justify-between">
+                <p>Amount Tendered</p>
+                <p>${data.payment.amountTendered.toFixed(2)}</p>
+                </div>
+                <div className="flex justify-between">
+                <p>Change Due</p>
+                <p>${data.payment.changeDue.toFixed(2)}</p>
+                </div>
+            </>
+        )}
       </div>
 
       <div className="text-center mt-8">

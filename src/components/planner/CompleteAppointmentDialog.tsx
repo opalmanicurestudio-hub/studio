@@ -27,6 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Label } from '../ui/label';
 import { Switch } from '../ui/switch';
 import { cn } from '@/lib/utils';
+import { ReceiptData } from './PrintReceipt';
 
 type EditableFormulaItem = {
     id: string; // productId
@@ -46,7 +47,7 @@ interface CompleteAppointmentDialogProps {
     client: Client | undefined;
     service: Service | undefined;
   };
-  onConfirmCheckout: (updatedInventory: InventoryItem[], newCorrections: StockCorrection[], absorbedCost: number) => void;
+  onConfirmCheckout: (updatedInventory: InventoryItem[], newCorrections: StockCorrection[], receiptData: Omit<ReceiptData, 'business'>) => void;
 }
 
 export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps> = ({
@@ -63,7 +64,10 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   const [editableFormula, setEditableFormula] = useState<EditableFormulaItem[]>([]);
   const [retailItems, setRetailItems] = useState<EditableFormulaItem[]>([]);
   
+  const [paymentTab, setPaymentTab] = useState('card');
   const [amountTendered, setAmountTendered] = useState<number>(0);
+  const [tipAmount, setTipAmount] = useState<number>(0);
+
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
@@ -86,6 +90,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         setRetailItems([]);
         setFormulaName('Default Service Formula');
         setAmountTendered(0);
+        setTipAmount(0);
+        setPaymentTab('card');
         setActualDuration(service.duration);
         setApplyAdditionalCharges(true);
     }
@@ -135,9 +141,20 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   
   const subtotal = (service?.price || 0) + retailTotal + (applyAdditionalCharges ? additionalCharge : 0);
   const mockTax = subtotal * 0.07; // 7% tax for demo
-  const grandTotal = subtotal + mockTax;
+  const grandTotal = subtotal + mockTax + tipAmount;
   
-  const changeDue = amountTendered > 0 ? amountTendered - grandTotal : 0;
+  const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - grandTotal : 0;
+
+  const handleKeepTheChange = () => {
+    if (changeDue > 0) {
+        setTipAmount(prevTip => prevTip + changeDue);
+        setAmountTendered(grandTotal + changeDue); // Effectively makes change 0
+        toast({
+            title: "Tip Added!",
+            description: `$${changeDue.toFixed(2)} has been added as a tip.`
+        });
+    }
+  };
 
   const handleQuantityChange = (productId: string, newQuantity: number) => {
     setEditableFormula(prev => prev.map(item => item.id === productId ? { ...item, quantity: newQuantity } : item));
@@ -207,7 +224,31 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   }, [editableFormula, inventory, appointment.id]);
   
   const handleCompleteAppointment = () => {
-    onConfirmCheckout(updatedInventory, newCorrections, absorbedCost)
+    if (!client || !service) return;
+
+    const receiptData: Omit<ReceiptData, 'business'> = {
+        clientName: client.name,
+        date: appointment.endTime,
+        items: [
+            { name: service.name, quantity: 1, price: service.price },
+            ...retailItems.map(item => {
+                const product = inventory.find(p => p.id === item.id);
+                const price = product?.costPerUnit ? product.costPerUnit * 1.75 : 0;
+                return { name: item.name, quantity: item.quantity, price: price };
+            }),
+            ...(additionalCharge > 0 && applyAdditionalCharges ? [{ name: 'Additional Charges', quantity: 1, price: additionalCharge }] : [])
+        ],
+        subtotal: subtotal,
+        tax: mockTax,
+        tip: tipAmount,
+        total: grandTotal,
+        payment: {
+            method: paymentTab,
+            amountTendered: paymentTab === 'cash' ? amountTendered : grandTotal,
+            changeDue: changeDue > 0 ? changeDue : 0,
+        }
+    };
+    onConfirmCheckout(updatedInventory, newCorrections, receiptData);
   };
 
 
@@ -418,6 +459,9 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                          <Separator className="my-2" />
                         <div className='flex justify-between font-semibold'><span>Subtotal:</span><span>${subtotal.toFixed(2)}</span></div>
                         <div className='flex justify-between'><span>Taxes (7%):</span><span>${mockTax.toFixed(2)}</span></div>
+                         {tipAmount > 0 && (
+                            <div className='flex justify-between font-semibold text-primary'><span>Tip:</span><span>${tipAmount.toFixed(2)}</span></div>
+                         )}
                       </div>
                       <div className="p-4 rounded-lg bg-primary/10 text-center">
                           <p className="text-sm font-medium text-primary">Total Due</p>
@@ -434,7 +478,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                           </Alert>
                       )}
 
-                      <Tabs defaultValue="card" className="w-full">
+                      <Tabs value={paymentTab} onValueChange={setPaymentTab} className="w-full">
                           <TabsList className="grid w-full grid-cols-3">
                               <TabsTrigger value="card"><CreditCard className="w-4 h-4 mr-2"/>Card</TabsTrigger>
                               <TabsTrigger value="cash"><Banknote className="w-4 h-4 mr-2"/>Cash</TabsTrigger>
@@ -462,6 +506,11 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                                       </div>
                                   </div>
                               </div>
+                               {changeDue > 0 && (
+                                <Button variant="secondary" className="w-full" onClick={handleKeepTheChange}>
+                                    <Coins className="w-4 h-4 mr-2" /> Keep the Change as Tip
+                                </Button>
+                               )}
                               <div className="grid grid-cols-5 gap-2">
                                   {denominations.map(amount => (
                                       <Button key={amount} variant="outline" onClick={() => handleDenominationClick(amount)}>

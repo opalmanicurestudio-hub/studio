@@ -102,7 +102,7 @@ const DayTimeline = ({
     onCompleteClick: (apt: Appointment) => void; 
     onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void; 
     onDeleteAppointment: (appointmentId: string) => void; 
-    onPrintReceipt: (appointment: Appointment) => void; 
+    onPrintReceipt: (data: ReceiptData) => void; 
     onEditAppointment: (appointment: Appointment) => void; 
     onEditEvent: (event: Event) => void;
     onChecklistItemToggle: (eventId: string, checklistItemId: string, completed: boolean) => void;
@@ -386,13 +386,13 @@ export default function PlannerPage() {
     setIsEditEventOpen(true);
   }
 
-  const handleCheckout = (updatedInventory: any, newCorrections: any, absorbedCost: number) => {
+  const handleCheckout = (updatedInventory: any, newCorrections: any, receiptData: Omit<ReceiptData, 'business'>) => {
     if (!selectedAppointment) return;
 
     const completedAppointment: Appointment = { 
         ...selectedAppointment, 
         status: 'completed' as const,
-        absorbedCost: absorbedCost
+        absorbedCost: receiptData.payment.method === 'Cash' && receiptData.tip > 0 ? 0 : (receiptData.payment.amountTendered || 0)
     };
     setAppointments(prev => prev.map(apt => apt.id === selectedAppointment.id ? completedAppointment : apt));
     setInventory(updatedInventory);
@@ -404,7 +404,7 @@ export default function PlannerPage() {
     });
     setIsCheckoutOpen(false); 
     setSelectedAppointment(null);
-    handlePrintReceipt(completedAppointment);
+    handlePrintReceipt(receiptData);
   };
   
   const handleAddAppointment = (newAppointment: Omit<Appointment, 'id'>) => {
@@ -531,30 +531,11 @@ export default function PlannerPage() {
     return { appointment: selectedAppointment, client, service };
   }, [selectedAppointment]);
   
-  const handlePrintReceipt = (appointment: Appointment) => {
-    const client = clients.find(c => c.id === appointment.clientId);
-    const service = services.find(s => s.id === appointment.serviceId);
-    if (!client || !service) return;
-
-    const subtotal = service.price;
-    const mockTax = subtotal * 0.07;
-    const total = subtotal + mockTax;
-
-    const receiptData: ReceiptData = {
+  const handlePrintReceipt = (receiptData: Omit<ReceiptData, 'business'>) => {
+    setReceiptToPrint({
         business: { name: 'ClarityFlow Salon', phone: '555-123-4567' },
-        clientName: client.name,
-        date: appointment.endTime,
-        items: [{ name: service.name, quantity: 1, price: service.price }],
-        subtotal: subtotal,
-        tax: mockTax,
-        total: total,
-        payment: { // Assuming cash for simplicity, this would need to be stored
-            method: 'Cash',
-            amountTendered: total,
-            changeDue: 0,
-        }
-    };
-    setReceiptToPrint(receiptData);
+        ...receiptData
+    });
   }
 
   const appointmentsForDay = appointments
@@ -787,6 +768,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
