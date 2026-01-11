@@ -583,7 +583,7 @@ export default function PlannerPage() {
                         <DialogTitle>This Week's Financials</DialogTitle>
                         <DialogDescription>A summary of your performance for the week of {format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMM d')}.</DialogDescription>
                     </DialogHeader>
-                    <div className="pt-4 grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-2 gap-4">
                         <Card>
                             <CardHeader className="pb-2">
                                 <CardTitle className="text-sm font-medium flex items-center gap-2"><TrendingUp className="w-4 h-4"/>Revenue</CardTitle>
@@ -602,7 +602,7 @@ export default function PlannerPage() {
                                 <p className='text-xs text-muted-foreground'>Includes confirmed bookings.</p>
                             </CardContent>
                         </Card>
-                        <Card>
+                         <Card>
                             <CardHeader className="pb-2">
                                 <CardTitle className="text-sm font-medium">Break-Even</CardTitle>
                             </CardHeader>
@@ -611,7 +611,7 @@ export default function PlannerPage() {
                                <p className='text-xs text-muted-foreground'>Your weekly cost target.</p>
                             </CardContent>
                         </Card>
-                         <Card>
+                        <Card>
                             <CardHeader className="pb-2">
                                 <CardTitle className="text-sm font-medium flex items-center gap-2"><AlertTriangle className="w-4 h-4"/>Absorbed Costs</CardTitle>
                             </CardHeader>
@@ -739,7 +739,7 @@ export default function PlannerPage() {
         <EditAppointmentDialog 
             open={isEditAppointmentOpen}
             onOpenChange={setIsEditAppointmentOpen}
-            appointment={appointment}
+            appointment={selectedAppointment}
             clients={clients}
             services={services}
             appointments={appointments}
