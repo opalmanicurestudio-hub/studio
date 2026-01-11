@@ -39,6 +39,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useInventory } from '@/context/InventoryContext';
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel';
 import { EditLocationDialog } from '@/components/inventory/EditLocationDialog';
+import { ClientOnly } from '@/components/shared/ClientOnly';
 
 const KPI_CARDS = [
     { title: "Total Inventory Value", value: "$1,850.75", icon: Package, description: "Landed cost of all stock" },
@@ -248,8 +249,9 @@ const LocationCard = ({ location, items, locationTypes, onEdit }: { location: Lo
                 <div className="space-y-2">
                     <h4 className="font-medium text-sm">Products at this location:</h4>
                     {items.length > 0 ? (
-                        <div className="border rounded-md max-h-60">
+                        <Card className="max-h-60">
                            <ScrollArea className="h-full">
+                                <CardContent className='p-0'>
                                 {items.map((item, index) => (
                                     <div key={item.id} className={cn("flex items-center gap-3 p-2", index < items.length - 1 && "border-b")}>
                                         <Image src={item.imageUrl || `https://picsum.photos/seed/inv${item.id}/40/40`} alt={item.name} width={32} height={32} className="rounded-sm" />
@@ -257,8 +259,9 @@ const LocationCard = ({ location, items, locationTypes, onEdit }: { location: Lo
                                         <Badge variant="outline">{item.totalStock}</Badge>
                                     </div>
                                 ))}
+                                </CardContent>
                            </ScrollArea>
-                        </div>
+                        </Card>
                     ) : <p className="text-sm text-muted-foreground text-center p-4 border rounded-md">No products assigned.</p>}
                 </div>
             </CardContent>
@@ -367,30 +370,32 @@ export default function InventoryPage() {
       <AppHeader title="Inventory Hub" />
       <main className="flex-1 flex flex-col p-4 md:p-8 space-y-6 overflow-hidden">
         
-        <Carousel
-            opts={{
-                align: "start",
-                loop: false,
-            }}
-            className="w-full md:hidden"
-        >
-            <CarouselContent>
-                {KPI_CARDS.map((kpi, index) => (
-                    <CarouselItem key={index} className="basis-4/5">
-                        <Card>
-                            <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium">{kpi.title}</CardTitle>
-                                <kpi.icon className="h-4 w-4 text-muted-foreground" />
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-bold">{kpi.value}</div>
-                                <p className="text-xs text-muted-foreground">{kpi.description}</p>
-                            </CardContent>
-                        </Card>
-                    </CarouselItem>
-                ))}
-            </CarouselContent>
-        </Carousel>
+        <ClientOnly>
+          <Carousel
+              opts={{
+                  align: "start",
+                  loop: false,
+              }}
+              className="w-full md:hidden"
+          >
+              <CarouselContent>
+                  {KPI_CARDS.map((kpi, index) => (
+                      <CarouselItem key={index} className="basis-4/5">
+                          <Card>
+                              <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
+                                  <CardTitle className="text-sm font-medium">{kpi.title}</CardTitle>
+                                  <kpi.icon className="h-4 w-4 text-muted-foreground" />
+                              </CardHeader>
+                              <CardContent>
+                                  <div className="text-2xl font-bold">{kpi.value}</div>
+                                  <p className="text-xs text-muted-foreground">{kpi.description}</p>
+                              </CardContent>
+                          </Card>
+                      </CarouselItem>
+                  ))}
+              </CarouselContent>
+          </Carousel>
+        </ClientOnly>
 
         <div className="hidden md:grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
              {KPI_CARDS.map((kpi, index) => (
