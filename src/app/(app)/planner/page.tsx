@@ -4,7 +4,7 @@
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem } from '@/lib/data';
 import { billInstances as allBillInstances, billDefinitions, type Bill } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval } from 'date-fns';
@@ -46,6 +46,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Skeleton } from '@/components/ui/skeleton';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { EventCard } from '@/components/planner/EventCard';
+import { RescheduleDialog } from '@/components/planner/RescheduleDialog';
 
 
 const TimeIndicator = () => {
@@ -94,6 +95,7 @@ const DayTimeline = ({
     onUpdateEvent,
     dailyTransactions,
     onAddTransaction,
+    onReschedule,
 }: { 
     date: Date; 
     appointments: Appointment[]; 
@@ -109,6 +111,7 @@ const DayTimeline = ({
     onUpdateEvent: (updatedEvent: Event) => void;
     dailyTransactions: Transaction[] | null;
     onAddTransaction: (transaction: any) => void;
+    onReschedule: (appointment: Appointment) => void;
 }) => {
     const dailyTotals = useMemo(() => {
         const appointmentRevenue = appointments
@@ -187,6 +190,7 @@ const DayTimeline = ({
                         onCompleteClick={onCompleteClick}
                         onPrintReceipt={onPrintReceipt}
                         onEdit={onEditAppointment}
+                        onReschedule={onReschedule}
                     />
                 </div>
             );
@@ -280,6 +284,7 @@ export default function PlannerPage() {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
   const [isEditAppointmentOpen, setIsEditAppointmentOpen] = useState(false);
+  const [isRescheduleOpen, setIsRescheduleOpen] = useState(false);
   const [isAddEventOpen, setIsAddEventOpen] = useState(false);
   const [isEditEventOpen, setIsEditEventOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
@@ -381,6 +386,11 @@ export default function PlannerPage() {
     setIsEditAppointmentOpen(true);
   };
   
+   const handleRescheduleClick = (appointment: Appointment) => {
+    setSelectedAppointment(appointment);
+    setIsRescheduleOpen(true);
+  };
+  
   const handleEditEventClick = (event: Event) => {
     setSelectedEvent(event);
     setIsEditEventOpen(true);
@@ -424,6 +434,7 @@ export default function PlannerPage() {
         description: `The appointment has been successfully updated.`
     })
     setIsEditAppointmentOpen(false);
+    setIsRescheduleOpen(false);
   };
 
   const handleAddEvent = (newEvent: Omit<Event, 'id'>) => {
@@ -677,7 +688,7 @@ export default function PlannerPage() {
                     <Button 
                         key={index} 
                         variant={isToday(day) && format(day, 'yyyy-MM-dd') === format(currentDate, 'yyyy-MM-dd') ? 'default' : format(day, 'yyyy-MM-dd') === format(currentDate, 'yyyy-MM-dd') ? 'secondary' : 'ghost'}
-                        className="flex-1 flex-col h-auto py-1"
+                        className="h-10 flex-1 flex-col py-1"
                         onClick={() => handleDayClick(day)}
                     >
                         <span className="text-xs">{format(day, 'EEE')}</span>
@@ -706,6 +717,7 @@ export default function PlannerPage() {
               onUpdateEvent={handleUpdateEvent}
               dailyTransactions={dailyTransactions}
               onAddTransaction={handleAddTransaction}
+              onReschedule={handleRescheduleClick}
           />
       </main>
       {selectedAppointmentData && (
@@ -735,6 +747,17 @@ export default function PlannerPage() {
             onConfirm={handleUpdateAppointment}
         />
        )}
+        {selectedAppointment && (
+            <RescheduleDialog
+                open={isRescheduleOpen}
+                onOpenChange={setIsRescheduleOpen}
+                appointment={selectedAppointment}
+                clients={clients}
+                services={services}
+                appointments={appointments}
+                onConfirm={handleUpdateAppointment}
+            />
+        )}
       <AddEventDialog 
         open={isAddEventOpen}
         onOpenChange={setIsAddEventOpen}
@@ -768,6 +791,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 

@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -81,6 +82,7 @@ interface AppointmentCardProps {
   onCompleteClick: (appointment: Appointment) => void;
   onPrintReceipt: (appointment: Appointment) => void;
   onEdit: (appointment: Appointment) => void;
+  onReschedule: (appointment: Appointment) => void;
 }
 
 const AppointmentDetails = ({
@@ -98,6 +100,7 @@ const AppointmentDetails = ({
     onEdit,
     onUpdateStatus,
     onDelete,
+    onReschedule,
 }: {
     appointment: Appointment;
     client: Client;
@@ -113,6 +116,7 @@ const AppointmentDetails = ({
     onEdit: (appointment: Appointment) => void;
     onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void;
     onDelete: (appointmentId: string) => void;
+    onReschedule: (appointment: Appointment) => void;
 }) => {
     const { toast } = useToast();
 
@@ -164,7 +168,7 @@ const AppointmentDetails = ({
                                 <Edit className="w-4 h-4 mr-2"/>
                                 Edit Details
                             </DropdownMenuItem>
-                             <DropdownMenuItem onClick={() => onEdit(appointment)}>
+                             <DropdownMenuItem onClick={() => onReschedule(appointment)}>
                                 <Calendar className="w-4 h-4 mr-2"/>
                                 Reschedule
                             </DropdownMenuItem>
@@ -266,6 +270,7 @@ export function AppointmentCard({
   onCompleteClick,
   onPrintReceipt,
   onEdit,
+  onReschedule,
 }: AppointmentCardProps) {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
@@ -400,6 +405,9 @@ export function AppointmentCard({
                 <DropdownMenuItem onClick={() => onEdit(appointment)}>
                     <Edit className="mr-2" /> Edit Appointment
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onReschedule(appointment)}>
+                    <Calendar className="mr-2" /> Reschedule
+                </DropdownMenuItem>
                 <DropdownMenuSub>
                     <DropdownMenuSubTrigger><Clock10 className="mr-2"/> Change Status</DropdownMenuSubTrigger>
                     <DropdownMenuPortal>
@@ -467,6 +475,7 @@ export function AppointmentCard({
             onEdit={onEdit}
             onUpdateStatus={onUpdateStatus}
             onDelete={onDelete}
+            onReschedule={onReschedule}
           />
         </DialogOrSheetContent>
       </DialogOrSheet>
