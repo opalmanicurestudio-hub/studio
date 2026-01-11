@@ -229,15 +229,15 @@ const DayTimeline = ({
                 </Accordion>
             </div>
              {billInstances.length > 0 && (
-                 <div className="border-b">
-                     <h4 className="text-sm font-semibold mb-2 px-4 pt-4">Bills Due Today</h4>
+                 <div className="border-b pt-4">
+                     <h4 className="text-sm font-semibold mb-2 px-4">Bills Due Today</h4>
                     <Carousel
                         opts={{
                             align: "start",
                         }}
-                        className="w-full -ml-4"
+                        className="w-full"
                         >
-                        <CarouselContent>
+                        <CarouselContent className="-ml-4">
                             {billInstances.map(instance => (
                             <CarouselItem key={instance.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3">
                                 <div className="p-1">
@@ -280,8 +280,7 @@ export default function PlannerPage() {
   const [currentDate, setCurrentDate] = useState<Date | null>(null);
   const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
   const [events, setEvents] = useState<Event[]>(initialEvents);
-  const billInstances = allBillInstances;
-
+  
   const { inventory, setInventory, addStockCorrection } = useInventory();
   
   const { firestore, user } = useFirebase();
@@ -320,6 +319,16 @@ export default function PlannerPage() {
   }, [firestore, user, currentVisibleDate, tenantId]);
 
   const { data: dailyTransactions, isLoading: transactionsLoading } = useCollection<Transaction>(transactionsQuery);
+
+  const billInstances = useMemo(() => {
+    return allBillInstances
+        .filter(instance => format(parseISO(instance.dueDate), 'yyyy-MM-dd') === format(currentVisibleDate, 'yyyy-MM-dd'))
+        .map(instance => {
+            const definition = billDefinitions.find(def => def.id === instance.billDefinitionId);
+            return { ...instance, definition: definition! };
+        })
+        .filter(item => item.definition);
+  }, [currentVisibleDate]);
 
 
   useEffect(() => {
@@ -612,20 +621,14 @@ export default function PlannerPage() {
                     const eventsForDay = events
                         .filter(evt => format(evt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'))
                         .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
-                     const billsForDay = billInstances
-                        .filter(instance => format(parseISO(instance.dueDate), 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'))
-                        .map(instance => {
-                            const definition = billDefinitions.find(def => def.id === instance.billDefinitionId);
-                            return { ...instance, definition: definition! };
-                        })
-                        .filter(item => item.definition);
+                    
                     return (
                         <CarouselItem key={index} className="h-full basis-full">
                             <DayTimeline 
                                 date={date} 
                                 appointments={appointmentsForDay} 
                                 events={eventsForDay} 
-                                billInstances={billsForDay}
+                                billInstances={billInstances.filter(bi => format(parseISO(bi.dueDate), 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'))}
                                 onCompleteClick={handleCompleteClick} 
                                 onUpdateStatus={handleUpdateStatus} 
                                 onDeleteAppointment={handleDeleteAppointment} 
@@ -703,6 +706,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
