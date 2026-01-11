@@ -170,7 +170,7 @@ const AppointmentDetails = ({
                     {client.medicalNotes && <div className="flex items-center gap-2"><ShieldPlus className="w-4 h-4 text-red-500 flex-shrink-0"/><span>{client.medicalNotes}</span></div>}
                     {client.allergyNotes && <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-yellow-500 flex-shrink-0"/><span>{client.allergyNotes}</span></div>}
                     {client.sensoryNeeds && <div className="flex items-center gap-2"><Ear className="w-4 h-4 text-blue-500 flex-shrink-0"/><span>{client.sensoryNeeds}</span></div>}
-                    {client.inspirationPhotoUrl && <div className="flex items-center gap-2"><ImageIcon className="w-4 h-4 flex-shrink-0"/><span>Client has inspiration photo</span></div>}
+                    {client.inspirationPhotoUrl && !appointment.inspirationPhotoUrl && <div className="flex items-center gap-2"><ImageIcon className="w-4 h-4 flex-shrink-0"/><span>Client has inspiration photo on file</span></div>}
                     {client.isMember && <div className="flex items-center gap-2"><Award className="w-4 h-4 flex-shrink-0"/><span>Client is a member</span></div>}
                 </div>
             </div>
