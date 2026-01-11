@@ -10,8 +10,8 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, File, MoreHorizontal, Database, Camera, AlertTriangle, Truck, Search, SlidersHorizontal, QrCode, Package, Hammer, Beaker, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, BellRing, TrendingUp, DollarSign, BarChart, LineChart, FileText, List } from 'lucide-react';
-import { type Appointment, type Service, type InventoryItem, type Batch, type StockCorrection } from '@/lib/data';
+import { PlusCircle, MoreHorizontal, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX } from 'lucide-react';
+import { type InventoryItem, type StockCorrection } from '@/lib/data';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,36 +21,21 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import Image from 'next/image';
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useToast } from '@/hooks/use-toast';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { AddProductDialog } from '@/components/inventory/AddProductDialog';
 import { EditProductDialog } from '@/components/inventory/EditProductDialog';
 import { AddLocationDialog, type Location } from '@/components/inventory/AddLocationDialog';
 import { EndCostPerUseTestDialog } from '@/components/inventory/EndCostPerUseTestDialog';
 import { WriteOffDialog } from '@/components/inventory/WriteOffDialog';
-import { ManageSpoilageDialog } from '@/components/inventory/ManageSpoilageDialog';
 import { LogUseDialog } from '@/components/inventory/LogUseDialog';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
-import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
-import { Carousel, CarouselContent, CarouselItem } from '@/components/ui/carousel';
-import { isPast, parseISO, differenceInYears, format } from 'date-fns';
+import { isPast, parseISO } from 'date-fns';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useInventory } from '@/context/InventoryContext';
-import { appointments, services } from '@/lib/data';
-
 
 const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff, onLogUse }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (item: InventoryItem) => void, onLogUse: (item: InventoryItem) => void }) => {
     
@@ -62,7 +47,6 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
         return { label: 'In Stock', className: 'bg-green-100 text-green-800 border-green-200 dark:bg-green-900/40 dark:text-green-400 dark:border-green-600/30' };
     }, [item]);
 
-    const activeBatches = useMemo(() => item.batches.filter(b => b.stock > 0), [item.batches]);
     const detailHref = `/inventory/${item.id}`;
     
     return (
@@ -86,7 +70,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem asChild>
                            <Link href={detailHref}>
-                                <FileText className="mr-2 h-4 w-4" /> View Details
+                                View Details
                            </Link>
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => onEdit(item)}><Pencil className="mr-2 h-4 w-4" /> Edit</DropdownMenuItem>
@@ -105,12 +89,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                         <DropdownMenuSeparator />
                         <DropdownMenuItem asChild>
                            <Link href={`/inventory/labels?product=${item.id}`}>
-                                <QrCode className="mr-2 h-4 w-4" /> Print Label
-                           </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem asChild disabled={!item.supplierUrl}>
-                           <Link href={item.supplierUrl || '#'} target="_blank" rel="noopener noreferrer">
-                                <Truck className="mr-2 h-4 w-4" /> Reorder from Supplier
+                                <Printer className="mr-2 h-4 w-4" /> Print Label
                            </Link>
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
@@ -181,7 +160,7 @@ const EmptyState = ({ message }: { message: string }) => (
         <CardContent className="text-center py-20 px-6">
             <div className='flex justify-center mb-6'>
                 <div className='w-20 h-20 bg-muted rounded-full flex items-center justify-center'>
-                    <Box className='w-10 h-10 text-muted-foreground' />
+                    <Package className='w-10 h-10 text-muted-foreground' />
                 </div>
             </div>
             <p className="text-muted-foreground">{message}</p>
@@ -203,7 +182,7 @@ const ProductShelf = ({
         <div className="space-y-4">
             <h2 className="text-xl font-bold">{title}</h2>
             <ScrollArea>
-                <div className="flex space-x-4 pb-4">
+                <div className="flex w-max space-x-4 pb-4">
                     {items.map((item) => (
                        <ProductCard key={item.id} item={item} {...props} />
                     ))}
@@ -217,7 +196,6 @@ const ProductShelf = ({
 const tabOptions = [
     { value: 'professional', label: 'Professional' },
     { value: 'retail', label: 'Retail' },
-    { value: 'overhead', label: 'Overhead' },
     { value: 'equipment', label: 'Equipment' },
     { value: 'locations', label: 'Locations' },
 ];
@@ -229,7 +207,6 @@ export default function InventoryPage() {
   
   const [activeTab, setActiveTab] = useState('professional');
   const [isClient, setIsClient] = useState(false);
-  const isMobile = useIsMobile();
 
   useEffect(() => {
     setIsClient(true);
@@ -251,14 +228,8 @@ export default function InventoryPage() {
     (item) => item.type === 'equipment'
   );
 
-  // Mock states and handlers
-  const [isReceiveStockOpen, setIsReceiveStockOpen] = useState(false);
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
   const [isEditProductOpen, setIsEditProductOpen] = useState(false);
-  const [isAddEquipmentOpen, setIsAddEquipmentOpen] = useState(false);
-  const [isAddOverheadOpen, setIsAddOverheadOpen] = useState(false);
-  const [isCreateBundleOpen, setIsCreateBundleOpen] = useState(false);
-  const [isAddLocationOpen, setIsAddLocationOpen] = useState(false);
   const [isEndExperimentOpen, setIsEndExperimentOpen] = useState(false);
   const [isWriteOffOpen, setIsWriteOffOpen] = useState(false);
   const [isLogUseOpen, setIsLogUseOpen] = useState(false);
@@ -290,12 +261,10 @@ export default function InventoryPage() {
   };
 
   if (!isClient) {
-    // Render a skeleton or loading state on the server/first render
     return (
         <div className="flex flex-col h-screen">
             <AppHeader title="Inventory Hub" />
             <main className="flex-1 p-4 md:p-8">
-                {/* Skeleton UI */}
             </main>
         </div>
     );
@@ -303,70 +272,50 @@ export default function InventoryPage() {
 
 
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex h-screen w-full flex-col">
       <AppHeader title="Inventory Hub" />
-      <main className="flex-1 p-4 md:p-8 space-y-6 overflow-y-auto">
-
-        {/* This section can be for KPIs if needed */}
-
-        <div className="flex flex-col gap-4">
-            <div className="flex flex-col sm:flex-row items-center gap-2">
-                <div className="relative flex-1 w-full">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input placeholder="Search inventory..." className="pl-9" />
-                </div>
-                <div className="flex w-full sm:w-auto items-center gap-2">
-                <Button variant="outline" className="flex-1 sm:flex-initial">
-                    <SlidersHorizontal className="mr-2 h-4 w-4" /> Filters
-                </Button>
-                <Button className="w-auto" onClick={() => setIsReceiveStockOpen(true)}>
-                    <Truck className="mr-2 h-4 w-4" /> Receive
-                </Button>
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="flex-1 sm:flex-initial">
-                        <PlusCircle className="mr-2 h-4 w-4" /> New
-                    </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => setIsAddProductOpen(true)}>
-                        <Package className="mr-2 h-4 w-4" /> Add Product
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setIsAddEquipmentOpen(true)}>
-                        <Hammer className="mr-2 h-4 w-4" /> Add Equipment
-                    </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
-                </div>
+      <main className="flex-1 flex flex-col p-4 md:p-8 space-y-6 overflow-hidden">
+        <div className="flex flex-col sm:flex-row items-center gap-2">
+            <div className="relative flex-1 w-full">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input placeholder="Search inventory..." className="pl-9" />
             </div>
-          
-            {isMobile ? (
-                <Select value={activeTab} onValueChange={setActiveTab}>
-                    <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select a category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                    {tabOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                        </SelectItem>
-                    ))}
-                    </SelectContent>
-                </Select>
-            ) : null}
+            <div className="flex w-full sm:w-auto items-center gap-2">
+            <Button variant="outline" className="flex-1 sm:flex-initial">
+                <SlidersHorizontal className="mr-2 h-4 w-4" /> Filters
+            </Button>
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                <Button className="flex-1 sm:flex-initial">
+                    <PlusCircle className="mr-2 h-4 w-4" /> New
+                </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => setIsAddProductOpen(true)}>
+                    <Package className="mr-2 h-4 w-4" /> Add Product
+                </DropdownMenuItem>
+                <DropdownMenuItem>
+                    <Hammer className="mr-2 h-4 w-4" /> Add Equipment
+                </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+            </div>
         </div>
-
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="hidden md:block">
-             <TabsList>
-                {tabOptions.map((option) => (
-                    <TabsTrigger key={option.value} value={option.value}>
-                    {option.label}
-                    </TabsTrigger>
-                ))}
-            </TabsList>
+          
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+             <ScrollArea>
+                <TabsList>
+                    {tabOptions.map((option) => (
+                        <TabsTrigger key={option.value} value={option.value}>
+                        {option.label}
+                        </TabsTrigger>
+                    ))}
+                </TabsList>
+                <ScrollBar orientation="horizontal" />
+            </ScrollArea>
         </Tabs>
         
-        <div className='space-y-8'>
+        <div className='flex-1 space-y-8 overflow-y-auto -mr-4 pr-4'>
             {activeTab === 'professional' && (
             (professionalColor.length > 0 || professionalStyling.length > 0 || professionalCare.length > 0) ? (
                 <>
@@ -388,14 +337,9 @@ export default function InventoryPage() {
                     <ProductShelf title="Capital Equipment" items={equipmentItems} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
                 ) : <EmptyState message="No equipment found." />
             )}
-            {activeTab === 'overhead' && <EmptyState message="Overhead section coming soon." />}
             {activeTab === 'locations' && <EmptyState message="Locations section coming soon." />}
         </div>
       </main>
-
-      {/* All dialogs remain here */}
     </div>
   );
 }
-
-    
