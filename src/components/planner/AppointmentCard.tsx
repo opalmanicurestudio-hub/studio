@@ -26,6 +26,8 @@ import {
   ListChecks,
   ShieldAlert,
   PlusCircle,
+  Mail,
+  Phone,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -104,7 +106,11 @@ const AppointmentDetails = ({
         <div className="space-y-6">
             <div className="space-y-2">
                 <h3 className="font-semibold text-lg">{client.name}</h3>
-                 <div className="text-muted-foreground text-sm">
+                <div className="text-muted-foreground text-sm space-y-1">
+                    <p className="flex items-center gap-2"><Mail className="w-4 h-4" /> {client.email}</p>
+                    <p className="flex items-center gap-2"><Phone className="w-4 h-4" /> {client.phone}</p>
+                </div>
+                 <div className="text-muted-foreground text-sm pt-2">
                     <p>{service.name}</p>
                     {addOnServices.map(addon => (
                         <p key={addon.id} className="text-xs pl-4">+ {addon.name}</p>
@@ -284,14 +290,14 @@ export function AppointmentCard({
                 </div>
             </div>
             <div className="text-right flex-shrink-0">
-                 <div className='text-xs space-y-0.5 text-right'>
+                 <div className='text-[10px] space-y-0.5 text-right'>
                     <div className="flex items-center justify-end gap-1.5">
                         <span className="text-muted-foreground">Rev:</span>
-                        <span className="text-green-600 dark:text-green-400">${revenue.toFixed(2)}</span>
+                        <span className="text-green-600 dark:text-green-400 font-semibold">${revenue.toFixed(2)}</span>
                     </div>
                     <div className="flex items-center justify-end gap-1.5">
                         <span className="text-muted-foreground">Cost:</span>
-                        <span className="text-red-600 dark:text-red-400">${breakEvenCost.toFixed(2)}</span>
+                        <span className="text-red-600 dark:text-red-400 font-semibold">${breakEvenCost.toFixed(2)}</span>
                     </div>
                     <div className="flex items-center justify-end gap-1.5">
                         <span className="text-muted-foreground">Profit:</span>
