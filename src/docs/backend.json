@@ -185,6 +185,11 @@
         "dueDay": {
           "type": "number"
         },
+        "startDate": {
+          "type": "string",
+          "format": "date",
+          "description": "The first date from which instances of this bill should be generated."
+        },
         "billingCycle": {
           "type": "string",
           "enum": ["monthly", "annually", "quarterly", "weekly"]
@@ -197,7 +202,7 @@
           "type": "string"
         }
       },
-      "required": ["id", "name", "amount", "dueDay", "billingCycle", "context", "category"]
+      "required": ["id", "name", "amount", "dueDay", "startDate", "billingCycle", "context", "category"]
     },
      "BillInstance": {
       "title": "Bill Instance",
