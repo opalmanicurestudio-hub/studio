@@ -217,8 +217,8 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
                         <SheetTitle>{title}</SheetTitle>
                         <SheetDescription>{description}</SheetDescription>
                     </SheetHeader>
-                    <ScrollArea className="flex-1 px-6">
-                        <form id={formId} onSubmit={handleSubmit(handleFormSubmit)}>
+                    <ScrollArea className="flex-1">
+                        <form id={formId} onSubmit={handleSubmit(handleFormSubmit)} className="px-6">
                             <AddTransactionForm />
                         </form>
                     </ScrollArea>
