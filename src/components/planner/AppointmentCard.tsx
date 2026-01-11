@@ -289,28 +289,32 @@ export function AppointmentCard({
                   </DropdownMenu>
               </div>
           </div>
-          <div className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground">
-            <Clock className="w-3 h-3"/>
-            <span>{format(appointment.startTime, 'h:mm a')} - {format(appointment.endTime, 'h:mm a')}</span>
-          </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-1 text-[10px] mt-1 pt-1 border-t border-current/10 text-center flex-shrink-0">
-            <div>
-                <p className="text-muted-foreground font-medium">Revenue</p>
-                <p className="font-bold">${service.price.toFixed(2)}</p>
+        <div className="flex flex-col-reverse sm:flex-row sm:items-end sm:justify-between gap-1 mt-1 flex-grow">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Clock className="w-3 h-3"/>
+                <span>{format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</span>
             </div>
-            <div>
-                <p className="text-muted-foreground font-medium">Cost</p>
-                <p className="font-bold text-destructive">${breakEvenCost.toFixed(2)}</p>
-            </div>
-              <div>
-                <p className="text-muted-foreground font-medium">Profit</p>
-                <p className={cn("font-bold", netProfit >= 0 ? 'text-primary' : 'text-destructive')}>
-                    ${netProfit.toFixed(2)}
-                </p>
+
+            <div className="grid grid-cols-3 gap-1 text-[10px] text-center flex-shrink-0">
+                <div>
+                    <p className="text-muted-foreground font-medium">Revenue</p>
+                    <p className="font-bold">${service.price.toFixed(2)}</p>
+                </div>
+                <div>
+                    <p className="text-muted-foreground font-medium">Cost</p>
+                    <p className="font-bold text-destructive">${breakEvenCost.toFixed(2)}</p>
+                </div>
+                <div>
+                    <p className="text-muted-foreground font-medium">Profit</p>
+                    <p className={cn("font-bold", netProfit >= 0 ? 'text-primary' : 'text-destructive')}>
+                        ${netProfit.toFixed(2)}
+                    </p>
+                </div>
             </div>
         </div>
+
       </div>
     </div>
   );
@@ -348,3 +352,4 @@ export function AppointmentCard({
     </div>
   );
 }
+
