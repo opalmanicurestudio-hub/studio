@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useCallback } from 'react';
@@ -65,6 +66,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { useToast } from '@/hooks/use-toast';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 const BillItemCard = ({
   bill,
@@ -781,83 +783,89 @@ export default function FinancialFoundationPage() {
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Financial Foundation" />
-      <main className="flex-1 p-4 md:p-8">
-        <div className="max-w-6xl mx-auto">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
-              <div>
-                <h1 className="text-3xl font-bold">Your True Minimum Hourly Rate</h1>
-                <p className="text-muted-foreground mt-2 max-w-3xl">
-                    The bedrock of your entire business. This is the exact amount you must earn per hour to cover all your expenses and fund your desired lifestyle.
-                </p>
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                {isEditing ? (
-                    <>
-                        <Button variant="outline" onClick={handleCancel}>Cancel</Button>
-                        <Button onClick={handleEditToggle}><Save className="mr-2"/>Save Changes</Button>
-                    </>
-                ) : (
-                    <Button onClick={handleEditToggle}><Edit className="mr-2"/>Edit Profiles</Button>
-                )}
-              </div>
-            </div>
-
-            <Tabs defaultValue="lifestyle" className="w-full" onValueChange={setActiveTab}>
-                <TabsList className="grid w-full grid-cols-3">
-                    <TabsTrigger value="lifestyle">1. Lifestyle</TabsTrigger>
-                    <TabsTrigger value="business">2. Business</TabsTrigger>
-                    <TabsTrigger value="schedule">3. Schedule</TabsTrigger>
-                </TabsList>
-                
-                 <div className="grid lg:grid-cols-3 xl:grid-cols-4 gap-8 items-start mt-6">
-                    <div className="lg:col-span-1 space-y-6">
-                       <Card className="block">
-                          <FinancialProfileManager 
-                              activeTab={activeTab} 
-                              profiles={profiles}
-                              setProfiles={setProfiles}
-                              isEditing={isEditing}
-                              renamingProfileId={renamingProfileId}
-                              setRenamingProfileId={setRenamingProfileId}
-                          />
-                       </Card>
+      <main className="flex-1 overflow-hidden">
+        <ScrollArea className="h-full">
+            <div className="p-4 md:p-8">
+                <div className="max-w-6xl mx-auto">
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
+                      <div>
+                        <h1 className="text-3xl font-bold">Your True Minimum Hourly Rate</h1>
+                        <p className="text-muted-foreground mt-2 max-w-3xl">
+                            The bedrock of your entire business. This is the exact amount you must earn per hour to cover all your expenses and fund your desired lifestyle.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {isEditing ? (
+                            <>
+                                <Button variant="outline" onClick={handleCancel}>Cancel</Button>
+                                <Button onClick={handleEditToggle}><Save className="mr-2"/>Save Changes</Button>
+                            </>
+                        ) : (
+                            <Button onClick={handleEditToggle}><Edit className="mr-2"/>Edit Profiles</Button>
+                        )}
+                      </div>
                     </div>
-                    <div className="lg:col-span-2 xl:col-span-3">
-                        <TabsContent value="lifestyle" className="m-0">
-                           <LifestyleTab
-                             isEditing={isEditing}
-                             profileData={activeLifestyleProfile}
-                             onBillChange={(categoryName, billTitle, newAmount) => handleBillChange('lifestyle', categoryName, billTitle, newAmount)}
-                           />
-                        </TabsContent>
-                        <TabsContent value="business" className="m-0">
-                           <BusinessTab
-                             isEditing={isEditing}
-                             profileData={activeBusinessProfile}
-                             onBillChange={(categoryName, billTitle, newAmount) => handleBillChange('business', categoryName, billTitle, newAmount)}
-                           />
-                        </TabsContent>
-                        <TabsContent value="schedule" className="m-0">
-                           {activeScheduleProfile && <ScheduleTab 
-                            isEditing={isEditing}
-                            scheduleData={activeScheduleProfile}
-                            onScheduleChange={handleScheduleChange}
-                            onTimeOffChange={handleTimeOffChange}
-                           />}
-                        </TabsContent>
+
+                    <Tabs defaultValue="lifestyle" className="w-full" onValueChange={setActiveTab}>
+                        <TabsList className="grid w-full grid-cols-3">
+                            <TabsTrigger value="lifestyle">1. Lifestyle</TabsTrigger>
+                            <TabsTrigger value="business">2. Business</TabsTrigger>
+                            <TabsTrigger value="schedule">3. Schedule</TabsTrigger>
+                        </TabsList>
+                        
+                         <div className="grid lg:grid-cols-3 xl:grid-cols-4 gap-8 items-start mt-6">
+                            <div className="lg:col-span-1 space-y-6">
+                               <Card className="block">
+                                  <FinancialProfileManager 
+                                      activeTab={activeTab} 
+                                      profiles={profiles}
+                                      setProfiles={setProfiles}
+                                      isEditing={isEditing}
+                                      renamingProfileId={renamingProfileId}
+                                      setRenamingProfileId={setRenamingProfileId}
+                                  />
+                               </Card>
+                            </div>
+                            <div className="lg:col-span-2 xl:col-span-3">
+                                <TabsContent value="lifestyle" className="m-0">
+                                   <LifestyleTab
+                                     isEditing={isEditing}
+                                     profileData={activeLifestyleProfile}
+                                     onBillChange={(categoryName, billTitle, newAmount) => handleBillChange('lifestyle', categoryName, billTitle, newAmount)}
+                                   />
+                                </TabsContent>
+                                <TabsContent value="business" className="m-0">
+                                   <BusinessTab
+                                     isEditing={isEditing}
+                                     profileData={activeBusinessProfile}
+                                     onBillChange={(categoryName, billTitle, newAmount) => handleBillChange('business', categoryName, billTitle, newAmount)}
+                                   />
+                                </TabsContent>
+                                <TabsContent value="schedule" className="m-0">
+                                   {activeScheduleProfile && <ScheduleTab 
+                                    isEditing={isEditing}
+                                    scheduleData={activeScheduleProfile}
+                                    onScheduleChange={handleScheduleChange}
+                                    onTimeOffChange={handleTimeOffChange}
+                                   />}
+                                </TabsContent>
+                            </div>
+                        </div>
+                    </Tabs>
+                    
+                    <Separator className="my-12" />
+                    
+                    <div className="mt-8 space-y-6 max-w-md mx-auto">
+                        <TmhrBreakdownCard lifestyleTotal={lifestyleTotal} businessTotal={businessTotal} totalHours={totalBillableHours}/>
                     </div>
                 </div>
-            </Tabs>
-            
-            <Separator className="my-12" />
-            
-            <div className="mt-8 space-y-6 max-w-md mx-auto">
-                <TmhrBreakdownCard lifestyleTotal={lifestyleTotal} businessTotal={businessTotal} totalHours={totalBillableHours}/>
             </div>
-        </div>
+        </ScrollArea>
       </main>
     </div>
   );
 }
+
+    
 
     
