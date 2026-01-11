@@ -17,7 +17,6 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog';
 import { Badge } from '@/components/ui/badge';
 import { AddEventDialog } from '@/components/planner/AddEventDialog';
-import { EventCard } from '@/components/planner/EventCard';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -568,22 +567,27 @@ export default function PlannerPage() {
     <div className="flex h-screen w-full flex-col">
       <AppHeaderClient title="Planner" />
 
-      <div className="flex flex-col gap-4 p-4 border-b">
-        <div className='text-center'>
-            <p className='text-xl font-semibold'>{format(currentDate, 'EEEE, LLL d')}</p>
-            <p className='text-sm text-muted-foreground'>{format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMMM yyyy')}</p>
+      <div className="flex flex-wrap items-center justify-between gap-2 p-4 border-b">
+        <div className="flex items-center gap-2">
+            <Button variant="outline" size="icon" onClick={handlePrevDay}><ChevronLeft /></Button>
+            <Button variant="outline" size="icon" onClick={handleNextDay}><ChevronRight /></Button>
+            <Button variant="outline" onClick={handleToday}>Today</Button>
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div className='text-center'>
+            <p className='text-lg font-semibold'>{format(currentDate, 'EEEE, LLL d')}</p>
+            <p className='text-xs text-muted-foreground'>{format(currentDate, 'MMMM yyyy')}</p>
+        </div>
+        <div className="flex items-center gap-2">
              <Dialog>
                  <DialogTrigger asChild>
-                    <Button variant="outline"><BarChart className="w-4 h-4 mr-2" /> Weekly KPIs</Button>
+                    <Button variant="outline"><BarChart className="w-4 h-4 mr-2" /> KPIs</Button>
                 </DialogTrigger>
-                <DialogContent>
+                <DialogContent className="max-w-3xl">
                     <DialogHeader>
                         <DialogTitle>This Week's Financials</DialogTitle>
                         <DialogDescription>A summary of your performance for the week of {format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMM d')}.</DialogDescription>
                     </DialogHeader>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <Card>
                             <CardHeader className="pb-2">
                                 <CardTitle className="text-sm font-medium flex items-center gap-2"><TrendingUp className="w-4 h-4"/>Revenue</CardTitle>
@@ -620,6 +624,8 @@ export default function PlannerPage() {
                                <p className='text-xs text-muted-foreground'>Uncharged extra time/product.</p>
                             </CardContent>
                         </Card>
+                    </div>
+                    <div className="mt-4">
                         <Card className="col-span-2">
                             <CardHeader className="pb-2">
                                 <CardTitle className="text-sm font-medium">Net Profit / Loss</CardTitle>
@@ -636,7 +642,7 @@ export default function PlannerPage() {
                 <Dialog>
                     <DialogTrigger asChild>
                         <Button variant="outline" className="relative">
-                            Bills Due Today
+                            Bills Due
                             <BellRing className="h-4 w-4 text-primary animate-pulse ml-2" />
                         </Button>
                     </DialogTrigger>
@@ -658,16 +664,9 @@ export default function PlannerPage() {
                     </DialogContent>
                 </Dialog>
             )}
-        </div>
-        <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-                <Button variant="outline" size="icon" onClick={handlePrevDay}><ChevronLeft /></Button>
-                <Button variant="outline" size="icon" onClick={handleNextDay}><ChevronRight /></Button>
-            </div>
-            <Button variant="outline" onClick={handleToday} className='flex-1'>Today</Button>
              <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                  <Button className="flex-1">
+                  <Button>
                       <PlusCircle className="mr-2 h-4 w-4" />
                       Add
                   </Button>
