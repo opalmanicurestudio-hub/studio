@@ -4,7 +4,7 @@
 import React, { useState } from 'react';
 import { type Event, type EventChecklistItem } from '@/lib/data';
 import { cn } from '@/lib/utils';
-import { Briefcase, User, Lock, MapPin, CheckSquare, DollarSign, Edit, Link, FilePlus, Receipt } from 'lucide-react';
+import { Briefcase, User, Lock, MapPin, CheckSquare, DollarSign, Edit, Link, FilePlus, Receipt, FileText, ListChecks } from 'lucide-react';
 import { format } from 'date-fns';
 import { Checkbox } from '../ui/checkbox';
 import { Separator } from '../ui/separator';
@@ -55,8 +55,8 @@ const EventDetailsContent = ({ event, transactions, onChecklistItemToggle, onEdi
         <>
             <ScrollArea className="flex-1 -mr-6 pr-6">
                 <div className="p-6 space-y-6">
-                    <div className="space-y-2">
-                        <h4 className="font-medium text-sm">Details</h4>
+                    <div className="space-y-3">
+                        <h4 className="font-medium text-sm flex items-center gap-2"><FileText className="w-4 h-4 text-primary"/> Details</h4>
                         {event.notes && <p className="text-sm text-muted-foreground">{event.notes}</p>}
                         
                         <div className='flex flex-col gap-2 text-sm text-muted-foreground'>
@@ -72,7 +72,7 @@ const EventDetailsContent = ({ event, transactions, onChecklistItemToggle, onEdi
                     {event.checklist && event.checklist.length > 0 && (
                         <div className="space-y-3">
                             <div className="flex justify-between items-center text-sm">
-                                <h4 className="font-medium flex items-center gap-2"><CheckSquare className="w-4 h-4"/> Checklist</h4>
+                                <h4 className="font-medium flex items-center gap-2"><ListChecks className="w-4 h-4 text-primary"/> Checklist</h4>
                             </div>
                             <div className="space-y-2">
                             {event.checklist.map((item) => (
@@ -85,10 +85,11 @@ const EventDetailsContent = ({ event, transactions, onChecklistItemToggle, onEdi
                         </div>
                     )}
                     
-                    <Separator />
-
-                     <div className="space-y-3">
-                        <h4 className="font-medium text-sm flex items-center gap-2"><DollarSign className="w-4 h-4"/> Financials</h4>
+                    <div className="space-y-3">
+                        <div className="flex justify-between items-center">
+                            <h4 className="font-medium text-sm flex items-center gap-2"><DollarSign className="w-4 h-4 text-primary"/> Financials</h4>
+                             <Button variant="outline" size="sm" onClick={onLogExpenseClick}><FilePlus className="w-4 h-4 mr-2"/> Log Expense</Button>
+                        </div>
                         {transactions.length > 0 ? (
                              <div className="space-y-2">
                                 {transactions.map(t => (
@@ -104,11 +105,10 @@ const EventDetailsContent = ({ event, transactions, onChecklistItemToggle, onEdi
                         ) : (
                             <p className="text-sm text-muted-foreground text-center p-4 border rounded-md">No expenses logged for this event.</p>
                         )}
-                        <Button variant="outline" size="sm" onClick={onLogExpenseClick}><FilePlus className="w-4 h-4 mr-2"/> Log an Expense</Button>
                     </div>
                 </div>
             </ScrollArea>
-             <SheetFooter className="pt-4 border-t pr-6">
+             <SheetFooter className="p-4 pt-4 border-t pr-6">
                 <Button variant="outline" className="w-full" onClick={() => onEditEvent(event)}>
                     <Edit className="w-4 h-4 mr-2" />
                     Edit Event
