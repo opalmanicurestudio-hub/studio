@@ -1,3 +1,4 @@
+
 'use client';
 
 import React from 'react';
@@ -91,8 +92,8 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
             Create a new transaction linked to &quot;{event.title}&quot;.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit(handleFormSubmit)} id="add-transaction-form">
-          <ScrollArea className="max-h-[60vh] -mr-4 pr-6">
+        <form onSubmit={handleSubmit(handleFormSubmit)} id="add-transaction-form" className="flex-1 overflow-hidden">
+          <ScrollArea className="h-[60vh] pr-6">
             <div className="grid gap-4 py-4">
               <Controller
                 name="amount"
