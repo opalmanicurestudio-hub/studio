@@ -5,8 +5,8 @@
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer } from 'lucide-react';
-import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem, bills as billDefinitions, type Bill } from '@/lib/data';
-import { billInstances as allBillInstances } from '@/lib/financial-data';
+import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem, bills as billDefinitions } from '@/lib/data';
+import { billInstances as allBillInstances, type Bill } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO } from 'date-fns';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
@@ -116,6 +116,8 @@ const DayTimeline = ({
     dailyTransactions: Transaction[] | null;
     onAddTransaction: (transaction: any) => void;
 }) => {
+    const [currentBillIndex, setCurrentBillIndex] = useState(0);
+
     const dailyTotals = useMemo(() => {
         const appointmentRevenue = appointments
             .filter(apt => apt.status === 'completed')
@@ -157,6 +159,12 @@ const DayTimeline = ({
         setTmhr(parseFloat(storedTmhr || '50'));
       }
     }, []);
+
+    useEffect(() => {
+        // When the date changes, reset to the first bill
+        setCurrentBillIndex(0);
+    }, [date]);
+
 
     const renderItem = (item: any) => {
         const top = (getHours(item.startTime) - 8 + getMinutes(item.startTime) / 60) * 96;
@@ -229,24 +237,38 @@ const DayTimeline = ({
                 </Accordion>
             </div>
              {billInstances.length > 0 && (
-                 <div className="border-b pt-4">
-                     <h4 className="text-sm font-semibold mb-2 px-4">Bills Due Today</h4>
-                    <Carousel
-                        opts={{
-                            align: "start",
-                        }}
-                        className="w-full"
-                        >
-                        <CarouselContent className="-ml-4">
-                            {billInstances.map(instance => (
-                            <CarouselItem key={instance.id} className="pl-4 basis-full md:basis-1/2 lg:basis-1/3">
-                                <div className="p-1">
-                                    <BillDueDateCard instance={instance} />
-                                </div>
-                            </CarouselItem>
-                            ))}
-                        </CarouselContent>
-                    </Carousel>
+                <div className="border-b px-4 pt-4">
+                    <div className="flex justify-between items-center mb-2">
+                        <h4 className="text-sm font-semibold">Bills Due Today</h4>
+                        {billInstances.length > 1 && (
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-muted-foreground">
+                                    {currentBillIndex + 1} of {billInstances.length}
+                                </span>
+                                <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={() => setCurrentBillIndex(prev => (prev - 1 + billInstances.length) % billInstances.length)}
+                                >
+                                    <ChevronLeft className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={() => setCurrentBillIndex(prev => (prev + 1) % billInstances.length)}
+                                >
+                                    <ChevronRight className="h-4 w-4" />
+                                </Button>
+                            </div>
+                        )}
+                    </div>
+                    {billInstances[currentBillIndex] && (
+                        <div className="pb-4">
+                           <BillDueDateCard instance={billInstances[currentBillIndex]} />
+                        </div>
+                    )}
                 </div>
             )}
             <ScrollArea className="flex-1" style={{ height: 'calc(100vh - 230px)' }}>
@@ -706,6 +728,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
