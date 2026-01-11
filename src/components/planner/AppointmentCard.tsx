@@ -279,7 +279,7 @@ export function AppointmentCard({
                 </div>
             </div>
             <div className="text-right flex-shrink-0">
-                <div className='text-xs space-y-0.5 text-right'>
+                 <div className='text-xs space-y-0.5 text-right'>
                     <div className="flex items-center justify-end gap-1.5">
                         <span className="text-muted-foreground">Rev:</span>
                         <span className="text-green-600 dark:text-green-400">${revenue.toFixed(2)}</span>
