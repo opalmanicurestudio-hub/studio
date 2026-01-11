@@ -221,6 +221,15 @@ service cloud.firestore {
     }
     
     /**
+     * @description Rules for bill instances. This data is private.
+     * @path /tenants/{tenantId}/billInstances/{instanceId}
+     * @principle Enforces strict data privacy for a tenant's financial information.
+     */
+    match /tenants/{tenantId}/billInstances/{instanceId} {
+        allow read, write: if isTenantOwner(tenantId);
+    }
+    
+    /**
      * @description Rules for all financial profiles. This data is private.
      * @path /tenants/{tenantId}/{collection}/{profileId}
      * @principle Enforces strict data privacy for a tenant's financial planning data.
@@ -237,8 +246,8 @@ service cloud.firestore {
      */
     match /tenants/{tenantId}/transactions/{transactionId} {
         allow list, get: if isTenantOwner(tenantId);
-        allow create: if isTenantOwner(tenantId) && newDocIsOwnedByCurrentUser();
-        allow update, delete: if isTenantOwner(tenantId) && resource.data.userId == request.auth.uid;
+        allow create: if isTenantOwner(tenantId);
+        allow update, delete: if isTenantOwner(tenantId);
     }
 
     /**

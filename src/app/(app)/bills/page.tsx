@@ -17,6 +17,7 @@ import {
   CalendarDays,
   AlertTriangle,
   MoreHorizontal,
+  CheckCircle,
 } from 'lucide-react';
 import {
   Table,
@@ -49,15 +50,10 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-import { billDefinitions, type BillDefinition } from '@/lib/financial-data';
+import { billDefinitions, billInstances, type BillDefinition, type BillInstance } from '@/lib/financial-data';
+import { format, isPast, isToday, isFuture, parseISO } from 'date-fns';
 
-const kpiData = {
-  monthlyTotal: 4500,
-  upcoming: 1800,
-  pastDue: 250,
-};
-
-type StatusFilter = 'all' | 'due-today' | 'past-due' | 'paid';
+type StatusFilter = 'all' | 'paid' | 'unpaid' | 'overdue';
 type ContextFilter = 'all' | 'Business' | 'Personal';
 
 const BillFilters = ({
@@ -85,8 +81,8 @@ const BillFilters = ({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Statuses</SelectItem>
-              <SelectItem value="due-today">Due Today</SelectItem>
-              <SelectItem value="past-due">Past Due</SelectItem>
+              <SelectItem value="unpaid">Unpaid</SelectItem>
+              <SelectItem value="overdue">Overdue</SelectItem>
               <SelectItem value="paid">Paid</SelectItem>
             </SelectContent>
           </Select>
@@ -114,51 +110,55 @@ const BillFilters = ({
 };
 
 
-const BillTableRow = ({ bill }: { bill: BillDefinition }) => {
-    const getDueText = () => {
-        if (bill.billingCycle === 'monthly') {
-            return `The ${bill.dueDay} of each month`;
-        }
-        return `Recurs ${bill.billingCycle}`;
+const BillTableRow = ({ instance }: { instance: BillInstance & { definition: BillDefinition } }) => {
+    const statusConfig = {
+        paid: { text: 'Paid', className: 'bg-green-100 dark:bg-green-900/50 text-green-800' },
+        unpaid: { text: 'Unpaid', className: 'bg-gray-100 dark:bg-gray-800/50 text-gray-700' },
+        'partially-paid': { text: 'Partially Paid', className: 'bg-yellow-100 dark:bg-yellow-900/50 text-yellow-800' },
+        overdue: { text: 'Overdue', className: 'bg-red-100 dark:bg-red-900/50 text-red-700' },
     }
 
     return (
     <TableRow>
-        <TableCell className="font-medium">{bill.name}</TableCell>
-        <TableCell>${bill.amount.toFixed(2)}</TableCell>
-        <TableCell>{getDueText()}</TableCell>
+        <TableCell className="font-medium">{instance.definition.name}</TableCell>
+        <TableCell>${instance.amountDue.toFixed(2)}</TableCell>
+        <TableCell>{format(parseISO(instance.dueDate), 'MMM d, yyyy')}</TableCell>
+        <TableCell>
+            <Badge variant="secondary" className={statusConfig[instance.status].className}>{statusConfig[instance.status].text}</Badge>
+        </TableCell>
         <TableCell>
             <Badge
-                variant={bill.context === 'Business' ? 'secondary' : 'outline'}
+                variant={instance.definition.context === 'Business' ? 'secondary' : 'outline'}
                 className={cn({
-                    'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300': bill.context === 'Business',
-                    'bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-300': bill.context === 'Personal'
+                    'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300': instance.definition.context === 'Business',
+                    'bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-300': instance.definition.context === 'Personal'
                 })}
                 >
-                {bill.context}
+                {instance.definition.context}
             </Badge>
         </TableCell>
         <TableCell className="text-right">
-             <Button variant="outline" size="sm">Log Payment</Button>
+             <Button variant="outline" size="sm" disabled={instance.status === 'paid'}>Log Payment</Button>
         </TableCell>
     </TableRow>
     )
 };
 
-const BillCard = ({ bill }: { bill: BillDefinition }) => {
-    const getDueText = () => {
-        if (bill.billingCycle === 'monthly') {
-            return `Due on the ${bill.dueDay} of each month`;
-        }
-        return `Recurs ${bill.billingCycle}`;
+const BillCard = ({ instance }: { instance: BillInstance & { definition: BillDefinition } }) => {
+     const statusConfig = {
+        paid: { text: 'Paid', className: 'bg-green-100 dark:bg-green-900/50 text-green-800' },
+        unpaid: { text: 'Unpaid', className: 'bg-gray-100 dark:bg-gray-800/50 text-gray-700' },
+        'partially-paid': { text: 'Partially Paid', className: 'bg-yellow-100 dark:bg-yellow-900/50 text-yellow-800' },
+        overdue: { text: 'Overdue', className: 'bg-red-100 dark:bg-red-900/50 text-red-700' },
     }
+
     return (
     <Card>
         <CardContent className="p-4 space-y-3">
             <div className="flex items-start justify-between gap-4">
                 <div>
-                    <p className="font-semibold">{bill.name}</p>
-                    <p className="text-sm text-muted-foreground">{getDueText()}</p>
+                    <p className="font-semibold">{instance.definition.name}</p>
+                    <p className="text-sm text-muted-foreground">Due: {format(parseISO(instance.dueDate), 'MMM d, yyyy')}</p>
                 </div>
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -173,20 +173,23 @@ const BillCard = ({ bill }: { bill: BillDefinition }) => {
                 </DropdownMenu>
             </div>
             <div className="flex items-center justify-between text-sm">
-                <Badge
-                    variant={bill.context === 'Business' ? 'secondary' : 'outline'}
-                    className={cn({
-                        'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300': bill.context === 'Business',
-                        'bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-300': bill.context === 'Personal'
-                    })}
-                >
-                    {bill.context}
-                </Badge>
-                <span className="font-semibold text-lg">${bill.amount.toFixed(2)}</span>
+                <div className="flex items-center gap-2">
+                    <Badge variant="secondary" className={statusConfig[instance.status].className}>{statusConfig[instance.status].text}</Badge>
+                    <Badge
+                        variant={instance.definition.context === 'Business' ? 'secondary' : 'outline'}
+                        className={cn({
+                            'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300': instance.definition.context === 'Business',
+                            'bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-300': instance.definition.context === 'Personal'
+                        })}
+                    >
+                        {instance.definition.context}
+                    </Badge>
+                </div>
+                <span className="font-semibold text-lg">${instance.amountDue.toFixed(2)}</span>
             </div>
         </CardContent>
         <CardFooter className="p-2 border-t">
-            <Button variant="secondary" className="w-full">Log Payment</Button>
+            <Button variant="secondary" className="w-full" disabled={instance.status === 'paid'}>Log Payment</Button>
         </CardFooter>
     </Card>
     )
@@ -197,14 +200,40 @@ export default function BillsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [contextFilter, setContextFilter] = useState<ContextFilter>('all');
 
+  const instancesWithDefinitions = useMemo(() => {
+    return billInstances.map(instance => {
+      const definition = billDefinitions.find(def => def.id === instance.billDefinitionId);
+      return { ...instance, definition: definition! };
+    }).filter(item => item.definition);
+  }, []);
+
+  const { monthlyTotal, upcomingTotal, pastDueTotal } = useMemo(() => {
+    const now = new Date();
+    const total = billDefinitions.reduce((acc, def) => def.billingCycle === 'monthly' ? acc + def.amount : acc, 0);
+    const upcoming = instancesWithDefinitions.filter(i => i.status !== 'paid' && isFuture(parseISO(i.dueDate))).reduce((acc, i) => acc + i.amountDue, 0);
+    const pastDue = instancesWithDefinitions.filter(i => i.status === 'overdue').reduce((acc, i) => acc + i.amountDue, 0);
+    return { monthlyTotal: total, upcomingTotal: upcoming, pastDueTotal: pastDue };
+  }, [instancesWithDefinitions]);
+
+
   const filteredBills = useMemo(() => {
-    return billDefinitions.filter(bill => {
-      const contextMatch = contextFilter === 'all' || bill.context === contextFilter;
-      // Note: Status logic is placeholder as we don't have bill instances yet.
-      const statusMatch = statusFilter === 'all' || (statusFilter === 'past-due' && bill.name.includes('Insurance'));
+    return instancesWithDefinitions.filter(instance => {
+      const contextMatch = contextFilter === 'all' || instance.definition.context === contextFilter;
+      
+      let statusMatch = true;
+      if (statusFilter !== 'all') {
+          if (statusFilter === 'overdue') {
+              statusMatch = instance.status === 'overdue';
+          } else if (statusFilter === 'unpaid') {
+              statusMatch = instance.status === 'unpaid' || instance.status === 'partially-paid';
+          } else {
+              statusMatch = instance.status === statusFilter;
+          }
+      }
+
       return contextMatch && statusMatch;
-    });
-  }, [contextFilter, statusFilter]);
+    }).sort((a,b) => parseISO(a.dueDate).getTime() - parseISO(b.dueDate).getTime());
+  }, [contextFilter, statusFilter, instancesWithDefinitions]);
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -222,12 +251,12 @@ export default function BillsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Monthly Bills</CardTitle>
+              <CardTitle className="text-sm font-medium">Est. Total Monthly</CardTitle>
               <CreditCard className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${kpiData.monthlyTotal.toFixed(2)}</div>
-              <p className="text-xs text-muted-foreground">Sum of all recurring expenses</p>
+              <div className="text-2xl font-bold">${monthlyTotal.toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">Sum of all monthly bill definitions</p>
             </CardContent>
           </Card>
           <Card>
@@ -236,7 +265,7 @@ export default function BillsPage() {
               <CalendarDays className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${kpiData.upcoming.toFixed(2)}</div>
+              <div className="text-2xl font-bold">${upcomingTotal.toFixed(2)}</div>
                <p className="text-xs text-muted-foreground">Total amount due soon</p>
             </CardContent>
           </Card>
@@ -246,7 +275,7 @@ export default function BillsPage() {
               <AlertTriangle className="h-4 w-4 text-destructive" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-destructive">${kpiData.pastDue.toFixed(2)}</div>
+              <div className="text-2xl font-bold text-destructive">${pastDueTotal.toFixed(2)}</div>
                <p className="text-xs text-muted-foreground">Total amount overdue</p>
             </CardContent>
           </Card>
@@ -280,8 +309,8 @@ export default function BillsPage() {
              <div className="md:col-span-2 lg:col-span-3">
                 <Card className="hidden md:block">
                     <CardHeader>
-                        <CardTitle>Bill Dashboard</CardTitle>
-                        <CardDescription>A list of all your recurring bills from your Financial Foundation.</CardDescription>
+                        <CardTitle>Bill Instances</CardTitle>
+                        <CardDescription>A list of all your concrete bill instances, past and present.</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <Table>
@@ -289,22 +318,23 @@ export default function BillsPage() {
                             <TableRow>
                                 <TableHead>Name</TableHead>
                                 <TableHead>Amount</TableHead>
-                                <TableHead>Due Day</TableHead>
+                                <TableHead>Due Date</TableHead>
+                                <TableHead>Status</TableHead>
                                 <TableHead>Context</TableHead>
                                 <TableHead className='text-right'>Actions</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {filteredBills.map((bill) => (
-                               <BillTableRow key={bill.id} bill={bill} />
+                            {filteredBills.map((instance) => (
+                               <BillTableRow key={instance.id} instance={instance} />
                             ))}
                         </TableBody>
                         </Table>
                     </CardContent>
                 </Card>
                 <div className="space-y-4 md:hidden">
-                     {filteredBills.map((bill) => (
-                        <BillCard key={bill.id} bill={bill} />
+                     {filteredBills.map((instance) => (
+                        <BillCard key={instance.id} instance={instance} />
                     ))}
                 </div>
             </div>

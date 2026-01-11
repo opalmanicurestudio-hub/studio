@@ -5,8 +5,8 @@
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer } from 'lucide-react';
-import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem, bills, type Bill } from '@/lib/data';
-import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate } from 'date-fns';
+import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem, bills as billDefinitions, billInstances, type BillInstance, type Bill } from '@/lib/data';
+import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO } from 'date-fns';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
@@ -146,8 +146,13 @@ const DayTimeline = ({
     }, [appointments, events]);
 
     const dueBills = useMemo(() => {
-        const dayOfMonth = getDate(date);
-        return bills.filter(bill => bill.billingCycle === 'monthly' && bill.dueDay === dayOfMonth);
+        return billInstances
+            .filter(instance => format(parseISO(instance.dueDate), 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'))
+            .map(instance => {
+                const definition = billDefinitions.find(def => def.id === instance.billDefinitionId);
+                return { ...instance, definition: definition! };
+            })
+            .filter(item => item.definition);
     }, [date]);
 
     const hours = Array.from({ length: 15 }, (_, i) => i + 8); // 8 AM to 10 PM
@@ -234,7 +239,7 @@ const DayTimeline = ({
                 {dueBills.length > 0 && (
                     <div className="p-4 border-b">
                         <h4 className="text-sm font-semibold mb-2">Bills Due Today</h4>
-                        {dueBills.map(bill => <BillDueDateCard key={bill.id} bill={bill} />)}
+                        {dueBills.map(bill => <BillDueDateCard key={bill.id} bill={bill.definition} />)}
                     </div>
                 )}
                 <div className="relative grid grid-cols-[auto,1fr] p-4">
@@ -423,7 +428,7 @@ export default function PlannerPage() {
     }
     
     const handleAddTransaction = (transaction: Omit<Transaction, 'id' | 'date'>) => {
-        if (!firestore) return;
+        if (!firestore || !user) return;
         const transactionRef = collection(firestore, 'tenants', tenantId, 'transactions');
         const newTransaction = {
             ...transaction,
@@ -597,7 +602,7 @@ export default function PlannerPage() {
                                 appointments={appointmentsForDay} 
                                 events={eventsForDay} 
                                 onCompleteClick={handleCompleteClick} 
-                                onUpdateStatus={handleUpdateStatus} 
+                                onUpdateStatus={onUpdateStatus} 
                                 onDeleteAppointment={handleDeleteAppointment} 
                                 onPrintReceipt={handlePrintReceipt} 
                                 onEditAppointment={handleEditClick}

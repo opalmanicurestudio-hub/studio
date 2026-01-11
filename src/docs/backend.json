@@ -199,6 +199,20 @@
       },
       "required": ["id", "name", "amount", "dueDay", "billingCycle", "context", "category"]
     },
+     "BillInstance": {
+      "title": "Bill Instance",
+      "type": "object",
+      "description": "A specific, concrete instance of a recurring bill, with its own due date and status.",
+      "properties": {
+        "id": { "type": "string" },
+        "billDefinitionId": { "type": "string", "description": "The ID of the parent BillDefinition." },
+        "dueDate": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["unpaid", "partially-paid", "paid", "overdue"] },
+        "amountDue": { "type": "number" },
+        "amountPaid": { "type": "number" }
+      },
+      "required": ["id", "billDefinitionId", "dueDate", "status", "amountDue"]
+    },
     "LifestyleProfile": {
       "title": "Lifestyle Profile",
       "type": "object",
@@ -300,6 +314,10 @@
         "relatedEventId": {
           "type": "string",
           "description": "The ID of an event this transaction is related to, if any."
+        },
+        "relatedBillInstanceId": {
+          "type": "string",
+          "description": "The ID of a bill instance this transaction is related to, if any."
         }
       },
       "required": ["id", "date", "description", "type", "context", "category", "amount", "paymentMethod"]
@@ -365,7 +383,13 @@
       "schema": {
         "$ref": "#/entities/Bill"
       },
-      "description": "Recurring bills and expenses for a specific tenant."
+      "description": "Recurring bill definitions for a specific tenant."
+    },
+    "/tenants/{tenantId}/billInstances/{instanceId}": {
+      "schema": {
+        "$ref": "#/entities/BillInstance"
+      },
+      "description": "Specific instances of recurring bills for a tenant."
     },
      "/tenants/{tenantId}/lifestyleProfiles/{profileId}": {
       "schema": {

@@ -63,11 +63,11 @@ export const billDefinitions: BillDefinition[] = [
 ];
 
 export const billInstances: BillInstance[] = [
-    { id: 'bi1', billDefinitionId: 'b1', dueDate: '2024-07-01', status: 'paid', amountDue: 1200.00, amountPaid: 1200.00 },
-    { id: 'bi2', billDefinitionId: 'p1', dueDate: '2024-07-01', status: 'paid', amountDue: 2000.00, amountPaid: 2000.00 },
-    { id: 'bi3', billDefinitionId: 'p12', dueDate: '2024-06-15', status: 'overdue', amountDue: 150.00, amountPaid: 0 },
-    { id: 'bi4', billDefinitionId: 'p11', dueDate: '2024-07-25', status: 'partially-paid', amountDue: 350.00, amountPaid: 200.00 },
-    { id: 'bi5', billDefinitionId: 'b2', dueDate: '2024-08-05', status: 'unpaid', amountDue: 49.00, amountPaid: 0 },
+    { id: 'bi1', billDefinitionId: 'b1', dueDate: '2024-07-01T00:00:00.000Z', status: 'paid', amountDue: 1200.00, amountPaid: 1200.00 },
+    { id: 'bi2', billDefinitionId: 'p1', dueDate: '2024-07-01T00:00:00.000Z', status: 'paid', amountDue: 2000.00, amountPaid: 2000.00 },
+    { id: 'bi3', billDefinitionId: 'p12', dueDate: '2024-06-15T00:00:00.000Z', status: 'overdue', amountDue: 150.00, amountPaid: 0 },
+    { id: 'bi4', billDefinitionId: 'p11', dueDate: '2024-07-25T00:00:00.000Z', status: 'partially-paid', amountDue: 350.00, amountPaid: 200.00 },
+    { id: 'bi5', billDefinitionId: 'b2', dueDate: '2024-08-05T00:00:00.000Z', status: 'unpaid', amountDue: 49.00, amountPaid: 0 },
 ];
 
 
@@ -86,5 +86,18 @@ export const transactions: Transaction[] = [
     paymentMethod: 'Business Credit Card',
     hasReceipt: false,
     relatedEventId: 'evt-3',
+  },
+  {
+    id: 'txn-2',
+    date: '2024-07-01T00:00:00.000Z',
+    description: 'Payment for Studio Rent - July',
+    clientOrVendor: 'Landlord',
+    type: 'payment',
+    context: 'Business',
+    category: 'Rent & Facility',
+    amount: 1200.00,
+    paymentMethod: 'Business Checking',
+    hasReceipt: true,
+    relatedBillInstanceId: 'bi1',
   }
 ];
