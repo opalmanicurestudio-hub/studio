@@ -577,7 +577,8 @@ export default function PlannerPage() {
         </div>
       </div>
       
-      <div className="hidden md:flex items-center justify-between gap-2 p-2 border-b bg-muted/50">
+      {!isMobile && (
+      <div className="flex items-center justify-between gap-2 p-2 border-b bg-muted/50">
         <ScrollArea className="w-full whitespace-nowrap">
             <div className="flex items-center justify-between gap-2">
                 {weekDays.map((day, index) => (
@@ -595,6 +596,7 @@ export default function PlannerPage() {
             <ScrollBar orientation="horizontal" />
         </ScrollArea>
       </div>
+      )}
 
       <main className="flex-1 min-h-0">
           <DayTimeline 
