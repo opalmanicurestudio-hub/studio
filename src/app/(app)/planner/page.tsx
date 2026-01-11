@@ -306,7 +306,7 @@ const DayTimeline = ({
                     {/* Time labels */}
                     <div className="flex flex-col text-right pr-4">
                         {hours.map(hour => (
-                            <div key={hour} className="h-32 -mt-2.5">
+                            <div key={hour} className="h-32">
                                 <span className="text-xs text-muted-foreground">{format(new Date(0, 0, 0, hour), 'ha')}</span>
                             </div>
                         ))}
@@ -753,6 +753,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
