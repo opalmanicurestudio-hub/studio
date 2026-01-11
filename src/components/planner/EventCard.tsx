@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState } from 'react';
@@ -160,7 +159,7 @@ export function EventCard({
         setIsSheetOpen(false);
         setTimeout(() => {
             setIsAddTransactionOpen(true);
-        }, 150);
+        }, 150); // Delay to allow sheet to close before dialog opens
     };
     
     const TriggerCard = (
@@ -214,7 +213,6 @@ export function EventCard({
                         onChecklistItemToggle={onChecklistItemToggle} 
                         onUpdateEvent={onUpdateEvent} 
                         onEditEvent={onEditEvent} 
-                        onAddTransaction={onAddTransaction}
                         onLogExpenseClick={handleLogExpenseClick}
                     />
                 </DialogOrSheetContent>
