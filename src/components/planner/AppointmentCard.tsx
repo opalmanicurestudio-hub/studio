@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -260,6 +259,14 @@ export function AppointmentCard({
             <div className='flex-1 min-w-0'>
                 <p className="font-semibold text-xs leading-tight truncate">{client.name}</p>
                 <p className="text-[11px] text-muted-foreground truncate">{serviceNameDisplay}</p>
+                <div className="flex items-center space-x-1 mt-1">
+                    {client.medicalNotes && <ShieldPlus className="h-3 w-3 text-red-500" />}
+                    {client.allergyNotes && <AlertTriangle className="h-3 w-3 text-yellow-500" />}
+                    {client.sensoryNeeds && <Ear className="h-3 w-3 text-blue-500" />}
+                    {client.inspirationPhotoUrl && <ImageIcon className="h-3 w-3 text-orange-400" />}
+                    {client.isMember && <Award className="h-3 w-3 text-amber-500" />}
+                    {appointment.addOnIds && <div className="flex items-center gap-0.5 text-cyan-500"><PlusCircle className="h-3 w-3" /><span className="text-xs font-bold">{appointment.addOnIds.length}</span></div>}
+                </div>
             </div>
             <div className="text-right flex-shrink-0">
                 <div className='text-xs space-y-0.5 text-right'>
@@ -280,15 +287,7 @@ export function AppointmentCard({
                 </div>
             </div>
         </div>
-        <div className="space-y-1 mt-1">
-             <div className="flex items-center space-x-1">
-                {client.medicalNotes && <ShieldPlus className="h-3 w-3 text-red-500" />}
-                {client.allergyNotes && <AlertTriangle className="h-3 w-3 text-yellow-500" />}
-                {client.sensoryNeeds && <Ear className="h-3 w-3 text-blue-500" />}
-                {client.inspirationPhotoUrl && <ImageIcon className="h-3 w-3 text-orange-400" />}
-                {client.isMember && <Award className="h-3 w-3 text-amber-500" />}
-                {appointment.addOnIds && <div className="flex items-center gap-0.5 text-cyan-500"><PlusCircle className="h-3 w-3" /><span className="text-xs font-bold">{appointment.addOnIds.length}</span></div>}
-            </div>
+        <div className="mt-1">
             <div className="flex flex-col items-start">
                 <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[appointment.status]?.className)}>{statusDisplay[appointment.status]?.text}</Badge>
                 <p className="text-[10px] text-muted-foreground">{format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
