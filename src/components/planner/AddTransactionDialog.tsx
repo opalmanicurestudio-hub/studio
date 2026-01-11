@@ -36,7 +36,7 @@ import { type Event } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
 import { Textarea } from '../ui/textarea';
 import { ScrollArea } from '../ui/scroll-area';
-import { useIsMobile } from '@/hooks/use-mobile';
+import { useIsMobile } from '@/hooks/use-is-mobile';
 
 const transactionSchema = z.object({
   amount: z.coerce.number().positive('Amount must be positive.'),
@@ -60,98 +60,96 @@ const AddTransactionForm = () => {
     const { control, formState: { errors } } = useFormContext<TransactionFormData>();
 
     return (
-        <ScrollArea className="h-[65vh] lg:h-auto lg:max-h-[60vh] pr-6">
-            <div className="grid gap-4 py-4">
-                <Controller
-                    name="amount"
-                    control={control}
-                    render={({ field }) => (
-                        <div className="space-y-2">
-                        <Label htmlFor="amount">Amount</Label>
-                        <div className="relative">
-                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input id="amount" type="number" placeholder="0.00" className="pl-8" {...field} />
-                        </div>
-                        {errors.amount && <p className="text-sm text-destructive">{errors.amount.message}</p>}
-                        </div>
-                    )}
-                />
-                <Controller
-                    name="paymentMethod"
-                    control={control}
-                    render={({ field }) => (
-                        <div className="space-y-2">
-                        <Label htmlFor="paymentMethod">Payment Method</Label>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <SelectTrigger id="paymentMethod">
-                            <SelectValue placeholder="Select a payment method" />
-                            </SelectTrigger>
-                            <SelectContent>
-                            <SelectItem value="Business Checking">Business Checking</SelectItem>
-                            <SelectItem value="Business Credit Card">Business Credit Card</SelectItem>
-                            <SelectItem value="Personal Checking">Personal Checking</SelectItem>
-                            <SelectItem value="Personal Credit Card">Personal Credit Card</SelectItem>
-                            <SelectItem value="Cash">Cash</SelectItem>
-                            </SelectContent>
-                        </Select>
-                        {errors.paymentMethod && <p className="text-sm text-destructive">{errors.paymentMethod.message}</p>}
-                        </div>
-                    )}
-                />
-                <Controller
-                    name="paymentMethodIdentifier"
-                    control={control}
-                    render={({ field }) => (
-                        <div className="space-y-2">
-                        <Label htmlFor="paymentMethodIdentifier">Account Identifier (Optional)</Label>
-                        <Input id="paymentMethodIdentifier" placeholder="e.g., Chase ****1234" {...field} />
-                        </div>
-                    )}
-                />
-                <Controller
-                    name="category"
-                    control={control}
-                    render={({ field }) => (
-                        <div className="space-y-2">
-                        <Label htmlFor="category">Category</Label>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <SelectTrigger id="category">
-                            <SelectValue placeholder="Select a category" />
-                            </SelectTrigger>
-                            <SelectContent>
-                            <SelectItem value="Supplies">Supplies</SelectItem>
-                            <SelectItem value="Travel">Travel</SelectItem>
-                            <SelectItem value="Meals & Entertainment">Meals & Entertainment</SelectItem>
-                            <SelectItem value="Other">Other</SelectItem>
-                            </SelectContent>
-                        </Select>
-                        {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
-                        </div>
-                    )}
-                />
-                <Controller
-                    name="clientOrVendor"
-                    control={control}
-                    render={({ field }) => (
-                        <div className="space-y-2">
-                        <Label htmlFor="vendor">Vendor (Optional)</Label>
-                        <Input id="vendor" placeholder="e.g., Coffee Shop, Delta Airlines" {...field} />
-                        </div>
-                    )}
-                />
-                <Controller
-                    name="description"
-                    control={control}
-                    render={({ field }) => (
-                        <div className="space-y-2">
-                        <Label htmlFor="description">Description / Notes</Label>
-                        <Textarea id="description" placeholder="e.g., Coffee with client to discuss project" {...field} />
-                        {errors.description && <p className="text-sm text-destructive">{errors.description.message}</p>}
-                        </div>
-                    )}
-                />
-            </div>
-        </ScrollArea>
+        <div className="grid gap-4 py-4">
+            <Controller
+                name="amount"
+                control={control}
+                render={({ field }) => (
+                    <div className="space-y-2">
+                    <Label htmlFor="amount">Amount</Label>
+                    <div className="relative">
+                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input id="amount" type="number" placeholder="0.00" className="pl-8" {...field} />
+                    </div>
+                    {errors.amount && <p className="text-sm text-destructive">{errors.amount.message}</p>}
+                    </div>
+                )}
+            />
+            <Controller
+                name="paymentMethod"
+                control={control}
+                render={({ field }) => (
+                    <div className="space-y-2">
+                    <Label htmlFor="paymentMethod">Payment Method</Label>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <SelectTrigger id="paymentMethod">
+                        <SelectValue placeholder="Select a payment method" />
+                        </SelectTrigger>
+                        <SelectContent>
+                        <SelectItem value="Business Checking">Business Checking</SelectItem>
+                        <SelectItem value="Business Credit Card">Business Credit Card</SelectItem>
+                        <SelectItem value="Personal Checking">Personal Checking</SelectItem>
+                        <SelectItem value="Personal Credit Card">Personal Credit Card</SelectItem>
+                        <SelectItem value="Cash">Cash</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    {errors.paymentMethod && <p className="text-sm text-destructive">{errors.paymentMethod.message}</p>}
+                    </div>
+                )}
+            />
+            <Controller
+                name="paymentMethodIdentifier"
+                control={control}
+                render={({ field }) => (
+                    <div className="space-y-2">
+                    <Label htmlFor="paymentMethodIdentifier">Account Identifier (Optional)</Label>
+                    <Input id="paymentMethodIdentifier" placeholder="e.g., Chase ****1234" {...field} />
+                    </div>
+                )}
+            />
+            <Controller
+                name="category"
+                control={control}
+                render={({ field }) => (
+                    <div className="space-y-2">
+                    <Label htmlFor="category">Category</Label>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <SelectTrigger id="category">
+                        <SelectValue placeholder="Select a category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                        <SelectItem value="Supplies">Supplies</SelectItem>
+                        <SelectItem value="Travel">Travel</SelectItem>
+                        <SelectItem value="Meals & Entertainment">Meals & Entertainment</SelectItem>
+                        <SelectItem value="Other">Other</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
+                    </div>
+                )}
+            />
+            <Controller
+                name="clientOrVendor"
+                control={control}
+                render={({ field }) => (
+                    <div className="space-y-2">
+                    <Label htmlFor="vendor">Vendor (Optional)</Label>
+                    <Input id="vendor" placeholder="e.g., Coffee Shop, Delta Airlines" {...field} />
+                    </div>
+                )}
+            />
+            <Controller
+                name="description"
+                control={control}
+                render={({ field }) => (
+                    <div className="space-y-2">
+                    <Label htmlFor="description">Description / Notes</Label>
+                    <Textarea id="description" placeholder="e.g., Coffee with client to discuss project" {...field} />
+                    {errors.description && <p className="text-sm text-destructive">{errors.description.message}</p>}
+                    </div>
+                )}
+            />
+        </div>
     )
 }
 
@@ -216,19 +214,19 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
         <FormProvider {...methods}>
             <Sheet open={open} onOpenChange={onOpenChange}>
                 <SheetContent side="bottom" className="h-[90dvh] flex flex-col p-0">
-                    <form id={formId} onSubmit={handleSubmit(handleFormSubmit)}>
-                        <SheetHeader className="p-6 pb-0 text-left">
-                            <SheetTitle>{title}</SheetTitle>
-                            <SheetDescription>{description}</SheetDescription>
-                        </SheetHeader>
-                        <div className="flex-1 overflow-y-auto px-6">
+                    <SheetHeader className="p-6 pb-0 text-left">
+                        <SheetTitle>{title}</SheetTitle>
+                        <SheetDescription>{description}</SheetDescription>
+                    </SheetHeader>
+                    <ScrollArea className="flex-1 px-6">
+                        <form id={formId} onSubmit={handleSubmit(handleFormSubmit)}>
                             <AddTransactionForm />
-                        </div>
-                        <SheetFooter className="p-6 border-t">
-                            <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
-                            <Button type="submit" form={formId}>Log Expense</Button>
-                        </SheetFooter>
-                    </form>
+                        </form>
+                    </ScrollArea>
+                    <SheetFooter className="p-6 pt-4 border-t bg-background">
+                        <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
+                        <Button type="submit" form={formId}>Log Expense</Button>
+                    </SheetFooter>
                 </SheetContent>
             </Sheet>
         </FormProvider>
@@ -244,8 +242,10 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
                     <DialogTitle>{title}</DialogTitle>
                     <DialogDescription>{description}</DialogDescription>
                 </DialogHeader>
-                <AddTransactionForm />
-                <DialogFooter>
+                <ScrollArea className="max-h-[60vh] pr-6 -mr-6">
+                  <AddTransactionForm />
+                </ScrollArea>
+                <DialogFooter className="pt-6">
                     <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
                     <Button type="submit" form={formId}>Log Expense</Button>
                 </DialogFooter>
