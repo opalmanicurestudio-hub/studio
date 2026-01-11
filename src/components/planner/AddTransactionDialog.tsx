@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useEffect } from 'react';
@@ -36,6 +37,7 @@ import { type Transaction } from '@/lib/financial-data';
 import { Textarea } from '../ui/textarea';
 import { ScrollArea } from '../ui/scroll-area';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { ImageUpload } from '../shared/ImageUpload';
 
 const transactionSchema = z.object({
   amount: z.coerce.number().positive('Amount must be positive.'),
@@ -44,6 +46,7 @@ const transactionSchema = z.object({
   paymentMethod: z.string().min(1, 'Payment method is required.'),
   paymentMethodIdentifier: z.string().optional(),
   clientOrVendor: z.string().optional(),
+  receiptUrl: z.string().optional(),
 });
 
 type TransactionFormData = z.infer<typeof transactionSchema>;
@@ -148,6 +151,16 @@ const AddTransactionForm = () => {
                     </div>
                 )}
             />
+             <Controller
+                name="receiptUrl"
+                control={control}
+                render={({ field }) => (
+                    <div className="space-y-2">
+                        <Label>Receipt</Label>
+                        <ImageUpload onImageUploaded={field.onChange} />
+                    </div>
+                )}
+            />
         </div>
     )
 }
@@ -168,6 +181,7 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
       paymentMethod: '',
       paymentMethodIdentifier: '',
       clientOrVendor: '',
+      receiptUrl: '',
     },
   });
 
@@ -182,6 +196,7 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
             paymentMethod: '',
             paymentMethodIdentifier: '',
             clientOrVendor: '',
+            receiptUrl: '',
         });
     }
   }, [open, event.title, event.type, reset]);
@@ -196,7 +211,8 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
       amount: data.amount,
       paymentMethod: data.paymentMethod,
       paymentMethodIdentifier: data.paymentMethodIdentifier,
-      hasReceipt: false,
+      hasReceipt: !!data.receiptUrl,
+      receiptUrl: data.receiptUrl,
       relatedEventId: event.id,
     };
     onConfirm(newTransaction);

@@ -106,16 +106,6 @@ const EventDetailsContent = ({ event, transactions, onChecklistItemToggle, onEdi
                         )}
                         <Button variant="outline" size="sm" onClick={onLogExpenseClick}><FilePlus className="w-4 h-4 mr-2"/> Log an Expense</Button>
                     </div>
-                    
-                    <Separator />
-                    
-                    <div className="space-y-3">
-                        <h4 className="font-medium text-sm flex items-center gap-2"><Receipt className="w-4 h-4"/> Receipts</h4>
-                        <div className="p-4 text-center border-2 border-dashed rounded-lg">
-                            <p className="text-sm text-muted-foreground mb-2">No receipts uploaded.</p>
-                            <ImageUpload onImageUploaded={(url) => console.log('Receipt uploaded:', url)} />
-                        </div>
-                    </div>
                 </div>
             </ScrollArea>
              <SheetFooter className="pt-4 border-t pr-6">

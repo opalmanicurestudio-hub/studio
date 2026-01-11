@@ -34,6 +34,7 @@ export type Transaction = {
   paymentMethod: string;
   paymentMethodIdentifier?: string;
   hasReceipt: boolean;
+  receiptUrl?: string;
   relatedBillInstanceId?: string; // Link to a bill instance
   relatedEventId?: string; // Link to an event
 };
