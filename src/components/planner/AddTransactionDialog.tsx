@@ -10,6 +10,14 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -28,6 +36,7 @@ import { type Event } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
 import { Textarea } from '../ui/textarea';
 import { ScrollArea } from '../ui/scroll-area';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 const transactionSchema = z.object({
   amount: z.coerce.number().positive('Amount must be positive.'),
@@ -47,55 +56,12 @@ interface AddTransactionDialogProps {
   onConfirm: (transaction: Omit<Transaction, 'id' | 'date'>) => void;
 }
 
-export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
-  open,
-  onOpenChange,
-  event,
-  onConfirm,
-}) => {
-  const {
-    control,
-    handleSubmit,
-    reset,
-    formState: { errors },
-  } = useForm<TransactionFormData>({
-    resolver: zodResolver(transactionSchema),
-    defaultValues: {
-      amount: 0,
-      description: `Expense for: ${event.title}`,
-      category: event.type === 'business' ? 'Business Travel' : 'Personal Travel',
-    }
-  });
+const AddTransactionForm = ({ event }: { event: Event }) => {
+    const { control, formState: { errors } } = useFormContext<TransactionFormData>();
 
-  const handleFormSubmit = (data: TransactionFormData) => {
-    const newTransaction: Omit<Transaction, 'id' | 'date'> = {
-      description: data.description,
-      clientOrVendor: data.clientOrVendor || 'N/A',
-      type: 'expense' as const,
-      context: event.type === 'business' ? 'Business' : 'Personal',
-      category: data.category,
-      amount: data.amount,
-      paymentMethod: data.paymentMethod,
-      paymentMethodIdentifier: data.paymentMethodIdentifier,
-      hasReceipt: false, // Default to false, can be updated later
-      relatedEventId: event.id,
-    };
-    onConfirm(newTransaction);
-    reset();
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md flex flex-col">
-        <DialogHeader>
-          <DialogTitle>Log Expense for Event</DialogTitle>
-          <DialogDescription>
-            Create a new transaction linked to &quot;{event.title}&quot;.
-          </DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit(handleFormSubmit)} id="add-transaction-form" className="flex-1 overflow-hidden">
-          <ScrollArea className="h-full pr-6">
-            <div className="grid gap-4 py-4">
+    return (
+        <ScrollArea className="h-[65vh]">
+             <div className="grid gap-4 py-4 pr-6">
               <Controller
                 name="amount"
                 control={control}
@@ -185,15 +151,102 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
                 )}
               />
             </div>
-          </ScrollArea>
-        </form>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button type="submit" form="add-transaction-form">
-            Log Expense
-          </Button>
+        </ScrollArea>
+    )
+}
+
+export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
+  open,
+  onOpenChange,
+  event,
+  onConfirm,
+}) => {
+  const isMobile = useIsMobile();
+  const methods = useForm<TransactionFormData>({
+    resolver: zodResolver(transactionSchema),
+    defaultValues: {
+      amount: 0,
+      description: `Expense for: ${event.title}`,
+      category: event.type === 'business' ? 'Business Travel' : 'Personal Travel',
+    }
+  });
+
+  const { handleSubmit, reset } = methods;
+
+  React.useEffect(() => {
+    if(open) {
+        reset({
+            amount: 0,
+            description: `Expense for: ${event.title}`,
+            category: event.type === 'business' ? 'Business Travel' : 'Personal Travel',
+            paymentMethod: '',
+            paymentMethodIdentifier: '',
+            clientOrVendor: '',
+        });
+    }
+  }, [open, event.title, event.type, reset]);
+
+  const handleFormSubmit = (data: TransactionFormData) => {
+    const newTransaction: Omit<Transaction, 'id' | 'date'> = {
+      description: data.description,
+      clientOrVendor: data.clientOrVendor || 'N/A',
+      type: 'expense' as const,
+      context: event.type === 'business' ? 'Business' : 'Personal',
+      category: data.category,
+      amount: data.amount,
+      paymentMethod: data.paymentMethod,
+      paymentMethodIdentifier: data.paymentMethodIdentifier,
+      hasReceipt: false, // Default to false, can be updated later
+      relatedEventId: event.id,
+    };
+    onConfirm(newTransaction);
+    onOpenChange(false);
+  };
+  
+  const title = "Log Expense for Event";
+  const description = `Create a new transaction linked to "${event.title}".`;
+
+  if (isMobile) {
+      return (
+          <FormProvider {...methods}>
+            <form onSubmit={handleSubmit(handleFormSubmit)} id="add-transaction-form-mobile">
+                <Sheet open={open} onOpenChange={onOpenChange}>
+                    <SheetContent side="bottom" className="h-[90dvh] flex flex-col">
+                        <SheetHeader className="text-left">
+                            <SheetTitle>{title}</SheetTitle>
+                            <SheetDescription>{description}</SheetDescription>
+                        </SheetHeader>
+                        <div className="flex-1 overflow-y-auto">
+                            <AddTransactionForm event={event} />
+                        </div>
+                        <SheetFooter>
+                            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                            <Button type="submit">Log Expense</Button>
+                        </SheetFooter>
+                    </SheetContent>
+                </Sheet>
+            </form>
+          </FormProvider>
+      )
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <FormProvider {...methods}>
+            <form onSubmit={handleSubmit(handleFormSubmit)} id="add-transaction-form-desktop">
+                <DialogHeader>
+                    <DialogTitle>{title}</DialogTitle>
+                    <DialogDescription>{description}</DialogDescription>
+                </DialogHeader>
+                <div className="max-h-[60vh] overflow-hidden">
+                    <AddTransactionForm event={event} />
+                </div>
+            </form>
+        </FormProvider>
+         <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button type="submit" form="add-transaction-form-desktop">Log Expense</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
