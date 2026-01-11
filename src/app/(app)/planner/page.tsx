@@ -5,8 +5,8 @@
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer } from 'lucide-react';
-import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem, bills as billDefinitions } from '@/lib/data';
-import { billInstances as allBillInstances, type Bill } from '@/lib/financial-data';
+import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem } from '@/lib/data';
+import { billInstances as allBillInstances, billDefinitions, type Bill } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO } from 'date-fns';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
@@ -237,38 +237,44 @@ const DayTimeline = ({
                 </Accordion>
             </div>
              {billInstances.length > 0 && (
-                <div className="border-b px-4 pt-4">
-                    <div className="flex justify-between items-center mb-2">
-                        <h4 className="text-sm font-semibold">Bills Due Today</h4>
-                        {billInstances.length > 1 && (
-                            <div className="flex items-center gap-2">
-                                <span className="text-xs text-muted-foreground">
-                                    {currentBillIndex + 1} of {billInstances.length}
-                                </span>
-                                <Button
-                                    variant="outline"
-                                    size="icon"
-                                    className="h-6 w-6"
-                                    onClick={() => setCurrentBillIndex(prev => (prev - 1 + billInstances.length) % billInstances.length)}
-                                >
-                                    <ChevronLeft className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    size="icon"
-                                    className="h-6 w-6"
-                                    onClick={() => setCurrentBillIndex(prev => (prev + 1) % billInstances.length)}
-                                >
-                                    <ChevronRight className="h-4 w-4" />
-                                </Button>
-                            </div>
-                        )}
-                    </div>
-                    {billInstances[currentBillIndex] && (
-                        <div className="pb-4">
-                           <BillDueDateCard instance={billInstances[currentBillIndex]} />
-                        </div>
-                    )}
+                <div className="border-b">
+                     <Accordion type="single" collapsible className="w-full px-4" defaultValue="bills">
+                        <AccordionItem value="bills" className="border-b-0">
+                            <AccordionTrigger className="text-sm font-medium p-0 py-4 hover:no-underline">
+                                Bills Due Today
+                            </AccordionTrigger>
+                            <AccordionContent className="pb-4">
+                                <div className="flex justify-between items-center mb-2">
+                                    {billInstances.length > 1 && (
+                                        <div className="flex items-center gap-2 ml-auto">
+                                            <span className="text-xs text-muted-foreground">
+                                                {currentBillIndex + 1} of {billInstances.length}
+                                            </span>
+                                            <Button
+                                                variant="outline"
+                                                size="icon"
+                                                className="h-6 w-6"
+                                                onClick={() => setCurrentBillIndex(prev => (prev - 1 + billInstances.length) % billInstances.length)}
+                                            >
+                                                <ChevronLeft className="h-4 w-4" />
+                                            </Button>
+                                            <Button
+                                                variant="outline"
+                                                size="icon"
+                                                className="h-6 w-6"
+                                                onClick={() => setCurrentBillIndex(prev => (prev + 1) % billInstances.length)}
+                                            >
+                                                <ChevronRight className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                    )}
+                                </div>
+                                {billInstances[currentBillIndex] && (
+                                    <BillDueDateCard instance={billInstances[currentBillIndex]} />
+                                )}
+                            </AccordionContent>
+                        </AccordionItem>
+                     </Accordion>
                 </div>
             )}
             <ScrollArea className="flex-1" style={{ height: 'calc(100vh - 230px)' }}>
@@ -728,6 +734,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
