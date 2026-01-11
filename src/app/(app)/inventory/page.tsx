@@ -1135,9 +1135,9 @@ export default function InventoryPage() {
   }
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col h-full">
       <AppHeader title="Inventory Hub" />
-      <main className="flex-1 p-4 md:p-8 space-y-6">
+      <main className="flex-1 p-4 md:p-8 space-y-6 overflow-y-auto">
 
         {kpiSection}
 
