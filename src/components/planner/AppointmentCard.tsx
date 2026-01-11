@@ -117,14 +117,37 @@ const AppointmentDetails = ({
              <div className="space-y-2">
                 <div className="flex justify-between items-start gap-4">
                     <h3 className="font-semibold text-lg">{client.name}</h3>
+                </div>
+                <div className="text-muted-foreground text-sm space-y-1">
+                    <a href={`mailto:${client.email}`} className="flex items-center gap-2 hover:text-primary transition-colors">
+                        <Mail className="w-4 h-4" /> {client.email}
+                    </a>
+                     <div className="flex items-center gap-2">
+                        <Phone className="w-4 h-4" />
+                        <span>{client.phone}</span>
+                        <a href={`tel:${client.phone}`} className="ml-auto p-1.5 rounded-md hover:bg-muted"><Phone className="w-4 h-4 text-primary" /></a>
+                        <a href={`sms:${client.phone}`} className="p-1.5 rounded-md hover:bg-muted"><MessageSquare className="w-4 h-4 text-primary" /></a>
+                    </div>
+                </div>
+                 <div className="text-muted-foreground text-sm pt-4 space-y-1">
+                    <p className="font-medium text-foreground">{service.name}</p>
+                    {addOnServices.map(addon => (
+                        <p key={addon.id} className="text-xs pl-4">+ {addon.name}</p>
+                    ))}
+                    <div className='flex flex-col'>
+                      <span className='font-medium'>{format(appointment.startTime, 'EEEE, LLL d, yyyy')}</span>
+                      <span>{format(appointment.startTime, 'h:mm a')} - {format(appointment.endTime, 'h:mm a')}</span>
+                    </div>
+                </div>
+                <div className="pt-2">
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                            <Button variant="outline" size="sm">
+                            <Button variant="outline">
                                 <MoreHorizontal className="w-4 h-4 mr-2" />
                                 Actions
                             </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-56">
+                        <DropdownMenuContent align="start" className="w-56">
                             <DropdownMenuItem asChild>
                                 <Link href={`/clients/${client.id}`}>
                                     <UserIcon className="w-4 h-4 mr-2"/>
@@ -147,27 +170,6 @@ const AppointmentDetails = ({
                             </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
-                </div>
-                <div className="text-muted-foreground text-sm space-y-1">
-                    <a href={`mailto:${client.email}`} className="flex items-center gap-2 hover:text-primary transition-colors">
-                        <Mail className="w-4 h-4" /> {client.email}
-                    </a>
-                     <div className="flex items-center gap-2">
-                        <Phone className="w-4 h-4" />
-                        <span>{client.phone}</span>
-                        <a href={`tel:${client.phone}`} className="ml-auto p-1.5 rounded-md hover:bg-muted"><Phone className="w-4 h-4 text-primary" /></a>
-                        <a href={`sms:${client.phone}`} className="p-1.5 rounded-md hover:bg-muted"><MessageSquare className="w-4 h-4 text-primary" /></a>
-                    </div>
-                </div>
-                 <div className="text-muted-foreground text-sm pt-4 space-y-1">
-                    <p className="font-medium text-foreground">{service.name}</p>
-                    {addOnServices.map(addon => (
-                        <p key={addon.id} className="text-xs pl-4">+ {addon.name}</p>
-                    ))}
-                    <div className='flex flex-col'>
-                      <span className='font-medium'>{format(appointment.startTime, 'EEEE, LLL d, yyyy')}</span>
-                      <span>{format(appointment.startTime, 'h:mm a')} - {format(appointment.endTime, 'h:mm a')}</span>
-                    </div>
                 </div>
             </div>
 
@@ -331,7 +333,7 @@ export function AppointmentCard({
                     {client.medicalNotes && <ShieldPlus className="h-3 w-3 text-red-500" />}
                     {client.allergyNotes && <AlertTriangle className="h-3 w-3 text-yellow-500" />}
                     {client.sensoryNeeds && <Ear className="h-3 w-3 text-blue-500" />}
-                    {(client.inspirationPhotoUrl || appointment.inspirationPhotoUrl) && (
+                    {(appointment.inspirationPhotoUrl || client.inspirationPhotoUrl) && (
                         <button onClick={(e) => { e.stopPropagation(); setIsImageViewerOpen(true); }} className="focus:outline-none">
                             <ImageIcon className="h-3 w-3 text-orange-400" />
                         </button>
@@ -465,4 +467,5 @@ export function AppointmentCard({
     </div>
   );
 }
+
 
