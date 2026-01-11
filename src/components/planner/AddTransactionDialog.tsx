@@ -24,7 +24,8 @@ import { DollarSign } from 'lucide-react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { type Event, type Transaction } from '@/lib/data';
+import { type Event } from '@/lib/data';
+import { type Transaction } from '@/lib/financial-data';
 
 const transactionSchema = z.object({
   amount: z.coerce.number().positive('Amount must be positive.'),

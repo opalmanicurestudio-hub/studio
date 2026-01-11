@@ -284,11 +284,15 @@
         "amount": {
           "type": "number"
         },
+        "paymentMethod": {
+          "type": "string",
+          "description": "The method of payment used for the transaction."
+        },
         "hasReceipt": {
           "type": "boolean"
         }
       },
-      "required": ["id", "date", "description", "type", "context", "category", "amount"]
+      "required": ["id", "date", "description", "type", "context", "category", "amount", "paymentMethod"]
     },
     "StockCorrection": {
       "title": "Stock Correction",
