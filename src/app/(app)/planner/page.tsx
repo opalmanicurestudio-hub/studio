@@ -13,12 +13,6 @@ import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointm
 import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
-import {
-  Carousel,
-  CarouselContent,
-  CarouselItem,
-  type CarouselApi,
-} from "@/components/ui/carousel"
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog';
 import { Badge } from '@/components/ui/badge';
@@ -316,50 +310,11 @@ export default function PlannerPage() {
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const { toast } = useToast();
-  
-  const [api, setApi] = useState<CarouselApi>()
-  const [currentDayIndex, setCurrentDayIndex] = useState(0);
-  
+    
   const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
-  
-  const currentVisibleDate = useMemo(() => {
-    if (!currentDate) return new Date();
-    const start = startOfWeek(currentDate, { weekStartsOn: 0 });
-    return addDays(start, currentDayIndex);
-  }, [currentDate, currentDayIndex]);
-
-
-  const transactionsQuery = useMemoFirebase(() => {
-    if (!firestore || !user) return null;
-    const dayStart = startOfDay(currentVisibleDate);
-    const dayEnd = endOfDay(currentVisibleDate);
-    return query(
-        collection(firestore, 'tenants', tenantId, 'transactions'),
-        where('date', '>=', Timestamp.fromDate(dayStart)),
-        where('date', '<=', Timestamp.fromDate(dayEnd))
-    );
-  }, [firestore, user, currentVisibleDate, tenantId]);
-
-  const { data: dailyTransactions, isLoading: transactionsLoading } = useCollection<Transaction>(transactionsQuery);
-
-  const billInstances = useMemo(() => {
-    return allBillInstances
-        .filter(instance => format(parseISO(instance.dueDate), 'yyyy-MM-dd') === format(currentVisibleDate, 'yyyy-MM-dd'))
-        .map(instance => {
-            const definition = billDefinitions.find(def => def.id === instance.billDefinitionId);
-            return { ...instance, definition: definition! };
-        })
-        .filter(item => item.definition);
-  }, [currentVisibleDate]);
-
 
   useEffect(() => {
-    const today = new Date();
-    const start = startOfWeek(today, { weekStartsOn: 0 });
-    const todayIndex = Array.from({ length: 7 }, (_, i) => addDays(start, i)).findIndex(d => format(d, 'yyyy-MM-dd') === format(today, 'yyyy-MM-dd'));
-    
-    setCurrentDate(today);
-    setCurrentDayIndex(todayIndex >= 0 ? todayIndex : 0);
+    setCurrentDate(new Date());
     setIsClient(true);
   }, []);
 
@@ -368,19 +323,30 @@ export default function PlannerPage() {
     const start = startOfWeek(currentDate, { weekStartsOn: 0 });
     return Array.from({ length: 7 }, (_, i) => addDays(start, i));
   }, [currentDate]);
-  
-  useEffect(() => {
-    if (!api) return;
-    
-    const handleSelect = () => {
-        setCurrentDayIndex(api.selectedScrollSnap())
-    }
-    api.on("select", handleSelect)
-    
-    return () => {
-      api.off("select", handleSelect)
-    }
-  }, [api])
+
+  const transactionsQuery = useMemoFirebase(() => {
+    if (!firestore || !user || !currentDate) return null;
+    const dayStart = startOfDay(currentDate);
+    const dayEnd = endOfDay(currentDate);
+    return query(
+        collection(firestore, 'tenants', tenantId, 'transactions'),
+        where('date', '>=', Timestamp.fromDate(dayStart)),
+        where('date', '<=', Timestamp.fromDate(dayEnd))
+    );
+  }, [firestore, user, currentDate, tenantId]);
+
+  const { data: dailyTransactions, isLoading: transactionsLoading } = useCollection<Transaction>(transactionsQuery);
+
+  const billInstances = useMemo(() => {
+    if (!currentDate) return [];
+    return allBillInstances
+        .filter(instance => format(parseISO(instance.dueDate), 'yyyy-MM-dd') === format(currentDate, 'yyyy-MM-dd'))
+        .map(instance => {
+            const definition = billDefinitions.find(def => def.id === instance.billDefinitionId);
+            return { ...instance, definition: definition! };
+        })
+        .filter(item => item.definition);
+  }, [currentDate]);
 
 
   const handleCompleteClick = (appointment: Appointment) => {
@@ -469,7 +435,7 @@ export default function PlannerPage() {
     }
     
     const handleAddTransaction = (transaction: Omit<Transaction, 'id' | 'date'>) => {
-        if (!firestore || !user) {
+        if (!firestore || !user || !currentDate) {
             toast({
                 variant: 'destructive',
                 title: 'Authentication Error',
@@ -480,7 +446,7 @@ export default function PlannerPage() {
         const transactionRef = collection(firestore, 'tenants', tenantId, 'transactions');
         const newTransaction = {
             ...transaction,
-            date: Timestamp.fromDate(currentVisibleDate),
+            date: Timestamp.fromDate(currentDate),
         };
         addDocumentNonBlocking(transactionRef, newTransaction);
         toast({
@@ -518,35 +484,19 @@ export default function PlannerPage() {
       }));
   };
 
-  const handleNextWeek = () => {
-    if (currentDate) {
-        setCurrentDate(addDays(currentDate, 7));
-    }
+  const handleNextDay = () => {
+    if (currentDate) setCurrentDate(addDays(currentDate, 1));
   };
-  const handlePrevWeek = () => {
-    if (currentDate) {
-      setCurrentDate(subDays(currentDate, 7));
-    }
+  const handlePrevDay = () => {
+    if (currentDate) setCurrentDate(subDays(currentDate, 1));
   };
   const handleToday = () => {
-    const today = new Date();
-    setCurrentDate(today);
-    const start = startOfWeek(today, { weekStartsOn: 0 });
-    const todayIndex = Array.from({ length: 7 }, (_, i) => addDays(start, i)).findIndex(d => format(d, 'yyyy-MM-dd') === format(today, 'yyyy-MM-dd'));
-    if (api && todayIndex >= 0) {
-        api.scrollTo(todayIndex, true);
-    } else {
-        setCurrentDayIndex(todayIndex >=0 ? todayIndex : 0);
-    }
+    setCurrentDate(new Date());
   };
 
-  const handleDayClick = (index: number) => {
-    if (api) {
-        api.scrollTo(index, true);
-    }
-    setCurrentDayIndex(index);
+  const handleDayClick = (day: Date) => {
+    setCurrentDate(day);
   }
-
 
   const selectedAppointmentData = useMemo(() => {
     if (!selectedAppointment) return null;
@@ -582,10 +532,10 @@ export default function PlannerPage() {
   }
 
   const appointmentsForDay = appointments
-      .filter(apt => format(apt.startTime, 'yyyy-MM-dd') === format(currentVisibleDate, 'yyyy-MM-dd'))
+      .filter(apt => format(apt.startTime, 'yyyy-MM-dd') === format(currentDate || new Date(), 'yyyy-MM-dd'))
       .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
   const eventsForDay = events
-      .filter(evt => format(evt.startTime, 'yyyy-MM-dd') === format(currentVisibleDate, 'yyyy-MM-dd'))
+      .filter(evt => format(evt.startTime, 'yyyy-MM-dd') === format(currentDate || new Date(), 'yyyy-MM-dd'))
       .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
   
   if (!isClient || !currentDate) {
@@ -600,17 +550,17 @@ export default function PlannerPage() {
   }
   
   return (
-    <div className="flex h-screen w-full flex-col overflow-hidden">
+    <div className="flex h-screen w-full flex-col">
       <AppHeader title="Planner" />
       <div className="flex flex-col gap-4 p-4 border-b">
         <div className='text-center'>
-            <p className='text-xl font-semibold'>{format(currentVisibleDate, 'EEEE, LLL d')}</p>
+            <p className='text-xl font-semibold'>{format(currentDate, 'EEEE, LLL d')}</p>
             <p className='text-sm text-muted-foreground'>{format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMMM yyyy')}</p>
         </div>
         <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-                <Button variant="outline" size="icon" onClick={handlePrevWeek}><ChevronLeft /></Button>
-                <Button variant="outline" size="icon" onClick={handleNextWeek}><ChevronRight /></Button>
+                <Button variant="outline" size="icon" onClick={handlePrevDay}><ChevronLeft /></Button>
+                <Button variant="outline" size="icon" onClick={handleNextDay}><ChevronRight /></Button>
             </div>
             <Button variant="outline" onClick={handleToday} className='flex-1'>Today</Button>
              <DropdownMenu>
@@ -634,9 +584,9 @@ export default function PlannerPage() {
                 {weekDays.map((day, index) => (
                     <Button 
                         key={index} 
-                        variant={currentDayIndex === index ? 'secondary' : 'ghost'}
+                        variant={isToday(day) && format(day, 'yyyy-MM-dd') === format(currentDate, 'yyyy-MM-dd') ? 'default' : format(day, 'yyyy-MM-dd') === format(currentDate, 'yyyy-MM-dd') ? 'secondary' : 'ghost'}
                         className="flex-1 flex-col h-auto py-2"
-                        onClick={() => handleDayClick(index)}
+                        onClick={() => handleDayClick(day)}
                     >
                         <span className="text-xs">{format(day, 'EEE')}</span>
                         <span className="text-lg font-bold">{format(day, 'd')}</span>
@@ -648,58 +598,22 @@ export default function PlannerPage() {
       </div>
 
       <main className="flex-1 min-h-0">
-        {isMobile ? (
-             <Carousel setApi={setApi} className="h-full w-full" opts={{startIndex: currentDayIndex, align: 'start' }}>
-                <CarouselContent className="h-full">
-                     {weekDays.map((date, index) => {
-                        const appointmentsForDayMobile = appointments
-                            .filter(apt => format(apt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'))
-                            .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
-                        const eventsForDayMobile = events
-                            .filter(evt => format(evt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'))
-                            .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
-                        
-                        return (
-                            <CarouselItem key={index} className="h-full basis-full">
-                                <DayTimeline 
-                                    date={date} 
-                                    appointments={appointmentsForDayMobile} 
-                                    events={eventsForDayMobile} 
-                                    billInstances={billInstances.filter(bi => format(parseISO(bi.dueDate), 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'))}
-                                    onCompleteClick={handleCompleteClick} 
-                                    onUpdateStatus={handleUpdateStatus} 
-                                    onDeleteAppointment={handleDeleteAppointment} 
-                                    onPrintReceipt={handlePrintReceipt} 
-                                    onEditAppointment={handleEditClick}
-                                    onEditEvent={handleEditEventClick}
-                                    onChecklistItemToggle={handleChecklistItemToggle}
-                                    onUpdateEvent={handleUpdateEvent}
-                                    dailyTransactions={dailyTransactions}
-                                    onAddTransaction={handleAddTransaction}
-                                />
-                            </CarouselItem>
-                        )
-                     })}
-                </CarouselContent>
-            </Carousel>
-        ) : (
-            <DayTimeline 
-                date={currentVisibleDate} 
-                appointments={appointmentsForDay} 
-                events={eventsForDay} 
-                billInstances={billInstances}
-                onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus} 
-                onDeleteAppointment={handleDeleteAppointment} 
-                onPrintReceipt={handlePrintReceipt} 
-                onEditAppointment={handleEditClick}
-                onEditEvent={handleEditEventClick}
-                onChecklistItemToggle={handleChecklistItemToggle}
-                onUpdateEvent={handleUpdateEvent}
-                dailyTransactions={dailyTransactions}
-                onAddTransaction={handleAddTransaction}
-            />
-        )}
+          <DayTimeline 
+              date={currentDate} 
+              appointments={appointmentsForDay} 
+              events={eventsForDay} 
+              billInstances={billInstances}
+              onCompleteClick={handleCompleteClick} 
+              onUpdateStatus={handleUpdateStatus} 
+              onDeleteAppointment={handleDeleteAppointment} 
+              onPrintReceipt={handlePrintReceipt} 
+              onEditAppointment={handleEditClick}
+              onEditEvent={handleEditEventClick}
+              onChecklistItemToggle={handleChecklistItemToggle}
+              onUpdateEvent={handleUpdateEvent}
+              dailyTransactions={dailyTransactions}
+              onAddTransaction={handleAddTransaction}
+          />
       </main>
       {selectedAppointmentData && (
         <CompleteAppointmentDialog
