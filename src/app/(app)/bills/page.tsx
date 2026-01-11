@@ -51,7 +51,8 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion';
 import { billDefinitions, billInstances, type BillDefinition, type BillInstance } from '@/lib/financial-data';
-import { format, isPast, isToday, isFuture, parseISO } from 'date-fns';
+import { format as formatTZ, utcToZonedTime } from 'date-fns-tz';
+import { isPast, isToday, isFuture, parseISO } from 'date-fns';
 
 type StatusFilter = 'all' | 'paid' | 'unpaid' | 'overdue';
 type ContextFilter = 'all' | 'Business' | 'Personal';
@@ -122,7 +123,7 @@ const BillTableRow = ({ instance }: { instance: BillInstance & { definition: Bil
     <TableRow>
         <TableCell className="font-medium">{instance.definition.name}</TableCell>
         <TableCell>${instance.amountDue.toFixed(2)}</TableCell>
-        <TableCell>{format(parseISO(instance.dueDate), 'MMM d, yyyy')}</TableCell>
+        <TableCell>{formatTZ(utcToZonedTime(parseISO(instance.dueDate), 'UTC'), 'MMM d, yyyy', { timeZone: 'UTC' })}</TableCell>
         <TableCell>
             <Badge variant="secondary" className={statusConfig[instance.status].className}>{statusConfig[instance.status].text}</Badge>
         </TableCell>
@@ -158,7 +159,7 @@ const BillCard = ({ instance }: { instance: BillInstance & { definition: BillDef
             <div className="flex items-start justify-between gap-4">
                 <div>
                     <p className="font-semibold">{instance.definition.name}</p>
-                    <p className="text-sm text-muted-foreground">Due: {format(parseISO(instance.dueDate), 'MMM d, yyyy')}</p>
+                    <p className="text-sm text-muted-foreground">Due: {formatTZ(utcToZonedTime(parseISO(instance.dueDate), 'UTC'), 'MMM d, yyyy', { timeZone: 'UTC' })}</p>
                 </div>
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
