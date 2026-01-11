@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem } from '@/lib/data';
 import { billInstances as allBillInstances, billDefinitions, type Bill } from '@/lib/financial-data';
-import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO } from 'date-fns';
+import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes } from 'date-fns';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
@@ -168,16 +168,25 @@ const DayTimeline = ({
 
     const renderItem = (item: any) => {
         const dayStart = setHours(startOfDay(date), 8);
-        const minutesFromStart = differenceInMinutes(item.startTime, dayStart);
-        const top = minutesFromStart * 1.6; // 96px per hour / 60 mins = 1.6px per minute
-
-        const height = differenceInMinutes(item.endTime, item.startTime) * 1.6;
-        const style = { top: `${top}px`, height: `${height}px` };
-
+        
         if (item.itemType === 'appointment') {
-            const client = clients.find(c => c.id === item.clientId);
             const service = services.find(s => s.id === item.serviceId);
-            if (!client || !service) return null;
+            if (!service) return null;
+
+            const padBefore = service.padBefore || 0;
+            const padAfter = service.padAfter || 0;
+            const totalDuration = service.duration + padBefore + padAfter;
+            
+            const actualStartTime = addMinutes(item.startTime, -padBefore);
+            const minutesFromStart = differenceInMinutes(actualStartTime, dayStart);
+            
+            const top = minutesFromStart * 1.6;
+            const height = totalDuration * 1.6;
+
+            const style = { top: `${top}px`, height: `${height}px` };
+
+            const client = clients.find(c => c.id === item.clientId);
+            if (!client) return null;
            
             return (
                 <div key={item.id} className="absolute w-full px-2" style={style}>
@@ -185,8 +194,8 @@ const DayTimeline = ({
                         appointment={item}
                         client={client}
                         service={service}
-                        tmhr={tmhr}
                         style={{ height: '100%'}}
+                        tmhr={tmhr}
                         onUpdateStatus={onUpdateStatus}
                         onDelete={onDeleteAppointment}
                         onCompleteClick={onCompleteClick}
@@ -196,6 +205,11 @@ const DayTimeline = ({
                 </div>
             );
         } else { // item.itemType === 'event'
+             const minutesFromStart = differenceInMinutes(item.startTime, dayStart);
+             const top = minutesFromStart * 1.6;
+             const height = differenceInMinutes(item.endTime, item.startTime) * 1.6;
+             const style = { top: `${top}px`, height: `${height}px` };
+
              const eventTransactions = dailyTransactions?.filter(t => t.relatedEventId === item.id) || [];
              return (
                  <div key={item.id} className="absolute w-full px-2" style={style}>
@@ -248,7 +262,7 @@ const DayTimeline = ({
                                     <div className="flex items-center gap-2">
                                         Bills Due Today
                                         {billInstances.length > 0 && (
-                                            <BellRing className="h-4 w-4 text-primary hidden group-data-[state=closed]:block animate-pulse" />
+                                            <BellRing className="h-4 w-4 text-primary animate-pulse" />
                                         )}
                                     </div>
                                 </div>
@@ -739,6 +753,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 

@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -320,4 +321,3 @@ export function AppointmentCard({
     </div>
   );
 }
-
