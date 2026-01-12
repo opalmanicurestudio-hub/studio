@@ -127,7 +127,7 @@ const DayTimeline = ({
             if (minutesFromStart > 0) {
                 const scrollPosition = minutesFromStart * (160 / 60); // 160px per hour
                 viewportRef.current.scrollTo({
-                    top: scrollPosition,
+                    top: scrollPosition - viewportRef.current.clientHeight / 2, // Center on current time
                     behavior: 'smooth',
                 });
             }
@@ -607,19 +607,14 @@ export default function PlannerPage() {
       <AppHeaderClient title="Planner" />
       
       <div className="flex flex-col gap-4 p-4 border-b">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center justify-between gap-4">
             <h2 className="text-2xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
-        </div>
-        <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-                <Button variant="outline" onClick={handlePrevWeek} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
-                <Button variant="outline" onClick={handleNextWeek} size="icon" className="h-8 w-8"><ChevronRight /></Button>
-                <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
-            </div>
-            <div className="flex items-center gap-2">
+             <div className="flex items-center gap-2">
                  <Dialog>
                     <DialogTrigger asChild>
-                        <Button variant="outline" size="icon" className="h-8 w-8"><BarChart className="w-4 h-4" /></Button>
+                        <Button variant="outline" size="icon" className="h-8 w-8">
+                            <BarChart className="w-4 h-4" />
+                        </Button>
                     </DialogTrigger>
                     <DialogContent className="max-w-4xl">
                         <DialogHeader>
@@ -720,6 +715,13 @@ export default function PlannerPage() {
                         <DropdownMenuItem onClick={() => setIsAddEventOpen(true)}>Add Event</DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
+            </div>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+                <Button variant="outline" onClick={handlePrevWeek} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
+                <Button variant="outline" onClick={handleNextWeek} size="icon" className="h-8 w-8"><ChevronRight /></Button>
+                <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
             </div>
          </div>
       </div>
@@ -836,4 +838,5 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
