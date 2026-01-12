@@ -51,7 +51,7 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion';
 import { billDefinitions, billInstances as initialBillInstances, type BillDefinition, type BillInstance, transactions as initialTransactions, type Transaction } from '@/lib/financial-data';
-import { format as formatTZ, utcToZonedTime } from 'date-fns-tz';
+import { format as formatTZ, toZonedTime } from 'date-fns-tz';
 import { isPast, isToday, isFuture, parseISO } from 'date-fns';
 import { LogPaymentDialog } from '@/components/bills/LogPaymentDialog';
 import { useToast } from '@/hooks/use-toast';
@@ -125,7 +125,7 @@ const BillTableRow = ({ instance, onLogPaymentClick }: { instance: BillInstance 
     <TableRow>
         <TableCell className="font-medium">{instance.definition.name}</TableCell>
         <TableCell>${instance.amountDue.toFixed(2)}</TableCell>
-        <TableCell>{formatTZ(utcToZonedTime(parseISO(instance.dueDate), 'UTC'), 'MMM d, yyyy', { timeZone: 'UTC' })}</TableCell>
+        <TableCell>{formatTZ(toZonedTime(parseISO(instance.dueDate), 'UTC'), 'MMM d, yyyy', { timeZone: 'UTC' })}</TableCell>
         <TableCell>
             <Badge variant="secondary" className={statusConfig[instance.status].className}>{statusConfig[instance.status].text}</Badge>
         </TableCell>
@@ -161,7 +161,7 @@ const BillCard = ({ instance, onLogPaymentClick }: { instance: BillInstance & { 
             <div className="flex items-start justify-between gap-4">
                 <div>
                     <p className="font-semibold">{instance.definition.name}</p>
-                    <p className="text-sm text-muted-foreground">Due: {formatTZ(utcToZonedTime(parseISO(instance.dueDate), 'UTC'), 'MMM d, yyyy', { timeZone: 'UTC' })}</p>
+                    <p className="text-sm text-muted-foreground">Due: {formatTZ(toZonedTime(parseISO(instance.dueDate), 'UTC'), 'MMM d, yyyy', { timeZone: 'UTC' })}</p>
                 </div>
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
