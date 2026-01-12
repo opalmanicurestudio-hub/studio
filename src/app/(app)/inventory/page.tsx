@@ -18,7 +18,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import Image from 'next/image';
@@ -231,7 +230,7 @@ export default function InventoryPage() {
   return (
     <div className="h-screen w-full flex flex-col">
       <AppHeader title="Inventory Hub" />
-      <main className="flex-1 flex flex-col p-4 md:p-8 space-y-6 overflow-y-auto">
+      <main className="flex-1 flex flex-col p-4 md:p-8 space-y-6">
         
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
              {KPI_CARDS.map((kpi, index) => (
