@@ -71,7 +71,10 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
     }, [item]);
     
     return (
-        <Card className={cn("transition-all duration-200 hover:shadow-lg flex flex-col", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
+        <Card className={cn(
+            "transition-all duration-200 hover:shadow-xl hover:-translate-y-1 flex flex-col",
+            item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20"
+        )}>
             <CardContent className="p-4 flex-1 flex flex-col">
                 <div className="flex items-start gap-4">
                      <Link href={detailHref} className='w-20 h-20 bg-muted rounded-md flex-shrink-0'>
@@ -109,8 +112,8 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
             </CardContent>
              <CardFooter className="p-2 border-t bg-muted/50">
                 <div className="grid grid-cols-2 gap-2 w-full">
-                    <Button variant="ghost" size="sm" className="w-full" onClick={() => onLogUse(item)}><Pipette className="mr-2"/>Log Use</Button>
-                    <Button variant="ghost" size="sm" className="w-full" onClick={() => onWriteOff(item)}><PackageX className="mr-2"/>Write-off</Button>
+                    <Button variant="ghost" size="sm" className="w-full" onClick={() => onLogUse(item)}><Pipette className="mr-2 h-4 w-4"/>Log Use</Button>
+                    <Button variant="ghost" size="sm" className="w-full" onClick={() => onWriteOff(item)}><PackageX className="mr-2 h-4 w-4"/>Write-off</Button>
                 </div>
             </CardFooter>
         </Card>
@@ -274,7 +277,7 @@ export default function InventoryPage() {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                     {filteredInventory.length > 0 ? filteredInventory.map(item => (
                         <ProductCard 
                             key={item.id} 
