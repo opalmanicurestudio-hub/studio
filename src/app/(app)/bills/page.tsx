@@ -245,7 +245,7 @@ export default function BillsPage() {
     setSelectedBill(instance);
   };
   
-  const handleLogPaymentConfirm = (paymentData: { amount: number; date: Date; paymentMethod: string; notes?: string }) => {
+  const handleLogPaymentConfirm = (paymentData: { amount: number; date: Date; paymentMethod: string; paymentMethodIdentifier?: string; notes?: string; receiptUrl?: string }) => {
     if (!selectedBill) return;
 
     setBillInstances(prev => prev.map(instance => {
@@ -269,7 +269,9 @@ export default function BillsPage() {
         category: selectedBill.definition.category,
         amount: paymentData.amount,
         paymentMethod: paymentData.paymentMethod,
-        hasReceipt: false, // Assuming no receipt for this action
+        paymentMethodIdentifier: paymentData.paymentMethodIdentifier,
+        hasReceipt: !!paymentData.receiptUrl,
+        receiptUrl: paymentData.receiptUrl,
         relatedBillInstanceId: selectedBill.id,
     };
     setTransactions(prev => [...prev, newTransaction]);

@@ -543,7 +543,7 @@ export default function PlannerPage() {
     setSelectedBill(instance);
   };
 
-  const handleLogPaymentConfirm = (paymentData: { amount: number; date: Date; paymentMethod: string; notes?: string }) => {
+  const handleLogPaymentConfirm = (paymentData: { amount: number; date: Date; paymentMethod: string; paymentMethodIdentifier?: string; notes?: string, receiptUrl?: string; }) => {
     if (!selectedBill) return;
 
     // This part should be moved to a backend function ideally
@@ -569,7 +569,9 @@ export default function PlannerPage() {
         category: selectedBill.definition.category,
         amount: paymentData.amount,
         paymentMethod: paymentData.paymentMethod,
-        hasReceipt: false,
+        paymentMethodIdentifier: paymentData.paymentMethodIdentifier,
+        hasReceipt: !!paymentData.receiptUrl,
+        receiptUrl: paymentData.receiptUrl
     };
     
     if (firestore && user) {
@@ -925,17 +927,3 @@ export default function PlannerPage() {
     </div>
   );
 }
-
-
-
-
-
-    
-
-
-
-
-
-
-    
-
