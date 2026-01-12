@@ -63,10 +63,10 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
       return (
         <div className="text-right">
             <p className="font-mono font-semibold text-lg">{item.totalStock} <span className="text-sm text-muted-foreground">full</span></p>
-            {item.costingMethod === 'size' && item.partialContainerSize !== undefined && (
+            {item.costingMethod === 'size' && item.partialContainerSize !== undefined && item.partialContainerSize > 0 && (
                 <p className="text-xs text-muted-foreground">{item.partialContainerSize.toFixed(0)}{item.unit} left in open container</p>
             )}
-            {item.costingMethod === 'uses' && item.partialContainerUses !== undefined && (
+            {item.costingMethod === 'uses' && item.partialContainerUses !== undefined && item.partialContainerUses > 0 && (
                 <p className="text-xs text-muted-foreground">{item.partialContainerUses} uses left in open container</p>
             )}
         </div>
@@ -78,7 +78,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
             "transition-all duration-200 hover:shadow-xl hover:-translate-y-1 flex flex-col",
             item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20"
         )}>
-            <CardContent className="p-4 flex-1 flex flex-col">
+            <CardContent className="p-4 flex-1 flex flex-col space-y-4">
                 <div className="flex items-start gap-4">
                      <Link href={detailHref} className='w-20 h-20 bg-muted rounded-md flex-shrink-0'>
                         <Image src={item.imageUrl || `https://picsum.photos/seed/inv${item.id}/100/100`} alt={item.name} width={80} height={80} className='rounded-md object-cover' data-ai-hint="product photo"/>
@@ -111,7 +111,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                         <p className="text-sm text-muted-foreground">{item.category}</p>
                     </div>
                 </div>
-                 <div className="mt-4 flex items-center justify-between flex-grow">
+                 <div className="flex items-center justify-between mt-auto">
                     <div className='flex items-center gap-2'>
                         <Badge variant="outline" className={stockStatus.className}>{stockStatus.label}</Badge>
                         {item.isExperimentActive && (
