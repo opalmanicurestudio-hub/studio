@@ -99,6 +99,9 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                                 <DropdownMenuItem asChild><Link href={detailHref}>View Details</Link></DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => onEdit(item)}><Pencil className="mr-2 h-4 w-4" /> Edit</DropdownMenuItem>
                                 <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => item.isExperimentActive ? onEndExperiment(item) : onToggleExperiment(item)}>
+                                    {item.isExperimentActive ? <><CheckCircle className="mr-2 h-4 w-4 text-green-500" />End Lifespan Test</> : <><Rocket className="mr-2 h-4 w-4 text-purple-500"/>Start Lifespan Test</>}
+                                </DropdownMenuItem>
                                 <DropdownMenuItem asChild><Link href={`/inventory/labels?product=${item.id}`}><Printer className="mr-2 h-4 w-4" /> Print Label</Link></DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Delete</DropdownMenuItem>
@@ -106,6 +109,12 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                             </DropdownMenu>
                         </div>
                         <p className="text-sm text-muted-foreground">{item.category}</p>
+                         {item.isExperimentActive && (
+                            <Badge variant="secondary" className="flex items-center gap-1.5 bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 mt-2">
+                                <FlaskConical className="h-3 w-3" />
+                                {item.experimentUses || 0} / {item.estimatedUses} uses
+                            </Badge>
+                        )}
                     </div>
                 </div>
                  <div className="mt-4 flex items-center justify-between">
@@ -151,6 +160,7 @@ export default function InventoryPage() {
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
   const [isLogUseOpen, setIsLogUseOpen] = useState(false);
   const [isWriteOffOpen, setIsWriteOffOpen] = useState(false);
+  const [isEndExperimentOpen, setIsEndExperimentOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<InventoryItem | null>(null);
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -182,6 +192,10 @@ export default function InventoryPage() {
 
         const product = { ...newInventory[productIndex] };
         let unit = product.unit || 'units';
+
+        if (product.isExperimentActive) {
+            product.experimentUses = (product.experimentUses || 0) + quantity;
+        }
 
         if (product.costingMethod === 'uses') {
             unit = 'uses';
@@ -235,6 +249,40 @@ export default function InventoryPage() {
     // Logic similar to handleLogUseConfirm, but for a specific batch and with a different reason.
   }
   
+  const handleToggleExperiment = (item: InventoryItem) => {
+    setInventory(prev => prev.map(p => 
+        p.id === item.id 
+        ? { ...p, isExperimentActive: true, experimentUses: 0 } 
+        : p
+    ));
+    toast({
+        title: "Experiment Started!",
+        description: `You are now tracking the cost-per-use for ${item.name}.`,
+    });
+  };
+
+  const handleEndExperiment = (item: InventoryItem) => {
+    setSelectedProduct(item);
+    setIsEndExperimentOpen(true);
+  };
+  
+  const handleEndExperimentConfirmed = () => {
+    if (!selectedProduct) return;
+    
+    setInventory(prev => prev.map(p => 
+        p.id === selectedProduct.id 
+        ? { ...p, isExperimentActive: false } 
+        : p
+    ));
+
+    toast({
+        title: "Experiment Ended",
+        description: `Cost-per-use tracking for ${selectedProduct.name} has been stopped.`,
+    });
+    setIsEndExperimentOpen(false);
+    setSelectedProduct(null);
+  }
+
   const filteredInventory = useMemo(() => {
     let items = inventory;
 
@@ -344,8 +392,8 @@ export default function InventoryPage() {
                             key={item.id} 
                             item={item} 
                             onEdit={() => {}} 
-                            onToggleExperiment={() => {}} 
-                            onEndExperiment={() => {}} 
+                            onToggleExperiment={handleToggleExperiment} 
+                            onEndExperiment={handleEndExperiment} 
                             onWriteOff={handleOpenWriteOff} 
                             onLogUse={handleOpenLogUse}
                         />
@@ -377,6 +425,15 @@ export default function InventoryPage() {
             onConfirm={handleWriteOffConfirm}
         />
       )}
+      
+      {selectedProduct && (
+        <EndCostPerUseTestDialog
+            open={isEndExperimentOpen}
+            onOpenChange={setIsEndExperimentOpen}
+            product={selectedProduct}
+            onConfirm={handleEndExperimentConfirmed}
+        />
+       )}
 
        <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
         <DialogContent className="sm:max-w-md p-0">
@@ -408,5 +465,3 @@ export default function InventoryPage() {
       </Dialog>
     </div>
   );
-
-    
