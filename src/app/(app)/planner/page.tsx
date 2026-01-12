@@ -527,6 +527,12 @@ export default function PlannerPage() {
       }));
   };
 
+  const handleNextDay = () => {
+    if (currentDate) setCurrentDate(addDays(currentDate, 1));
+  };
+  const handlePrevDay = () => {
+    if (currentDate) setCurrentDate(subDays(currentDate, 1));
+  };
   const handleNextWeek = () => {
     if (currentDate) setCurrentDate(addWeeks(currentDate, 1));
   };
@@ -585,12 +591,12 @@ export default function PlannerPage() {
       
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-4 border-b">
         <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" onClick={handlePrevWeek}><ChevronLeft /></Button>
-            <Button variant="outline" size="icon" onClick={handleNextWeek}><ChevronRight /></Button>
+            <Button variant="outline" size="icon" onClick={isMobile ? handlePrevDay : handlePrevWeek}><ChevronLeft /></Button>
+            <Button variant="outline" size="icon" onClick={isMobile ? handleNextDay : handleNextWeek}><ChevronRight /></Button>
             <Button variant="outline" onClick={handleToday}>Today</Button>
             <div className="h-10 px-4 py-2 border border-input bg-background rounded-md text-sm font-medium flex items-center justify-center">
                 <CalendarIcon className="mr-2 h-4 w-4" />
-                {`${format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'LLL d')} - ${format(endOfDay(addDays(startOfWeek(currentDate, { weekStartsOn: 0 }), 6)), 'LLL d, yyyy')}`}
+                {isMobile ? format(currentDate, 'EEEE, LLL d') : `${format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'LLL d')} - ${format(endOfDay(addDays(startOfWeek(currentDate, { weekStartsOn: 0 }), 6)), 'LLL d, yyyy')}`}
             </div>
         </div>
         
@@ -805,6 +811,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
