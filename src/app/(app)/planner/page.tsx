@@ -610,100 +610,13 @@ export default function PlannerPage() {
         <div className="flex items-center justify-between gap-4">
             <h2 className="text-2xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
              <div className="flex items-center gap-2">
-                 <Dialog>
-                    <DialogTrigger asChild>
-                        <Button variant="outline" size="icon" className="h-8 w-8">
-                            <BarChart className="w-4 h-4" />
-                        </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-4xl">
-                        <DialogHeader>
-                            <DialogTitle>This Week's Financials</DialogTitle>
-                            <DialogDescription>A summary of your performance for the week of {format(weekStart, 'MMM d')}.</DialogDescription>
-                        </DialogHeader>
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 py-4">
-                            <Card>
-                                <CardHeader className="pb-2">
-                                    <CardTitle className="text-sm font-medium flex items-center gap-2"><TrendingUp className="w-4 h-4"/>Revenue</CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <p className="text-2xl font-bold">${weeklyKpis.weeklyRevenue.toFixed(2)}</p>
-                                    <p className='text-xs text-muted-foreground'>From completed appointments.</p>
-                                </CardContent>
-                            </Card>
-                            <Card>
-                                <CardHeader className="pb-2">
-                                    <CardTitle className="text-sm font-medium flex items-center gap-2"><DollarSign className="w-4 h-4"/>Projected</CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <p className="text-2xl font-bold">${weeklyKpis.projectedRevenue.toFixed(2)}</p>
-                                    <p className='text-xs text-muted-foreground'>Includes confirmed bookings.</p>
-                                </CardContent>
-                            </Card>
-                            <Card>
-                                <CardHeader className="pb-2">
-                                    <CardTitle className="text-sm font-medium">Break-Even</CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <p className="text-2xl font-bold text-destructive">${weeklyKpis.weeklyBreakEven.toFixed(2)}</p>
-                                    <p className='text-xs text-muted-foreground'>Your weekly cost target.</p>
-                                </CardContent>
-                            </Card>
-                            <Card>
-                                <CardHeader className="pb-2">
-                                    <CardTitle className="text-sm font-medium flex items-center gap-2"><AlertTriangle className="w-4 h-4"/>Absorbed Costs</CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <p className="text-2xl font-bold text-amber-500">${weeklyKpis.absorbedCosts.toFixed(2)}</p>
-                                    <p className='text-xs text-muted-foreground'>Uncharged extra time/product.</p>
-                                </CardContent>
-                            </Card>
-                            <Card className="col-span-full">
-                                <CardHeader className="pb-2">
-                                    <CardTitle className="text-sm font-medium">Net Profit / Loss</CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <p className={cn("text-3xl font-bold", weeklyKpis.weeklyNetProfit >= 0 ? "text-green-500" : "text-destructive")}>${weeklyKpis.weeklyNetProfit.toFixed(2)}</p>
-                                    <p className='text-xs text-muted-foreground'>Revenue minus service costs.</p>
-                                </CardContent>
-                            </Card>
-                        </div>
-                    </DialogContent>
-                </Dialog>
-                <Dialog>
-                    <DialogTrigger asChild>
-                        <Button variant="outline" size="icon" className="h-8 w-8 relative">
-                            <BellRing className={cn("h-4 w-4", billInstances.length > 0 && "text-primary animate-pulse")} />
-                             {billInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
-                        </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                        <DialogHeader>
-                            <DialogTitle>Bills Due Today</DialogTitle>
-                            {billInstances.length > 0 ? (
-                                <DialogDescription>{billInstances.length} bill(s) require attention.</DialogDescription>
-                            ) : (
-                                <DialogDescription>You have no bills due today.</DialogDescription>
-                            )}
-                        </DialogHeader>
-                        {billInstances.length > 0 ? (
-                            <ScrollArea className="w-full -mx-4 px-4">
-                                <div className="flex w-max space-x-4 pb-4">
-                                    {billInstances.map(instance => (
-                                        <div key={instance.id} className="w-80">
-                                            <BillDueDateCard instance={instance} />
-                                        </div>
-                                    ))}
-                                </div>
-                                <ScrollBar orientation="horizontal" />
-                            </ScrollArea>
-                        ) : (
-                            <div className="text-center text-muted-foreground p-8">
-                                All caught up!
-                            </div>
-                        )}
-                    </DialogContent>
-                </Dialog>
+                 <Button variant="outline" size="icon" className="h-8 w-8">
+                    <BarChart className="w-4 h-4" />
+                </Button>
+                <Button variant="outline" size="icon" className="h-8 w-8 relative">
+                    <BellRing className={cn("h-4 w-4", billInstances.length > 0 && "text-primary animate-pulse")} />
+                        {billInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
+                </Button>
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button variant="default" size="icon" className="h-8 w-8">
@@ -717,12 +630,10 @@ export default function PlannerPage() {
                 </DropdownMenu>
             </div>
         </div>
-        <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-                <Button variant="outline" onClick={handlePrevWeek} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
-                <Button variant="outline" onClick={handleNextWeek} size="icon" className="h-8 w-8"><ChevronRight /></Button>
-                <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
-            </div>
+        <div className="flex items-center justify-start gap-2">
+            <Button variant="outline" onClick={handlePrevWeek} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
+            <Button variant="outline" onClick={handleNextWeek} size="icon" className="h-8 w-8"><ChevronRight /></Button>
+            <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
          </div>
       </div>
       
@@ -838,5 +749,6 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
