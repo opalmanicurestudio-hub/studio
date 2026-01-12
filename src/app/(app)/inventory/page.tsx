@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -12,7 +12,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette, QrCode, AlertTriangle } from 'lucide-react';
 import { type InventoryItem, type StockCorrection } from '@/lib/data';
 import {
   DropdownMenu,
@@ -36,6 +36,9 @@ import { cn } from '@/lib/utils';
 import { isPast, parseISO } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { ClientOnly } from '@/components/shared/ClientOnly';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+
 
 const KPI_CARDS = [
     { title: "Total Inventory Value", value: "$1,850.75", icon: Package, description: "Landed cost of all stock" },
@@ -149,6 +152,11 @@ export default function InventoryPage() {
   const [isWriteOffOpen, setIsWriteOffOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<InventoryItem | null>(null);
 
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+
   const handleOpenLogUse = (item: InventoryItem) => {
     setSelectedProduct(item);
     setIsLogUseOpen(true);
@@ -231,6 +239,35 @@ export default function InventoryPage() {
     return inventory.filter(item => item.type === activeTab);
   }, [inventory, activeTab]);
 
+  useEffect(() => {
+    if (isScannerOpen) {
+      const getCameraPermission = async () => {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+          setHasCameraPermission(true);
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+          }
+        } catch (error) {
+          console.error('Error accessing camera:', error);
+          setHasCameraPermission(false);
+          toast({
+            variant: 'destructive',
+            title: 'Camera Access Denied',
+            description: 'Please enable camera permissions in your browser settings to use this app.',
+          });
+        }
+      };
+      getCameraPermission();
+    } else {
+        if (videoRef.current && videoRef.current.srcObject) {
+            const stream = videoRef.current.srcObject as MediaStream;
+            stream.getTracks().forEach(track => track.stop());
+            videoRef.current.srcObject = null;
+        }
+    }
+  }, [isScannerOpen, toast]);
+
   return (
     <div className="h-screen w-full flex flex-col">
       <AppHeader title="Inventory Hub" />
@@ -270,10 +307,16 @@ export default function InventoryPage() {
                         <Input placeholder="Search by name or SKU..." className="pl-9" />
                     </div>
                     <div className="flex items-center gap-2 w-full sm:w-auto">
-                        <Button variant={activeTab === 'all' ? 'default' : 'outline'} onClick={() => setActiveTab('all')} className="flex-1">All</Button>
-                        <Button variant={activeTab === 'professional' ? 'default' : 'outline'} onClick={() => setActiveTab('professional')} className="flex-1">Pro</Button>
-                        <Button variant={activeTab === 'retail' ? 'default' : 'outline'} onClick={() => setActiveTab('retail')} className="flex-1">Retail</Button>
-                        <Button variant={activeTab === 'equipment' ? 'default' : 'outline'} onClick={() => setActiveTab('equipment')} className="flex-1">Equip</Button>
+                        <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
+                            <QrCode className="h-4 w-4" />
+                            <span className="sr-only">Scan</span>
+                        </Button>
+                        <div className="flex items-center gap-2 w-full sm:w-auto p-1 bg-muted rounded-md">
+                          <Button variant={activeTab === 'all' ? 'default' : 'ghost'} onClick={() => setActiveTab('all')} className="flex-1 text-xs h-8">All</Button>
+                          <Button variant={activeTab === 'professional' ? 'default' : 'ghost'} onClick={() => setActiveTab('professional')} className="flex-1 text-xs h-8">Pro</Button>
+                          <Button variant={activeTab === 'retail' ? 'default' : 'ghost'} onClick={() => setActiveTab('retail')} className="flex-1 text-xs h-8">Retail</Button>
+                          <Button variant={activeTab === 'equipment' ? 'default' : 'ghost'} onClick={() => setActiveTab('equipment')} className="flex-1 text-xs h-8">Equip</Button>
+                        </div>
                     </div>
                 </div>
 
@@ -317,6 +360,34 @@ export default function InventoryPage() {
         />
       )}
 
+       <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
+        <DialogContent className="sm:max-w-md p-0">
+          <DialogHeader className="p-4 pb-0">
+            <DialogTitle>Scan Product</DialogTitle>
+            <DialogDescription>
+              Position the product's barcode or QR code inside the frame.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="p-4 relative">
+             <video ref={videoRef} className="w-full aspect-video rounded-md" autoPlay muted playsInline />
+             <div className="absolute inset-4 flex items-center justify-center pointer-events-none">
+                <div className="w-2/3 h-1/2 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
+            </div>
+            {hasCameraPermission === false && (
+                <Alert variant="destructive" className="mt-4">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Camera Access Required</AlertTitle>
+                    <AlertDescription>
+                        Please allow camera access to use this feature.
+                    </AlertDescription>
+                </Alert>
+            )}
+          </div>
+           <DialogFooter className="p-4 pt-0">
+                <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
