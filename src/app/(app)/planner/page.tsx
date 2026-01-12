@@ -589,12 +589,12 @@ export default function PlannerPage() {
     <div className="flex h-screen w-full flex-col">
       <AppHeaderClient title="Planner" />
       
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-4 border-b">
+      <div className="flex items-center justify-between gap-4 p-4 border-b">
         <div className="flex items-center gap-2">
             <Button variant="outline" size="icon" onClick={handlePrevWeek}><ChevronLeft /></Button>
             <Button variant="outline" size="icon" onClick={handleNextWeek}><ChevronRight /></Button>
             <Button variant="outline" onClick={handleToday}>Today</Button>
-            <div className="h-10 px-4 py-2 border border-input bg-background rounded-md text-sm font-medium flex items-center justify-center">
+            <div className="h-10 px-4 py-2 border border-input bg-background rounded-md text-sm font-medium items-center justify-center hidden md:flex">
                 <CalendarIcon className="mr-2 h-4 w-4" />
                 {currentDate
                   ? `${format(weekStart, 'LLL d')} - ${format(
@@ -664,20 +664,24 @@ export default function PlannerPage() {
                     </div>
                 </DialogContent>
             </Dialog>
-            {billInstances.length > 0 && (
-                <Dialog>
-                    <DialogTrigger asChild>
-                        <Button variant="outline" className="relative">
-                            Bills Due
-                            <BellRing className="h-4 w-4 text-primary animate-pulse ml-2" />
-                        </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                        <DialogHeader>
-                            <DialogTitle>Bills Due Today</DialogTitle>
-                            <DialogDescription>{billInstances.length} bill(s) require attention.</DialogDescription>
-                        </DialogHeader>
-                        <ScrollArea className="w-full">
+            <Dialog>
+                <DialogTrigger asChild>
+                    <Button variant="outline" className="relative">
+                        Bills Due
+                        {billInstances.length > 0 && <BellRing className="h-4 w-4 text-primary animate-pulse ml-2" />}
+                    </Button>
+                </DialogTrigger>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Bills Due Today</DialogTitle>
+                        {billInstances.length > 0 ? (
+                             <DialogDescription>{billInstances.length} bill(s) require attention.</DialogDescription>
+                        ) : (
+                            <DialogDescription>You have no bills due today.</DialogDescription>
+                        )}
+                    </DialogHeader>
+                    {billInstances.length > 0 ? (
+                        <ScrollArea className="w-full -mx-4 px-4">
                             <div className="flex w-max space-x-4 pb-4">
                                 {billInstances.map(instance => (
                                     <div key={instance.id} className="w-80">
@@ -687,9 +691,13 @@ export default function PlannerPage() {
                             </div>
                             <ScrollBar orientation="horizontal" />
                         </ScrollArea>
-                    </DialogContent>
-                </Dialog>
-            )}
+                    ) : (
+                        <div className="text-center text-muted-foreground p-8">
+                            All caught up!
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                     <Button>
@@ -814,14 +822,3 @@ export default function PlannerPage() {
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
