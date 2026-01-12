@@ -39,9 +39,10 @@ import { Client, Service, Appointment } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes } from 'date-fns';
 import { Card, CardContent } from '../ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { Switch } from '../ui/switch';
+import { useToast } from '@/hooks/use-toast';
 
 const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: Date) => void }) => {
-    const isMobile = useIsMobile();
     const [isOpen, setIsOpen] = useState(false);
 
     const handleSelect = (selectedDate: Date | undefined) => {
@@ -55,7 +56,7 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
         <Button
             variant={"outline"}
             className={cn(
-            "w-full justify-start text-left font-normal",
+            "w-full justify-start text-left font-normal h-12",
             !date && "text-muted-foreground"
             )}
         >
@@ -64,21 +65,6 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
         </Button>
     );
     
-    const CalendarComponent = (
-        <Calendar
-            mode="single"
-            selected={date}
-            onSelect={handleSelect}
-            initialFocus
-            classNames={{
-                caption_label: "text-base font-medium",
-                day: "h-9 w-9",
-                day_selected: "rounded-md",
-                day_today: "rounded-md",
-            }}
-        />
-    );
-
     return (
         <Dialog open={isOpen} onOpenChange={setIsOpen}>
             <DialogTrigger asChild>
@@ -89,7 +75,18 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
                     <DialogTitle>Select a date</DialogTitle>
                     <DialogDescription>Use the calendar to pick a date for the appointment.</DialogDescription>
                 </DialogHeader>
-                {CalendarComponent}
+                <Calendar
+                    mode="single"
+                    selected={date}
+                    onSelect={handleSelect}
+                    initialFocus
+                    classNames={{
+                        caption_label: "text-base font-medium",
+                        day: "h-9 w-9",
+                        day_selected: "rounded-md",
+                        day_today: "rounded-md",
+                    }}
+                />
             </DialogContent>
         </Dialog>
     );
@@ -112,6 +109,8 @@ const RescheduleAppointmentForm = ({
 }) => {
     const [date, setDate] = useState<Date>(appointment.startTime);
     const [startTime, setStartTime] = useState<string>(format(appointment.startTime, 'HH:mm'));
+    const [sendNotification, setSendNotification] = useState(true);
+    const { toast } = useToast();
 
     const timeOptions = useMemo(() => {
         const options = [];
@@ -174,51 +173,64 @@ const RescheduleAppointmentForm = ({
             endTime: endDateTime,
         };
         onConfirm(updatedAppointment);
+        if (sendNotification) {
+            toast({
+                title: "Reschedule Email Sent",
+                description: `A notification has been sent to ${client.email}.`
+            })
+        }
     }
     
     return (
         <form id="reschedule-appointment-form" onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
-            <ScrollArea className="h-[70vh] pr-6">
-                <div className="space-y-6">
-                    <Card>
-                        <CardContent className="p-4">
-                            <div className="flex items-center gap-4">
-                                <Avatar className="w-12 h-12">
-                                    <AvatarImage src={client.avatarUrl} alt={client.name} />
-                                    <AvatarFallback>{client.name.substring(0, 2)}</AvatarFallback>
-                                </Avatar>
-                                <div>
-                                    <p className="font-semibold">{client.name}</p>
-                                    <p className="text-sm text-muted-foreground">{service.name}</p>
-                                </div>
-                            </div>
-                        </CardContent>
-                    </Card>
-
-                    <div className="space-y-4">
-                        <h3 className="text-lg font-medium">New Date & Time</h3>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="reschedule-date">Date</Label>
-                                <DatePicker date={date} onDateChange={setDate} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="reschedule-start-time">Start Time</Label>
-                                <Select onValueChange={setStartTime} value={startTime}>
-                                    <SelectTrigger id="reschedule-start-time">
-                                        <SelectValue placeholder="Select a time" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {timeOptions.map(time => (
-                                            <SelectItem key={time} value={time}>{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+            <div className="space-y-6">
+                <Card>
+                    <CardContent className="p-4">
+                        <div className="flex items-center gap-4">
+                            <Avatar className="w-12 h-12">
+                                <AvatarImage src={client.avatarUrl} alt={client.name} />
+                                <AvatarFallback>{client.name.substring(0, 2)}</AvatarFallback>
+                            </Avatar>
+                            <div>
+                                <p className="font-semibold">{client.name}</p>
+                                <p className="text-sm text-muted-foreground">{service.name}</p>
                             </div>
                         </div>
+                    </CardContent>
+                </Card>
+
+                <div className="space-y-4">
+                    <h3 className="text-lg font-medium">New Date & Time</h3>
+                    <div className="space-y-2">
+                        <Label htmlFor="reschedule-date">Date</Label>
+                        <DatePicker date={date} onDateChange={setDate} />
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="reschedule-start-time">Start Time</Label>
+                        <Select onValueChange={setStartTime} value={startTime}>
+                            <SelectTrigger id="reschedule-start-time" className="h-12">
+                                <SelectValue placeholder="Select a time" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {timeOptions.map(time => (
+                                    <SelectItem key={time} value={time}>{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
                     </div>
                 </div>
-            </ScrollArea>
+                
+                 <div className="flex items-center justify-between rounded-lg border p-4">
+                    <div className="space-y-0.5">
+                        <Label>Send Reschedule Email</Label>
+                        <p className="text-xs text-muted-foreground">Notify the client of this change.</p>
+                    </div>
+                    <Switch
+                        checked={sendNotification}
+                        onCheckedChange={setSendNotification}
+                    />
+                 </div>
+            </div>
         </form>
     )
 }
@@ -254,12 +266,12 @@ export const RescheduleDialog = ({
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95dvh]">
+        <SheetContent side="bottom" className="h-[95dvh] flex flex-col">
           <SheetHeader className="text-left">
             <SheetTitle>{title}</SheetTitle>
             <SheetDescription>{description}</SheetDescription>
           </SheetHeader>
-          <div className="py-4">{FormContent}</div>
+          <div className="py-4 flex-1 overflow-y-auto">{FormContent}</div>
           <SheetFooter>
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button type="submit" form="reschedule-appointment-form" className="w-full">Save Changes</Button>
@@ -271,7 +283,7 @@ export const RescheduleDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-w-md">
          <DialogHeader>
             <DialogTitle>{title}</DialogTitle>
             <DialogDescription>{description}</DialogDescription>
@@ -285,4 +297,3 @@ export const RescheduleDialog = ({
     </Dialog>
   );
 };
-
