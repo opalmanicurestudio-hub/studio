@@ -4,7 +4,7 @@
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem } from '@/lib/data';
 import { billInstances as allBillInstances, billDefinitions, type Bill } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay } from 'date-fns';
@@ -594,15 +594,9 @@ export default function PlannerPage() {
             <Button variant="outline" size="icon" onClick={handlePrevWeek}><ChevronLeft /></Button>
             <Button variant="outline" size="icon" onClick={handleNextWeek}><ChevronRight /></Button>
             <Button variant="outline" onClick={handleToday}>Today</Button>
-            <div className="h-10 px-4 py-2 border border-input bg-background rounded-md text-sm font-medium items-center justify-center hidden md:flex">
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                {currentDate
-                  ? `${format(weekStart, 'LLL d')} - ${format(
-                      endOfDay(addDays(weekStart, 6)),
-                      'LLL d, yyyy'
-                    )}`
-                  : 'Loading...'}
-              </div>
+            <div className="hidden md:flex items-center gap-2">
+                <span className="font-semibold text-lg">{format(currentDate, 'MMMM yyyy')}</span>
+            </div>
         </div>
         
         <div className="flex items-center gap-2">
@@ -666,7 +660,7 @@ export default function PlannerPage() {
             </Dialog>
             <Dialog>
                 <DialogTrigger asChild>
-                    <Button variant="outline" className="relative">
+                     <Button variant="outline" className="relative">
                         Bills Due
                         {billInstances.length > 0 && <BellRing className="h-4 w-4 text-primary animate-pulse ml-2" />}
                     </Button>
@@ -700,9 +694,8 @@ export default function PlannerPage() {
             </Dialog>
              <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                    <Button>
-                        <PlusCircle className="mr-2 h-4 w-4" />
-                        Add
+                    <Button size="icon" variant="outline">
+                        <Plus className="h-4 w-4" />
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent>
@@ -822,4 +815,5 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
