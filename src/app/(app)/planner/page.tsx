@@ -52,7 +52,7 @@ import { Calendar } from '@/components/ui/calendar';
 
 const TimeIndicator = () => {
     const [top, setTop] = useState(0);
-    const START_HOUR = 7;
+    const START_HOUR = 0;
 
     useEffect(() => {
         const updatePosition = () => {
@@ -116,7 +116,7 @@ const DayTimeline = ({
     onReschedule: (appointment: Appointment) => void;
 }) => {
     const viewportRef = useRef<HTMLDivElement>(null);
-    const START_HOUR = 7;
+    const START_HOUR = 0;
     
     useEffect(() => {
         if (isToday(date) && viewportRef.current) {
@@ -836,3 +836,4 @@ export default function PlannerPage() {
     </div>
   );
 }
+
