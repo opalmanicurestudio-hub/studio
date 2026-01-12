@@ -370,25 +370,30 @@ const BillsDueSheet = ({ open, onOpenChange, billInstances, isMobile }: { open: 
 
     return (
         <DialogOrSheet open={open} onOpenChange={onOpenChange}>
-            <DialogOrSheetContent side={isMobile ? "bottom" : undefined} className={cn(isMobile && "h-[90vh] flex flex-col")}>
-                 <SheetHeader className="p-6">
+            <DialogOrSheetContent side={isMobile ? "bottom" : "right"} className={cn(isMobile ? "h-[50vh] flex flex-col" : "sm:max-w-lg")}>
+                 <SheetHeader className="p-6 pb-2">
                     <SheetTitle>Bills Due Today</SheetTitle>
                     <SheetDescription>A list of all recurring expenses due on this date.</SheetDescription>
                 </SheetHeader>
-                 <ScrollArea className="flex-1 p-6">
-                    <div className="space-y-4">
-                        {billInstances.length > 0 ? (
-                            billInstances.map(instance => (
-                                <BillDueDateCard key={instance.id} instance={instance} />
-                            ))
-                        ) : (
-                            <div className="text-center text-muted-foreground py-16">
-                                No bills are due today.
+                <div className="flex-1 p-6 overflow-hidden">
+                    {billInstances.length > 0 ? (
+                        <ScrollArea className="h-full">
+                             <div className="flex space-x-4 pb-4">
+                                {billInstances.map(instance => (
+                                    <div key={instance.id} className="w-[280px] shrink-0">
+                                        <BillDueDateCard instance={instance} />
+                                    </div>
+                                ))}
                             </div>
-                        )}
-                    </div>
-                </ScrollArea>
-                 <SheetFooter className="p-6">
+                            <ScrollBar orientation="horizontal" />
+                        </ScrollArea>
+                    ) : (
+                        <div className="text-center text-muted-foreground h-full flex flex-col items-center justify-center">
+                            No bills are due today.
+                        </div>
+                    )}
+                </div>
+                 <SheetFooter className="p-6 pt-2">
                     <Button onClick={() => onOpenChange(false)} className="w-full">Close</Button>
                 </SheetFooter>
             </DialogOrSheetContent>
@@ -712,13 +717,8 @@ export default function PlannerPage() {
       <AppHeaderClient title="Planner" />
       
       <div className="flex flex-col gap-4 p-4 border-b">
-        <h2 className="text-2xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
-        <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-                <Button variant="outline" onClick={handlePrevWeek} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
-                <Button variant="outline" onClick={handleNextWeek} size="icon" className="h-8 w-8"><ChevronRight /></Button>
-                <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
-            </div>
+        <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
              <div className="flex items-center gap-2">
                  <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setIsKpiSheetOpen(true)}>
                     <BarChart className="w-4 h-4" />
@@ -739,6 +739,11 @@ export default function PlannerPage() {
                     </DropdownMenuContent>
                 </DropdownMenu>
             </div>
+        </div>
+         <div className="flex items-center justify-start gap-2">
+            <Button variant="outline" onClick={handlePrevWeek} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
+            <Button variant="outline" onClick={handleNextWeek} size="icon" className="h-8 w-8"><ChevronRight /></Button>
+            <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
         </div>
       </div>
       
@@ -862,3 +867,4 @@ export default function PlannerPage() {
 
 
     
+
