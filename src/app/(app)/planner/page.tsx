@@ -596,8 +596,13 @@ export default function PlannerPage() {
             <Button variant="outline" onClick={handleToday}>Today</Button>
             <div className="h-10 px-4 py-2 border border-input bg-background rounded-md text-sm font-medium flex items-center justify-center">
                 <CalendarIcon className="mr-2 h-4 w-4" />
-                 {isMobile ? format(currentDate, 'EEEE, LLL d') : `${format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'LLL d')} - ${format(endOfDay(addDays(startOfWeek(currentDate, { weekStartsOn: 0 }), 6)), 'LLL d, yyyy')}`}
-            </div>
+                {currentDate
+                  ? `${format(weekStart, 'LLL d')} - ${format(
+                      endOfDay(addDays(weekStart, 6)),
+                      'LLL d, yyyy'
+                    )}`
+                  : 'Loading...'}
+              </div>
         </div>
         
         <div className="flex items-center gap-2 ml-auto">
@@ -809,6 +814,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
