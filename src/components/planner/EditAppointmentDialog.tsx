@@ -70,6 +70,10 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
             <Sheet open={isOpen} onOpenChange={setIsOpen}>
                 <SheetTrigger asChild>{TriggerButton}</SheetTrigger>
                 <SheetContent side="bottom">
+                    <SheetHeader>
+                        <SheetTitle className="sr-only">Select a date</SheetTitle>
+                        <SheetDescription className="sr-only">Use the calendar to pick a date for the appointment.</SheetDescription>
+                    </SheetHeader>
                     <Calendar
                         mode="single"
                         selected={date}
