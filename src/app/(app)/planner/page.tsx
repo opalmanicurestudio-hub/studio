@@ -415,6 +415,7 @@ export default function PlannerPage() {
   const [isClient, setIsClient] = useState(false);
   const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
   const [events, setEvents] = useState<Event[]>(initialEvents);
+  const [billInstances, setBillInstances] = useState(allBillInstances);
   
   const { inventory, setInventory, addStockCorrection } = useInventory();
   
@@ -462,15 +463,15 @@ export default function PlannerPage() {
 
   const { data: dailyTransactions, isLoading: transactionsLoading } = useCollection<Transaction>(transactionsQuery);
 
-  const billInstances = useMemo(() => {
-    return allBillInstances
+  const dailyBillInstances = useMemo(() => {
+    return billInstances
         .filter(instance => format(parseISO(instance.dueDate), 'yyyy-MM-dd') === format(currentDate, 'yyyy-MM-dd'))
         .map(instance => {
             const definition = billDefinitions.find(def => def.id === instance.billDefinitionId);
             return { ...instance, definition: definition! };
         })
         .filter(item => item.definition);
-  }, [currentDate]);
+  }, [currentDate, billInstances]);
 
   const weeklyKpis = useMemo(() => {
     const start = weekStart;
@@ -546,9 +547,7 @@ export default function PlannerPage() {
   const handleLogPaymentConfirm = (paymentData: { amount: number; date: Date; paymentMethod: string; paymentMethodIdentifier?: string; notes?: string, receiptUrl?: string; }) => {
     if (!selectedBill) return;
 
-    // This part should be moved to a backend function ideally
-    // For now, we simulate the update on the client
-    const updatedBillInstances = allBillInstances.map(instance => {
+    setBillInstances(prev => prev.map(instance => {
         if (instance.id === selectedBill.id) {
             const newAmountPaid = instance.amountPaid + paymentData.amount;
             const newAmountDue = instance.amountDue - paymentData.amount;
@@ -556,9 +555,7 @@ export default function PlannerPage() {
             return { ...instance, amountPaid: newAmountPaid, amountDue: newAmountDue, status: newStatus };
         }
         return instance;
-    });
-    // Here you would set the state for billInstances if it were managed here
-    // setBillInstances(updatedBillInstances);
+    }));
 
     const newTransaction: Omit<Transaction, 'id'> = {
         date: paymentData.date.toISOString(),
@@ -571,7 +568,8 @@ export default function PlannerPage() {
         paymentMethod: paymentData.paymentMethod,
         paymentMethodIdentifier: paymentData.paymentMethodIdentifier,
         hasReceipt: !!paymentData.receiptUrl,
-        receiptUrl: paymentData.receiptUrl
+        receiptUrl: paymentData.receiptUrl,
+        relatedBillInstanceId: selectedBill.id,
     };
     
     if (firestore && user) {
@@ -585,6 +583,7 @@ export default function PlannerPage() {
     })
 
     setSelectedBill(null);
+    setIsBillsSheetOpen(false); // Close the sheet after payment
   };
 
   const handleCheckout = (updatedInventory: any, newCorrections: any, receiptData: Omit<ReceiptData, 'business'>) => {
@@ -776,8 +775,8 @@ export default function PlannerPage() {
                     <BarChart className="w-4 h-4" />
                 </Button>
                 <Button variant="outline" size="icon" className="h-8 w-8 relative" onClick={() => setIsBillsSheetOpen(true)}>
-                    <BellRing className={cn("h-4 w-4", billInstances.length > 0 && "text-primary animate-pulse")} />
-                        {billInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
+                    <BellRing className={cn("h-4 w-4", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
+                        {dailyBillInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
                 </Button>
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -826,7 +825,7 @@ export default function PlannerPage() {
               date={currentDate} 
               appointments={appointmentsForDay} 
               events={eventsForDay} 
-              billInstances={billInstances}
+              billInstances={dailyBillInstances}
               onCompleteClick={handleCompleteClick} 
               onUpdateStatus={handleUpdateStatus} 
               onDeleteAppointment={handleDeleteAppointment} 
@@ -892,7 +891,7 @@ export default function PlannerPage() {
         />
        )}
         <WeeklyKpiSheet open={isKpiSheetOpen} onOpenChange={setIsKpiSheetOpen} kpis={weeklyKpis} isMobile={!!isMobile} />
-        <BillsDueSheet open={isBillsSheetOpen} onOpenChange={setIsBillsSheetOpen} billInstances={billInstances} isMobile={!!isMobile} onLogPaymentClick={handleLogPaymentClick}/>
+        <BillsDueSheet open={isBillsSheetOpen} onOpenChange={setIsBillsSheetOpen} billInstances={dailyBillInstances} isMobile={!!isMobile} onLogPaymentClick={handleLogPaymentClick}/>
         
         {selectedBill && (
             <LogPaymentDialog
@@ -927,3 +926,4 @@ export default function PlannerPage() {
     </div>
   );
 }
+
