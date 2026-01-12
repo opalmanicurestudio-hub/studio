@@ -67,6 +67,7 @@ import { Separator } from '@/components/ui/separator';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { cn } from '@/lib/utils';
 
 const BillItemRow = ({
   bill,
@@ -463,7 +464,13 @@ const FinancialProfileManager = ({
       <CardContent className="p-2">
         <div className="space-y-1">
           {currentProfiles.map((profile:any) => (
-            <div key={profile.id} className="group/item relative">
+            <div
+              key={profile.id}
+              className={cn(
+                'group/item relative transition-opacity',
+                isEditing && !profile.isActive && 'opacity-50'
+              )}
+            >
               {renamingProfileId === profile.id ? (
                  <div className="flex items-center gap-1 p-1">
                     <Input
@@ -485,14 +492,18 @@ const FinancialProfileManager = ({
                   variant={profile.isActive ? 'secondary' : 'ghost'}
                   className="w-full justify-start h-auto py-2"
                   onClick={() => handleSetActive(profile.id)}
-                  disabled={isEditing && profile.id !== getActiveProfileId()}
+                  disabled={isEditing && !profile.isActive}
                 >
                   <span className="flex-1 text-left truncate">{profile.name}</span>
                   {profile.isPro && !profile.isActive && <Badge variant="outline" className="ml-2">Pro</Badge>}
                   {activeTab === 'schedule' && profile.isPublic && (
                     <Globe className="h-4 w-4 text-muted-foreground ml-2" />
                   )}
-                  {profile.isActive && <Badge variant="default" className="ml-2">Active</Badge>}
+                  {profile.isActive && (
+                    <Badge variant={isEditing ? "default" : "secondary"} className={cn("ml-2", isEditing && "bg-primary")}>
+                      {isEditing ? 'Editing' : 'Active'}
+                    </Badge>
+                  )}
                 </Button>
               )}
 
@@ -833,5 +844,7 @@ export default function FinancialFoundationPage() {
 
 
 
+
+    
 
     
