@@ -61,7 +61,7 @@ import { Calendar } from '@/components/ui/calendar';
 
 const TimeIndicator = () => {
     const [top, setTop] = useState(0);
-    const START_HOUR = 0;
+    const START_HOUR = 7;
 
     useEffect(() => {
         const updatePosition = () => {
@@ -125,7 +125,7 @@ const DayTimeline = ({
     onReschedule: (appointment: Appointment) => void;
 }) => {
     const viewportRef = useRef<HTMLDivElement>(null);
-    const START_HOUR = 0;
+    const START_HOUR = 7;
     
     useEffect(() => {
         if (isToday(date) && viewportRef.current) {
@@ -353,6 +353,16 @@ const WeeklyKpiSheet = ({ open, onOpenChange, kpis, isMobile }: { open: boolean,
                         <CardContent>
                             <div className="text-2xl font-bold text-primary">${kpis.weeklyNetProfit.toFixed(2)}</div>
                              <p className="text-xs text-muted-foreground">Revenue minus cost of services</p>
+                        </CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium">Absorbed Costs</CardTitle>
+                            <DollarSign className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold text-orange-500">${kpis.absorbedCosts.toFixed(2)}</div>
+                            <p className="text-xs text-muted-foreground">Extra costs you didn't bill to clients.</p>
                         </CardContent>
                     </Card>
                 </div>
@@ -864,5 +874,6 @@ export default function PlannerPage() {
 
 
     
+
 
 
