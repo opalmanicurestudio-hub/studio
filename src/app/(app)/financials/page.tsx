@@ -146,7 +146,7 @@ const businessCategoriesTemplate = [
 const deepCopyTemplate = (template: any[]) => {
   return template.map(category => ({
     ...category,
-    icon: category.icon, // Keep the icon as a React element
+    icon: category.icon, // Keep the icon as a React element reference
     bills: category.bills.map((bill: any) => ({ ...bill }))
   }));
 };
@@ -262,7 +262,6 @@ const BusinessTab = ({
   if (!profileData) return null;
   return (
     <div>
-      <p className="text-muted-foreground mt-2">Log all your monthly business operating expenses to establish your overhead.</p>
       <div className="mt-6">
         <BillEditor
           categories={profileData.categories}
@@ -326,7 +325,6 @@ const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string;
 
 const ScheduleTab = ({ isEditing, scheduleData, onScheduleChange, onTimeOffChange }: { isEditing: boolean; scheduleData: any; onScheduleChange: any; onTimeOffChange: any }) => (
     <div>
-        <p className="text-muted-foreground mt-2">Define your available work hours to calculate your total billable time.</p>
         <div className="mt-6">
             <Card>
                 <CardContent className="p-0 divide-y">
@@ -727,7 +725,7 @@ export default function FinancialFoundationPage() {
 
     const handleEditToggle = () => {
         if (!isEditing) {
-            setBackupProfiles(JSON.parse(JSON.stringify(profiles)));
+            setBackupProfiles(profiles);
             setIsEditing(true);
         } else {
             setIsEditing(false);
@@ -755,7 +753,7 @@ export default function FinancialFoundationPage() {
 
 
   return (
-    <div className="flex min-h-screen w-full flex-col">
+    <div className="w-full">
       <AppHeader title="Financial Foundation" />
         <div className="p-4 md:p-8">
             <div className="max-w-7xl mx-auto">
