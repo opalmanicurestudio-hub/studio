@@ -109,16 +109,18 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                             </DropdownMenu>
                         </div>
                         <p className="text-sm text-muted-foreground">{item.category}</p>
-                         {item.isExperimentActive && (
-                            <Badge variant="secondary" className="flex items-center gap-1.5 bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 mt-2">
+                    </div>
+                </div>
+                 <div className="mt-4 flex items-center justify-between flex-grow">
+                    <div className='flex items-center gap-2'>
+                        <Badge variant="outline" className={stockStatus.className}>{stockStatus.label}</Badge>
+                        {item.isExperimentActive && (
+                            <Badge variant="secondary" className="flex items-center gap-1.5 bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300">
                                 <FlaskConical className="h-3 w-3" />
                                 {item.experimentUses || 0} uses logged
                             </Badge>
                         )}
                     </div>
-                </div>
-                 <div className="mt-4 flex items-center justify-between">
-                    <Badge variant="outline" className={stockStatus.className}>{stockStatus.label}</Badge>
                     {stockDisplay}
                 </div>
             </CardContent>
@@ -200,7 +202,7 @@ export default function InventoryPage() {
         if (product.costingMethod === 'uses') {
             unit = 'uses';
             let currentTotalUses = (product.totalStock * (product.estimatedUses || 1)) + (product.partialContainerUses || 0);
-            if (currentTotalUses < quantity) {
+             if (currentTotalUses < quantity) {
                 message = 'Insufficient stock to log this use.';
                 return prev;
             }
@@ -266,12 +268,12 @@ export default function InventoryPage() {
     setIsEndExperimentOpen(true);
   };
   
-  const handleEndExperimentConfirmed = () => {
+  const handleEndExperimentConfirmed = (results: any) => { // Using 'any' for now since LifespanTestResult is also on product. Adjust as needed.
     if (!selectedProduct) return;
     
     setInventory(prev => prev.map(p => 
         p.id === selectedProduct.id 
-        ? { ...p, isExperimentActive: false } 
+        ? { ...p, isExperimentActive: false, lastTestResult: results } 
         : p
     ));
 
@@ -465,3 +467,5 @@ export default function InventoryPage() {
       </Dialog>
     </div>
   );
+
+    
