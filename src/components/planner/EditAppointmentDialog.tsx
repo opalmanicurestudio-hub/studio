@@ -81,21 +81,6 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
         />
     );
 
-    if (isMobile) {
-        return (
-            <Sheet open={isOpen} onOpenChange={setIsOpen}>
-                <SheetTrigger asChild>{TriggerButton}</SheetTrigger>
-                <SheetContent side="bottom" className="p-0">
-                    <SheetHeader className="p-4 border-b">
-                        <SheetTitle>Select a date</SheetTitle>
-                        <SheetDescription className="sr-only">Use the calendar to pick a date for the appointment.</SheetDescription>
-                    </SheetHeader>
-                    {CalendarComponent}
-                </SheetContent>
-            </Sheet>
-        );
-    }
-
     return (
         <Dialog open={isOpen} onOpenChange={setIsOpen}>
             <DialogTrigger asChild>
