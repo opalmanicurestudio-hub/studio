@@ -146,7 +146,7 @@ const DayTimeline = ({
             .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
     }, [appointments, events]);
 
-    const hours = Array.from({ length: 24 }, (_, i) => i); // 0 to 23 for 24 hours
+    const hours = Array.from({ length: 24 }, (_, i) => i);
     const [tmhr, setTmhr] = useState(0);
 
     useEffect(() => {
@@ -583,19 +583,13 @@ export default function PlannerPage() {
       <AppHeaderClient title="Planner" />
       
       <div className="flex flex-col gap-4 p-4 border-b">
-         <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
-             <div className="flex items-center gap-2">
-                 <Button variant="outline" onClick={handlePrevWeek} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
-                 <Button variant="outline" onClick={handleNextWeek} size="icon" className="h-8 w-8"><ChevronRight /></Button>
-                 <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
+        <h2 className="text-2xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
+        <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+                <Button variant="outline" onClick={handlePrevWeek} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
+                <Button variant="outline" onClick={handleNextWeek} size="icon" className="h-8 w-8"><ChevronRight /></Button>
+                <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
             </div>
-         </div>
-         <div className="flex items-center justify-between">
-            <div className='flex items-center gap-1 md:gap-2'>
-                {/* Placeholder for future date picker popover */}
-            </div>
-
             <div className="flex items-center gap-2">
                  <Dialog>
                     <DialogTrigger asChild>
