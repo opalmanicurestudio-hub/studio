@@ -315,11 +315,11 @@ export function AppointmentCard({
   }, [service, appointment, tmhr, client, addOnServices]);
 
 
-  const statusDisplay: { [key in Appointment['status']]: { text: string; className: string } } = {
-    confirmed: { text: 'Confirmed', className: 'bg-blue-500/10 border-blue-500/30 text-blue-800 dark:text-blue-300' },
-    completed: { text: 'Completed', className: 'bg-green-500/10 border-green-500/30 text-green-800 dark:text-green-300' },
-    cancelled: { text: 'Cancelled', className: 'bg-red-500/10 border-red-500/30 text-red-800 dark:text-red-300' },
-    deposit_pending: { text: 'Awaiting Payment', className: 'bg-pink-500/10 border-pink-500/30 text-pink-800 dark:text-pink-300' },
+  const statusDisplay: { [key in Appointment['status']]: { text: string; className: string; bgClassName: string } } = {
+    confirmed: { text: 'Confirmed', className: 'border-blue-500/30 text-blue-800 dark:text-blue-300', bgClassName: 'bg-blue-500/10' },
+    completed: { text: 'Completed', className: 'border-green-500/30 text-green-800 dark:text-green-300', bgClassName: 'bg-green-500/10' },
+    cancelled: { text: 'Cancelled', className: 'border-red-500/30 text-red-800 dark:text-red-300', bgClassName: 'bg-red-500/10' },
+    deposit_pending: { text: 'Awaiting Payment', className: 'border-pink-500/30 text-pink-800 dark:text-pink-300', bgClassName: 'bg-pink-500/10' },
   };
 
   const hasPadBefore = (service.padBefore || 0) > 0;
@@ -340,7 +340,8 @@ export function AppointmentCard({
     <div 
         className={cn(
             'p-2 border rounded-lg w-full h-full flex flex-col justify-between cursor-pointer',
-            statusDisplay[appointment.status]?.className || 'bg-gray-100 border-gray-500',
+            statusDisplay[appointment.status]?.bgClassName,
+            statusDisplay[appointment.status]?.className,
             hasPadBefore ? 'rounded-t-none' : '',
             hasPadAfter ? 'rounded-b-none' : ''
         )}
@@ -351,17 +352,6 @@ export function AppointmentCard({
             <div className='flex-1 min-w-0'>
                 <p className="font-semibold text-xs leading-tight truncate">{client.name}</p>
                 <p className="text-[11px] text-muted-foreground truncate">{serviceNameDisplay}</p>
-                <div className="flex items-center space-x-1 mt-1">
-                    {client.medicalNotes && <ShieldPlus className="h-3 w-3 text-red-500" />}
-                    {client.allergyNotes && <AlertTriangle className="h-3 w-3 text-yellow-500" />}
-                    {client.sensoryNeeds && <Ear className="h-3 w-3 text-blue-500" />}
-                    {(appointment.inspirationPhotoUrl || client.inspirationPhotoUrl) && (
-                        <button onClick={(e) => { e.stopPropagation(); setIsImageViewerOpen(true); }} className="focus:outline-none">
-                            <ImageIcon className="h-3 w-3 text-orange-400" />
-                        </button>
-                    )}
-                    {client.isMember && <Award className="h-3 w-3 text-amber-500" />}
-                </div>
             </div>
             <div className="text-right flex-shrink-0">
                  <div className='text-[10px] space-y-0.5 text-right'>
@@ -384,7 +374,7 @@ export function AppointmentCard({
         </div>
         <div className="mt-1 flex items-end justify-between">
             <div className="flex flex-col items-start">
-                <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[appointment.status]?.className)}>{statusDisplay[appointment.status]?.text}</Badge>
+                <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[appointment.status]?.className, statusDisplay[appointment.status]?.bgClassName)}>{statusDisplay[appointment.status]?.text}</Badge>
                 <p className="text-[10px] text-muted-foreground">{format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
             </div>
              <DropdownMenu>
@@ -495,3 +485,4 @@ export function AppointmentCard({
     </div>
   );
 }
+

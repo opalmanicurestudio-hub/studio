@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -164,7 +165,7 @@ export function EventCard({
             className={cn(
                 "p-3 rounded-lg bg-card border w-full h-full flex flex-col cursor-pointer transition-all duration-300 overflow-hidden", 
                 typeStyles[event.type],
-                event.type === 'blocked' && "bg-[repeating-linear-gradient(-45deg,transparent,transparent_4px,hsl(var(--muted))_4px,hsl(var(--muted))_5px)]"
+                event.type === 'blocked' && "bg-[repeating-linear-gradient(-45deg,hsl(var(--card)),hsl(var(--card))_4px,hsl(var(--muted))_4px,hsl(var(--muted))_5px)]"
             )}
         >
             <div className="flex items-start justify-between gap-2 flex-shrink-0">
@@ -174,47 +175,23 @@ export function EventCard({
                 </div>
                 <div className="text-right flex-shrink-0">
                      <p className="text-xs text-muted-foreground">{format(event.startTime, 'h:mm a')} - {format(event.endTime, 'h:mm a')}</p>
-                     {totalCost > 0 && (
+                </div>
+            </div>
+            
+            <div className='flex-grow mt-2 overflow-y-auto space-y-2'>
+                {event.notes && (
+                    <p className="text-xs text-muted-foreground line-clamp-2">{event.notes}</p>
+                )}
+            </div>
+
+            {event.type !== 'blocked' && (
+                <div className="mt-auto pt-2 space-y-2">
+                    {totalCost > 0 && (
                         <div className="flex items-center justify-end gap-1 text-xs font-semibold text-destructive">
                             <DollarSign className="w-3 h-3" />
                             <span>{totalCost.toFixed(2)}</span>
                         </div>
                     )}
-                </div>
-            </div>
-
-            <div className="flex-grow mt-2 overflow-y-auto space-y-3">
-                {event.location && (
-                    <div className="flex items-start gap-2 text-xs text-muted-foreground">
-                        <MapPin className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                        <span className="truncate">{event.location}</span>
-                    </div>
-                )}
-                 {event.notes && (
-                    <p className="text-xs text-muted-foreground line-clamp-2">{event.notes}</p>
-                )}
-                 {event.checklist && event.checklist.length > 0 && (
-                     <div className="space-y-2">
-                        {event.checklist.slice(0, 2).map(item => (
-                             <div key={item.id} className="flex items-center gap-2">
-                                <Checkbox 
-                                    id={`card-${item.id}`} 
-                                    checked={item.completed} 
-                                    onCheckedChange={(checked) => onChecklistItemToggle(event.id, item.id, !!checked)}
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="w-3.5 h-3.5"
-                                />
-                                <label htmlFor={`card-${item.id}`} className={cn("text-xs flex-1 truncate", item.completed && "line-through text-muted-foreground")}>{item.text}</label>
-                            </div>
-                        ))}
-                        {event.checklist.length > 2 && <p className="text-xs text-muted-foreground">+ {event.checklist.length - 2} more items</p>}
-                     </div>
-                 )}
-            </div>
-
-            {event.checklist && event.checklist.length > 0 && (
-                <div className="mt-auto pt-2">
-                    <Progress value={checklistProgress} className="h-1" />
                 </div>
             )}
         </div>

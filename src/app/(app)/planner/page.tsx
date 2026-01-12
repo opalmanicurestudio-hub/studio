@@ -220,13 +220,13 @@ const DayTimeline = ({
 
     return (
         <div className="flex flex-col h-full">
-            <Accordion type="single" collapsible className="w-full border-b">
-                <AccordionItem value="item-1">
-                    <AccordionTrigger className="p-4 font-semibold text-sm">
+            <Accordion type="single" collapsible className="w-full border-b px-4">
+                <AccordionItem value="item-1" className="border-b-0">
+                    <AccordionTrigger className="p-0 py-4 font-semibold text-sm hover:no-underline">
                         Daily Financial Summary
                     </AccordionTrigger>
                     <AccordionContent>
-                         <div className="p-4 pt-0 grid grid-cols-3 gap-2">
+                         <div className="pb-4 grid grid-cols-3 gap-2">
                             <div className="rounded-md bg-green-500/10 p-2 text-center">
                                 <p className="text-xs text-green-800/80 dark:text-green-400/80">Revenue</p>
                                 <p className="font-bold text-lg text-green-800 dark:text-green-400">${dailyTotals.revenue.toFixed(2)}</p>
@@ -590,19 +590,16 @@ export default function PlannerPage() {
       <AppHeaderClient title="Planner" />
       
       <div className="flex items-center justify-between gap-4 p-4 border-b">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 md:gap-2">
             <Button variant="outline" size="icon" onClick={handlePrevWeek}><ChevronLeft /></Button>
             <Button variant="outline" size="icon" onClick={handleNextWeek}><ChevronRight /></Button>
             <Button variant="outline" onClick={handleToday}>Today</Button>
-            <div className="hidden md:flex items-center gap-2">
-                <span className="font-semibold text-lg">{format(currentDate, 'MMMM yyyy')}</span>
-            </div>
         </div>
         
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 md:gap-2">
             <Dialog>
                 <DialogTrigger asChild>
-                    <Button variant="outline"><BarChart className="w-4 h-4 mr-2" /> KPIs</Button>
+                    <Button variant="outline"><BarChart className="w-4 h-4 md:mr-2" /><span className="hidden md:inline">KPIs</span></Button>
                 </DialogTrigger>
                 <DialogContent className="max-w-4xl">
                     <DialogHeader>
@@ -661,8 +658,12 @@ export default function PlannerPage() {
             <Dialog>
                 <DialogTrigger asChild>
                      <Button variant="outline" className="relative">
-                        Bills Due
-                        {billInstances.length > 0 && <BellRing className="h-4 w-4 text-primary animate-pulse ml-2" />}
+                        <span className="hidden md:inline">Bills Due</span>
+                        {billInstances.length > 0 ? (
+                            <BellRing className="h-4 w-4 md:ml-2 text-primary animate-pulse" />
+                        ) : (
+                             <BellRing className="h-4 w-4 md:ml-2" />
+                        )}
                     </Button>
                 </DialogTrigger>
                 <DialogContent>
@@ -692,28 +693,17 @@ export default function PlannerPage() {
                     )}
                 </DialogContent>
             </Dialog>
-             <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                    <Button size="icon" variant="outline">
-                        <Plus className="h-4 w-4" />
-                    </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent>
-                    <DropdownMenuItem onSelect={() => setIsAddAppointmentOpen(true)}>Add Appointment</DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => setIsAddEventOpen(true)}>Add Event</DropdownMenuItem>
-                </DropdownMenuContent>
-            </DropdownMenu>
         </div>
       </div>
       
-      <div className="flex items-center gap-2 p-2 border-b bg-muted/50">
+      <div className="flex items-center gap-2 p-2 border-b bg-background">
         <ScrollArea className="w-full whitespace-nowrap">
             <div className="flex items-center gap-2">
                 {weekDays.map((day, index) => (
                     <Button 
                         key={index} 
                         variant={isToday(day) && isSameDay(day, currentDate) ? 'default' : isSameDay(day, currentDate) ? 'secondary' : 'ghost'}
-                        className="h-14 flex-1 flex-col py-1 min-w-[80px] md:min-w-[120px]"
+                        className="h-14 flex-1 flex-col py-1 min-w-[50px] md:min-w-[120px]"
                         onClick={() => handleDayClick(day)}
                     >
                         <span className="text-xs">{format(day, 'EEE')}</span>
@@ -815,6 +805,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
