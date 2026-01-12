@@ -72,14 +72,16 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
     
     return (
         <Card className={cn("transition-all duration-200 hover:shadow-lg flex flex-col", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
-            <CardContent className="p-3 flex-1">
+            <CardContent className="p-4 flex-1 flex flex-col">
                 <div className="flex items-start gap-4">
                      <Link href={detailHref} className='w-20 h-20 bg-muted rounded-md flex-shrink-0'>
                         <Image src={item.imageUrl || `https://picsum.photos/seed/inv${item.id}/100/100`} alt={item.name} width={80} height={80} className='rounded-md object-cover' data-ai-hint="product photo"/>
                     </Link>
                     <div className='flex-1 min-w-0'>
                         <div className="flex justify-between items-start">
-                            <Link href={detailHref} className="font-semibold text-base leading-tight hover:underline pr-2">{item.name}</Link>
+                            <Link href={detailHref} className="group">
+                               <p className="font-semibold text-base leading-tight group-hover:underline pr-2">{item.name}</p>
+                            </Link>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button aria-haspopup="true" size="icon" variant="ghost" className="h-8 w-8 flex-shrink-0 -mt-1 -mr-1">
@@ -98,11 +100,11 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                             </DropdownMenu>
                         </div>
                         <p className="text-sm text-muted-foreground">{item.category}</p>
-                        <div className="mt-2 flex items-center justify-between">
-                            <Badge variant="outline" className={stockStatus.className}>{stockStatus.label}</Badge>
-                            {stockDisplay}
-                        </div>
                     </div>
+                </div>
+                 <div className="mt-4 flex items-center justify-between">
+                    <Badge variant="outline" className={stockStatus.className}>{stockStatus.label}</Badge>
+                    {stockDisplay}
                 </div>
             </CardContent>
              <CardFooter className="p-2 border-t bg-muted/50">
