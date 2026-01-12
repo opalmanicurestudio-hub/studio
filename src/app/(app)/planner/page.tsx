@@ -136,12 +136,12 @@ const DayTimeline = ({
             if (minutesFromStart > 0) {
                 const scrollPosition = minutesFromStart * (160 / 60); // 160px per hour
                 viewportRef.current.scrollTo({
-                    top: scrollPosition - viewportRef.current.clientHeight / 2, // Center on current time
+                    top: scrollPosition - viewportRef.current.clientHeight / 2,
                     behavior: 'smooth',
                 });
             }
         }
-    }, [date]);
+    }, [date, viewportRef.current]);
     
     const dailyTotals = useMemo(() => {
         const appointmentRevenue = appointments
@@ -411,8 +411,8 @@ const BillsDueSheet = ({ open, onOpenChange, billInstances, isMobile }: { open: 
 
 export default function PlannerPage() {
   const isMobile = useIsMobile();
+  const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [isClient, setIsClient] = useState(false);
-  const [currentDate, setCurrentDate] = useState<Date | null>(null);
   const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
   const [events, setEvents] = useState<Event[]>(initialEvents);
   
@@ -436,12 +436,10 @@ export default function PlannerPage() {
   const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
 
   useEffect(() => {
-    setCurrentDate(new Date());
     setIsClient(true);
   }, []);
 
   const weekStart = useMemo(() => {
-    if (!currentDate) return new Date();
     return startOfWeek(currentDate, { weekStartsOn: 0 });
   }, [currentDate]);
 
@@ -451,7 +449,7 @@ export default function PlannerPage() {
   }, [weekStart]);
 
   const transactionsQuery = useMemoFirebase(() => {
-    if (!firestore || !user || !currentDate) return null;
+    if (!firestore || !user) return null;
     const dayStart = startOfDay(currentDate);
     const dayEnd = endOfDay(currentDate);
     return query(
@@ -464,7 +462,6 @@ export default function PlannerPage() {
   const { data: dailyTransactions, isLoading: transactionsLoading } = useCollection<Transaction>(transactionsQuery);
 
   const billInstances = useMemo(() => {
-    if (!currentDate) return [];
     return allBillInstances
         .filter(instance => format(parseISO(instance.dueDate), 'yyyy-MM-dd') === format(currentDate, 'yyyy-MM-dd'))
         .map(instance => {
@@ -475,7 +472,6 @@ export default function PlannerPage() {
   }, [currentDate]);
 
   const weeklyKpis = useMemo(() => {
-    if (!currentDate) return { weeklyRevenue: 0, projectedRevenue: 0, weeklyBreakEven: 0, weeklyNetProfit: 0, absorbedCosts: 0 };
     const start = weekStart;
     const end = endOfDay(addDays(start, 6));
     const weekInterval = { start, end };
@@ -618,7 +614,7 @@ export default function PlannerPage() {
     }
     
     const handleAddTransaction = (transaction: Omit<Transaction, 'id' | 'date'>) => {
-        if (!firestore || !user || !currentDate) {
+        if (!firestore || !user) {
             toast({
                 variant: 'destructive',
                 title: 'Authentication Error',
@@ -668,10 +664,10 @@ export default function PlannerPage() {
   };
 
   const handleNextWeek = () => {
-    if (currentDate) setCurrentDate(addWeeks(currentDate, 1));
+    setCurrentDate(addWeeks(currentDate, 1));
   };
   const handlePrevWeek = () => {
-    if (currentDate) setCurrentDate(subWeeks(currentDate, 1));
+    setCurrentDate(subWeeks(currentDate, 1));
   };
   const handleToday = () => {
     setCurrentDate(new Date());
@@ -702,13 +698,13 @@ export default function PlannerPage() {
   }
 
   const appointmentsForDay = appointments
-      .filter(apt => format(apt.startTime, 'yyyy-MM-dd') === format(currentDate || new Date(), 'yyyy-MM-dd'))
+      .filter(apt => format(apt.startTime, 'yyyy-MM-dd') === format(currentDate, 'yyyy-MM-dd'))
       .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
   const eventsForDay = events
-      .filter(evt => format(evt.startTime, 'yyyy-MM-dd') === format(currentDate || new Date(), 'yyyy-MM-dd'))
+      .filter(evt => format(evt.startTime, 'yyyy-MM-dd') === format(currentDate, 'yyyy-MM-dd'))
       .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
   
-  if (!isClient || !currentDate) {
+  if (!isClient) {
     return (
       <div className="flex h-screen w-full flex-col">
         <AppHeaderClient title="Planner" />
