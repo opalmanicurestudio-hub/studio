@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -226,6 +225,12 @@ const EditAppointmentForm = ({
                                             selected={date}
                                             onSelect={(d) => setDate(d || new Date())}
                                             initialFocus
+                                            classNames={{
+                                                caption_label: "text-base font-medium",
+                                                day: "h-9 w-9",
+                                                day_selected: "rounded-md",
+                                                day_today: "rounded-md",
+                                            }}
                                         />
                                         </PopoverContent>
                                     </Popover>
