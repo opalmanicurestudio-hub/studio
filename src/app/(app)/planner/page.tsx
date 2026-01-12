@@ -588,23 +588,10 @@ export default function PlannerPage() {
             <Button variant="outline" size="icon" onClick={handlePrevWeek}><ChevronLeft /></Button>
             <Button variant="outline" size="icon" onClick={handleNextWeek}><ChevronRight /></Button>
             <Button variant="outline" onClick={handleToday}>Today</Button>
-            <Popover>
-                <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-[280px] justify-start text-left font-normal">
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {`${format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'LLL d')} - ${format(endOfDay(addDays(startOfWeek(currentDate, { weekStartsOn: 0 }), 6)), 'LLL d, yyyy')}`}
-                    </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                        mode="single"
-                        selected={currentDate}
-                        onSelect={handleDateSelect}
-                        initialFocus
-                        numberOfMonths={2}
-                    />
-                </PopoverContent>
-            </Popover>
+            <div className="h-10 px-4 py-2 border border-input bg-background rounded-md text-sm font-medium flex items-center justify-center">
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {`${format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'LLL d')} - ${format(endOfDay(addDays(startOfWeek(currentDate, { weekStartsOn: 0 }), 6)), 'LLL d, yyyy')}`}
+            </div>
         </div>
         
         <div className="flex items-center gap-2 ml-auto">
@@ -818,6 +805,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
