@@ -11,7 +11,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, MoreHorizontal, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList } from 'lucide-react';
+import { PlusCircle, MoreHorizontal, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus } from 'lucide-react';
 import { type InventoryItem, type StockCorrection } from '@/lib/data';
 import {
   DropdownMenu,
@@ -61,19 +61,19 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
     const detailHref = `/inventory/${item.id}`;
     
     return (
-        <Card className={cn("w-full transition-all duration-200 hover:shadow-xl hover:-translate-y-1", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
+        <Card className={cn("w-full transition-all duration-200 hover:shadow-lg", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
             <CardContent className="p-3 space-y-3">
-                <div className="grid grid-cols-[auto,1fr,auto] items-start gap-3">
-                    <Link href={detailHref} className='w-16 h-16 bg-muted rounded-md flex-shrink-0'>
+                <div className="flex items-start gap-3">
+                     <Link href={detailHref} className='w-16 h-16 bg-muted rounded-md flex-shrink-0'>
                         <Image src={item.imageUrl || `https://picsum.photos/seed/inv${item.id}/100/100`} alt={item.name} width={64} height={64} className='rounded-md' data-ai-hint="product photo"/>
                     </Link>
-                    <div className='pt-1 min-w-0'>
-                        <Link href={detailHref} className="font-semibold text-sm leading-snug truncate hover:underline">{item.name}</Link>
+                    <div className='flex-1 min-w-0 pt-1'>
+                        <Link href={detailHref} className="font-semibold text-sm leading-snug hover:underline line-clamp-2">{item.name}</Link>
                         <p className="text-xs text-muted-foreground">{item.category}</p>
                     </div>
                      <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button aria-haspopup="true" size="icon" variant="ghost" className="h-8 w-8 flex-shrink-0">
+                        <Button aria-haspopup="true" size="icon" variant="ghost" className="h-8 w-8 flex-shrink-0 -mt-1 -mr-1">
                           <MoreHorizontal className="h-4 w-4" />
                           <span className="sr-only">Toggle menu</span>
                         </Button>
@@ -108,8 +108,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                       </DropdownMenuContent>
                     </DropdownMenu>
                 </div>
-                
-                 <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center justify-between text-xs">
                      <Badge variant="outline" className="flex items-center gap-1.5">
                         <MapPin className="h-3 w-3" />
                         Back Room
@@ -120,41 +119,6 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                         </Badge>
                      )}
                 </div>
-                
-                <Card className='bg-muted/50'>
-                    <CardContent className='p-2 text-center'>
-                       {item.type === 'professional' ? (
-                            <div className="grid grid-cols-2 divide-x">
-                                <div>
-                                    <p className='text-xs text-muted-foreground'>Full Units</p>
-                                    <p className='text-2xl font-bold'>{item.totalStock}</p>
-                                </div>
-                                <div>
-                                    <p className='text-xs text-muted-foreground'>
-                                        {item.costingMethod === 'uses' ? 'Uses Left' : 'Size Left'}
-                                    </p>
-                                    <p className='text-2xl font-bold'>
-                                        {item.costingMethod === 'uses'
-                                            ? item.partialContainerUses || 0
-                                            : `${item.partialContainerSize || 0}${item.unit || ''}`
-                                        }
-                                    </p>
-                                </div>
-                            </div>
-                        ) : (
-                            <div>
-                                <p className='text-xs text-muted-foreground'>Total Stock</p>
-                                <p className='text-3xl font-bold'>{item.totalStock}</p>
-                            </div>
-                        )}
-                         {item.isExperimentActive && item.type === 'professional' && (
-                            <p className='text-xs text-purple-500 font-medium mt-1'>
-                                {item.experimentUses} uses logged in experiment
-                            </p>
-                        )}
-                    </CardContent>
-                </Card>
-
                 <div className='space-y-2'>
                     <Badge variant="secondary" className={cn("w-full justify-center h-6", stockStatus.className)}>{stockStatus.label}</Badge>
                     {item.type === 'professional' && (
@@ -167,44 +131,15 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
 }
 
 const EmptyState = ({ message }: { message: string }) => (
-    <Card>
-        <CardContent className="text-center py-20 px-6">
-            <div className='flex justify-center mb-6'>
-                <div className='w-20 h-20 bg-muted rounded-full flex items-center justify-center'>
-                    <Package className='w-10 h-10 text-muted-foreground' />
-                </div>
+    <div className="text-center py-20 px-6 col-span-full">
+        <div className='flex justify-center mb-6'>
+            <div className='w-20 h-20 bg-muted rounded-full flex items-center justify-center'>
+                <Package className='w-10 h-10 text-muted-foreground' />
             </div>
-            <p className="text-muted-foreground">{message}</p>
-        </CardContent>
-    </Card>
-);
-
-const ProductShelf = ({ 
-    title, 
-    items,
-    ...props
-}: { 
-    title: string, 
-    items: InventoryItem[]
-} & Omit<Parameters<typeof ProductCard>[0], 'item'>) => {
-    if (items.length === 0) return null;
-    
-    return (
-        <div className="space-y-4">
-            <h2 className="text-xl font-bold">{title}</h2>
-            <ScrollArea>
-                <div className="flex w-max space-x-4 pb-4">
-                    {items.map((item) => (
-                       <div key={item.id} className="w-72 shrink-0">
-                         <ProductCard item={item} {...props} />
-                       </div>
-                    ))}
-                </div>
-                <ScrollBar orientation="horizontal" />
-            </ScrollArea>
         </div>
-    );
-};
+        <p className="text-muted-foreground">{message}</p>
+    </div>
+);
 
 const LocationCard = ({ location, items, locationTypes, onEdit }: { location: Location, items: InventoryItem[], locationTypes: LocationType[], onEdit: (location: Location) => void }) => {
     const locationType = locationTypes.find(lt => lt.id === location.locationTypeId);
@@ -270,6 +205,7 @@ const LocationCard = ({ location, items, locationTypes, onEdit }: { location: Lo
 }
 
 const tabOptions = [
+    { value: 'all', label: 'All Items' },
     { value: 'professional', label: 'Professional' },
     { value: 'retail', label: 'Retail' },
     { value: 'equipment', label: 'Equipment' },
@@ -281,27 +217,10 @@ export default function InventoryPage() {
   const { inventory, setInventory, addStockCorrection, stockCorrections, locations, setLocations, locationTypes, setLocationTypes } = useInventory();
   const { toast } = useToast();
   
-  const [activeTab, setActiveTab] = useState('professional');
+  const [activeTab, setActiveTab] = useState('all');
   const [isAddLocationDialogOpen, setAddLocationDialogOpen] = useState(false);
   const [isEditLocationDialogOpen, setIsEditLocationDialogOpen] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
-
-  
-  const professionalColor: InventoryItem[] = inventory.filter(
-    (item) => item.type === 'professional' && item.category === 'Color'
-  );
-  const professionalStyling: InventoryItem[] = inventory.filter(
-    (item) => item.type === 'professional' && item.category === 'Styling'
-  );
-  const professionalCare: InventoryItem[] = inventory.filter(
-    (item) => item.type === 'professional' && item.category === 'Care'
-  );
-  const retailItems: InventoryItem[] = inventory.filter(
-    (item) => item.type === 'retail'
-  );
-  const equipmentItems: InventoryItem[] = inventory.filter(
-    (item) => item.type === 'equipment'
-  );
 
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
   const [isEditProductOpen, setIsEditProductOpen] = useState(false);
@@ -309,6 +228,12 @@ export default function InventoryPage() {
   const [isWriteOffOpen, setIsWriteOffOpen] = useState(false);
   const [isLogUseOpen, setIsLogUseOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<InventoryItem | null>(null);
+  
+  const filteredInventory = useMemo(() => {
+    if (activeTab === 'all') return inventory;
+    return inventory.filter(item => item.type === activeTab);
+  }, [inventory, activeTab]);
+
   
   const handleAddNewLocation = (newLocationData: Omit<Location, 'id'>) => {
     const newLocation = { ...newLocationData, id: `loc-${Date.now()}`};
@@ -371,30 +296,24 @@ export default function InventoryPage() {
       <main className="flex-1 flex flex-col p-4 md:p-8 space-y-6 overflow-hidden">
         
         <ClientOnly>
-          <Carousel
-              opts={{
-                  align: "start",
-                  loop: false,
-              }}
-              className="w-full md:hidden"
-          >
-              <CarouselContent>
-                  {KPI_CARDS.map((kpi, index) => (
-                      <CarouselItem key={index} className="basis-4/5">
-                          <Card>
-                              <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
-                                  <CardTitle className="text-sm font-medium">{kpi.title}</CardTitle>
-                                  <kpi.icon className="h-4 w-4 text-muted-foreground" />
-                              </CardHeader>
-                              <CardContent>
-                                  <div className="text-2xl font-bold">{kpi.value}</div>
-                                  <p className="text-xs text-muted-foreground">{kpi.description}</p>
-                              </CardContent>
-                          </Card>
-                      </CarouselItem>
-                  ))}
-              </CarouselContent>
-          </Carousel>
+            <Carousel opts={{ align: "start", loop: false }} className="w-full md:hidden -mx-4 px-4">
+                <CarouselContent className="-ml-2">
+                    {KPI_CARDS.map((kpi, index) => (
+                        <CarouselItem key={index} className="basis-4/5 pl-2">
+                            <Card>
+                                <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
+                                    <CardTitle className="text-sm font-medium">{kpi.title}</CardTitle>
+                                    <kpi.icon className="h-4 w-4 text-muted-foreground" />
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="text-2xl font-bold">{kpi.value}</div>
+                                    <p className="text-xs text-muted-foreground">{kpi.description}</p>
+                                </CardContent>
+                            </Card>
+                        </CarouselItem>
+                    ))}
+                </CarouselContent>
+            </Carousel>
         </ClientOnly>
 
         <div className="hidden md:grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -423,9 +342,9 @@ export default function InventoryPage() {
             </Button>
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                <Button className="flex-1 sm:flex-initial">
-                    <PlusCircle className="mr-2 h-4 w-4" /> New
-                </Button>
+                    <Button className="flex-1 sm:flex-initial md:hidden">
+                        <PlusCircle className="mr-2 h-4 w-4" /> New
+                    </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={() => setIsAddProductOpen(true)}>
@@ -454,26 +373,41 @@ export default function InventoryPage() {
                 <ScrollBar orientation="horizontal" />
             </ScrollArea>
         
+            <TabsContent value="all" className='flex-1 space-y-8 overflow-y-auto -mr-4 pr-4 mt-6'>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    {filteredInventory.length > 0 ? filteredInventory.map(item => (
+                        <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
+                    )) : (
+                        <EmptyState message="No inventory items found." />
+                    )}
+                </div>
+            </TabsContent>
             <TabsContent value="professional" className='flex-1 space-y-8 overflow-y-auto -mr-4 pr-4 mt-6'>
-            {(professionalColor.length > 0 || professionalStyling.length > 0 || professionalCare.length > 0) ? (
-                <>
-                <ProductShelf title="Color" items={professionalColor} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
-                <ProductShelf title="Styling" items={professionalStyling} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
-                <ProductShelf title="Care" items={professionalCare} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
-                </>
-            ) : (
-                <EmptyState message="No professional products found." />
-            )}
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    {filteredInventory.length > 0 ? filteredInventory.map(item => (
+                        <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
+                    )) : (
+                        <EmptyState message="No professional products found." />
+                    )}
+                </div>
             </TabsContent>
             <TabsContent value="retail" className='flex-1 space-y-8 overflow-y-auto -mr-4 pr-4 mt-6'>
-                {retailItems.length > 0 ? (
-                    <ProductShelf title="Retail Products" items={retailItems} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
-                ) : <EmptyState message="No retail products found." />}
+                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    {filteredInventory.length > 0 ? filteredInventory.map(item => (
+                        <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
+                    )) : (
+                        <EmptyState message="No retail products found." />
+                    )}
+                </div>
             </TabsContent>
              <TabsContent value="equipment" className='flex-1 space-y-8 overflow-y-auto -mr-4 pr-4 mt-6'>
-                {equipmentItems.length > 0 ? (
-                    <ProductShelf title="Capital Equipment" items={equipmentItems} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
-                ) : <EmptyState message="No equipment found." />}
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    {filteredInventory.length > 0 ? filteredInventory.map(item => (
+                        <ProductCard key={item.id} item={item} onEdit={handleOpenEditDialog} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onWriteOff={handleOpenWriteOff} onLogUse={handleOpenLogUse} />
+                    )) : (
+                        <EmptyState message="No equipment found." />
+                    )}
+                </div>
             </TabsContent>
             <TabsContent value="locations" className='flex-1 overflow-y-auto -mr-4 pr-4 mt-6'>
                  {locations.length > 0 ? (
@@ -485,6 +419,26 @@ export default function InventoryPage() {
                  ) : <EmptyState message="No locations created yet." />}
             </TabsContent>
         </Tabs>
+        <div className="md:hidden fixed bottom-6 right-6">
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button className="rounded-full w-14 h-14 shadow-lg" size="icon">
+                        <Plus className="w-6 h-6" />
+                    </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" side="top" className="w-56 mb-2">
+                    <DropdownMenuItem onClick={() => setIsAddProductOpen(true)}>
+                        <Package className="mr-2 h-4 w-4" /> Add Product
+                    </DropdownMenuItem>
+                    <DropdownMenuItem>
+                        <Hammer className="mr-2 h-4 w-4" /> Add Equipment
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setAddLocationDialogOpen(true)}>
+                        <MapPin className="mr-2 h-4 w-4" /> Add Location
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+        </div>
       </main>
       <AddLocationDialog 
         open={isAddLocationDialogOpen}
@@ -506,3 +460,5 @@ export default function InventoryPage() {
     </div>
   );
 }
+
+    
