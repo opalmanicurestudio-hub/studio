@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -50,9 +50,11 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-import { billDefinitions, billInstances, type BillDefinition, type BillInstance } from '@/lib/financial-data';
+import { billDefinitions, billInstances as initialBillInstances, type BillDefinition, type BillInstance, transactions as initialTransactions, type Transaction } from '@/lib/financial-data';
 import { format as formatTZ, utcToZonedTime } from 'date-fns-tz';
 import { isPast, isToday, isFuture, parseISO } from 'date-fns';
+import { LogPaymentDialog } from '@/components/bills/LogPaymentDialog';
+import { useToast } from '@/hooks/use-toast';
 
 type StatusFilter = 'all' | 'paid' | 'unpaid' | 'overdue';
 type ContextFilter = 'all' | 'Business' | 'Personal';
@@ -111,7 +113,7 @@ const BillFilters = ({
 };
 
 
-const BillTableRow = ({ instance }: { instance: BillInstance & { definition: BillDefinition } }) => {
+const BillTableRow = ({ instance, onLogPaymentClick }: { instance: BillInstance & { definition: BillDefinition }, onLogPaymentClick: (instance: BillInstance & { definition: BillDefinition }) => void; }) => {
     const statusConfig = {
         paid: { text: 'Paid', className: 'bg-green-100 dark:bg-green-900/50 text-green-800' },
         unpaid: { text: 'Unpaid', className: 'bg-gray-100 dark:bg-gray-800/50 text-gray-700' },
@@ -139,13 +141,13 @@ const BillTableRow = ({ instance }: { instance: BillInstance & { definition: Bil
             </Badge>
         </TableCell>
         <TableCell className="text-right">
-             <Button variant="outline" size="sm" disabled={instance.status === 'paid'}>Log Payment</Button>
+             <Button variant="outline" size="sm" disabled={instance.status === 'paid'} onClick={() => onLogPaymentClick(instance)}>Log Payment</Button>
         </TableCell>
     </TableRow>
     )
 };
 
-const BillCard = ({ instance }: { instance: BillInstance & { definition: BillDefinition } }) => {
+const BillCard = ({ instance, onLogPaymentClick }: { instance: BillInstance & { definition: BillDefinition }, onLogPaymentClick: (instance: BillInstance & { definition: BillDefinition }) => void; }) => {
      const statusConfig = {
         paid: { text: 'Paid', className: 'bg-green-100 dark:bg-green-900/50 text-green-800' },
         unpaid: { text: 'Unpaid', className: 'bg-gray-100 dark:bg-gray-800/50 text-gray-700' },
@@ -190,7 +192,7 @@ const BillCard = ({ instance }: { instance: BillInstance & { definition: BillDef
             </div>
         </CardContent>
         <CardFooter className="p-2 border-t">
-            <Button variant="secondary" className="w-full" disabled={instance.status === 'paid'}>Log Payment</Button>
+            <Button variant="secondary" className="w-full" disabled={instance.status === 'paid'} onClick={() => onLogPaymentClick(instance)}>Log Payment</Button>
         </CardFooter>
     </Card>
     )
@@ -200,16 +202,19 @@ const BillCard = ({ instance }: { instance: BillInstance & { definition: BillDef
 export default function BillsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [contextFilter, setContextFilter] = useState<ContextFilter>('all');
+  const [billInstances, setBillInstances] = useState(initialBillInstances);
+  const [transactions, setTransactions] = useState(initialTransactions);
+  const [selectedBill, setSelectedBill] = useState<(BillInstance & { definition: BillDefinition }) | null>(null);
+  const { toast } = useToast();
 
   const instancesWithDefinitions = useMemo(() => {
     return billInstances.map(instance => {
       const definition = billDefinitions.find(def => def.id === instance.billDefinitionId);
       return { ...instance, definition: definition! };
     }).filter(item => item.definition);
-  }, []);
+  }, [billInstances]);
 
   const { monthlyTotal, upcomingTotal, pastDueTotal } = useMemo(() => {
-    const now = new Date();
     const total = billDefinitions.reduce((acc, def) => def.billingCycle === 'monthly' ? acc + def.amount : acc, 0);
     const upcoming = instancesWithDefinitions.filter(i => i.status !== 'paid' && isFuture(parseISO(i.dueDate))).reduce((acc, i) => acc + i.amountDue, 0);
     const pastDue = instancesWithDefinitions.filter(i => i.status === 'overdue').reduce((acc, i) => acc + i.amountDue, 0);
@@ -235,6 +240,48 @@ export default function BillsPage() {
       return contextMatch && statusMatch;
     }).sort((a,b) => parseISO(a.dueDate).getTime() - parseISO(b.dueDate).getTime());
   }, [contextFilter, statusFilter, instancesWithDefinitions]);
+
+  const handleLogPaymentClick = (instance: BillInstance & { definition: BillDefinition }) => {
+    setSelectedBill(instance);
+  };
+  
+  const handleLogPaymentConfirm = (paymentData: { amount: number; date: Date; paymentMethod: string; notes?: string }) => {
+    if (!selectedBill) return;
+
+    setBillInstances(prev => prev.map(instance => {
+        if (instance.id === selectedBill.id) {
+            const newAmountPaid = instance.amountPaid + paymentData.amount;
+            const newAmountDue = instance.amountDue - paymentData.amount;
+            let newStatus: BillInstance['status'] = newAmountDue <= 0 ? 'paid' : 'partially-paid';
+            
+            return { ...instance, amountPaid: newAmountPaid, amountDue: newAmountDue, status: newStatus };
+        }
+        return instance;
+    }));
+
+    const newTransaction: Transaction = {
+        id: `txn-${Date.now()}`,
+        date: paymentData.date.toISOString(),
+        description: `Payment for ${selectedBill.definition.name}`,
+        clientOrVendor: selectedBill.definition.name,
+        type: 'payment',
+        context: selectedBill.definition.context,
+        category: selectedBill.definition.category,
+        amount: paymentData.amount,
+        paymentMethod: paymentData.paymentMethod,
+        hasReceipt: false, // Assuming no receipt for this action
+        relatedBillInstanceId: selectedBill.id,
+    };
+    setTransactions(prev => [...prev, newTransaction]);
+    
+    toast({
+        title: "Payment Logged",
+        description: `A payment of $${paymentData.amount.toFixed(2)} has been logged for ${selectedBill.definition.name}.`
+    })
+
+    setSelectedBill(null);
+  };
+
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -327,7 +374,7 @@ export default function BillsPage() {
                         </TableHeader>
                         <TableBody>
                             {filteredBills.map((instance) => (
-                               <BillTableRow key={instance.id} instance={instance} />
+                               <BillTableRow key={instance.id} instance={instance} onLogPaymentClick={handleLogPaymentClick} />
                             ))}
                         </TableBody>
                         </Table>
@@ -335,13 +382,26 @@ export default function BillsPage() {
                 </Card>
                 <div className="space-y-4 md:hidden">
                      {filteredBills.map((instance) => (
-                        <BillCard key={instance.id} instance={instance} />
+                        <BillCard key={instance.id} instance={instance} onLogPaymentClick={handleLogPaymentClick} />
                     ))}
                 </div>
             </div>
         </div>
 
       </main>
+
+       {selectedBill && (
+        <LogPaymentDialog
+            open={!!selectedBill}
+            onOpenChange={(isOpen) => {
+                if (!isOpen) {
+                    setSelectedBill(null);
+                }
+            }}
+            billInstance={selectedBill}
+            onConfirm={handleLogPaymentConfirm}
+        />
+      )}
     </div>
   );
 }
