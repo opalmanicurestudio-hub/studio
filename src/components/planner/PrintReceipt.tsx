@@ -33,6 +33,9 @@ interface PrintReceiptProps {
 }
 
 export const PrintReceipt: React.FC<PrintReceiptProps> = ({ data }) => {
+  // Ensure data.date is a valid Date object before formatting
+  const validDate = data.date instanceof Date ? data.date : new Date(data.date);
+
   return (
     <div className="p-4 bg-white text-black font-mono text-sm max-w-sm mx-auto">
       <style>{`
@@ -60,7 +63,7 @@ export const PrintReceipt: React.FC<PrintReceiptProps> = ({ data }) => {
       <div className="text-center space-y-1 mb-6">
         <h1 className="text-xl font-bold">{data.business.name}</h1>
         <p>{data.business.phone}</p>
-        <p>{format(data.date, 'MMM d, yyyy h:mm a')}</p>
+        <p>{format(validDate, 'MMM d, yyyy h:mm a')}</p>
       </div>
 
       <div className="mb-4">
