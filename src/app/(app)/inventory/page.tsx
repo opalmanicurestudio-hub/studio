@@ -109,18 +109,16 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                             </DropdownMenu>
                         </div>
                         <p className="text-sm text-muted-foreground">{item.category}</p>
-                    </div>
-                </div>
-                 <div className="flex items-center justify-between mt-auto">
-                    <div className='flex items-center gap-2'>
-                        <Badge variant="outline" className={stockStatus.className}>{stockStatus.label}</Badge>
                         {item.isExperimentActive && (
-                            <Badge variant="secondary" className="flex items-center gap-1.5 bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300">
+                            <Badge variant="secondary" className="mt-1 flex items-center gap-1.5 bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 w-fit">
                                 <FlaskConical className="h-3 w-3" />
                                 {item.experimentUses || 0} uses logged
                             </Badge>
                         )}
                     </div>
+                </div>
+                 <div className="flex items-center justify-between mt-auto">
+                    <Badge variant="outline" className={stockStatus.className}>{stockStatus.label}</Badge>
                     {stockDisplay}
                 </div>
             </CardContent>
@@ -332,9 +330,9 @@ export default function InventoryPage() {
   }, [isScannerOpen, toast]);
 
   return (
-    <div className="h-screen w-full flex flex-col">
+    <div className="flex h-screen w-full flex-col">
       <AppHeader title="Inventory Hub" />
-      <main className="flex-1 flex flex-col p-4 md:p-8 space-y-6">
+      <main className="flex-1 p-4 md:p-8 space-y-6">
         
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
              {KPI_CARDS.map((kpi, index) => (
@@ -469,3 +467,4 @@ export default function InventoryPage() {
   );
 
     
+
