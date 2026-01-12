@@ -688,7 +688,7 @@ export default function PlannerPage() {
                     )}
                 </DialogContent>
             </Dialog>
-            <DropdownMenu>
+             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="default" size="icon" className="h-8 w-8">
                     <Plus className="h-4 w-4" />
@@ -814,6 +814,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
