@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
@@ -585,11 +584,11 @@ export default function PlannerPage() {
       
       <div className="flex flex-col gap-4 p-4 border-b">
          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
-            <div className="flex items-center gap-1 md:gap-2">
+            <h2 className="text-2xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
+            <div className="hidden md:flex items-center gap-2">
                  <Dialog>
                     <DialogTrigger asChild>
-                        <Button variant="outline" className="h-8"><BarChart className="w-4 h-4 md:mr-2" /><span className="hidden md:inline">KPIs</span></Button>
+                        <Button variant="outline" className="h-8"><BarChart className="w-4 h-4 mr-2" />KPIs</Button>
                     </DialogTrigger>
                     <DialogContent className="max-w-4xl">
                         <DialogHeader>
@@ -648,12 +647,8 @@ export default function PlannerPage() {
                 <Dialog>
                     <DialogTrigger asChild>
                         <Button variant="outline" className="h-8 relative">
-                            {billInstances.length > 0 ? (
-                                <BellRing className="h-4 w-4 md:mr-2 text-primary animate-pulse" />
-                            ) : (
-                                <BellRing className="h-4 w-4 md:mr-2" />
-                            )}
-                            <span className="hidden md:inline">Bills Due</span>
+                            <BellRing className={cn("h-4 w-4 mr-2", billInstances.length > 0 && "text-primary animate-pulse")} />
+                            Bills Due
                         </Button>
                     </DialogTrigger>
                     <DialogContent>
@@ -696,10 +691,63 @@ export default function PlannerPage() {
                 </DropdownMenu>
             </div>
          </div>
-        <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" onClick={handlePrevWeek} className="h-8 w-8"><ChevronLeft /></Button>
-            <Button variant="outline" size="icon" onClick={handleNextWeek} className="h-8 w-8"><ChevronRight /></Button>
-            <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
+        <div className="flex items-center justify-between">
+            <div className='flex items-center gap-1 md:gap-2'>
+                <Button variant="outline" size="icon" onClick={handlePrevWeek} className="h-8 w-8"><ChevronLeft /></Button>
+                <Button variant="outline" size="icon" onClick={handleNextWeek} className="h-8 w-8"><ChevronRight /></Button>
+                <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
+            </div>
+
+            <div className="flex items-center gap-2 md:hidden">
+                 <Dialog>
+                    <DialogTrigger asChild>
+                        <Button variant="outline" size="icon" className="h-8 w-8"><BarChart className="w-4 h-4" /></Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>This Week's Financials</DialogTitle>
+                            <DialogDescription>A summary of your performance for the week of {format(weekStart, 'MMM d')}.</DialogDescription>
+                        </DialogHeader>
+                        <div className="grid grid-cols-2 gap-4 py-4">
+                            <Card>
+                                <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Revenue</CardTitle></CardHeader>
+                                <CardContent><p className="text-2xl font-bold">${weeklyKpis.weeklyRevenue.toFixed(2)}</p></CardContent>
+                            </Card>
+                            <Card>
+                                <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Projected</CardTitle></CardHeader>
+                                <CardContent><p className="text-2xl font-bold">${weeklyKpis.projectedRevenue.toFixed(2)}</p></CardContent>
+                            </Card>
+                        </div>
+                    </DialogContent>
+                </Dialog>
+                <Dialog>
+                    <DialogTrigger asChild>
+                         <Button variant="outline" size="icon" className="h-8 w-8 relative">
+                           {billInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
+                            <BellRing className="h-4 w-4" />
+                        </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                         <DialogHeader><DialogTitle>Bills Due Today</DialogTitle></DialogHeader>
+                         {billInstances.length > 0 ? (
+                           <div className="space-y-2">
+                               {billInstances.map(instance => <BillDueDateCard key={instance.id} instance={instance} />)}
+                           </div>
+                         ) : <p className="text-muted-foreground text-sm text-center py-8">No bills due today.</p>}
+                    </DialogContent>
+                </Dialog>
+                 <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="default" size="icon" className="h-8 w-8">
+                            <Plus className="h-4 w-4" />
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                        <DropdownMenuItem onClick={() => setIsAddAppointmentOpen(true)}>Add Appointment</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setIsAddEventOpen(true)}>Add Event</DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            </div>
         </div>
       </div>
       
@@ -815,12 +863,3 @@ export default function PlannerPage() {
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
