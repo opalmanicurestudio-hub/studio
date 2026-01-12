@@ -21,7 +21,7 @@ import {
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { services as initialServices, type Service, inventory as allInventory, type InventoryItem, type Appointment } from '@/lib/data';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent, TabsList } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -295,6 +295,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments }: { servi
 };
 
 const ServiceCategory = ({ title, services, onEditServiceOpen, tmhr, appointments }: { title: string, services: Service[], onEditServiceOpen: (service: Service) => void, tmhr: number, appointments: Appointment[] | null }) => {
+    if (services.length === 0) return null;
     return (
         <Accordion type="single" collapsible defaultValue="item-1">
             <AccordionItem value="item-1">
@@ -341,6 +342,7 @@ export default function ServicesPage() {
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [tmhr, setTmhr] = useState(0);
   const { toast } = useToast();
+  const [searchTerm, setSearchTerm] = useState('');
 
   const { firestore, user, isUserLoading } = useFirebase();
   const tenantId = 'tenant-abc';
@@ -364,9 +366,15 @@ export default function ServicesPage() {
     setSelectedService(service);
     setIsEditServiceDialogOpen(true);
   };
+  
+  const filteredServices = useMemo(() => {
+    return services.filter(service =>
+      service.name.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [services, searchTerm]);
 
-  const mainServices = services.filter(s => s.type === 'service');
-  const addOnServices = services.filter(s => s.type === 'addon');
+  const mainServices = filteredServices.filter(s => s.type === 'service');
+  const addOnServices = filteredServices.filter(s => s.type === 'addon');
   
   const servicesByCategory = useMemo(() => mainServices.reduce((acc, service) => {
     const category = service.category || 'Uncategorized';
@@ -449,7 +457,12 @@ export default function ServicesPage() {
         <div className='flex flex-col md:flex-row gap-4 mb-6'>
             <div className="relative w-full md:flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input placeholder="Search services..." className="pl-9" />
+                <Input 
+                    placeholder="Search services..." 
+                    className="pl-9"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
             </div>
             <div className='flex items-center gap-2 w-full md:w-auto'>
                 <Button variant="outline" className='w-full'><SlidersHorizontal className="mr-2 h-4 w-4" /> Filters</Button>
