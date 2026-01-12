@@ -302,7 +302,7 @@ const ServiceCategory = ({ title, services, onEditServiceOpen, tmhr, appointment
                     {title}
                 </AccordionTrigger>
                 <AccordionContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pt-4">
+                    <div className="flex flex-wrap gap-6 pt-4">
                         {services.map((service) => (
                             <ServiceCard key={service.id} service={service} onEditServiceOpen={onEditServiceOpen} tmhr={tmhr} appointments={appointments} />
                         ))}
