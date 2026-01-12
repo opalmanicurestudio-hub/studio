@@ -61,7 +61,7 @@ import { Calendar } from '@/components/ui/calendar';
 
 const TimeIndicator = () => {
     const [top, setTop] = useState(0);
-    const START_HOUR = 7;
+    const START_HOUR = 0;
 
     useEffect(() => {
         const updatePosition = () => {
@@ -125,7 +125,7 @@ const DayTimeline = ({
     onReschedule: (appointment: Appointment) => void;
 }) => {
     const viewportRef = useRef<HTMLDivElement>(null);
-    const START_HOUR = 7;
+    const START_HOUR = 0;
     
     useEffect(() => {
         if (isToday(date) && viewportRef.current) {
@@ -377,15 +377,12 @@ const BillsDueSheet = ({ open, onOpenChange, billInstances, isMobile }: { open: 
                 </SheetHeader>
                 <div className="flex-1 p-6 overflow-hidden">
                     {billInstances.length > 0 ? (
-                        <ScrollArea className="h-full">
-                             <div className="flex space-x-4 pb-4">
+                        <ScrollArea className="h-full -mr-6 pr-6">
+                             <div className="space-y-4">
                                 {billInstances.map(instance => (
-                                    <div key={instance.id} className="w-[280px] shrink-0">
-                                        <BillDueDateCard instance={instance} />
-                                    </div>
+                                    <BillDueDateCard key={instance.id} instance={instance} />
                                 ))}
                             </div>
-                            <ScrollBar orientation="horizontal" />
                         </ScrollArea>
                     ) : (
                         <div className="text-center text-muted-foreground h-full flex flex-col items-center justify-center">
@@ -867,4 +864,5 @@ export default function PlannerPage() {
 
 
     
+
 
