@@ -69,6 +69,12 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
             {item.costingMethod === 'uses' && item.partialContainerUses !== undefined && item.partialContainerUses > 0 && (
                 <p className="text-xs text-muted-foreground">{item.partialContainerUses} uses left in open container</p>
             )}
+             {item.isExperimentActive && (
+                <Badge variant="secondary" className="mt-1 flex items-center gap-1.5 bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 w-fit ml-auto">
+                    <FlaskConical className="h-3 w-3" />
+                    {item.experimentUses || 0} uses logged
+                </Badge>
+            )}
         </div>
       )
     }, [item]);
@@ -109,12 +115,6 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                             </DropdownMenu>
                         </div>
                         <p className="text-sm text-muted-foreground">{item.category}</p>
-                        {item.isExperimentActive && (
-                            <Badge variant="secondary" className="mt-1 flex items-center gap-1.5 bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 w-fit">
-                                <FlaskConical className="h-3 w-3" />
-                                {item.experimentUses || 0} uses logged
-                            </Badge>
-                        )}
                     </div>
                 </div>
                  <div className="flex items-center justify-between mt-auto">
@@ -467,4 +467,5 @@ export default function InventoryPage() {
   );
 
     
+
 
