@@ -68,7 +68,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
-const BillItemCard = ({
+const BillItemRow = ({
   bill,
   isEditing = false,
   onAmountChange,
@@ -77,59 +77,41 @@ const BillItemCard = ({
   isEditing?: boolean;
   onAmountChange: (newAmount: number) => void;
 }) => (
-  <Card className="w-full">
-    <CardContent className="p-4">
-      <div className="space-y-3">
-        <div className="flex justify-between items-start gap-2">
-          <div className="space-y-1 flex-1">
-            {bill.isCustom && isEditing ? (
-              <Input defaultValue={bill.title} className="font-semibold border-dashed h-9" disabled={!isEditing} />
-            ) : (
-              <Label className="font-semibold text-base pt-2 block">{bill.title}</Label>
-            )}
-            <div className="relative">
-              <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                type="number"
-                placeholder="0.00"
-                className="pl-8"
-                disabled={!isEditing}
-                value={bill.amount || ''}
-                onChange={(e) => onAmountChange(parseFloat(e.target.value) || 0)}
-              />
-            </div>
-          </div>
-          {bill.isCustom && isEditing && (
-            <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive-foreground hover:bg-destructive shrink-0 -mr-2">
-              <Trash2 className="w-4 h-4" />
-            </Button>
-          )}
-        </div>
-        {isEditing && (
-          <div className='pt-2 space-y-3'>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Payment URL</Label>
-              <Input placeholder="https://" className="h-8 text-xs" disabled={!isEditing} />
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Due Day</Label>
-                <Input type="number" placeholder="1" className="h-8 text-xs" disabled={!isEditing} />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Late By</Label>
-                <Input type="number" placeholder="5" className="h-8 text-xs" disabled={!isEditing} />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Late Fee</Label>
-                <Input type="number" placeholder="10.00" className="h-8 text-xs" disabled={!isEditing} />
-              </div>
-            </div>
-          </div>
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-3 rounded-md bg-background/50 hover:bg-background transition-colors">
+       <div className="flex-1">
+        {bill.isCustom && isEditing ? (
+            <Input defaultValue={bill.title} className="font-semibold border-dashed h-9" disabled={!isEditing} />
+        ) : (
+            <Label className="font-medium pt-2 block">{bill.title}</Label>
         )}
       </div>
-    </CardContent>
-  </Card>
+      <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className="relative flex-1 sm:max-w-[120px]">
+          <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            type="number"
+            placeholder="0.00"
+            className="pl-8"
+            disabled={!isEditing}
+            value={bill.amount || ''}
+            onChange={(e) => onAmountChange(parseFloat(e.target.value) || 0)}
+          />
+        </div>
+        {isEditing && (
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                        <MoreHorizontal className="w-4 h-4"/>
+                    </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                     {bill.isCustom && <DropdownMenuItem className='text-destructive'><Trash2 className="w-4 h-4 mr-2"/> Delete</DropdownMenuItem>}
+                     <DropdownMenuItem>Payment Details</DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+        )}
+      </div>
+    </div>
 );
 
 const lifestyleCategoriesTemplate = [
@@ -192,7 +174,7 @@ const BillEditor = ({
   return (
     <Card>
       <CardContent className="p-4 space-y-4">
-        <Accordion type="multiple" defaultValue={['category-0']} className="w-full">
+        <Accordion type="multiple" defaultValue={['category-0']} className="w-full space-y-4">
           {categories.map((category, index) => (
             <AccordionItem key={category.name} value={`category-${index}`} className="border-b-0">
               <AccordionTrigger className="p-3 bg-muted/50 rounded-md hover:no-underline">
@@ -201,21 +183,19 @@ const BillEditor = ({
                   <span className="font-semibold">{category.name}</span>
                 </div>
               </AccordionTrigger>
-              <AccordionContent className="pt-4">
-                  <div className="grid grid-cols-1 md:grid-cols-1 gap-4">
-                      {category.bills.map((bill) => (
-                        <BillItemCard
-                          key={bill.title}
-                          bill={bill}
-                          isEditing={isEditing}
-                          onAmountChange={(newAmount) => onBillChange(category.name, bill.title, newAmount)}
-                        />
-                      ))}
-                  </div>
+              <AccordionContent className="pt-4 space-y-2">
+                  {category.bills.map((bill) => (
+                    <BillItemRow
+                      key={bill.title}
+                      bill={bill}
+                      isEditing={isEditing}
+                      onAmountChange={(newAmount) => onBillChange(category.name, bill.title, newAmount)}
+                    />
+                  ))}
               </AccordionContent>
             </AccordionItem>
           ))}
-           <AccordionItem value="custom" className="border-b-0 mt-2">
+           <AccordionItem value="custom" className="border-b-0 mt-4">
               <AccordionTrigger className="p-3 bg-muted/50 rounded-md hover:no-underline">
                 <div className="flex items-center gap-3">
                   <Sparkles className="w-5 h-5 text-primary" />
@@ -477,7 +457,7 @@ const FinancialProfileManager = ({
 
 
   return (
-    <Card className="lg:sticky top-24">
+    <Card>
       <CardHeader>
         <CardTitle className="capitalize">{activeTab} Profiles</CardTitle>
         <CardDescription>Manage your financial scenarios.</CardDescription>
@@ -735,7 +715,6 @@ export default function FinancialFoundationPage() {
         const totalWorkDaysInYear = 52 * Object.values(activeScheduleProfile.week).filter(d => d.enabled).length;
         const totalDaysOff = activeScheduleProfile.timeOff.vacationDays + activeScheduleProfile.timeOff.holidays;
         
-        // Ensure totalDaysOff doesn't exceed totalWorkDaysInYear
         const effectiveDaysOff = Math.min(totalDaysOff, totalWorkDaysInYear > 0 ? totalWorkDaysInYear : 0);
 
         const workDayPercentage = totalWorkDaysInYear > 0 ? (totalWorkDaysInYear - effectiveDaysOff) / totalWorkDaysInYear : 0;
@@ -751,7 +730,6 @@ export default function FinancialFoundationPage() {
             setBackupProfiles(JSON.parse(JSON.stringify(profiles)));
             setIsEditing(true);
         } else {
-            // This would be where a save to backend would happen
             setIsEditing(false);
         }
     };
@@ -779,85 +757,78 @@ export default function FinancialFoundationPage() {
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Financial Foundation" />
-      <main className="flex-1 overflow-hidden">
-        <ScrollArea className="h-full">
-            <div className="p-4 md:p-8">
-                <div className="max-w-6xl mx-auto">
-                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
-                      <div>
-                        <h1 className="text-3xl font-bold">Your True Minimum Hourly Rate</h1>
-                        <p className="text-muted-foreground mt-2 max-w-3xl">
-                            The bedrock of your entire business. This is the exact amount you must earn per hour to cover all your expenses and fund your desired lifestyle.
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        {isEditing ? (
-                            <>
-                                <Button variant="outline" onClick={handleCancel}>Cancel</Button>
-                                <Button onClick={handleEditToggle}><Save className="mr-2"/>Save Changes</Button>
-                            </>
-                        ) : (
-                            <Button onClick={handleEditToggle}><Edit className="mr-2"/>Edit Profiles</Button>
-                        )}
-                      </div>
-                    </div>
-
-                    <Tabs defaultValue="lifestyle" className="w-full" onValueChange={setActiveTab}>
-                        <TabsList className="grid w-full grid-cols-3">
-                            <TabsTrigger value="lifestyle">1. Lifestyle</TabsTrigger>
-                            <TabsTrigger value="business">2. Business</TabsTrigger>
-                            <TabsTrigger value="schedule">3. Schedule</TabsTrigger>
-                        </TabsList>
-                        
-                         <div className="grid lg:grid-cols-3 xl:grid-cols-4 gap-8 items-start mt-6">
-                            <div className="lg:col-span-1 space-y-6">
-                               <Card className="block">
-                                  <FinancialProfileManager 
-                                      activeTab={activeTab} 
-                                      profiles={profiles}
-                                      setProfiles={setProfiles}
-                                      isEditing={isEditing}
-                                      renamingProfileId={renamingProfileId}
-                                      setRenamingProfileId={setRenamingProfileId}
-                                  />
-                               </Card>
-                            </div>
-                            <div className="lg:col-span-2 xl:col-span-3">
-                                <TabsContent value="lifestyle" className="m-0">
-                                   <LifestyleTab
-                                     isEditing={isEditing}
-                                     profileData={activeLifestyleProfile}
-                                     onBillChange={(categoryName, billTitle, newAmount) => handleBillChange('lifestyle', categoryName, billTitle, newAmount)}
-                                   />
-                                </TabsContent>
-                                <TabsContent value="business" className="m-0">
-                                   <BusinessTab
-                                     isEditing={isEditing}
-                                     profileData={activeBusinessProfile}
-                                     onBillChange={(categoryName, billTitle, newAmount) => handleBillChange('business', categoryName, billTitle, newAmount)}
-                                   />
-                                </TabsContent>
-                                <TabsContent value="schedule" className="m-0">
-                                   {activeScheduleProfile && <ScheduleTab 
-                                    isEditing={isEditing}
-                                    scheduleData={activeScheduleProfile}
-                                    onScheduleChange={handleScheduleChange}
-                                    onTimeOffChange={handleTimeOffChange}
-                                   />}
-                                </TabsContent>
-                            </div>
-                        </div>
-                    </Tabs>
-                    
-                    <Separator className="my-12" />
-                    
-                    <div className="mt-8 space-y-6 max-w-md mx-auto">
-                        <TmhrBreakdownCard lifestyleTotal={lifestyleTotal} businessTotal={businessTotal} totalHours={totalBillableHours}/>
-                    </div>
+        <div className="p-4 md:p-8">
+            <div className="max-w-7xl mx-auto">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
+                  <div>
+                    <h1 className="text-3xl font-bold">Your True Minimum Hourly Rate</h1>
+                    <p className="text-muted-foreground mt-2 max-w-3xl">
+                        The bedrock of your entire business. This is the exact amount you must earn per hour to cover all your expenses and fund your desired lifestyle.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {isEditing ? (
+                        <>
+                            <Button variant="outline" onClick={handleCancel}>Cancel</Button>
+                            <Button onClick={handleEditToggle}><Save className="mr-2"/>Save Changes</Button>
+                        </>
+                    ) : (
+                        <Button onClick={handleEditToggle}><Edit className="mr-2"/>Edit Profiles</Button>
+                    )}
+                  </div>
                 </div>
+
+                <Tabs defaultValue="lifestyle" className="w-full" onValueChange={setActiveTab}>
+                    <TabsList className="grid w-full grid-cols-3">
+                        <TabsTrigger value="lifestyle">1. Lifestyle</TabsTrigger>
+                        <TabsTrigger value="business">2. Business</TabsTrigger>
+                        <TabsTrigger value="schedule">3. Schedule</TabsTrigger>
+                    </TabsList>
+                    
+                     <div className="grid lg:grid-cols-5 gap-8 items-start mt-6">
+                        <div className="lg:col-span-1 space-y-6">
+                           <FinancialProfileManager 
+                                  activeTab={activeTab} 
+                                  profiles={profiles}
+                                  setProfiles={setProfiles}
+                                  isEditing={isEditing}
+                                  renamingProfileId={renamingProfileId}
+                                  setRenamingProfileId={setRenamingProfileId}
+                              />
+                        </div>
+                        <div className="lg:col-span-3">
+                            <TabsContent value="lifestyle" className="m-0">
+                               <LifestyleTab
+                                 isEditing={isEditing}
+                                 profileData={activeLifestyleProfile}
+                                 onBillChange={(categoryName, billTitle, newAmount) => handleBillChange('lifestyle', categoryName, billTitle, newAmount)}
+                               />
+                            </TabsContent>
+                            <TabsContent value="business" className="m-0">
+                               <BusinessTab
+                                 isEditing={isEditing}
+                                 profileData={activeBusinessProfile}
+                                 onBillChange={(categoryName, billTitle, newAmount) => handleBillChange('business', categoryName, billTitle, newAmount)}
+                               />
+                            </TabsContent>
+                            <TabsContent value="schedule" className="m-0">
+                               {activeScheduleProfile && <ScheduleTab 
+                                isEditing={isEditing}
+                                scheduleData={activeScheduleProfile}
+                                onScheduleChange={handleScheduleChange}
+                                onTimeOffChange={handleTimeOffChange}
+                               />}
+                            </TabsContent>
+                        </div>
+                         <div className="lg:col-span-1">
+                            <div className="sticky top-24">
+                                <TmhrBreakdownCard lifestyleTotal={lifestyleTotal} businessTotal={businessTotal} totalHours={totalBillableHours}/>
+                            </div>
+                         </div>
+                    </div>
+                </Tabs>
             </div>
-        </ScrollArea>
-      </main>
+        </div>
     </div>
   );
 }
@@ -865,3 +836,4 @@ export default function FinancialFoundationPage() {
     
 
     
+
