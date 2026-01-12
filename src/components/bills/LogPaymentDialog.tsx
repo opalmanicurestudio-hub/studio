@@ -26,7 +26,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { CalendarIcon, DollarSign } from 'lucide-react';
 import { type BillDefinition, type BillInstance } from '@/lib/financial-data';
-import { useForm, Controller } from 'react-hook-form';
+import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useIsMobile } from '@/hooks/use-mobile';
