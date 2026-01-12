@@ -1,6 +1,8 @@
+
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, 'use client';
+import { useState, useMemo, useEffect } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
@@ -17,6 +19,7 @@ import {
   SheetTitle,
   SheetDescription,
   SheetFooter,
+  SheetTrigger,
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -72,6 +75,12 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
                         mode="single"
                         selected={date}
                         onSelect={handleSelect}
+                        classNames={{
+                            caption_label: "text-base font-medium",
+                            day: "h-9 w-9",
+                            day_selected: "rounded-md",
+                            day_today: "rounded-md",
+                        }}
                     />
                 </SheetContent>
             </Sheet>
