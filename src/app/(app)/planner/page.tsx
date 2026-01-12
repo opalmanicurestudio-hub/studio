@@ -591,12 +591,12 @@ export default function PlannerPage() {
       
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-4 border-b">
         <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" onClick={isMobile ? handlePrevDay : handlePrevWeek}><ChevronLeft /></Button>
-            <Button variant="outline" size="icon" onClick={isMobile ? handleNextDay : handleNextWeek}><ChevronRight /></Button>
+            <Button variant="outline" size="icon" onClick={handlePrevWeek}><ChevronLeft /></Button>
+            <Button variant="outline" size="icon" onClick={handleNextWeek}><ChevronRight /></Button>
             <Button variant="outline" onClick={handleToday}>Today</Button>
             <div className="h-10 px-4 py-2 border border-input bg-background rounded-md text-sm font-medium flex items-center justify-center">
                 <CalendarIcon className="mr-2 h-4 w-4" />
-                {isMobile ? format(currentDate, 'EEEE, LLL d') : `${format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'LLL d')} - ${format(endOfDay(addDays(startOfWeek(currentDate, { weekStartsOn: 0 }), 6)), 'LLL d, yyyy')}`}
+                 {isMobile ? format(currentDate, 'EEEE, LLL d') : `${format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'LLL d')} - ${format(endOfDay(addDays(startOfWeek(currentDate, { weekStartsOn: 0 }), 6)), 'LLL d, yyyy')}`}
             </div>
         </div>
         
@@ -700,7 +700,6 @@ export default function PlannerPage() {
         </div>
       </div>
       
-      {!isMobile && (
       <div className="flex items-center gap-2 p-2 border-b bg-muted/50">
         <ScrollArea className="w-full whitespace-nowrap">
             <div className="flex items-center gap-2">
@@ -708,7 +707,7 @@ export default function PlannerPage() {
                     <Button 
                         key={index} 
                         variant={isToday(day) && isSameDay(day, currentDate) ? 'default' : isSameDay(day, currentDate) ? 'secondary' : 'ghost'}
-                        className="h-14 flex-1 flex-col py-1 min-w-[120px]"
+                        className="h-14 flex-1 flex-col py-1 min-w-[80px] md:min-w-[120px]"
                         onClick={() => handleDayClick(day)}
                     >
                         <span className="text-xs">{format(day, 'EEE')}</span>
@@ -719,7 +718,6 @@ export default function PlannerPage() {
             <ScrollBar orientation="horizontal" />
         </ScrollArea>
       </div>
-      )}
 
       <main className="flex-1 min-h-0">
           <DayTimeline 
@@ -811,6 +809,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
