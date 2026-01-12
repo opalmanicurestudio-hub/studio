@@ -56,7 +56,7 @@ const TimeIndicator = () => {
     useEffect(() => {
         const updatePosition = () => {
             const now = new Date();
-            const dayStart = setHours(startOfDay(now), 8);
+            const dayStart = startOfDay(now);
             const minutesFromStart = differenceInMinutes(now, dayStart);
             const newTop = minutesFromStart * (160 / 60); // 160px is h-40
             if (newTop >= 0) {
@@ -146,7 +146,7 @@ const DayTimeline = ({
             .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
     }, [appointments, events]);
 
-    const hours = Array.from({ length: 15 }, (_, i) => i + 8); // 8 AM to 10 PM
+    const hours = Array.from({ length: 24 }, (_, i) => i); // 0 to 23 for 24 hours
     const [tmhr, setTmhr] = useState(0);
 
     useEffect(() => {
@@ -157,7 +157,7 @@ const DayTimeline = ({
     }, []);
 
     const renderItem = (item: any) => {
-        const dayStart = setHours(startOfDay(date), 8);
+        const dayStart = startOfDay(date);
         
         if (item.itemType === 'appointment') {
             const service = services.find(s => s.id === item.serviceId);
@@ -585,7 +585,18 @@ export default function PlannerPage() {
       <div className="flex flex-col gap-4 p-4 border-b">
          <div className="flex items-center justify-between">
             <h2 className="text-2xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
-            <div className="hidden md:flex items-center gap-2">
+             <div className="flex items-center gap-2">
+                 <Button variant="outline" onClick={handlePrevWeek} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
+                 <Button variant="outline" onClick={handleNextWeek} size="icon" className="h-8 w-8"><ChevronRight /></Button>
+                 <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
+            </div>
+         </div>
+         <div className="flex items-center justify-between">
+            <div className='flex items-center gap-1 md:gap-2'>
+                {/* Placeholder for future date picker popover */}
+            </div>
+
+            <div className="flex items-center gap-2">
                  <Dialog>
                     <DialogTrigger asChild>
                         <Button variant="outline" className="h-8"><BarChart className="w-4 h-4 mr-2" />KPIs</Button>
@@ -649,6 +660,7 @@ export default function PlannerPage() {
                         <Button variant="outline" className="h-8 relative">
                             <BellRing className={cn("h-4 w-4 mr-2", billInstances.length > 0 && "text-primary animate-pulse")} />
                             Bills Due
+                             {billInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
                         </Button>
                     </DialogTrigger>
                     <DialogContent>
@@ -691,64 +703,6 @@ export default function PlannerPage() {
                 </DropdownMenu>
             </div>
          </div>
-        <div className="flex items-center justify-between">
-            <div className='flex items-center gap-1 md:gap-2'>
-                <Button variant="outline" size="icon" onClick={handlePrevWeek} className="h-8 w-8"><ChevronLeft /></Button>
-                <Button variant="outline" size="icon" onClick={handleNextWeek} className="h-8 w-8"><ChevronRight /></Button>
-                <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
-            </div>
-
-            <div className="flex items-center gap-2 md:hidden">
-                 <Dialog>
-                    <DialogTrigger asChild>
-                        <Button variant="outline" size="icon" className="h-8 w-8"><BarChart className="w-4 h-4" /></Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                        <DialogHeader>
-                            <DialogTitle>This Week's Financials</DialogTitle>
-                            <DialogDescription>A summary of your performance for the week of {format(weekStart, 'MMM d')}.</DialogDescription>
-                        </DialogHeader>
-                        <div className="grid grid-cols-2 gap-4 py-4">
-                            <Card>
-                                <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Revenue</CardTitle></CardHeader>
-                                <CardContent><p className="text-2xl font-bold">${weeklyKpis.weeklyRevenue.toFixed(2)}</p></CardContent>
-                            </Card>
-                            <Card>
-                                <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Projected</CardTitle></CardHeader>
-                                <CardContent><p className="text-2xl font-bold">${weeklyKpis.projectedRevenue.toFixed(2)}</p></CardContent>
-                            </Card>
-                        </div>
-                    </DialogContent>
-                </Dialog>
-                <Dialog>
-                    <DialogTrigger asChild>
-                         <Button variant="outline" size="icon" className="h-8 w-8 relative">
-                           {billInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
-                            <BellRing className="h-4 w-4" />
-                        </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                         <DialogHeader><DialogTitle>Bills Due Today</DialogTitle></DialogHeader>
-                         {billInstances.length > 0 ? (
-                           <div className="space-y-2">
-                               {billInstances.map(instance => <BillDueDateCard key={instance.id} instance={instance} />)}
-                           </div>
-                         ) : <p className="text-muted-foreground text-sm text-center py-8">No bills due today.</p>}
-                    </DialogContent>
-                </Dialog>
-                 <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button variant="default" size="icon" className="h-8 w-8">
-                            <Plus className="h-4 w-4" />
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent>
-                        <DropdownMenuItem onClick={() => setIsAddAppointmentOpen(true)}>Add Appointment</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setIsAddEventOpen(true)}>Add Event</DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            </div>
-        </div>
       </div>
       
       <div className="flex items-center gap-2 p-2 border-b bg-background">
