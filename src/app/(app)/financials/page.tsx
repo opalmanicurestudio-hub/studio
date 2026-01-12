@@ -569,7 +569,7 @@ const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal, totalHours }: { life
                     <span className="font-mono">${(totalHours > 0 ? businessTotal / totalHours : 0).toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between border-t pt-2 mt-2">
-                    <span>Total Billable Hours / Month:</span>
+                    <span>Billable Hours / Month:</span>
                     <span className="font-mono">{totalHours.toFixed(2)}</span>
                 </div>
             </div>
@@ -785,8 +785,8 @@ export default function FinancialFoundationPage() {
                         <TabsTrigger value="schedule">3. Schedule</TabsTrigger>
                     </TabsList>
                     
-                     <div className="grid lg:grid-cols-4 gap-8 items-start mt-6">
-                        <div className="lg:col-span-1 space-y-6 lg:sticky lg:top-24">
+                     <div className="grid lg:grid-cols-[320px,1fr] gap-8 items-start mt-6">
+                        <div className="lg:sticky lg:top-24 space-y-6">
                            <FinancialProfileManager 
                                   activeTab={activeTab} 
                                   profiles={profiles}
@@ -795,11 +795,9 @@ export default function FinancialFoundationPage() {
                                   renamingProfileId={renamingProfileId}
                                   setRenamingProfileId={setRenamingProfileId}
                               />
-                            <div className='hidden lg:block'>
-                                <TmhrBreakdownCard lifestyleTotal={lifestyleTotal} businessTotal={businessTotal} totalHours={totalBillableHours}/>
-                            </div>
+                            <TmhrBreakdownCard lifestyleTotal={lifestyleTotal} businessTotal={businessTotal} totalHours={totalBillableHours}/>
                         </div>
-                        <div className="lg:col-span-3">
+                        <div className="lg:col-span-1">
                             <TabsContent value="lifestyle" className="m-0">
                                <LifestyleTab
                                  isEditing={isEditing}
@@ -823,9 +821,6 @@ export default function FinancialFoundationPage() {
                                />}
                             </TabsContent>
                         </div>
-                         <div className="lg:col-span-4 lg:hidden">
-                            <TmhrBreakdownCard lifestyleTotal={lifestyleTotal} businessTotal={businessTotal} totalHours={totalBillableHours}/>
-                         </div>
                     </div>
                 </Tabs>
             </div>
@@ -839,3 +834,6 @@ export default function FinancialFoundationPage() {
     
 
 
+
+
+    
