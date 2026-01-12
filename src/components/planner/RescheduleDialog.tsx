@@ -43,6 +43,7 @@ import { Switch } from '../ui/switch';
 import { useToast } from '@/hooks/use-toast';
 
 const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: Date) => void }) => {
+    const isMobile = useIsMobile();
     const [isOpen, setIsOpen] = useState(false);
 
     const handleSelect = (selectedDate: Date | undefined) => {
@@ -59,36 +60,50 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
             "w-full justify-start text-left font-normal h-12",
             !date && "text-muted-foreground"
             )}
+             onClick={() => setIsOpen(true)}
         >
             <CalendarIcon className="mr-2 h-4 w-4" />
             {date ? format(date, 'PPP') : <span>Pick a date</span>}
         </Button>
     );
     
-    return (
-        <Dialog open={isOpen} onOpenChange={setIsOpen}>
-            <DialogTrigger asChild>
+    const CalendarComponent = (
+        <Calendar
+            mode="single"
+            selected={date}
+            onSelect={handleSelect}
+            initialFocus
+            classNames={{
+                caption_label: "text-base font-medium",
+                day: "h-9 w-9",
+                day_selected: "rounded-md",
+                day_today: "rounded-md",
+            }}
+        />
+    );
+    
+    if (isMobile) {
+        return (
+            <>
                 {TriggerButton}
-            </DialogTrigger>
-            <DialogContent className="w-auto p-0">
-                 <DialogHeader className="sr-only">
-                    <DialogTitle>Select a date</DialogTitle>
-                    <DialogDescription>Use the calendar to pick a date for the appointment.</DialogDescription>
-                </DialogHeader>
-                <Calendar
-                    mode="single"
-                    selected={date}
-                    onSelect={handleSelect}
-                    initialFocus
-                    classNames={{
-                        caption_label: "text-base font-medium",
-                        day: "h-9 w-9",
-                        day_selected: "rounded-md",
-                        day_today: "rounded-md",
-                    }}
-                />
-            </DialogContent>
-        </Dialog>
+                <Dialog open={isOpen} onOpenChange={setIsOpen}>
+                    <DialogContent className="w-auto p-0">
+                        {CalendarComponent}
+                    </DialogContent>
+                </Dialog>
+            </>
+        )
+    }
+
+    return (
+        <Popover open={isOpen} onOpenChange={setIsOpen}>
+            <PopoverTrigger asChild>
+                {TriggerButton}
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0">
+                {CalendarComponent}
+            </PopoverContent>
+        </Popover>
     );
 };
 

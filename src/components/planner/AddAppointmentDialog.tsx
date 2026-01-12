@@ -60,6 +60,7 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
             "w-full justify-start text-left font-normal",
             !date && "text-muted-foreground"
             )}
+            onClick={() => setIsOpen(true)}
         >
             <CalendarIcon className="mr-2 h-4 w-4" />
             {date ? format(date, 'PPP') : <span>Pick a date</span>}
@@ -81,19 +82,28 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
         />
     );
 
-    return (
-        <Dialog open={isOpen} onOpenChange={setIsOpen}>
-            <DialogTrigger asChild>
+    if (isMobile) {
+        return (
+            <>
                 {TriggerButton}
-            </DialogTrigger>
-            <DialogContent className="w-auto p-0">
-                 <DialogHeader className="sr-only">
-                    <DialogTitle>Select a date</DialogTitle>
-                    <DialogDescription>Use the calendar to pick a date for the appointment.</DialogDescription>
-                </DialogHeader>
+                <Dialog open={isOpen} onOpenChange={setIsOpen}>
+                    <DialogContent className="w-auto p-0">
+                        {CalendarComponent}
+                    </DialogContent>
+                </Dialog>
+            </>
+        )
+    }
+
+    return (
+        <Popover open={isOpen} onOpenChange={setIsOpen}>
+            <PopoverTrigger asChild>
+                {TriggerButton}
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0">
                 {CalendarComponent}
-            </DialogContent>
-        </Dialog>
+            </PopoverContent>
+        </Popover>
     );
 };
 
@@ -323,4 +333,3 @@ export const AddAppointmentDialog = ({ open, onOpenChange, clients, services, ap
     </Dialog>
   );
 };
-
