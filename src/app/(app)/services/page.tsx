@@ -417,9 +417,9 @@ export default function ServicesPage() {
 
 
   return (
-    <div className="flex min-h-screen w-full flex-col">
+    <div className="w-full">
       <AppHeader title="Services" />
-      <main className="flex-1 p-4 md:p-8">
+      <main className="p-4 md:p-8">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
             <div>
                 <h1 className="text-3xl font-bold">Service Library</h1>
