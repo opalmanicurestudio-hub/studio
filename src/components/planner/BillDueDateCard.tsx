@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React from 'react';
@@ -11,9 +12,10 @@ import { Landmark, AlertTriangle } from 'lucide-react';
 
 interface BillDueDateCardProps {
   instance: BillInstance & { definition: Bill };
+  onLogPaymentClick: (instance: BillInstance & { definition: Bill }) => void;
 }
 
-export const BillDueDateCard: React.FC<BillDueDateCardProps> = ({ instance }) => {
+export const BillDueDateCard: React.FC<BillDueDateCardProps> = ({ instance, onLogPaymentClick }) => {
   const isOverdue = instance.status === 'overdue';
 
   return (
@@ -46,7 +48,7 @@ export const BillDueDateCard: React.FC<BillDueDateCardProps> = ({ instance }) =>
           </div>
           <div className="text-right">
             <p className="font-bold text-base text-destructive">-${instance.amountDue.toFixed(2)}</p>
-            <Button variant="outline" size="xs" className="mt-1">Log Payment</Button>
+            <Button variant="outline" size="xs" className="mt-1" onClick={() => onLogPaymentClick(instance)}>Log Payment</Button>
           </div>
         </div>
       </CardContent>

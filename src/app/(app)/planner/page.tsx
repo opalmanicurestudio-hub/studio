@@ -6,7 +6,7 @@ import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem } from '@/lib/data';
-import { billInstances as allBillInstances, billDefinitions, type Bill } from '@/lib/financial-data';
+import { billInstances as allBillInstances, billDefinitions, type Bill, type Transaction, type BillInstance } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay } from 'date-fns';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
@@ -46,7 +46,6 @@ import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceip
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
 import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, Timestamp } from 'firebase/firestore';
-import { type Transaction, type BillInstance } from '@/lib/financial-data';
 import { EditEventDialog } from '@/components/planner/EditEventDialog';
 import { BillDueDateCard } from '@/components/planner/BillDueDateCard';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -57,6 +56,7 @@ import { EventCard } from '@/components/planner/EventCard';
 import { RescheduleDialog } from '@/components/planner/RescheduleDialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
+import { LogPaymentDialog } from '@/components/bills/LogPaymentDialog';
 
 
 const TimeIndicator = () => {
@@ -374,7 +374,7 @@ const WeeklyKpiSheet = ({ open, onOpenChange, kpis, isMobile }: { open: boolean,
     )
 }
 
-const BillsDueSheet = ({ open, onOpenChange, billInstances, isMobile }: { open: boolean, onOpenChange: (open: boolean) => void, billInstances: (BillInstance & { definition: Bill })[], isMobile: boolean }) => {
+const BillsDueSheet = ({ open, onOpenChange, billInstances, isMobile, onLogPaymentClick }: { open: boolean, onOpenChange: (open: boolean) => void, billInstances: (BillInstance & { definition: Bill })[], isMobile: boolean, onLogPaymentClick: (instance: BillInstance & { definition: Bill }) => void }) => {
     const DialogOrSheet = isMobile ? Sheet : Dialog;
     const DialogOrSheetContent = isMobile ? SheetContent : DialogContent;
 
@@ -390,7 +390,7 @@ const BillsDueSheet = ({ open, onOpenChange, billInstances, isMobile }: { open: 
                         <ScrollArea className="h-full -mr-6 pr-6">
                              <div className="space-y-4">
                                 {billInstances.map(instance => (
-                                    <BillDueDateCard key={instance.id} instance={instance} />
+                                    <BillDueDateCard key={instance.id} instance={instance} onLogPaymentClick={onLogPaymentClick} />
                                 ))}
                             </div>
                         </ScrollArea>
@@ -431,6 +431,7 @@ export default function PlannerPage() {
   const [isBillsSheetOpen, setIsBillsSheetOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
+  const [selectedBill, setSelectedBill] = useState<(BillInstance & { definition: Bill }) | null>(null);
   const { toast } = useToast();
     
   const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
@@ -537,6 +538,52 @@ export default function PlannerPage() {
     setSelectedEvent(event);
     setIsEditEventOpen(true);
   }
+  
+  const handleLogPaymentClick = (instance: BillInstance & { definition: Bill }) => {
+    setSelectedBill(instance);
+  };
+
+  const handleLogPaymentConfirm = (paymentData: { amount: number; date: Date; paymentMethod: string; notes?: string }) => {
+    if (!selectedBill) return;
+
+    // This part should be moved to a backend function ideally
+    // For now, we simulate the update on the client
+    const updatedBillInstances = allBillInstances.map(instance => {
+        if (instance.id === selectedBill.id) {
+            const newAmountPaid = instance.amountPaid + paymentData.amount;
+            const newAmountDue = instance.amountDue - paymentData.amount;
+            let newStatus: BillInstance['status'] = newAmountDue <= 0 ? 'paid' : 'partially-paid';
+            return { ...instance, amountPaid: newAmountPaid, amountDue: newAmountDue, status: newStatus };
+        }
+        return instance;
+    });
+    // Here you would set the state for billInstances if it were managed here
+    // setBillInstances(updatedBillInstances);
+
+    const newTransaction: Omit<Transaction, 'id'> = {
+        date: paymentData.date.toISOString(),
+        description: `Payment for ${selectedBill.definition.name}`,
+        clientOrVendor: selectedBill.definition.name,
+        type: 'payment',
+        context: selectedBill.definition.context,
+        category: selectedBill.definition.category,
+        amount: paymentData.amount,
+        paymentMethod: paymentData.paymentMethod,
+        hasReceipt: false,
+    };
+    
+    if (firestore && user) {
+        const transactionRef = collection(firestore, 'tenants', tenantId, 'transactions');
+        addDocumentNonBlocking(transactionRef, newTransaction);
+    }
+    
+    toast({
+        title: "Payment Logged",
+        description: `A payment of $${paymentData.amount.toFixed(2)} has been logged for ${selectedBill.definition.name}.`
+    })
+
+    setSelectedBill(null);
+  };
 
   const handleCheckout = (updatedInventory: any, newCorrections: any, receiptData: Omit<ReceiptData, 'business'>) => {
     if (!selectedAppointment) return;
@@ -843,7 +890,21 @@ export default function PlannerPage() {
         />
        )}
         <WeeklyKpiSheet open={isKpiSheetOpen} onOpenChange={setIsKpiSheetOpen} kpis={weeklyKpis} isMobile={!!isMobile} />
-        <BillsDueSheet open={isBillsSheetOpen} onOpenChange={setIsBillsSheetOpen} billInstances={billInstances} isMobile={!!isMobile} />
+        <BillsDueSheet open={isBillsSheetOpen} onOpenChange={setIsBillsSheetOpen} billInstances={billInstances} isMobile={!!isMobile} onLogPaymentClick={handleLogPaymentClick}/>
+        
+        {selectedBill && (
+            <LogPaymentDialog
+                open={!!selectedBill}
+                onOpenChange={(isOpen) => {
+                    if (!isOpen) {
+                        setSelectedBill(null);
+                    }
+                }}
+                billInstance={selectedBill}
+                onConfirm={handleLogPaymentConfirm}
+            />
+      )}
+
       <Dialog open={!!receiptToPrint} onOpenChange={(open) => !open && setReceiptToPrint(null)}>
         <DialogContent className="max-w-sm print-content">
           <DialogHeader>
@@ -877,3 +938,4 @@ export default function PlannerPage() {
 
 
     
+
