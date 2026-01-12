@@ -259,7 +259,6 @@ const LifestyleTab = ({
   if (!profileData) return null;
   return (
     <div>
-      <h2 className="text-2xl font-semibold">What does it cost to be you?</h2>
       <p className="text-muted-foreground mt-2">Log all your monthly personal living expenses to establish your lifestyle cost.</p>
       <div className="mt-6">
         <BillEditor
@@ -867,3 +866,4 @@ export default function FinancialFoundationPage() {
     
 
     
+
