@@ -599,7 +599,7 @@ export default function PlannerPage() {
             <div className="flex items-center gap-2">
                  <Dialog>
                     <DialogTrigger asChild>
-                        <Button variant="outline" className="h-8"><BarChart className="w-4 h-4 mr-2" />KPIs</Button>
+                        <Button variant="outline" size="icon" className="h-8 w-8"><BarChart className="w-4 h-4" /></Button>
                     </DialogTrigger>
                     <DialogContent className="max-w-4xl">
                         <DialogHeader>
@@ -657,9 +657,8 @@ export default function PlannerPage() {
                 </Dialog>
                 <Dialog>
                     <DialogTrigger asChild>
-                        <Button variant="outline" className="h-8 relative">
-                            <BellRing className={cn("h-4 w-4 mr-2", billInstances.length > 0 && "text-primary animate-pulse")} />
-                            Bills Due
+                        <Button variant="outline" size="icon" className="h-8 w-8 relative">
+                            <BellRing className={cn("h-4 w-4", billInstances.length > 0 && "text-primary animate-pulse")} />
                              {billInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
                         </Button>
                     </DialogTrigger>
