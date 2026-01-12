@@ -342,3 +342,4 @@ export const EditAppointmentDialog = ({ open, onOpenChange, appointment, clients
     </Dialog>
   );
 };
+

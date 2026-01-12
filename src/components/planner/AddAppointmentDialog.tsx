@@ -323,3 +323,4 @@ export const AddAppointmentDialog = ({ open, onOpenChange, clients, services, ap
     </Dialog>
   );
 };
+
