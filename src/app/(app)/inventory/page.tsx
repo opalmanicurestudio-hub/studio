@@ -195,6 +195,10 @@ export default function InventoryPage() {
 
         if (product.isExperimentActive) {
             product.experimentUses = (product.experimentUses || 0) + quantity;
+            success = true;
+            message = `Logged ${quantity} use(s) for ${product.name} experiment.`;
+            newInventory[productIndex] = product;
+            return newInventory;
         }
 
         if (product.costingMethod === 'uses') {
@@ -467,5 +471,6 @@ export default function InventoryPage() {
   );
 
     
+
 
 
