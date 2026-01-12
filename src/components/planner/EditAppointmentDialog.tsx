@@ -39,6 +39,68 @@ import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addM
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Card, CardContent } from '../ui/card';
 
+const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: Date) => void }) => {
+    const isMobile = useIsMobile();
+    const [isOpen, setIsOpen] = useState(false);
+
+    const handleSelect = (selectedDate: Date | undefined) => {
+        if (selectedDate) {
+            onDateChange(selectedDate);
+            setIsOpen(false);
+        }
+    }
+    
+    const TriggerButton = (
+        <Button
+            variant={"outline"}
+            className={cn(
+            "w-full justify-start text-left font-normal",
+            !date && "text-muted-foreground"
+            )}
+        >
+            <CalendarIcon className="mr-2 h-4 w-4" />
+            {date ? format(date, 'PPP') : <span>Pick a date</span>}
+        </Button>
+    );
+
+    if (isMobile) {
+        return (
+            <Sheet open={isOpen} onOpenChange={setIsOpen}>
+                <SheetTrigger asChild>{TriggerButton}</SheetTrigger>
+                <SheetContent side="bottom">
+                    <Calendar
+                        mode="single"
+                        selected={date}
+                        onSelect={handleSelect}
+                    />
+                </SheetContent>
+            </Sheet>
+        );
+    }
+
+    return (
+        <Popover open={isOpen} onOpenChange={setIsOpen}>
+            <PopoverTrigger asChild>
+                {TriggerButton}
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0">
+                <Calendar
+                    mode="single"
+                    selected={date}
+                    onSelect={handleSelect}
+                    initialFocus
+                    classNames={{
+                        caption_label: "text-base font-medium",
+                        day: "h-9 w-9",
+                        day_selected: "rounded-md",
+                        day_today: "rounded-md",
+                    }}
+                />
+            </PopoverContent>
+        </Popover>
+    );
+};
+
 const EditAppointmentForm = ({ 
     appointment,
     clients, 
@@ -206,34 +268,7 @@ const EditAppointmentForm = ({
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div className="space-y-2">
                                     <Label htmlFor="date-edit">Date</Label>
-                                    <Popover>
-                                        <PopoverTrigger asChild>
-                                        <Button
-                                            variant={"outline"}
-                                            className={cn(
-                                            "w-full justify-start text-left font-normal",
-                                            !date && "text-muted-foreground"
-                                            )}
-                                        >
-                                            <CalendarIcon className="mr-2 h-4 w-4" />
-                                            {date ? format(date, 'PPP') : <span>Pick a date</span>}
-                                        </Button>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-auto p-0">
-                                        <Calendar
-                                            mode="single"
-                                            selected={date}
-                                            onSelect={(d) => setDate(d || new Date())}
-                                            initialFocus
-                                            classNames={{
-                                                caption_label: "text-base font-medium",
-                                                day: "h-9 w-9",
-                                                day_selected: "rounded-md",
-                                                day_today: "rounded-md",
-                                            }}
-                                        />
-                                        </PopoverContent>
-                                    </Popover>
+                                    <DatePicker date={date} onDateChange={setDate} />
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="start-time-edit">Start Time</Label>
