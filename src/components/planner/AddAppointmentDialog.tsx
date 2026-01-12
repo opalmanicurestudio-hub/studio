@@ -102,6 +102,10 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
                 {TriggerButton}
             </DialogTrigger>
             <DialogContent className="w-auto p-0">
+                 <DialogHeader className="sr-only">
+                    <DialogTitle>Select a date</DialogTitle>
+                    <DialogDescription>Use the calendar to pick a date for the appointment.</DialogDescription>
+                </DialogHeader>
                 {CalendarComponent}
             </DialogContent>
         </Dialog>
