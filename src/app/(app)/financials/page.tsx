@@ -259,7 +259,6 @@ const LifestyleTab = ({
   if (!profileData) return null;
   return (
     <div>
-      <p className="text-muted-foreground mt-2">Log all your monthly personal living expenses to establish your lifestyle cost.</p>
       <div className="mt-6">
         <BillEditor
           categories={profileData.categories}
@@ -283,6 +282,7 @@ const BusinessTab = ({
   if (!profileData) return null;
   return (
     <div>
+      <p className="text-muted-foreground mt-2">Log all your monthly business operating expenses to establish your overhead.</p>
       <div className="mt-6">
         <BillEditor
           categories={profileData.categories}
@@ -346,7 +346,6 @@ const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string;
 
 const ScheduleTab = ({ isEditing, scheduleData, onScheduleChange, onTimeOffChange }: { isEditing: boolean; scheduleData: any; onScheduleChange: any; onTimeOffChange: any }) => (
     <div>
-        <h2 className="text-2xl font-semibold">How much time do you have to earn?</h2>
         <p className="text-muted-foreground mt-2">Define your available work hours to calculate your total billable time.</p>
         <div className="mt-6">
             <Card>
@@ -866,4 +865,3 @@ export default function FinancialFoundationPage() {
     
 
     
-
