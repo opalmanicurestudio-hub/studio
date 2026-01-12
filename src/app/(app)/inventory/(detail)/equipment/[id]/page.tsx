@@ -21,7 +21,7 @@ import { Badge } from '@/components/ui/badge';
 import Image from 'next/image';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { format, differenceInMonths, parseISO, differenceInYears } from 'date-fns';
-import { type MaintenanceRecord, services, appointments, clients, type LifespanTestResult } from '@/lib/data';
+import { type MaintenanceRecord, services, appointments, clients, type LifespanTestResult, type InventoryItem } from '@/lib/data';
 import {
   Dialog,
   DialogContent,
@@ -209,16 +209,29 @@ export default function EquipmentDetailPage() {
 
   const handleEndExperimentConfirmed = (results: LifespanTestResult) => {
     if (!equipment) return;
-    setInventory(prev => prev.map(item => 
-        item.id === equipment.id ? { 
-            ...item, 
-            isExperimentActive: false,
-            lastTestResult: results,
-            actualLifespanMonths: results.actualLifespanMonths, // Keep for backward compatibility if needed elsewhere
-        } : item
-    ));
+    
+    setInventory(prev => prev.map(item => {
+        if (item.id === equipment.id) {
+            const updatedItem: InventoryItem = { 
+                ...item, 
+                isExperimentActive: false,
+                lastTestResult: results,
+            };
+            
+            // If it's a product, update estimatedUses. If equipment, update actualLifespanMonths.
+            if (item.type === 'professional' || item.type === 'retail') {
+                updatedItem.estimatedUses = results.actualLifespanMonths; // Re-using this field for actual uses
+            } else if (item.type === 'equipment') {
+                updatedItem.actualLifespanMonths = results.actualLifespanMonths;
+            }
+
+            return updatedItem;
+        }
+        return item;
+    }));
+    
     setIsEndExperimentOpen(false);
-  };
+};
   
   if (!equipment) {
     return (
