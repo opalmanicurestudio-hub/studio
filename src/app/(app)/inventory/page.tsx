@@ -9,9 +9,10 @@ import {
   CardHeader,
   CardTitle,
   CardDescription,
+  CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette } from 'lucide-react';
 import { type InventoryItem, type StockCorrection } from '@/lib/data';
 import {
   DropdownMenu,
@@ -38,7 +39,7 @@ import { ClientOnly } from '@/components/shared/ClientOnly';
 
 const KPI_CARDS = [
     { title: "Total Inventory Value", value: "$1,850.75", icon: Package, description: "Landed cost of all stock" },
-    { title: "Potential Revenue", value: "$4,320.00", icon: Hammer, description: "Retail value of sellable stock" },
+    { title: "Potential Revenue", value: "$4,320.00", icon: BarChart, description: "Retail value of sellable stock" },
     { title: "At-Risk Stock", value: "$75.00", icon: PackageX, description: "Value of expired/expiring items" },
     { title: "Items to Reorder", value: "3", icon: ClipboardList, description: "Products at or below reorder point" }
 ];
@@ -48,7 +49,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
     const stockStatus = useMemo(() => {
         const hasExpiredBatch = item.batches.some(b => b.expirationDate && isPast(parseISO(b.expirationDate)));
         if (hasExpiredBatch) return { label: 'Expired', className: 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-400 dark:border-red-600/30' };
-        if (item.totalStock <= 0 && (item.partialContainerUses === undefined || item.partialContainerUses === 0) && (item.partialContainerSize === undefined || item.partialContainerSize === 0) ) return { label: 'Out of Stock', className: 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-400 dark:border-red-600/30' };
+        if (item.totalStock <= 0 && (item.partialContainerUses === undefined || item.partialContainerUses <= 0) && (item.partialContainerSize === undefined || item.partialContainerSize <= 0) ) return { label: 'Out of Stock', className: 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-400 dark:border-red-600/30' };
         if (item.reorderPoint && item.totalStock <= item.reorderPoint) return { label: 'Low Stock', className: 'bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-400 dark:border-yellow-600/30' };
         return { label: 'In Stock', className: 'bg-green-100 text-green-800 border-green-200 dark:bg-green-900/40 dark:text-green-400 dark:border-green-600/30' };
     }, [item]);
@@ -56,33 +57,22 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
     const detailHref = `/inventory/${item.id}`;
 
     const stockDisplay = useMemo(() => {
-      if (item.costingMethod === 'size' && item.partialContainerSize !== undefined) {
-        return (
-          <>
-            <p className="font-mono font-semibold text-lg">{item.totalStock}</p>
-            <p className="text-xs text-muted-foreground">full, {item.partialContainerSize.toFixed(0)}{item.unit} left</p>
-          </>
-        )
-      }
-      if (item.costingMethod === 'uses' && item.partialContainerUses !== undefined) {
-         return (
-          <>
-            <p className="font-mono font-semibold text-lg">{item.totalStock}</p>
-            <p className="text-xs text-muted-foreground">full, {item.partialContainerUses} uses left</p>
-          </>
-        )
-      }
       return (
-        <>
-          <p className="font-mono font-semibold text-lg">{item.totalStock}</p>
-          <p className="text-xs text-muted-foreground">units on hand</p>
-        </>
+        <div className="text-right">
+            <p className="font-mono font-semibold text-lg">{item.totalStock} <span className="text-sm text-muted-foreground">full</span></p>
+            {item.costingMethod === 'size' && item.partialContainerSize !== undefined && (
+                <p className="text-xs text-muted-foreground">{item.partialContainerSize.toFixed(0)}{item.unit} left in open container</p>
+            )}
+            {item.costingMethod === 'uses' && item.partialContainerUses !== undefined && (
+                <p className="text-xs text-muted-foreground">{item.partialContainerUses} uses left in open container</p>
+            )}
+        </div>
       )
     }, [item]);
     
     return (
-        <Card className={cn("transition-all duration-200 hover:shadow-lg", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
-            <CardContent className="p-3">
+        <Card className={cn("transition-all duration-200 hover:shadow-lg flex flex-col", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
+            <CardContent className="p-3 flex-1">
                 <div className="flex items-start gap-4">
                      <Link href={detailHref} className='w-20 h-20 bg-muted rounded-md flex-shrink-0'>
                         <Image src={item.imageUrl || `https://picsum.photos/seed/inv${item.id}/100/100`} alt={item.name} width={80} height={80} className='rounded-md object-cover' data-ai-hint="product photo"/>
@@ -101,8 +91,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                                 <DropdownMenuItem asChild><Link href={detailHref}>View Details</Link></DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => onEdit(item)}><Pencil className="mr-2 h-4 w-4" /> Edit</DropdownMenuItem>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={() => onWriteOff(item)}><PackageX className="mr-2 h-4 w-4" /> Write-off / Damage</DropdownMenuItem>
-                                 <DropdownMenuItem asChild><Link href={`/inventory/labels?product=${item.id}`}><Printer className="mr-2 h-4 w-4" /> Print Label</Link></DropdownMenuItem>
+                                <DropdownMenuItem asChild><Link href={`/inventory/labels?product=${item.id}`}><Printer className="mr-2 h-4 w-4" /> Print Label</Link></DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Delete</DropdownMenuItem>
                               </DropdownMenuContent>
@@ -111,13 +100,17 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                         <p className="text-sm text-muted-foreground">{item.category}</p>
                         <div className="mt-2 flex items-center justify-between">
                             <Badge variant="outline" className={stockStatus.className}>{stockStatus.label}</Badge>
-                            <div className="text-right">
-                                {stockDisplay}
-                            </div>
+                            {stockDisplay}
                         </div>
                     </div>
                 </div>
             </CardContent>
+             <CardFooter className="p-2 border-t bg-muted/50">
+                <div className="grid grid-cols-2 gap-2 w-full">
+                    <Button variant="ghost" size="sm" className="w-full" onClick={() => onLogUse(item)}><Pipette className="mr-2"/>Log Use</Button>
+                    <Button variant="ghost" size="sm" className="w-full" onClick={() => onWriteOff(item)}><PackageX className="mr-2"/>Write-off</Button>
+                </div>
+            </CardFooter>
         </Card>
     )
 }
@@ -147,6 +140,86 @@ export default function InventoryPage() {
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
 
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
+  const [isLogUseOpen, setIsLogUseOpen] = useState(false);
+  const [isWriteOffOpen, setIsWriteOffOpen] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<InventoryItem | null>(null);
+
+  const handleOpenLogUse = (item: InventoryItem) => {
+    setSelectedProduct(item);
+    setIsLogUseOpen(true);
+  }
+
+  const handleOpenWriteOff = (item: InventoryItem) => {
+    setSelectedProduct(item);
+    setIsWriteOffOpen(true);
+  }
+  
+  const handleLogUseConfirm = (productId: string, quantity: number, notes: string): { success: boolean, message: string } => {
+    let success = false;
+    let message = '';
+    
+    setInventory(prev => {
+        const newInventory = [...prev];
+        const productIndex = newInventory.findIndex(p => p.id === productId);
+        if (productIndex === -1) {
+            message = 'Product not found.';
+            return prev;
+        }
+
+        const product = { ...newInventory[productIndex] };
+        let unit = product.unit || 'units';
+
+        if (product.costingMethod === 'uses') {
+            unit = 'uses';
+            let currentTotalUses = (product.totalStock * (product.estimatedUses || 1)) + (product.partialContainerUses || 0);
+            if (currentTotalUses < quantity) {
+                message = 'Insufficient stock to log this use.';
+                return prev;
+            }
+            currentTotalUses -= quantity;
+            product.totalStock = Math.floor(currentTotalUses / (product.estimatedUses || 1));
+            product.partialContainerUses = currentTotalUses % (product.estimatedUses || 1);
+        } else if (product.costingMethod === 'size') {
+            unit = product.unit || 'ml';
+            let currentTotalSize = (product.totalStock * (product.size || 1)) + (product.partialContainerSize || 0);
+             if (currentTotalSize < quantity) {
+                message = 'Insufficient stock to log this use.';
+                return prev;
+            }
+            currentTotalSize -= quantity;
+            product.totalStock = Math.floor(currentTotalSize / (product.size || 1));
+            product.partialContainerSize = currentTotalSize % (product.size || 1);
+        } else { // Standard unit-based
+            if (product.totalStock < quantity) {
+                message = 'Insufficient stock to log this use.';
+                return prev;
+            }
+            product.totalStock -= quantity;
+        }
+
+        newInventory[productIndex] = product;
+        
+        const newCorrection: StockCorrection = {
+            id: `sc-${Date.now()}`,
+            productId: productId,
+            date: new Date().toISOString(),
+            change: -quantity,
+            unit: unit,
+            reason: notes || 'Manual Use',
+        };
+        addStockCorrection(newCorrection);
+        
+        success = true;
+        message = `${quantity} ${unit} of ${product.name} logged.`;
+        return newInventory;
+    });
+
+    return { success, message };
+  };
+
+  const handleWriteOffConfirm = (productId: string, batchId: string, quantity: number, reason: string) => {
+    // Logic similar to handleLogUseConfirm, but for a specific batch and with a different reason.
+  }
   
   const filteredInventory = useMemo(() => {
     if (activeTab === 'all') return inventory;
@@ -207,8 +280,8 @@ export default function InventoryPage() {
                             onEdit={() => {}} 
                             onToggleExperiment={() => {}} 
                             onEndExperiment={() => {}} 
-                            onWriteOff={() => {}} 
-                            onLogUse={() => {}}
+                            onWriteOff={handleOpenWriteOff} 
+                            onLogUse={handleOpenLogUse}
                         />
                     )) : (
                         <EmptyState 
@@ -221,6 +294,24 @@ export default function InventoryPage() {
         </Card>
       </main>
       
+      {selectedProduct && (
+        <LogUseDialog
+            open={isLogUseOpen}
+            onOpenChange={setIsLogUseOpen}
+            product={selectedProduct}
+            onConfirm={handleLogUseConfirm}
+        />
+      )}
+
+      {selectedProduct && (
+        <WriteOffDialog
+            open={isWriteOffOpen}
+            onOpenChange={setIsWriteOffOpen}
+            product={selectedProduct}
+            onConfirm={handleWriteOffConfirm}
+        />
+      )}
+
     </div>
   );
 }
