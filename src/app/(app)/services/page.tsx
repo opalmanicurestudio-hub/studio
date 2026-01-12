@@ -431,6 +431,21 @@ export default function ServicesPage() {
             </Button>
         </div>
 
+        <Card className="mb-6">
+            <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className='flex-1'>
+                    <h3 className="font-semibold">Your Default TMHR</h3>
+                    <p className="text-xs text-muted-foreground">
+                        This is the default hourly rate used for profit calculations.
+                    </p>
+                    <p className="text-2xl font-bold text-primary">${tmhr.toFixed(2)}<span className="text-base font-medium text-muted-foreground">/hr</span></p>
+                </div>
+                <Button variant="secondary" asChild>
+                    <Link href="/financials">Change Rate</Link>
+                </Button>
+            </CardContent>
+        </Card>
+        
         <div className='flex flex-col md:flex-row gap-4 mb-6'>
             <div className="relative w-full md:flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -440,23 +455,6 @@ export default function ServicesPage() {
                 <Button variant="outline" className='w-full'><SlidersHorizontal className="mr-2 h-4 w-4" /> Filters</Button>
             </div>
         </div>
-        
-        <Card className="mb-6">
-            <CardHeader className="flex flex-row items-center justify-between">
-                <div>
-                    <CardTitle>Your Default TMHR</CardTitle>
-                    <CardDescription>
-                        This is the default hourly rate used for profit calculations.
-                    </CardDescription>
-                </div>
-                <Button variant="secondary" asChild>
-                    <Link href="/financials">Change Rate</Link>
-                </Button>
-            </CardHeader>
-            <CardContent>
-                <p className="text-4xl font-bold text-primary">${tmhr.toFixed(2)}<span className="text-lg font-medium text-muted-foreground">/hr</span></p>
-            </CardContent>
-        </Card>
 
         <Tabs defaultValue="services">
             <TabsList className="grid w-full grid-cols-2 sm:w-auto">
@@ -506,5 +504,3 @@ export default function ServicesPage() {
     </div>
   );
 }
-
-    
