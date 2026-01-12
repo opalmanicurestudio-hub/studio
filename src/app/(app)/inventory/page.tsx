@@ -112,7 +112,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                          {item.isExperimentActive && (
                             <Badge variant="secondary" className="flex items-center gap-1.5 bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 mt-2">
                                 <FlaskConical className="h-3 w-3" />
-                                {item.experimentUses || 0} / {item.estimatedUses} uses
+                                {item.experimentUses || 0} uses logged
                             </Badge>
                         )}
                     </div>
