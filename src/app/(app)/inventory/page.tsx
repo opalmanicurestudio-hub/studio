@@ -143,6 +143,7 @@ export default function InventoryPage() {
   const { toast } = useToast();
   
   const [activeTab, setActiveTab] = useState('all');
+  const [searchTerm, setSearchTerm] = useState('');
   const [isAddLocationDialogOpen, setAddLocationDialogOpen] = useState(false);
   const [isEditLocationDialogOpen, setIsEditLocationDialogOpen] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
@@ -235,9 +236,21 @@ export default function InventoryPage() {
   }
   
   const filteredInventory = useMemo(() => {
-    if (activeTab === 'all') return inventory;
-    return inventory.filter(item => item.type === activeTab);
-  }, [inventory, activeTab]);
+    let items = inventory;
+
+    if (activeTab !== 'all') {
+      items = items.filter(item => item.type === activeTab);
+    }
+    
+    if (searchTerm) {
+        items = items.filter(item => 
+            item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            item.id.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    }
+
+    return items;
+  }, [inventory, activeTab, searchTerm]);
 
   useEffect(() => {
     if (isScannerOpen) {
@@ -304,7 +317,12 @@ export default function InventoryPage() {
                 <div className="flex flex-col sm:flex-row items-center gap-4 mb-4">
                     <div className="relative flex-1 w-full">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input placeholder="Search by name or SKU..." className="pl-9" />
+                        <Input 
+                            placeholder="Search by name or SKU..." 
+                            className="pl-9"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                         />
                     </div>
                     <div className="flex items-center gap-2 w-full sm:w-auto">
                         <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
@@ -390,4 +408,5 @@ export default function InventoryPage() {
       </Dialog>
     </div>
   );
-}
+
+    
