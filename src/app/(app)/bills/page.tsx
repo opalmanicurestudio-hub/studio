@@ -50,11 +50,12 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-import { billDefinitions, billInstances as initialBillInstances, type BillDefinition, type BillInstance, transactions as initialTransactions, type Transaction } from '@/lib/financial-data';
+import { type BillDefinition as Bill, type BillInstance, type Transaction } from '@/lib/financial-data';
 import { format as formatTZ, toZonedTime } from 'date-fns-tz';
 import { isPast, isToday, isFuture, parseISO } from 'date-fns';
 import { LogPaymentDialog } from '@/components/bills/LogPaymentDialog';
 import { useToast } from '@/hooks/use-toast';
+import { useInventory } from '@/context/InventoryContext';
 
 type StatusFilter = 'all' | 'paid' | 'unpaid' | 'overdue';
 type ContextFilter = 'all' | 'Business' | 'Personal';
@@ -113,7 +114,7 @@ const BillFilters = ({
 };
 
 
-const BillTableRow = ({ instance, onLogPaymentClick }: { instance: BillInstance & { definition: BillDefinition }, onLogPaymentClick: (instance: BillInstance & { definition: BillDefinition }) => void; }) => {
+const BillTableRow = ({ instance, onLogPaymentClick }: { instance: BillInstance & { definition: Bill }, onLogPaymentClick: (instance: BillInstance & { definition: Bill }) => void; }) => {
     const statusConfig = {
         paid: { text: 'Paid', className: 'bg-green-100 dark:bg-green-900/50 text-green-800' },
         unpaid: { text: 'Unpaid', className: 'bg-gray-100 dark:bg-gray-800/50 text-gray-700' },
@@ -147,7 +148,7 @@ const BillTableRow = ({ instance, onLogPaymentClick }: { instance: BillInstance 
     )
 };
 
-const BillCard = ({ instance, onLogPaymentClick }: { instance: BillInstance & { definition: BillDefinition }, onLogPaymentClick: (instance: BillInstance & { definition: BillDefinition }) => void; }) => {
+const BillCard = ({ instance, onLogPaymentClick }: { instance: BillInstance & { definition: Bill }, onLogPaymentClick: (instance: BillInstance & { definition: Bill }) => void; }) => {
      const statusConfig = {
         paid: { text: 'Paid', className: 'bg-green-100 dark:bg-green-900/50 text-green-800' },
         unpaid: { text: 'Unpaid', className: 'bg-gray-100 dark:bg-gray-800/50 text-gray-700' },
@@ -200,11 +201,10 @@ const BillCard = ({ instance, onLogPaymentClick }: { instance: BillInstance & { 
 
 
 export default function BillsPage() {
+  const { billDefinitions, billInstances, setBillInstances, setTransactions } = useInventory();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [contextFilter, setContextFilter] = useState<ContextFilter>('all');
-  const [billInstances, setBillInstances] = useState(initialBillInstances);
-  const [transactions, setTransactions] = useState(initialTransactions);
-  const [selectedBill, setSelectedBill] = useState<(BillInstance & { definition: BillDefinition }) | null>(null);
+  const [selectedBill, setSelectedBill] = useState<(BillInstance & { definition: Bill }) | null>(null);
   const { toast } = useToast();
 
   const instancesWithDefinitions = useMemo(() => {
@@ -212,14 +212,14 @@ export default function BillsPage() {
       const definition = billDefinitions.find(def => def.id === instance.billDefinitionId);
       return { ...instance, definition: definition! };
     }).filter(item => item.definition);
-  }, [billInstances]);
+  }, [billInstances, billDefinitions]);
 
   const { monthlyTotal, upcomingTotal, pastDueTotal } = useMemo(() => {
     const total = billDefinitions.reduce((acc, def) => def.billingCycle === 'monthly' ? acc + def.amount : acc, 0);
     const upcoming = instancesWithDefinitions.filter(i => i.status !== 'paid' && isFuture(parseISO(i.dueDate))).reduce((acc, i) => acc + i.amountDue, 0);
     const pastDue = instancesWithDefinitions.filter(i => i.status === 'overdue').reduce((acc, i) => acc + i.amountDue, 0);
     return { monthlyTotal: total, upcomingTotal: upcoming, pastDueTotal: pastDue };
-  }, [instancesWithDefinitions]);
+  }, [instancesWithDefinitions, billDefinitions]);
 
 
   const filteredBills = useMemo(() => {
@@ -241,7 +241,7 @@ export default function BillsPage() {
     }).sort((a,b) => parseISO(a.dueDate).getTime() - parseISO(b.dueDate).getTime());
   }, [contextFilter, statusFilter, instancesWithDefinitions]);
 
-  const handleLogPaymentClick = (instance: BillInstance & { definition: BillDefinition }) => {
+  const handleLogPaymentClick = (instance: BillInstance & { definition: Bill }) => {
     setSelectedBill(instance);
   };
   

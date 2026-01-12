@@ -10,6 +10,15 @@ import {
     type Location as LocationType,
     type LocationType as LocType,
 } from '@/lib/data';
+import {
+    billDefinitions as initialBillDefinitions,
+    billInstances as initialBillInstances,
+    transactions as initialTransactions,
+    type BillDefinition as Bill,
+    type BillInstance,
+    type Transaction,
+} from '@/lib/financial-data';
+
 
 // Define initial locations and location types
 const initialLocationTypes: LocType[] = [
@@ -35,6 +44,11 @@ interface InventoryContextType {
   setLocations: React.Dispatch<React.SetStateAction<LocationType[]>>;
   locationTypes: LocType[];
   setLocationTypes: React.Dispatch<React.SetStateAction<LocType[]>>;
+  billDefinitions: Bill[];
+  billInstances: BillInstance[];
+  setBillInstances: React.Dispatch<React.SetStateAction<BillInstance[]>>;
+  transactions: Transaction[];
+  setTransactions: React.Dispatch<React.SetStateAction<Transaction[]>>;
 }
 
 const InventoryContext = createContext<InventoryContextType | undefined>(undefined);
@@ -44,6 +58,10 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const [stockCorrections, setStockCorrections] = useState<StockCorrection[]>(initialStockCorrections);
   const [locations, setLocations] = useState<LocationType[]>(initialLocations);
   const [locationTypes, setLocationTypes] = useState<LocType[]>(initialLocationTypes);
+
+  const [billDefinitions, setBillDefinitions] = useState<Bill[]>(initialBillDefinitions);
+  const [billInstances, setBillInstances] = useState<BillInstance[]>(initialBillInstances);
+  const [transactions, setTransactions] = useState<Transaction[]>(initialTransactions);
 
 
   const addStockCorrection = useCallback((correction: StockCorrection) => {
@@ -59,7 +77,12 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     locations,
     setLocations,
     locationTypes,
-    setLocationTypes
+    setLocationTypes,
+    billDefinitions,
+    billInstances,
+    setBillInstances,
+    transactions,
+    setTransactions,
   };
 
   return (

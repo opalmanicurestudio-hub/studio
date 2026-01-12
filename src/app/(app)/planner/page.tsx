@@ -6,7 +6,7 @@ import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem } from '@/lib/data';
-import { billInstances as allBillInstances, billDefinitions, type Bill, type Transaction, type BillInstance } from '@/lib/financial-data';
+import { type Bill, type Transaction, type BillInstance } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay } from 'date-fns';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
@@ -415,9 +415,16 @@ export default function PlannerPage() {
   const [isClient, setIsClient] = useState(false);
   const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
   const [events, setEvents] = useState<Event[]>(initialEvents);
-  const [billInstances, setBillInstances] = useState(allBillInstances);
   
-  const { inventory, setInventory, addStockCorrection } = useInventory();
+  const { 
+    inventory, 
+    setInventory, 
+    addStockCorrection, 
+    billInstances, 
+    setBillInstances, 
+    billDefinitions, 
+    setTransactions 
+  } = useInventory();
   
   const { firestore, user } = useFirebase();
   const tenantId = 'tenant-abc'; // Replace with dynamic tenant ID
@@ -471,7 +478,7 @@ export default function PlannerPage() {
             return { ...instance, definition: definition! };
         })
         .filter(item => item.definition);
-  }, [currentDate, billInstances]);
+  }, [currentDate, billInstances, billDefinitions]);
 
   const weeklyKpis = useMemo(() => {
     const start = weekStart;
@@ -517,7 +524,7 @@ export default function PlannerPage() {
         weeklyNetProfit: weeklyRevenue - weeklyCosts,
         absorbedCosts: absorbedCosts,
     }
-  }, [currentDate, appointments, weekStart]);
+  }, [currentDate, appointments, weekStart, billDefinitions]);
 
 
   const handleCompleteClick = (appointment: Appointment) => {
@@ -572,10 +579,7 @@ export default function PlannerPage() {
         relatedBillInstanceId: selectedBill.id,
     };
     
-    if (firestore && user) {
-        const transactionRef = collection(firestore, 'tenants', tenantId, 'transactions');
-        addDocumentNonBlocking(transactionRef, newTransaction);
-    }
+    setTransactions(prev => [...prev, newTransaction as Transaction]);
     
     toast({
         title: "Payment Logged",
@@ -583,7 +587,9 @@ export default function PlannerPage() {
     })
 
     setSelectedBill(null);
-    setIsBillsSheetOpen(false); // Close the sheet after payment
+    if (isBillsSheetOpen) {
+        setIsBillsSheetOpen(false);
+    }
   };
 
   const handleCheckout = (updatedInventory: any, newCorrections: any, receiptData: Omit<ReceiptData, 'business'>) => {
@@ -926,4 +932,3 @@ export default function PlannerPage() {
     </div>
   );
 }
-

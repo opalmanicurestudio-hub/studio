@@ -43,12 +43,23 @@ export const BillDueDateCard: React.FC<BillDueDateCardProps> = ({ instance, onLo
                   {instance.definition.context}
                 </Badge>
                 {isOverdue && <Badge variant="destructive">Overdue</Badge>}
+                {instance.status === 'paid' && <Badge variant="default" className="bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300">Paid</Badge>}
               </div>
             </div>
           </div>
           <div className="text-right">
-            <p className="font-bold text-base text-destructive">-${instance.amountDue.toFixed(2)}</p>
-            <Button variant="outline" size="xs" className="mt-1" onClick={() => onLogPaymentClick(instance)}>Log Payment</Button>
+            <p className={cn("font-bold text-base", instance.status === 'paid' ? 'text-muted-foreground line-through' : 'text-destructive')}>
+                ${instance.definition.amount.toFixed(2)}
+            </p>
+            <Button 
+                variant="outline" 
+                size="xs" 
+                className="mt-1" 
+                onClick={() => onLogPaymentClick(instance)}
+                disabled={instance.status === 'paid'}
+            >
+                Log Payment
+            </Button>
           </div>
         </div>
       </CardContent>
