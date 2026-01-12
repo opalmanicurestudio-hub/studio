@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
@@ -32,6 +33,14 @@ import {
   DialogTrigger,
   DialogDescription,
 } from '@/components/ui/dialog';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from '@/components/ui/sheet';
 import { AppointmentCard } from '@/components/planner/AppointmentCard';
 import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
@@ -52,7 +61,7 @@ import { Calendar } from '@/components/ui/calendar';
 
 const TimeIndicator = () => {
     const [top, setTop] = useState(0);
-    const START_HOUR = 0;
+    const START_HOUR = 7;
 
     useEffect(() => {
         const updatePosition = () => {
@@ -116,7 +125,7 @@ const DayTimeline = ({
     onReschedule: (appointment: Appointment) => void;
 }) => {
     const viewportRef = useRef<HTMLDivElement>(null);
-    const START_HOUR = 0;
+    const START_HOUR = 7;
     
     useEffect(() => {
         if (isToday(date) && viewportRef.current) {
@@ -294,6 +303,100 @@ const DayTimeline = ({
     );
 };
 
+const WeeklyKpiSheet = ({ open, onOpenChange, kpis, isMobile }: { open: boolean, onOpenChange: (open: boolean) => void, kpis: any, isMobile: boolean }) => {
+    const DialogOrSheet = isMobile ? Sheet : Dialog;
+    const DialogOrSheetContent = isMobile ? SheetContent : DialogContent;
+
+    return (
+        <DialogOrSheet open={open} onOpenChange={onOpenChange}>
+            <DialogOrSheetContent side={isMobile ? "bottom" : undefined} className={cn(isMobile && "h-[90vh] flex flex-col")}>
+                <SheetHeader className="p-6">
+                    <SheetTitle>Weekly KPIs</SheetTitle>
+                    <SheetDescription>Your financial performance for this week.</SheetDescription>
+                </SheetHeader>
+                <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                    <Card>
+                        <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium">Actual Revenue</CardTitle>
+                            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold text-primary">${kpis.weeklyRevenue.toFixed(2)}</div>
+                            <p className="text-xs text-muted-foreground">From completed appointments</p>
+                        </CardContent>
+                    </Card>
+                     <Card>
+                        <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium">Projected Revenue</CardTitle>
+                            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold">${kpis.projectedRevenue.toFixed(2)}</div>
+                            <p className="text-xs text-muted-foreground">Includes upcoming confirmed appointments</p>
+                        </CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium">Weekly Break-Even</CardTitle>
+                            <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold text-destructive">${kpis.weeklyBreakEven.toFixed(2)}</div>
+                            <p className="text-xs text-muted-foreground">Est. costs you need to cover this week</p>
+                        </CardContent>
+                    </Card>
+                     <Card>
+                        <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium">Net Profit</CardTitle>
+                            <DollarSign className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold text-primary">${kpis.weeklyNetProfit.toFixed(2)}</div>
+                             <p className="text-xs text-muted-foreground">Revenue minus cost of services</p>
+                        </CardContent>
+                    </Card>
+                </div>
+                 <SheetFooter className="p-6">
+                    <Button onClick={() => onOpenChange(false)} className="w-full">Close</Button>
+                </SheetFooter>
+            </DialogOrSheetContent>
+        </DialogOrSheet>
+    )
+}
+
+const BillsDueSheet = ({ open, onOpenChange, billInstances, isMobile }: { open: boolean, onOpenChange: (open: boolean) => void, billInstances: (BillInstance & { definition: Bill })[], isMobile: boolean }) => {
+    const DialogOrSheet = isMobile ? Sheet : Dialog;
+    const DialogOrSheetContent = isMobile ? SheetContent : DialogContent;
+
+    return (
+        <DialogOrSheet open={open} onOpenChange={onOpenChange}>
+            <DialogOrSheetContent side={isMobile ? "bottom" : undefined} className={cn(isMobile && "h-[90vh] flex flex-col")}>
+                 <SheetHeader className="p-6">
+                    <SheetTitle>Bills Due Today</SheetTitle>
+                    <SheetDescription>A list of all recurring expenses due on this date.</SheetDescription>
+                </SheetHeader>
+                 <ScrollArea className="flex-1 p-6">
+                    <div className="space-y-4">
+                        {billInstances.length > 0 ? (
+                            billInstances.map(instance => (
+                                <BillDueDateCard key={instance.id} instance={instance} />
+                            ))
+                        ) : (
+                            <div className="text-center text-muted-foreground py-16">
+                                No bills are due today.
+                            </div>
+                        )}
+                    </div>
+                </ScrollArea>
+                 <SheetFooter className="p-6">
+                    <Button onClick={() => onOpenChange(false)} className="w-full">Close</Button>
+                </SheetFooter>
+            </DialogOrSheetContent>
+        </DialogOrSheet>
+    )
+}
+
+
 export default function PlannerPage() {
   const isMobile = useIsMobile();
   const [isClient, setIsClient] = useState(false);
@@ -312,6 +415,8 @@ export default function PlannerPage() {
   const [isRescheduleOpen, setIsRescheduleOpen] = useState(false);
   const [isAddEventOpen, setIsAddEventOpen] = useState(false);
   const [isEditEventOpen, setIsEditEventOpen] = useState(false);
+  const [isKpiSheetOpen, setIsKpiSheetOpen] = useState(false);
+  const [isBillsSheetOpen, setIsBillsSheetOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const { toast } = useToast();
@@ -615,10 +720,10 @@ export default function PlannerPage() {
                 <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
             </div>
              <div className="flex items-center gap-2">
-                 <Button variant="outline" size="icon" className="h-8 w-8">
+                 <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setIsKpiSheetOpen(true)}>
                     <BarChart className="w-4 h-4" />
                 </Button>
-                <Button variant="outline" size="icon" className="h-8 w-8 relative">
+                <Button variant="outline" size="icon" className="h-8 w-8 relative" onClick={() => setIsBillsSheetOpen(true)}>
                     <BellRing className={cn("h-4 w-4", billInstances.length > 0 && "text-primary animate-pulse")} />
                         {billInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
                 </Button>
@@ -729,6 +834,8 @@ export default function PlannerPage() {
             onConfirm={handleUpdateEvent}
         />
        )}
+        <WeeklyKpiSheet open={isKpiSheetOpen} onOpenChange={setIsKpiSheetOpen} kpis={weeklyKpis} isMobile={!!isMobile} />
+        <BillsDueSheet open={isBillsSheetOpen} onOpenChange={setIsBillsSheetOpen} billInstances={billInstances} isMobile={!!isMobile} />
       <Dialog open={!!receiptToPrint} onOpenChange={(open) => !open && setReceiptToPrint(null)}>
         <DialogContent className="max-w-sm print-content">
           <DialogHeader>
