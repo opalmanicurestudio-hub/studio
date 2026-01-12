@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem } from '@/lib/data';
 import { billInstances as allBillInstances, billDefinitions, type Bill } from '@/lib/financial-data';
-import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval } from 'date-fns';
+import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay } from 'date-fns';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
@@ -47,6 +47,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { EventCard } from '@/components/planner/EventCard';
 import { RescheduleDialog } from '@/components/planner/RescheduleDialog';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
 
 
 const TimeIndicator = () => {
@@ -298,11 +300,15 @@ export default function PlannerPage() {
     setIsClient(true);
   }, []);
 
-  const weekDays = useMemo(() => {
-    if (!currentDate) return [];
-    const start = startOfWeek(currentDate, { weekStartsOn: 0 });
-    return Array.from({ length: 7 }, (_, i) => addDays(start, i));
+  const weekStart = useMemo(() => {
+    if (!currentDate) return new Date();
+    return startOfWeek(currentDate, { weekStartsOn: 0 });
   }, [currentDate]);
+
+  const weekDays = useMemo(() => {
+    const start = weekStart;
+    return Array.from({ length: 7 }, (_, i) => addDays(start, i));
+  }, [weekStart]);
 
   const transactionsQuery = useMemoFirebase(() => {
     if (!firestore || !user || !currentDate) return null;
@@ -330,7 +336,7 @@ export default function PlannerPage() {
 
   const weeklyKpis = useMemo(() => {
     if (!currentDate) return { weeklyRevenue: 0, projectedRevenue: 0, weeklyBreakEven: 0, weeklyNetProfit: 0, absorbedCosts: 0 };
-    const start = startOfWeek(currentDate, { weekStartsOn: 0 });
+    const start = weekStart;
     const end = endOfDay(addDays(start, 6));
     const weekInterval = { start, end };
     
@@ -373,7 +379,7 @@ export default function PlannerPage() {
         weeklyNetProfit: weeklyRevenue - weeklyCosts,
         absorbedCosts: absorbedCosts,
     }
-  }, [currentDate, appointments]);
+  }, [currentDate, appointments, weekStart]);
 
 
   const handleCompleteClick = (appointment: Appointment) => {
@@ -521,11 +527,11 @@ export default function PlannerPage() {
       }));
   };
 
-  const handleNextDay = () => {
-    if (currentDate) setCurrentDate(addDays(currentDate, 1));
+  const handleNextWeek = () => {
+    if (currentDate) setCurrentDate(addWeeks(currentDate, 1));
   };
-  const handlePrevDay = () => {
-    if (currentDate) setCurrentDate(subDays(currentDate, 1));
+  const handlePrevWeek = () => {
+    if (currentDate) setCurrentDate(subWeeks(currentDate, 1));
   };
   const handleToday = () => {
     setCurrentDate(new Date());
@@ -534,6 +540,12 @@ export default function PlannerPage() {
   const handleDayClick = (day: Date) => {
     setCurrentDate(day);
   }
+  
+  const handleDateSelect = (date: Date | undefined) => {
+    if (date) {
+      setCurrentDate(date);
+    }
+  };
 
   const selectedAppointmentData = useMemo(() => {
     if (!selectedAppointment) return null;
@@ -573,10 +585,26 @@ export default function PlannerPage() {
       
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-4 border-b">
         <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" onClick={handlePrevDay}><ChevronLeft /></Button>
-            <Button variant="outline" size="icon" onClick={handleNextDay}><ChevronRight /></Button>
+            <Button variant="outline" size="icon" onClick={handlePrevWeek}><ChevronLeft /></Button>
+            <Button variant="outline" size="icon" onClick={handleNextWeek}><ChevronRight /></Button>
             <Button variant="outline" onClick={handleToday}>Today</Button>
-            <p className='text-lg font-semibold ml-4'>{format(currentDate, 'EEEE, LLL d')}</p>
+            <Popover>
+                <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-[280px] justify-start text-left font-normal">
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {`${format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'LLL d')} - ${format(endOfDay(addDays(startOfWeek(currentDate, { weekStartsOn: 0 }), 6)), 'LLL d, yyyy')}`}
+                    </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                        mode="single"
+                        selected={currentDate}
+                        onSelect={handleDateSelect}
+                        initialFocus
+                        numberOfMonths={2}
+                    />
+                </PopoverContent>
+            </Popover>
         </div>
         
         <div className="flex items-center gap-2 ml-auto">
@@ -587,7 +615,7 @@ export default function PlannerPage() {
                 <DialogContent className="max-w-4xl">
                     <DialogHeader>
                         <DialogTitle>This Week's Financials</DialogTitle>
-                        <DialogDescription>A summary of your performance for the week of {format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMM d')}.</DialogDescription>
+                        <DialogDescription>A summary of your performance for the week of {format(weekStart, 'MMM d')}.</DialogDescription>
                     </DialogHeader>
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 py-4">
                         <Card>
@@ -686,7 +714,7 @@ export default function PlannerPage() {
                 {weekDays.map((day, index) => (
                     <Button 
                         key={index} 
-                        variant={isToday(day) && format(day, 'yyyy-MM-dd') === format(currentDate, 'yyyy-MM-dd') ? 'default' : format(day, 'yyyy-MM-dd') === format(currentDate, 'yyyy-MM-dd') ? 'secondary' : 'ghost'}
+                        variant={isToday(day) && isSameDay(day, currentDate) ? 'default' : isSameDay(day, currentDate) ? 'secondary' : 'ghost'}
                         className="h-14 flex-1 flex-col py-1 min-w-[120px]"
                         onClick={() => handleDayClick(day)}
                     >
@@ -790,6 +818,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
