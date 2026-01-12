@@ -50,12 +50,14 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-import { type BillDefinition as Bill, type BillInstance, type Transaction } from '@/lib/financial-data';
+import { type BillDefinition, type BillInstance, type Transaction } from '@/lib/financial-data';
 import { format as formatTZ, toZonedTime } from 'date-fns-tz';
-import { isPast, isToday, isFuture, parseISO } from 'date-fns';
+import { isPast, isFuture, parseISO } from 'date-fns';
 import { LogPaymentDialog } from '@/components/bills/LogPaymentDialog';
 import { useToast } from '@/hooks/use-toast';
 import { useInventory } from '@/context/InventoryContext';
+import { useCollection, useFirebase, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
+import { collection, doc } from 'firebase/firestore';
 
 type StatusFilter = 'all' | 'paid' | 'unpaid' | 'overdue';
 type ContextFilter = 'all' | 'Business' | 'Personal';
@@ -114,7 +116,7 @@ const BillFilters = ({
 };
 
 
-const BillTableRow = ({ instance, onLogPaymentClick }: { instance: BillInstance & { definition: Bill }, onLogPaymentClick: (instance: BillInstance & { definition: Bill }) => void; }) => {
+const BillTableRow = ({ instance, onLogPaymentClick }: { instance: BillInstance & { definition: BillDefinition }, onLogPaymentClick: (instance: BillInstance & { definition: BillDefinition }) => void; }) => {
     const statusConfig = {
         paid: { text: 'Paid', className: 'bg-green-100 dark:bg-green-900/50 text-green-800' },
         unpaid: { text: 'Unpaid', className: 'bg-gray-100 dark:bg-gray-800/50 text-gray-700' },
@@ -148,7 +150,7 @@ const BillTableRow = ({ instance, onLogPaymentClick }: { instance: BillInstance 
     )
 };
 
-const BillCard = ({ instance, onLogPaymentClick }: { instance: BillInstance & { definition: Bill }, onLogPaymentClick: (instance: BillInstance & { definition: Bill }) => void; }) => {
+const BillCard = ({ instance, onLogPaymentClick }: { instance: BillInstance & { definition: BillDefinition }, onLogPaymentClick: (instance: BillInstance & { definition: BillDefinition }) => void; }) => {
      const statusConfig = {
         paid: { text: 'Paid', className: 'bg-green-100 dark:bg-green-900/50 text-green-800' },
         unpaid: { text: 'Unpaid', className: 'bg-gray-100 dark:bg-gray-800/50 text-gray-700' },
@@ -201,11 +203,30 @@ const BillCard = ({ instance, onLogPaymentClick }: { instance: BillInstance & { 
 
 
 export default function BillsPage() {
-  const { billDefinitions, billInstances, setBillInstances, setTransactions } = useInventory();
+  const { billDefinitions: mockDefinitions, billInstances: mockInstances } = useInventory();
+  const { firestore, user, isUserLoading } = useFirebase();
+  const tenantId = 'tenant-abc';
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [contextFilter, setContextFilter] = useState<ContextFilter>('all');
-  const [selectedBill, setSelectedBill] = useState<(BillInstance & { definition: Bill }) | null>(null);
+  const [selectedBill, setSelectedBill] = useState<(BillInstance & { definition: BillDefinition }) | null>(null);
   const { toast } = useToast();
+
+  const billDefinitionsQuery = useMemoFirebase(() => {
+    if (isUserLoading || !user || !firestore) return null;
+    return collection(firestore, 'tenants', tenantId, 'bills');
+  }, [firestore, user, isUserLoading, tenantId]);
+
+  const billInstancesQuery = useMemoFirebase(() => {
+    if (isUserLoading || !user || !firestore) return null;
+    return collection(firestore, 'tenants', tenantId, 'billInstances');
+  }, [firestore, user, isUserLoading, tenantId]);
+
+  const { data: fetchedBillDefinitions, isLoading: definitionsLoading } = useCollection<BillDefinition>(billDefinitionsQuery);
+  const { data: fetchedBillInstances, isLoading: instancesLoading } = useCollection<BillInstance>(billInstancesQuery);
+  
+  const billDefinitions = useMemo(() => (fetchedBillDefinitions && fetchedBillDefinitions.length > 0) ? fetchedBillDefinitions : mockDefinitions, [fetchedBillDefinitions, mockDefinitions]);
+  const billInstances = useMemo(() => (fetchedBillInstances && fetchedBillInstances.length > 0) ? fetchedBillInstances : mockInstances, [fetchedBillInstances, mockInstances]);
+
 
   const instancesWithDefinitions = useMemo(() => {
     return billInstances.map(instance => {
@@ -241,26 +262,27 @@ export default function BillsPage() {
     }).sort((a,b) => parseISO(a.dueDate).getTime() - parseISO(b.dueDate).getTime());
   }, [contextFilter, statusFilter, instancesWithDefinitions]);
 
-  const handleLogPaymentClick = (instance: BillInstance & { definition: Bill }) => {
+  const handleLogPaymentClick = (instance: BillInstance & { definition: BillDefinition }) => {
     setSelectedBill(instance);
   };
   
   const handleLogPaymentConfirm = (paymentData: { amount: number; date: Date; paymentMethod: string; paymentMethodIdentifier?: string; notes?: string; receiptUrl?: string }) => {
-    if (!selectedBill) return;
+    if (!selectedBill || !firestore || !user) return;
+    
+    // 1. Update the BillInstance in Firestore
+    const billInstanceRef = doc(firestore, 'tenants', tenantId, 'billInstances', selectedBill.id);
+    const newAmountPaid = selectedBill.amountPaid + paymentData.amount;
+    const newAmountDue = selectedBill.amountDue - paymentData.amount;
+    const newStatus: BillInstance['status'] = newAmountDue <= 0 ? 'paid' : 'partially-paid';
+    
+    updateDocumentNonBlocking(billInstanceRef, {
+        amountPaid: newAmountPaid,
+        amountDue: newAmountDue,
+        status: newStatus
+    });
 
-    setBillInstances(prev => prev.map(instance => {
-        if (instance.id === selectedBill.id) {
-            const newAmountPaid = instance.amountPaid + paymentData.amount;
-            const newAmountDue = instance.amountDue - paymentData.amount;
-            let newStatus: BillInstance['status'] = newAmountDue <= 0 ? 'paid' : 'partially-paid';
-            
-            return { ...instance, amountPaid: newAmountPaid, amountDue: newAmountDue, status: newStatus };
-        }
-        return instance;
-    }));
-
-    const newTransaction: Transaction = {
-        id: `txn-${Date.now()}`,
+    // 2. Create a new Transaction in Firestore
+    const newTransaction: Omit<Transaction, 'id'> = {
         date: paymentData.date.toISOString(),
         description: `Payment for ${selectedBill.definition.name}`,
         clientOrVendor: selectedBill.definition.name,
@@ -274,7 +296,8 @@ export default function BillsPage() {
         receiptUrl: paymentData.receiptUrl,
         relatedBillInstanceId: selectedBill.id,
     };
-    setTransactions(prev => [...prev, newTransaction]);
+    const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+    addDocumentNonBlocking(transactionsRef, newTransaction);
     
     toast({
         title: "Payment Logged",

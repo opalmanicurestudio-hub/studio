@@ -45,7 +45,7 @@ import { AppointmentCard } from '@/components/planner/AppointmentCard';
 import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
 import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
-import { collection, query, where, Timestamp } from 'firebase/firestore';
+import { collection, query, where, Timestamp, doc } from 'firebase/firestore';
 import { EditEventDialog } from '@/components/planner/EditEventDialog';
 import { BillDueDateCard } from '@/components/planner/BillDueDateCard';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -418,41 +418,13 @@ export default function PlannerPage() {
   
   const { 
     inventory, 
-    setInventory, 
-    addStockCorrection, 
-    setBillInstances: setGlobalBillInstances,
-    setTransactions: setGlobalTransactions 
+    billDefinitions: mockDefinitions, 
+    billInstances: mockInstances,
   } = useInventory();
   
   const { firestore, user, isUserLoading } = useFirebase();
   const tenantId = 'tenant-abc'; // Replace with dynamic tenant ID
   
-  const [billDefinitions, setBillDefinitions] = useState<BillDefinition[]>([]);
-  const [billInstances, setBillInstances] = useState<BillInstance[]>([]);
-
-
-  const billDefinitionsQuery = useMemoFirebase(() => {
-    if (isUserLoading || !user || !firestore) return null;
-    return collection(firestore, 'tenants', tenantId, 'bills');
-  }, [firestore, user, isUserLoading, tenantId]);
-
-  const billInstancesQuery = useMemoFirebase(() => {
-    if (isUserLoading || !user || !firestore) return null;
-    return collection(firestore, 'tenants', tenantId, 'billInstances');
-  }, [firestore, user, isUserLoading, tenantId]);
-
-  const { data: fetchedBillDefinitions } = useCollection<BillDefinition>(billDefinitionsQuery);
-  const { data: fetchedBillInstances } = useCollection<BillInstance>(billInstancesQuery);
-
-  useEffect(() => {
-    if (fetchedBillDefinitions) setBillDefinitions(fetchedBillDefinitions);
-  }, [fetchedBillDefinitions]);
-  
-  useEffect(() => {
-    if (fetchedBillInstances) setBillInstances(fetchedBillInstances);
-  }, [fetchedBillInstances]);
-
-
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
   const [isEditAppointmentOpen, setIsEditAppointmentOpen] = useState(false);
@@ -467,6 +439,24 @@ export default function PlannerPage() {
   const { toast } = useToast();
     
   const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
+  
+  // --- Data Fetching ---
+  const billDefinitionsQuery = useMemoFirebase(() => {
+    if (isUserLoading || !user || !firestore) return null;
+    return collection(firestore, 'tenants', tenantId, 'bills');
+  }, [firestore, user, isUserLoading, tenantId]);
+
+  const billInstancesQuery = useMemoFirebase(() => {
+    if (isUserLoading || !user || !firestore) return null;
+    return collection(firestore, 'tenants', tenantId, 'billInstances');
+  }, [firestore, user, isUserLoading, tenantId]);
+
+  const { data: fetchedBillDefinitions } = useCollection<BillDefinition>(billDefinitionsQuery);
+  const { data: fetchedBillInstances } = useCollection<BillInstance>(billInstancesQuery);
+  
+  const billDefinitions = useMemo(() => (fetchedBillDefinitions && fetchedBillDefinitions.length > 0) ? fetchedBillDefinitions : mockDefinitions, [fetchedBillDefinitions, mockDefinitions]);
+  const billInstances = useMemo(() => (fetchedBillInstances && fetchedBillInstances.length > 0) ? fetchedBillInstances : mockInstances, [fetchedBillInstances, mockInstances]);
+
 
   useEffect(() => {
     setIsClient(true);
@@ -587,7 +577,6 @@ export default function PlannerPage() {
   const handleLogPaymentConfirm = (paymentData: { amount: number; date: Date; paymentMethod: string; paymentMethodIdentifier?: string; notes?: string, receiptUrl?: string; }) => {
     if (!selectedBill || !firestore || !user) return;
 
-    // 1. Update the BillInstance in Firestore
     const billInstanceRef = doc(firestore, 'tenants', tenantId, 'billInstances', selectedBill.id);
     const newAmountPaid = selectedBill.amountPaid + paymentData.amount;
     const newAmountDue = selectedBill.amountDue - paymentData.amount;
@@ -599,7 +588,6 @@ export default function PlannerPage() {
         status: newStatus
     });
 
-    // 2. Create a new Transaction in Firestore
     const newTransaction: Omit<Transaction, 'id'> = {
         date: paymentData.date.toISOString(),
         description: `Payment for ${selectedBill.definition.name}`,
@@ -791,7 +779,7 @@ export default function PlannerPage() {
         business: { name: 'ClarityFlow Salon', phone: '555-123-4567' },
         ...receiptData
     });
-  }
+  };
 
   const appointmentsForDay = appointments
       .filter(apt => format(apt.startTime, 'yyyy-MM-dd') === format(currentDate, 'yyyy-MM-dd'))
