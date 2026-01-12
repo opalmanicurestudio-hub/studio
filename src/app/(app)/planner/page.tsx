@@ -605,7 +605,7 @@ export default function PlannerPage() {
               </div>
         </div>
         
-        <div className="flex items-center gap-2 ml-auto">
+        <div className="flex items-center gap-2">
             <Dialog>
                 <DialogTrigger asChild>
                     <Button variant="outline"><BarChart className="w-4 h-4 mr-2" /> KPIs</Button>
@@ -698,7 +698,7 @@ export default function PlannerPage() {
                     )}
                 </DialogContent>
             </Dialog>
-            <DropdownMenu>
+             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                     <Button>
                         <PlusCircle className="mr-2 h-4 w-4" />
@@ -822,3 +822,4 @@ export default function PlannerPage() {
     </div>
   );
 }
+
