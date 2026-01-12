@@ -607,8 +607,13 @@ export default function PlannerPage() {
       <AppHeaderClient title="Planner" />
       
       <div className="flex flex-col gap-4 p-4 border-b">
-        <div className="flex items-center justify-between gap-4">
-            <h2 className="text-2xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
+        <h2 className="text-2xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
+        <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+                <Button variant="outline" onClick={handlePrevWeek} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
+                <Button variant="outline" onClick={handleNextWeek} size="icon" className="h-8 w-8"><ChevronRight /></Button>
+                <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
+            </div>
              <div className="flex items-center gap-2">
                  <Button variant="outline" size="icon" className="h-8 w-8">
                     <BarChart className="w-4 h-4" />
@@ -630,11 +635,6 @@ export default function PlannerPage() {
                 </DropdownMenu>
             </div>
         </div>
-        <div className="flex items-center justify-start gap-2">
-            <Button variant="outline" onClick={handlePrevWeek} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
-            <Button variant="outline" onClick={handleNextWeek} size="icon" className="h-8 w-8"><ChevronRight /></Button>
-            <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
-         </div>
       </div>
       
       <div className="flex items-center gap-2 p-2 border-b bg-background">
@@ -752,3 +752,6 @@ export default function PlannerPage() {
 
 
 
+
+
+    
