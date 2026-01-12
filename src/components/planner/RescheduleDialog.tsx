@@ -10,6 +10,7 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
+  DialogTrigger
 } from '@/components/ui/dialog';
 import {
   Sheet,
@@ -62,52 +63,46 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
             {date ? format(date, 'PPP') : <span>Pick a date</span>}
         </Button>
     );
+    
+    const CalendarComponent = (
+        <Calendar
+            mode="single"
+            selected={date}
+            onSelect={handleSelect}
+            initialFocus
+            classNames={{
+                caption_label: "text-base font-medium",
+                day: "h-9 w-9",
+                day_selected: "rounded-md",
+                day_today: "rounded-md",
+            }}
+        />
+    );
 
     if (isMobile) {
         return (
             <Sheet open={isOpen} onOpenChange={setIsOpen}>
                 <SheetTrigger asChild>{TriggerButton}</SheetTrigger>
-                <SheetContent side="bottom">
-                    <SheetHeader>
-                        <SheetTitle className="sr-only">Select a date</SheetTitle>
-                        <SheetDescription className="sr-only">Use the calendar to pick a date for the appointment.</SheetDescription>
+                <SheetContent side="bottom" className="p-0">
+                    <SheetHeader className="p-4 border-b">
+                        <SheetTitle>Select a date</SheetTitle>
+                         <SheetDescription className="sr-only">Use the calendar to pick a date for the appointment.</SheetDescription>
                     </SheetHeader>
-                    <Calendar
-                        mode="single"
-                        selected={date}
-                        onSelect={handleSelect}
-                        classNames={{
-                            caption_label: "text-base font-medium",
-                            day: "h-9 w-9",
-                            day_selected: "rounded-md",
-                            day_today: "rounded-md",
-                        }}
-                    />
+                    {CalendarComponent}
                 </SheetContent>
             </Sheet>
         );
     }
 
     return (
-        <Popover open={isOpen} onOpenChange={setIsOpen}>
-            <PopoverTrigger asChild>
+        <Dialog open={isOpen} onOpenChange={setIsOpen}>
+            <DialogTrigger asChild>
                 {TriggerButton}
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0">
-                <Calendar
-                    mode="single"
-                    selected={date}
-                    onSelect={handleSelect}
-                    initialFocus
-                    classNames={{
-                        caption_label: "text-base font-medium",
-                        day: "h-9 w-9",
-                        day_selected: "rounded-md",
-                        day_today: "rounded-md",
-                    }}
-                />
-            </PopoverContent>
-        </Popover>
+            </DialogTrigger>
+            <DialogContent className="w-auto p-0">
+                {CalendarComponent}
+            </DialogContent>
+        </Dialog>
     );
 };
 
