@@ -87,7 +87,7 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
             <>
                 {TriggerButton}
                 <Sheet open={isOpen} onOpenChange={setIsOpen}>
-                    <SheetContent side="bottom">
+                    <SheetContent side="bottom" className="h-auto">
                          <SheetHeader className="text-left">
                             <SheetTitle>Select Date</SheetTitle>
                         </SheetHeader>
