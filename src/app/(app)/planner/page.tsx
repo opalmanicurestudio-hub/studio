@@ -5,9 +5,9 @@
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus } from 'lucide-react';
-import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem } from '@/lib/data';
-import { type Bill, type Transaction, type BillInstance } from '@/lib/financial-data';
-import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay } from 'date-fns';
+import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem, type StockCorrection } from '@/lib/data';
+import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
+import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual } from 'date-fns';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
@@ -44,7 +44,7 @@ import {
 import { AppointmentCard } from '@/components/planner/AppointmentCard';
 import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
-import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, Timestamp } from 'firebase/firestore';
 import { EditEventDialog } from '@/components/planner/EditEventDialog';
 import { BillDueDateCard } from '@/components/planner/BillDueDateCard';
@@ -111,7 +111,7 @@ const DayTimeline = ({
     date: Date; 
     appointments: Appointment[]; 
     events: Event[]; 
-    billInstances: (BillInstance & { definition: Bill })[];
+    billInstances: (BillInstance & { definition: BillDefinition })[];
     onCompleteClick: (apt: Appointment) => void; 
     onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void; 
     onDeleteAppointment: (appointmentId: string) => void; 
@@ -374,7 +374,7 @@ const WeeklyKpiSheet = ({ open, onOpenChange, kpis, isMobile }: { open: boolean,
     )
 }
 
-const BillsDueSheet = ({ open, onOpenChange, billInstances, isMobile, onLogPaymentClick }: { open: boolean, onOpenChange: (open: boolean) => void, billInstances: (BillInstance & { definition: Bill })[], isMobile: boolean, onLogPaymentClick: (instance: BillInstance & { definition: Bill }) => void }) => {
+const BillsDueSheet = ({ open, onOpenChange, billInstances, isMobile, onLogPaymentClick }: { open: boolean, onOpenChange: (open: boolean) => void, billInstances: (BillInstance & { definition: BillDefinition })[], isMobile: boolean, onLogPaymentClick: (instance: BillInstance & { definition: BillDefinition }) => void }) => {
     const DialogOrSheet = isMobile ? Sheet : Dialog;
     const DialogOrSheetContent = isMobile ? SheetContent : DialogContent;
 
@@ -420,14 +420,38 @@ export default function PlannerPage() {
     inventory, 
     setInventory, 
     addStockCorrection, 
-    billInstances, 
-    setBillInstances, 
-    billDefinitions, 
-    setTransactions 
+    setBillInstances: setGlobalBillInstances,
+    setTransactions: setGlobalTransactions 
   } = useInventory();
   
-  const { firestore, user } = useFirebase();
+  const { firestore, user, isUserLoading } = useFirebase();
   const tenantId = 'tenant-abc'; // Replace with dynamic tenant ID
+  
+  const [billDefinitions, setBillDefinitions] = useState<BillDefinition[]>([]);
+  const [billInstances, setBillInstances] = useState<BillInstance[]>([]);
+
+
+  const billDefinitionsQuery = useMemoFirebase(() => {
+    if (isUserLoading || !user || !firestore) return null;
+    return collection(firestore, 'tenants', tenantId, 'bills');
+  }, [firestore, user, isUserLoading, tenantId]);
+
+  const billInstancesQuery = useMemoFirebase(() => {
+    if (isUserLoading || !user || !firestore) return null;
+    return collection(firestore, 'tenants', tenantId, 'billInstances');
+  }, [firestore, user, isUserLoading, tenantId]);
+
+  const { data: fetchedBillDefinitions } = useCollection<BillDefinition>(billDefinitionsQuery);
+  const { data: fetchedBillInstances } = useCollection<BillInstance>(billInstancesQuery);
+
+  useEffect(() => {
+    if (fetchedBillDefinitions) setBillDefinitions(fetchedBillDefinitions);
+  }, [fetchedBillDefinitions]);
+  
+  useEffect(() => {
+    if (fetchedBillInstances) setBillInstances(fetchedBillInstances);
+  }, [fetchedBillInstances]);
+
 
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
@@ -439,7 +463,7 @@ export default function PlannerPage() {
   const [isBillsSheetOpen, setIsBillsSheetOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
-  const [selectedBill, setSelectedBill] = useState<(BillInstance & { definition: Bill }) | null>(null);
+  const [selectedBill, setSelectedBill] = useState<(BillInstance & { definition: BillDefinition }) | null>(null);
   const { toast } = useToast();
     
   const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
@@ -471,14 +495,23 @@ export default function PlannerPage() {
   const { data: dailyTransactions, isLoading: transactionsLoading } = useCollection<Transaction>(transactionsQuery);
 
   const dailyBillInstances = useMemo(() => {
+    if (!billInstances || !billDefinitions) return [];
+    
+    const today = startOfDay(currentDate);
+
     return billInstances
-        .filter(instance => format(parseISO(instance.dueDate), 'yyyy-MM-dd') === format(currentDate, 'yyyy-MM-dd'))
+        .filter(instance => {
+            const dueDate = startOfDay(parseISO(instance.dueDate));
+            return (isEqual(dueDate, today) || isBefore(dueDate, today)) && instance.status !== 'paid';
+        })
         .map(instance => {
             const definition = billDefinitions.find(def => def.id === instance.billDefinitionId);
             return { ...instance, definition: definition! };
         })
-        .filter(item => item.definition);
-  }, [currentDate, billInstances, billDefinitions]);
+        .filter(item => item.definition)
+        .sort((a,b) => parseISO(a.dueDate).getTime() - parseISO(b.dueDate).getTime());
+    }, [currentDate, billInstances, billDefinitions]);
+
 
   const weeklyKpis = useMemo(() => {
     const start = weekStart;
@@ -547,23 +580,26 @@ export default function PlannerPage() {
     setIsEditEventOpen(true);
   }
   
-  const handleLogPaymentClick = (instance: BillInstance & { definition: Bill }) => {
+  const handleLogPaymentClick = (instance: BillInstance & { definition: BillDefinition }) => {
     setSelectedBill(instance);
   };
 
   const handleLogPaymentConfirm = (paymentData: { amount: number; date: Date; paymentMethod: string; paymentMethodIdentifier?: string; notes?: string, receiptUrl?: string; }) => {
-    if (!selectedBill) return;
+    if (!selectedBill || !firestore || !user) return;
 
-    setBillInstances(prev => prev.map(instance => {
-        if (instance.id === selectedBill.id) {
-            const newAmountPaid = instance.amountPaid + paymentData.amount;
-            const newAmountDue = instance.amountDue - paymentData.amount;
-            let newStatus: BillInstance['status'] = newAmountDue <= 0 ? 'paid' : 'partially-paid';
-            return { ...instance, amountPaid: newAmountPaid, amountDue: newAmountDue, status: newStatus };
-        }
-        return instance;
-    }));
+    // 1. Update the BillInstance in Firestore
+    const billInstanceRef = doc(firestore, 'tenants', tenantId, 'billInstances', selectedBill.id);
+    const newAmountPaid = selectedBill.amountPaid + paymentData.amount;
+    const newAmountDue = selectedBill.amountDue - paymentData.amount;
+    const newStatus: BillInstance['status'] = newAmountDue <= 0 ? 'paid' : 'partially-paid';
+    
+    updateDocumentNonBlocking(billInstanceRef, {
+        amountPaid: newAmountPaid,
+        amountDue: newAmountDue,
+        status: newStatus
+    });
 
+    // 2. Create a new Transaction in Firestore
     const newTransaction: Omit<Transaction, 'id'> = {
         date: paymentData.date.toISOString(),
         description: `Payment for ${selectedBill.definition.name}`,
@@ -578,8 +614,8 @@ export default function PlannerPage() {
         receiptUrl: paymentData.receiptUrl,
         relatedBillInstanceId: selectedBill.id,
     };
-    
-    setTransactions(prev => [...prev, newTransaction as Transaction]);
+    const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+    addDocumentNonBlocking(transactionsRef, newTransaction);
     
     toast({
         title: "Payment Logged",
@@ -595,14 +631,20 @@ export default function PlannerPage() {
   const handleCheckout = (updatedInventory: any, newCorrections: any, receiptData: Omit<ReceiptData, 'business'>) => {
     if (!selectedAppointment) return;
 
+    // Placeholder for Firestore logic
+    // In a real app, you would:
+    // 1. Create a transaction document for the income.
+    // 2. Create transaction documents for the CoGS (Cost of Goods Sold).
+    // 3. Update the appointment status to 'completed'.
+    // 4. Batch write all stock correction documents.
+    // 5. Update the inventory documents for each product used.
+
     const completedAppointment: Appointment = { 
         ...selectedAppointment, 
         status: 'completed' as const,
         absorbedCost: receiptData.payment.method === 'Cash' && receiptData.tip > 0 ? 0 : (receiptData.payment.amountTendered || 0)
     };
     setAppointments(prev => prev.map(apt => apt.id === selectedAppointment.id ? completedAppointment : apt));
-    setInventory(updatedInventory);
-    newCorrections.forEach(addStockCorrection);
     
     toast({
         title: "Appointment Completed",
@@ -787,7 +829,7 @@ export default function PlannerPage() {
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button variant="default" size="icon" className="h-8 w-8">
-                            <Plus className="h-4 w-4" />
+                            <Plus className="h-4 h-4" />
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent>
@@ -932,3 +974,4 @@ export default function PlannerPage() {
     </div>
   );
 }
+
