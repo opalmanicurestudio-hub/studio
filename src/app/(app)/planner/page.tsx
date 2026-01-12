@@ -527,12 +527,6 @@ export default function PlannerPage() {
       }));
   };
 
-  const handleNextDay = () => {
-    if (currentDate) setCurrentDate(addDays(currentDate, 1));
-  };
-  const handlePrevDay = () => {
-    if (currentDate) setCurrentDate(subDays(currentDate, 1));
-  };
   const handleNextWeek = () => {
     if (currentDate) setCurrentDate(addWeeks(currentDate, 1));
   };
@@ -591,15 +585,16 @@ export default function PlannerPage() {
       
       <div className="flex items-center justify-between gap-4 p-4 border-b">
         <div className="flex items-center gap-1 md:gap-2">
-            <Button variant="outline" size="icon" onClick={handlePrevWeek}><ChevronLeft /></Button>
-            <Button variant="outline" size="icon" onClick={handleNextWeek}><ChevronRight /></Button>
-            <Button variant="outline" onClick={handleToday}>Today</Button>
+            <Button variant="outline" size="icon" onClick={handlePrevWeek} className="h-8 w-8"><ChevronLeft /></Button>
+            <Button variant="outline" size="icon" onClick={handleNextWeek} className="h-8 w-8"><ChevronRight /></Button>
+            <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
+            <span className="hidden sm:inline-block font-semibold ml-4">{format(currentDate, 'MMMM yyyy')}</span>
         </div>
         
         <div className="flex items-center gap-1 md:gap-2">
             <Dialog>
                 <DialogTrigger asChild>
-                    <Button variant="outline"><BarChart className="w-4 h-4 md:mr-2" /><span className="hidden md:inline">KPIs</span></Button>
+                    <Button variant="outline" className="h-8"><BarChart className="w-4 h-4 md:mr-2" /><span className="hidden md:inline">KPIs</span></Button>
                 </DialogTrigger>
                 <DialogContent className="max-w-4xl">
                     <DialogHeader>
@@ -657,13 +652,13 @@ export default function PlannerPage() {
             </Dialog>
             <Dialog>
                 <DialogTrigger asChild>
-                     <Button variant="outline" className="relative">
-                        <span className="hidden md:inline">Bills Due</span>
+                     <Button variant="outline" className="h-8 relative">
                         {billInstances.length > 0 ? (
-                            <BellRing className="h-4 w-4 md:ml-2 text-primary animate-pulse" />
+                            <BellRing className="h-4 w-4 md:mr-2 text-primary animate-pulse" />
                         ) : (
-                             <BellRing className="h-4 w-4 md:ml-2" />
+                             <BellRing className="h-4 w-4 md:mr-2" />
                         )}
+                         <span className="hidden md:inline">Bills Due</span>
                     </Button>
                 </DialogTrigger>
                 <DialogContent>
@@ -693,6 +688,17 @@ export default function PlannerPage() {
                     )}
                 </DialogContent>
             </Dialog>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="default" size="icon" className="h-8 w-8">
+                    <Plus className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem onClick={() => setIsAddAppointmentOpen(true)}>Add Appointment</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setIsAddEventOpen(true)}>Add Event</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
         </div>
       </div>
       
@@ -702,8 +708,11 @@ export default function PlannerPage() {
                 {weekDays.map((day, index) => (
                     <Button 
                         key={index} 
-                        variant={isToday(day) && isSameDay(day, currentDate) ? 'default' : isSameDay(day, currentDate) ? 'secondary' : 'ghost'}
-                        className="h-14 flex-1 flex-col py-1 min-w-[50px] md:min-w-[120px]"
+                        variant={isSameDay(day, currentDate) ? 'secondary' : 'ghost'}
+                        className={cn(
+                            "h-14 flex-1 flex-col py-1 min-w-[50px] md:min-w-[120px]",
+                            isToday(day) && !isSameDay(day, currentDate) && "text-primary"
+                        )}
                         onClick={() => handleDayClick(day)}
                     >
                         <span className="text-xs">{format(day, 'EEE')}</span>
@@ -805,6 +814,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
