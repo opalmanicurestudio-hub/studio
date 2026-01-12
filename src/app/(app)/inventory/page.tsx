@@ -63,10 +63,10 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
       return (
         <div className="text-right">
             <p className="font-mono font-semibold text-lg">{item.totalStock} <span className="text-sm text-muted-foreground">full</span></p>
-            {item.costingMethod === 'size' && item.partialContainerSize !== undefined && item.partialContainerSize > 0 && (
+            {item.costingMethod === 'size' && !item.isExperimentActive && item.partialContainerSize !== undefined && item.partialContainerSize > 0 && (
                 <p className="text-xs text-muted-foreground">{item.partialContainerSize.toFixed(0)}{item.unit} left in open container</p>
             )}
-            {item.costingMethod === 'uses' && item.partialContainerUses !== undefined && item.partialContainerUses > 0 && (
+            {item.costingMethod === 'uses' && !item.isExperimentActive && item.partialContainerUses !== undefined && item.partialContainerUses > 0 && (
                 <p className="text-xs text-muted-foreground">{item.partialContainerUses} uses left in open container</p>
             )}
              {item.isExperimentActive && (
@@ -471,6 +471,7 @@ export default function InventoryPage() {
   );
 
     
+
 
 
 
