@@ -785,8 +785,8 @@ export default function FinancialFoundationPage() {
                         <TabsTrigger value="schedule">3. Schedule</TabsTrigger>
                     </TabsList>
                     
-                     <div className="grid lg:grid-cols-5 gap-8 items-start mt-6">
-                        <div className="lg:col-span-1 space-y-6">
+                     <div className="grid lg:grid-cols-4 gap-8 items-start mt-6">
+                        <div className="lg:col-span-1 space-y-6 lg:sticky lg:top-24">
                            <FinancialProfileManager 
                                   activeTab={activeTab} 
                                   profiles={profiles}
@@ -795,6 +795,9 @@ export default function FinancialFoundationPage() {
                                   renamingProfileId={renamingProfileId}
                                   setRenamingProfileId={setRenamingProfileId}
                               />
+                            <div className='hidden lg:block'>
+                                <TmhrBreakdownCard lifestyleTotal={lifestyleTotal} businessTotal={businessTotal} totalHours={totalBillableHours}/>
+                            </div>
                         </div>
                         <div className="lg:col-span-3">
                             <TabsContent value="lifestyle" className="m-0">
@@ -820,10 +823,8 @@ export default function FinancialFoundationPage() {
                                />}
                             </TabsContent>
                         </div>
-                         <div className="lg:col-span-1">
-                            <div className="sticky top-24">
-                                <TmhrBreakdownCard lifestyleTotal={lifestyleTotal} businessTotal={businessTotal} totalHours={totalBillableHours}/>
-                            </div>
+                         <div className="lg:col-span-4 lg:hidden">
+                            <TmhrBreakdownCard lifestyleTotal={lifestyleTotal} businessTotal={businessTotal} totalHours={totalBillableHours}/>
                          </div>
                     </div>
                 </Tabs>
@@ -836,4 +837,5 @@ export default function FinancialFoundationPage() {
     
 
     
+
 
