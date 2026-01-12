@@ -75,7 +75,7 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
             initialFocus
             classNames={{
                 caption_label: "text-base font-medium",
-                day: "h-9 w-9",
+                day: "h-10 w-10",
                 day_selected: "rounded-md",
                 day_today: "rounded-md",
             }}
@@ -86,11 +86,16 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
         return (
             <>
                 {TriggerButton}
-                <Dialog open={isOpen} onOpenChange={setIsOpen}>
-                    <DialogContent className="w-auto p-0">
-                        {CalendarComponent}
-                    </DialogContent>
-                </Dialog>
+                <Sheet open={isOpen} onOpenChange={setIsOpen}>
+                    <SheetContent side="bottom">
+                         <SheetHeader className="text-left">
+                            <SheetTitle>Select Date</SheetTitle>
+                        </SheetHeader>
+                        <div className="flex justify-center py-4">
+                            {CalendarComponent}
+                        </div>
+                    </SheetContent>
+                </Sheet>
             </>
         )
     }
@@ -132,8 +137,8 @@ const AddAppointmentForm = ({
         const options = [];
         if (!selectedService || !date) return [];
 
-        const dayStart = setHours(startOfDay(date), 8);
-        const dayEnd = setHours(startOfDay(date), 22);
+        const dayStart = setHours(startOfDay(date), 0);
+        const dayEnd = setHours(startOfDay(date), 24);
         
         const existingAppointmentsOnDate = appointments.filter(
             apt => format(apt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd')
