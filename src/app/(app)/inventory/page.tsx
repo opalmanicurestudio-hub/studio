@@ -54,6 +54,31 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
     }, [item]);
 
     const detailHref = `/inventory/${item.id}`;
+
+    const stockDisplay = useMemo(() => {
+      if (item.costingMethod === 'size' && item.partialContainerSize !== undefined) {
+        return (
+          <>
+            <p className="font-mono font-semibold text-lg">{item.totalStock}</p>
+            <p className="text-xs text-muted-foreground">full, {item.partialContainerSize.toFixed(0)}{item.unit} left</p>
+          </>
+        )
+      }
+      if (item.costingMethod === 'uses' && item.partialContainerUses !== undefined) {
+         return (
+          <>
+            <p className="font-mono font-semibold text-lg">{item.totalStock}</p>
+            <p className="text-xs text-muted-foreground">full, {item.partialContainerUses} uses left</p>
+          </>
+        )
+      }
+      return (
+        <>
+          <p className="font-mono font-semibold text-lg">{item.totalStock}</p>
+          <p className="text-xs text-muted-foreground">units on hand</p>
+        </>
+      )
+    }, [item]);
     
     return (
         <Card className={cn("transition-all duration-200 hover:shadow-lg", item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20")}>
@@ -87,8 +112,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                         <div className="mt-2 flex items-center justify-between">
                             <Badge variant="outline" className={stockStatus.className}>{stockStatus.label}</Badge>
                             <div className="text-right">
-                                <p className="font-mono font-semibold text-lg">{item.totalStock}</p>
-                                <p className="text-xs text-muted-foreground">units on hand</p>
+                                {stockDisplay}
                             </div>
                         </div>
                     </div>
