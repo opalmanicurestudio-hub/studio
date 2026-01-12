@@ -7,7 +7,7 @@ import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, C
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem } from '@/lib/data';
 import { billInstances as allBillInstances, billDefinitions, type Bill } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay } from 'date-fns';
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
 import { useInventory } from '@/context/InventoryContext';
@@ -52,12 +52,13 @@ import { Calendar } from '@/components/ui/calendar';
 
 const TimeIndicator = () => {
     const [top, setTop] = useState(0);
+    const START_HOUR = 7;
 
     useEffect(() => {
         const updatePosition = () => {
             const now = new Date();
-            const dayStart = startOfDay(now);
-            const minutesFromStart = differenceInMinutes(now, dayStart);
+            const startOfDayWithOffset = setHours(startOfDay(now), START_HOUR);
+            const minutesFromStart = differenceInMinutes(now, startOfDayWithOffset);
             const newTop = minutesFromStart * (160 / 60); // 160px is h-40
             if (newTop >= 0) {
                 setTop(newTop);
@@ -114,6 +115,25 @@ const DayTimeline = ({
     onAddTransaction: (transaction: any) => void;
     onReschedule: (appointment: Appointment) => void;
 }) => {
+    const viewportRef = useRef<HTMLDivElement>(null);
+    const START_HOUR = 7;
+    
+    useEffect(() => {
+        if (isToday(date) && viewportRef.current) {
+            const now = new Date();
+            const startOfDayWithOffset = setHours(startOfDay(now), START_HOUR);
+            const minutesFromStart = differenceInMinutes(now, startOfDayWithOffset);
+            
+            if (minutesFromStart > 0) {
+                const scrollPosition = minutesFromStart * (160 / 60); // 160px per hour
+                viewportRef.current.scrollTo({
+                    top: scrollPosition,
+                    behavior: 'smooth',
+                });
+            }
+        }
+    }, [date]);
+    
     const dailyTotals = useMemo(() => {
         const appointmentRevenue = appointments
             .filter(apt => apt.status === 'completed')
@@ -146,7 +166,7 @@ const DayTimeline = ({
             .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
     }, [appointments, events]);
 
-    const hours = Array.from({ length: 24 }, (_, i) => i);
+    const hours = Array.from({ length: 24 - START_HOUR }, (_, i) => i + START_HOUR);
     const [tmhr, setTmhr] = useState(0);
 
     useEffect(() => {
@@ -157,7 +177,7 @@ const DayTimeline = ({
     }, []);
 
     const renderItem = (item: any) => {
-        const dayStart = startOfDay(date);
+        const dayStart = setHours(startOfDay(date), START_HOUR);
         
         if (item.itemType === 'appointment') {
             const service = services.find(s => s.id === item.serviceId);
@@ -172,6 +192,8 @@ const DayTimeline = ({
             
             const top = minutesFromStart * (160/60);
             const height = totalDuration * (160/60);
+            
+            if (top < 0) return null; // Don't render items before the start hour
 
             const style = { top: `${top}px`, height: `${height}px` };
 
@@ -197,6 +219,8 @@ const DayTimeline = ({
             );
         } else { // item.itemType === 'event'
              const minutesFromStart = differenceInMinutes(item.startTime, dayStart);
+             if (minutesFromStart < 0) return null;
+
              const top = minutesFromStart * (160/60);
              const height = differenceInMinutes(item.endTime, item.startTime) * (160/60);
              const style = { top: `${top}px`, height: `${height}px` };
@@ -244,7 +268,7 @@ const DayTimeline = ({
             </Accordion>
             
 
-            <ScrollArea className="flex-1">
+            <ScrollArea className="flex-1" viewportRef={viewportRef}>
                 <div className="grid grid-cols-[auto,1fr] p-4">
                     {/* Time labels */}
                     <div className="flex flex-col text-right pr-4">
@@ -583,7 +607,9 @@ export default function PlannerPage() {
       <AppHeaderClient title="Planner" />
       
       <div className="flex flex-col gap-4 p-4 border-b">
-        <h2 className="text-2xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
+        <div className="flex items-center gap-4">
+            <h2 className="text-2xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
+        </div>
         <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
                 <Button variant="outline" onClick={handlePrevWeek} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
