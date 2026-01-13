@@ -779,4 +779,3 @@ export default function InventoryPage() {
       </Dialog>
     </div>
   );
-
