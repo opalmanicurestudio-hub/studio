@@ -63,16 +63,16 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
     const detailHref = `/inventory/${item.id}`;
 
     const stockDisplay = useMemo(() => {
-      const showPartialSize = item.costingMethod === 'size' && !item.isExperimentActive && item.partialContainerSize !== undefined && item.partialContainerSize > 0;
-      const showPartialUses = item.costingMethod === 'uses' && !item.isExperimentActive && item.partialContainerUses !== undefined && item.partialContainerUses > 0;
+      const showPartialSize = item.costingMethod === 'size' && item.partialContainerSize !== undefined && item.partialContainerSize > 0;
+      const showPartialUses = item.costingMethod === 'uses' && item.partialContainerUses !== undefined && item.partialContainerUses > 0;
       
       const shouldShowPartial = (item.totalStock > 0 || (item.totalStock === 0 && (showPartialSize || showPartialUses)));
 
       return (
         <div className="text-right">
             <p className="font-mono font-semibold text-lg">{item.totalStock} <span className="text-sm text-muted-foreground">full</span></p>
-            {shouldShowPartial && showPartialSize && item.totalStock > 0 && <p className="text-xs text-muted-foreground">{item.partialContainerSize!.toFixed(0)}{item.unit} left</p>}
-            {shouldShowPartial && showPartialUses && item.totalStock > 0 && <p className="text-xs text-muted-foreground">{item.partialContainerUses} uses left</p>}
+            {shouldShowPartial && showPartialSize && <p className="text-xs text-muted-foreground">{item.partialContainerSize!.toFixed(0)}{item.unit} left</p>}
+            {shouldShowPartial && showPartialUses && <p className="text-xs text-muted-foreground">{item.partialContainerUses} uses left</p>}
              {item.isExperimentActive && (
                 <Badge variant="secondary" className="mt-1 flex items-center gap-1.5 bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 w-fit ml-auto">
                     <FlaskConical className="h-3 w-3" />
@@ -190,6 +190,7 @@ export default function InventoryPage() {
   const [isWriteOffOpen, setIsWriteOffOpen] = useState(false);
   const [isEndExperimentOpen, setIsEndExperimentOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<InventoryItem | null>(null);
+  const [logUseDialogType, setLogUseDialogType] = useState<'product' | 'overhead'>('product');
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
@@ -215,9 +216,16 @@ export default function InventoryPage() {
 
 
   const handleOpenLogUse = (item: InventoryItem) => {
+    setLogUseDialogType('product');
     setSelectedProduct(item);
     setIsLogUseOpen(true);
   }
+  
+  const handleOpenOverheadLogUse = () => {
+    setLogUseDialogType('overhead');
+    setIsLogUseOpen(true);
+  }
+
   const handleOpenWriteOff = (item: InventoryItem) => {
     setSelectedProduct(item);
     setIsWriteOffOpen(true);
@@ -487,7 +495,7 @@ export default function InventoryPage() {
         
         <div className="grid lg:grid-cols-4 gap-8">
             <div className="lg:col-span-1">
-                <InventorySidebar onSpoilageConfirm={handleSpoilageConfirm} />
+                <InventorySidebar onSpoilageConfirm={handleSpoilageConfirm} onLogOverheadUse={handleOpenOverheadLogUse} />
             </div>
 
             <div className="lg:col-span-3">
@@ -594,14 +602,14 @@ export default function InventoryPage() {
         </div>
       </main>
       
-      {selectedProduct && (
-        <LogUseDialog
-            open={isLogUseOpen}
-            onOpenChange={setIsLogUseOpen}
-            product={selectedProduct}
-            onConfirm={handleLogUseConfirm}
-        />
-      )}
+      <LogUseDialog
+        open={isLogUseOpen}
+        onOpenChange={setIsLogUseOpen}
+        product={selectedProduct}
+        allProducts={inventory}
+        onConfirm={handleLogUseConfirm}
+        dialogType={logUseDialogType}
+      />
 
       {selectedProduct && (
         <WriteOffDialog
@@ -704,6 +712,7 @@ export default function InventoryPage() {
   );
 
     
+
 
 
 

@@ -13,7 +13,13 @@ import { useInventory } from '@/context/InventoryContext';
 import { type InventoryItem } from '@/lib/data';
 import { isPast, parseISO, differenceInMonths } from 'date-fns';
 
-export const InventorySidebar = ({ onSpoilageConfirm }: { onSpoilageConfirm: (items: SpoilageItem[]) => void; }) => {
+export const InventorySidebar = ({ 
+    onSpoilageConfirm,
+    onLogOverheadUse,
+}: { 
+    onSpoilageConfirm: (items: SpoilageItem[]) => void; 
+    onLogOverheadUse: () => void;
+}) => {
     const { inventory, stockCorrections } = useInventory();
     const [isSpoilageDialogOpen, setIsSpoilageDialogOpen] = useState(false);
 
@@ -143,16 +149,7 @@ export const InventorySidebar = ({ onSpoilageConfirm }: { onSpoilageConfirm: (it
                 <Separator />
                 <div className="flex justify-between items-center">
                     <h4 className="font-semibold text-xs text-muted-foreground">Consumed Overhead</h4>
-                     <TooltipProvider>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button variant="outline" size="xs">Log Use</Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                                <p>This feature is coming soon!</p>
-                            </TooltipContent>
-                        </Tooltip>
-                    </TooltipProvider>
+                    <Button variant="outline" size="xs" onClick={onLogOverheadUse}>Log Use</Button>
                 </div>
             </CardContent>
         </Card>
