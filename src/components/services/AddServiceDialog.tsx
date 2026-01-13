@@ -484,7 +484,7 @@ const PricingForm = () => {
         if (pricingStrategy === 'auto') {
             setValue('price', finalPrice);
         }
-    }, [finalPrice, setValue, pricingStrategy]);
+    }, [finalPrice, setValue, pricingStrategy, breakEvenCost]);
 
     return (
         <div className="grid gap-6 py-4">
