@@ -102,7 +102,7 @@ export const FormFieldRenderer: React.FC<FormFieldRendererProps> = ({ field }) =
       return (
         <div className="space-y-2">
           <Label>{field.label}</Label>
-           <div className={cn("relative rounded-md border border-input w-full aspect-video")}>
+           <div className={cn("relative rounded-md border border-input w-full h-32")}>
             {signatureDataUrl ? (
                  <Image src={signatureDataUrl} alt="signature" layout="fill" objectFit="contain" />
             ) : (
@@ -111,7 +111,7 @@ export const FormFieldRenderer: React.FC<FormFieldRendererProps> = ({ field }) =
                         ref={sigCanvas}
                         penColor="black"
                         canvasProps={{ className: 'w-full h-full rounded-md' }}
-                        backgroundColor="rgba(238, 238, 242, 1)"
+                        backgroundColor="rgba(248, 250, 252, 1)"
                         onEnd={handleSignatureEnd}
                     />
                     <div className="absolute bottom-4 left-4 right-4 flex items-center gap-2 pointer-events-none">
