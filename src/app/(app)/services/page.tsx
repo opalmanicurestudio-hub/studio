@@ -258,10 +258,10 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments }: { servi
                 </AccordionTrigger>
                 <AccordionContent className='pt-4 space-y-4'>
                     <Tabs defaultValue="performance">
-                        <TabsList className="grid w-full grid-cols-3 text-xs h-8">
-                            <TabsTrigger value="performance" className="h-full">Performance</TabsTrigger>
-                            <TabsTrigger value="profit" className="h-full">Profit Tester</TabsTrigger>
-                            <TabsTrigger value="cost" className="h-full">Cost Breakdown</TabsTrigger>
+                        <TabsList className="grid w-full grid-cols-3 text-xs h-8 p-0 rounded-md">
+                            <TabsTrigger value="performance" className="h-full rounded-sm">Performance</TabsTrigger>
+                            <TabsTrigger value="profit" className="h-full rounded-sm">Profit Tester</TabsTrigger>
+                            <TabsTrigger value="cost" className="h-full rounded-sm">Cost Breakdown</TabsTrigger>
                         </TabsList>
                         <TabsContent value="performance" className="mt-4">
                             <div className='grid grid-cols-3 gap-2'>
@@ -466,10 +466,10 @@ export default function ServicesPage() {
         </div>
         
         <Tabs defaultValue="services" className="w-full">
-            <TabsList className="grid w-full grid-cols-2 sm:w-auto">
-                <TabsTrigger value="services">Services</TabsTrigger>
-                <TabsTrigger value="add-ons">Add-ons</TabsTrigger>
-            </TabsList>
+          <TabsList className="grid w-full grid-cols-2 sm:w-auto">
+            <TabsTrigger value="services">Services</TabsTrigger>
+            <TabsTrigger value="add-ons">Add-ons</TabsTrigger>
+          </TabsList>
           <TabsContent value="services" className="mt-6 space-y-8">
              {Object.keys(servicesByCategory).length > 0 ? (
                 Object.entries(servicesByCategory).map(([category, services]) => (
