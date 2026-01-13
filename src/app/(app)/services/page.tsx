@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -202,7 +203,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments }: { servi
                 data-ai-hint="manicure nails" 
             />
           </Link>
-          <div className="flex-1 space-y-1 min-w-0">
+          <div className="flex-1 space-y-2 min-w-0">
             <div className="flex justify-between items-start">
               <Link href={`/services/${service.id}`} className="font-semibold text-base leading-tight hover:underline pr-2 group">
                 {service.name}
@@ -225,9 +226,9 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments }: { servi
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
-            <div className="text-sm text-muted-foreground flex items-center gap-4">
+            <div className="text-sm text-muted-foreground space-y-1">
                 <div className="flex items-center gap-1.5"><Clock className="w-4 h-4" /> {service.duration} min {totalPadding > 0 && <span className='text-muted-foreground/50'>(+{totalPadding} pad)</span>}</div>
-                <div className="flex items-center gap-1.5"><DollarSign className="w-4 h-4" /> ${service.price.toFixed(2)}</div>
+                <div className="flex items-center gap-1.5"><DollarSign className="w-4 h-4" /> {service.price.toFixed(2)}</div>
             </div>
           </div>
         </div>
@@ -514,3 +515,4 @@ export default function ServicesPage() {
     </div>
   );
 }
+
