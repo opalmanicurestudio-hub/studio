@@ -165,9 +165,15 @@ const Step2_CostingPricing = ({ productType }: { productType: ProductType }) => 
                                         <SelectValue placeholder="Select unit" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="ml">ml</SelectItem>
-                                        <SelectItem value="oz">oz</SelectItem>
-                                        <SelectItem value="g">g</SelectItem>
+                                        <SelectItem value="ml">milliliter (ml)</SelectItem>
+                                        <SelectItem value="l">liter (l)</SelectItem>
+                                        <SelectItem value="oz">fluid ounce (oz)</SelectItem>
+                                        <SelectItem value="pt">pint (pt)</SelectItem>
+                                        <SelectItem value="qt">quart (qt)</SelectItem>
+                                        <SelectItem value="gal">gallon (gal)</SelectItem>
+                                        <SelectItem value="g">gram (g)</SelectItem>
+                                        <SelectItem value="kg">kilogram (kg)</SelectItem>
+                                        <SelectItem value="lb">pound (lb)</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
