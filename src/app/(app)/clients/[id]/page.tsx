@@ -36,6 +36,7 @@ import {
 } from '@/components/ui/dialog';
 import { LogIncidentDialog } from '@/components/incidents/LogIncidentDialog';
 import { IncidentFormData } from '@/components/incidents/LogIncidentForm';
+import Image from 'next/image';
 
 
 type ClientPhoto = {
@@ -159,7 +160,7 @@ export default function ClientDetailPage() {
   if (!isClient) {
     return (
         <div className="flex min-h-screen w-full flex-col">
-            <AppHeader />
+            <AppHeader title="Client Profile" />
             <main className="flex-1 p-4 md:p-8 space-y-6">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                     <Skeleton className="h-7 w-7" />
@@ -179,7 +180,7 @@ export default function ClientDetailPage() {
 
   return (
     <div className="flex min-h-screen w-full flex-col">
-      <AppHeader />
+      <AppHeader title="Client Profile" />
       <main className="flex-1 p-4 md:p-8 space-y-6">
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
             <div className="flex items-center gap-4 w-full">
