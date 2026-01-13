@@ -258,7 +258,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments }: { servi
                 </AccordionTrigger>
                 <AccordionContent className='pt-4 space-y-4'>
                     <Tabs defaultValue="performance">
-                        <TabsList className="grid grid-cols-3 w-full text-xs h-8">
+                        <TabsList className="grid w-full grid-cols-3 text-xs h-8">
                             <TabsTrigger value="performance" className="h-full">Performance</TabsTrigger>
                             <TabsTrigger value="profit" className="h-full">Profit Tester</TabsTrigger>
                             <TabsTrigger value="cost" className="h-full">Cost Breakdown</TabsTrigger>
@@ -305,7 +305,7 @@ const ServiceCategory = ({ title, services, onEditServiceOpen, tmhr, appointment
     return (
         <div>
             <h2 className="text-2xl font-bold mb-4">{title}</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {services.map((service) => (
                     <ServiceCard key={service.id} service={service} onEditServiceOpen={onEditServiceOpen} tmhr={tmhr} appointments={appointments} />
                 ))}
@@ -437,6 +437,21 @@ export default function ServicesPage() {
                 New Service
             </Button>
         </div>
+        <Card className="mb-6">
+            <CardContent className="p-4 flex flex-col sm:flex-row items-center gap-4">
+                <div className="flex-1">
+                    <Label htmlFor="tmhr-display" className="text-xs text-muted-foreground">Your Default TMHR</Label>
+                    <p id="tmhr-display" className="text-2xl font-bold">${tmhr.toFixed(2)}<span className="text-sm font-normal text-muted-foreground">/hr</span></p>
+                </div>
+                 <div className='flex items-center gap-2 w-full sm:w-auto'>
+                    <Link href="/financials" className='w-full'>
+                        <Button variant="outline" className='w-full'>
+                            <SlidersHorizontal className="mr-2 h-4 w-4" /> Edit TMHR
+                        </Button>
+                    </Link>
+                </div>
+            </CardContent>
+        </Card>
 
          <div className='flex flex-col md:flex-row gap-4 mb-6'>
             <div className="relative w-full md:flex-1">
@@ -448,16 +463,13 @@ export default function ServicesPage() {
                     onChange={(e) => setSearchTerm(e.target.value)}
                 />
             </div>
-            <div className='flex items-center gap-2 w-full md:w-auto'>
-                <Button variant="outline" className='w-full'><SlidersHorizontal className="mr-2 h-4 w-4" /> Filters</Button>
-            </div>
         </div>
         
         <Tabs defaultValue="services" className="w-full">
-          <TabsList>
-            <TabsTrigger value="services">Main Services</TabsTrigger>
-            <TabsTrigger value="add-ons">Add-ons</TabsTrigger>
-          </TabsList>
+            <TabsList className="grid w-full grid-cols-2 sm:w-auto">
+                <TabsTrigger value="services">Services</TabsTrigger>
+                <TabsTrigger value="add-ons">Add-ons</TabsTrigger>
+            </TabsList>
           <TabsContent value="services" className="mt-6 space-y-8">
              {Object.keys(servicesByCategory).length > 0 ? (
                 Object.entries(servicesByCategory).map(([category, services]) => (
@@ -502,3 +514,4 @@ export default function ServicesPage() {
     </div>
   );
 }
+
