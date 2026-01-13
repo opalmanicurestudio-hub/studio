@@ -83,11 +83,11 @@ export const FormFieldRenderer: React.FC<FormFieldRendererProps> = ({ field }) =
       return (
         <div className="space-y-2">
           <Label>{field.label}</Label>
-           <div className="rounded-md border border-input bg-background">
+           <div className="rounded-md border border-input bg-background aspect-video w-full">
              <SignatureCanvas
                 ref={sigCanvas}
                 penColor="hsl(var(--foreground))"
-                canvasProps={{ className: 'w-full h-32 rounded-md' }}
+                canvasProps={{ className: 'w-full h-full rounded-md' }}
             />
           </div>
           <Button type="button" variant="outline" size="sm" onClick={clearSignature}>
