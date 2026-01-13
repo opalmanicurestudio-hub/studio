@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette, QrCode, AlertTriangle, ListFilter, ChevronDown, ShoppingCart, Briefcase, DollarSign, Activity, Eye, CircleHelp, Warehouse, Beaker, Recycle, TrendingUp } from 'lucide-react';
-import { type InventoryItem, type StockCorrection } from '@/lib/data';
+import { type InventoryItem, type StockCorrection, type Transaction } from '@/lib/data';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,7 +50,7 @@ import { Tooltip, TooltipProvider, TooltipTrigger } from '@/components/ui/toolti
 import { InventorySidebar } from '@/components/inventory/InventorySidebar';
 
 
-const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff, onLogUse }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (item: InventoryItem) => void, onLogUse: (item: InventoryItem) => void }) => {
+const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff, onLogUse }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (itemId: string) => void, onLogUse: (item: InventoryItem) => void }) => {
     
     const stockStatus = useMemo(() => {
         const hasExpiredBatch = item.batches.some(b => b.expirationDate && isPast(parseISO(b.expirationDate)));
@@ -129,7 +129,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
              <CardFooter className="p-2 border-t bg-muted/50">
                 <div className="grid grid-cols-2 gap-2 w-full">
                     <Button variant="ghost" size="sm" className="w-full" onClick={() => onLogUse(item)}><Pipette className="mr-2 h-4 w-4"/>Log Use</Button>
-                    <Button variant="ghost" size="sm" className="w-full" onClick={() => onWriteOff(item)}><PackageX className="mr-2 h-4 w-4"/>Write-off</Button>
+                    <Button variant="ghost" size="sm" className="w-full" onClick={() => onWriteOff(item.id)}><PackageX className="mr-2 h-4 w-4"/>Write-off</Button>
                 </div>
             </CardFooter>
         </Card>
@@ -170,7 +170,7 @@ const EmptyState = ({ onActionClick }: { onActionClick: () => void }) => (
 );
 
 export default function InventoryPage() {
-  const { inventory, setInventory, addStockCorrection, stockCorrections, locations, setLocations, locationTypes, setLocationTypes } = useInventory();
+  const { inventory, setInventory, addStockCorrection, stockCorrections, locations, setLocations, locationTypes, setLocationTypes, setTransactions } = useInventory();
   const { toast } = useToast();
   
   const [activeView, setActiveView] = useState('products');
@@ -226,9 +226,12 @@ export default function InventoryPage() {
     setIsLogUseOpen(true);
   }
 
-  const handleOpenWriteOff = (item: InventoryItem) => {
-    setSelectedProduct(item);
-    setIsWriteOffOpen(true);
+  const handleOpenWriteOff = (itemId: string) => {
+    const productToWriteOff = inventory.find(item => item.id === itemId);
+    if(productToWriteOff) {
+      setSelectedProduct(productToWriteOff);
+      setIsWriteOffOpen(true);
+    }
   }
   
   const handleLogUseConfirm = (productId: string, quantity: number, notes: string): { success: boolean, message: string } => {
@@ -236,54 +239,37 @@ export default function InventoryPage() {
     let message = '';
     
     setInventory(prev => {
-        const newInventory = [...prev];
-        const productIndex = newInventory.findIndex(p => p.id === productId);
+        const newInventory = JSON.parse(JSON.stringify(prev));
+        const productIndex = newInventory.findIndex((p: InventoryItem) => p.id === productId);
         if (productIndex === -1) {
             message = 'Product not found.';
             return prev;
         }
 
-        const product = { ...newInventory[productIndex] };
+        const product = newInventory[productIndex];
         let unit = product.unit || 'units';
 
         if (product.isExperimentActive) {
             product.experimentUses = (product.experimentUses || 0) + quantity;
             success = true;
             message = `Logged ${quantity} use(s) for ${product.name} experiment.`;
-            newInventory[productIndex] = product;
             return newInventory;
         }
 
-        if (product.costingMethod === 'uses') {
-            unit = 'uses';
-            let currentTotalUses = (product.totalStock * (product.estimatedUses || 1)) + (product.partialContainerUses || 0);
-             if (currentTotalUses < quantity) {
-                message = 'Insufficient stock to log this use.';
-                return prev;
-            }
-            currentTotalUses -= quantity;
-            product.totalStock = Math.floor(currentTotalUses / (product.estimatedUses || 1));
-            product.partialContainerUses = currentTotalUses % (product.estimatedUses || 1);
-        } else if (product.costingMethod === 'size') {
-            unit = product.unit || 'ml';
-            let currentTotalSize = (product.totalStock * (product.size || 1)) + (product.partialContainerSize || 0);
-             if (currentTotalSize < quantity) {
-                message = 'Insufficient stock to log this use.';
-                return prev;
-            }
-            currentTotalSize -= quantity;
-            product.totalStock = Math.floor(currentTotalSize / (product.size || 1));
-            product.partialContainerSize = currentTotalSize % (product.size || 1);
-        } else { // Standard unit-based
-            if (product.totalStock < quantity) {
-                message = 'Insufficient stock to log this use.';
-                return prev;
-            }
-            product.totalStock -= quantity;
+        // Find the oldest batch with stock
+        const sortedBatches = [...product.batches].sort((a, b) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime());
+        const batchToUpdate = sortedBatches.find(b => b.stock > 0);
+
+        if (!batchToUpdate || batchToUpdate.stock < quantity) {
+            message = 'Insufficient stock to log this use.';
+            return prev;
         }
 
-        newInventory[productIndex] = product;
-        
+        batchToUpdate.stock -= quantity;
+
+        // Recalculate total stock from all batches
+        product.totalStock = product.batches.reduce((acc: number, b: any) => acc + b.stock, 0);
+
         const newCorrection: StockCorrection = {
             id: `sc-${Date.now()}`,
             productId: productId,
@@ -353,6 +339,20 @@ export default function InventoryPage() {
         reason: reason,
       };
       addStockCorrection(newCorrection);
+
+      // Create financial transaction
+      const newTransaction: Omit<Transaction, 'id'> = {
+          date: new Date().toISOString(),
+          description: `Inventory Write-off: ${product.name} (${reason})`,
+          clientOrVendor: 'Internal',
+          type: 'expense',
+          context: 'Business',
+          category: 'spoilage',
+          amount: batch.costPerUnit * quantity,
+          paymentMethod: 'Internal',
+          hasReceipt: false,
+      };
+      setTransactions(prev => [...prev, { ...newTransaction, id: `txn-${Date.now()}` }]);
   
       success = true;
       message = `${quantity} unit(s) of ${product.name} written off.`;
@@ -361,8 +361,68 @@ export default function InventoryPage() {
   
     return { success, message };
   };
+
+  const handleLogOverheadConsumption = (productId: string) => {
+    let consumedBatchCost = 0;
+    let consumedProduct: InventoryItem | undefined;
+
+    setInventory(prevInventory => {
+      const newInventory = JSON.parse(JSON.stringify(prevInventory));
+      const productIndex = newInventory.findIndex((p: InventoryItem) => p.id === productId);
+      
+      if (productIndex === -1) {
+        toast({ variant: 'destructive', title: 'Error', description: 'Product not found.' });
+        return prevInventory;
+      }
+  
+      const product = newInventory[productIndex];
+      consumedProduct = product;
+
+      // Find the oldest batch with stock (FIFO)
+      const sortedBatches = product.batches.sort((a: Batch, b: Batch) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime());
+      const batchToUpdate = sortedBatches.find((b: Batch) => b.stock > 0);
+  
+      if (!batchToUpdate) {
+        toast({ variant: 'destructive', title: 'Error', description: 'No stock available to consume.' });
+        return prevInventory;
+      }
+
+      consumedBatchCost = batchToUpdate.costPerUnit;
+      batchToUpdate.stock -= 1;
+      product.totalStock = product.batches.reduce((acc: number, b: Batch) => acc + b.stock, 0);
+  
+      addStockCorrection({
+        id: `sc-${Date.now()}`,
+        productId: productId,
+        date: new Date().toISOString(),
+        change: -1,
+        unit: 'unit',
+        reason: 'Overhead Consumption',
+      });
+  
+      return newInventory;
+    });
+
+    if(consumedProduct && consumedBatchCost > 0) {
+      const newTransaction: Omit<Transaction, 'id'> = {
+        date: new Date().toISOString(),
+        description: `Overhead: ${consumedProduct.name}`,
+        clientOrVendor: 'Internal',
+        type: 'expense',
+        context: 'Business',
+        category: 'supplies',
+        amount: consumedBatchCost,
+        paymentMethod: 'Internal',
+        hasReceipt: false,
+      };
+      setTransactions(prev => [...prev, { ...newTransaction, id: `txn-${Date.now()}` }]);
+
+      toast({ title: 'Overhead Consumed', description: `${consumedProduct.name} has been logged as an expense.` });
+    }
+  };
   
  const handleSpoilageConfirm = (itemsToWriteOff: SpoilageItem[]) => {
+    let totalLoss = 0;
     setInventory(prevInventory => {
       const newInventory = [...prevInventory];
       itemsToWriteOff.forEach(item => {
@@ -373,6 +433,8 @@ export default function InventoryPage() {
           if (batchIndex !== -1) {
             const batch = { ...product.batches[batchIndex] };
             const stockChange = batch.stock;
+            totalLoss += stockChange * batch.costPerUnit;
+
             batch.stock = 0; // Write off the entire batch stock
             product.batches[batchIndex] = batch;
 
@@ -402,9 +464,24 @@ export default function InventoryPage() {
       return newInventory;
     });
 
+    if (totalLoss > 0) {
+        const newTransaction: Omit<Transaction, 'id'> = {
+            date: new Date().toISOString(),
+            description: `Inventory Write-off: ${itemsToWriteOff.length} expired item(s)`,
+            clientOrVendor: 'Internal',
+            type: 'expense',
+            context: 'Business',
+            category: 'spoilage',
+            amount: totalLoss,
+            paymentMethod: 'Internal',
+            hasReceipt: false,
+        };
+        setTransactions(prev => [...prev, { ...newTransaction, id: `txn-${Date.now()}` }]);
+    }
+
     toast({
       title: 'Spoilage Written Off',
-      description: `${itemsToWriteOff.length} item(s) have been removed from inventory.`,
+      description: `${itemsToWriteOff.length} item(s) have been removed from inventory and expensed.`,
     });
   };
   
@@ -495,7 +572,7 @@ export default function InventoryPage() {
         
         <div className="grid lg:grid-cols-4 gap-8">
             <div className="lg:col-span-1">
-                <InventorySidebar onSpoilageConfirm={handleSpoilageConfirm} onLogOverheadUse={handleOpenOverheadLogUse} />
+                <InventorySidebar onSpoilageConfirm={handleSpoilageConfirm} onLogOverheadUse={handleLogOverheadConsumption} />
             </div>
 
             <div className="lg:col-span-3">
@@ -617,6 +694,7 @@ export default function InventoryPage() {
             onOpenChange={setIsWriteOffOpen}
             product={selectedProduct}
             onConfirm={handleWriteOffConfirm}
+            allProducts={inventory}
         />
       )}
       
@@ -712,6 +790,7 @@ export default function InventoryPage() {
   );
 
     
+
 
 
 

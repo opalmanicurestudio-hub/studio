@@ -1,16 +1,17 @@
 
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { DollarSign, Package, Store, Recycle, Hammer, TrendingUp, AlertTriangle, FlaskConical } from 'lucide-react';
+import { DollarSign, Package, Store, Recycle, Hammer, TrendingUp, AlertTriangle, FlaskConical, Pipette } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { ManageSpoilageDialog, SpoilageItem } from './ManageSpoilageDialog';
 import { useInventory } from '@/context/InventoryContext';
-import { type InventoryItem } from '@/lib/data';
+import { type InventoryItem, type Batch } from '@/lib/data';
 import { isPast, parseISO, differenceInMonths } from 'date-fns';
 
 export const InventorySidebar = ({ 
@@ -18,7 +19,7 @@ export const InventorySidebar = ({
     onLogOverheadUse,
 }: { 
     onSpoilageConfirm: (items: SpoilageItem[]) => void; 
-    onLogOverheadUse: () => void;
+    onLogOverheadUse: (productId: string) => void;
 }) => {
     const { inventory, stockCorrections } = useInventory();
     const [isSpoilageDialogOpen, setIsSpoilageDialogOpen] = useState(false);
@@ -32,6 +33,7 @@ export const InventorySidebar = ({
         expiredValue,
         expiredItemsCount,
         activeExperiments,
+        overheadItemsInStock,
     } = useMemo(() => {
         let profVal = 0;
         let retVal = 0;
@@ -40,13 +42,19 @@ export const InventorySidebar = ({
         let expVal = 0;
         let expCount = 0;
         const activeExp: InventoryItem[] = [];
+        const overheadInStock: InventoryItem[] = [];
 
         inventory.forEach(item => {
             const itemTotalValue = (item.totalStock || 0) * (item.costPerUnit || 0);
 
             if (item.type === 'professional') profVal += itemTotalValue;
             if (item.type === 'retail') retVal += itemTotalValue;
-            if (item.type === 'overhead') overVal += itemTotalValue;
+            if (item.type === 'overhead') {
+              overVal += itemTotalValue;
+              if (item.totalStock > 0) {
+                overheadInStock.push(item);
+              }
+            }
             if (item.type === 'equipment') {
                 const purchaseCost = item.costPerUnit || 0;
                 const lifespanMonths = (item.lifespanYears || 5) * 12;
@@ -77,6 +85,7 @@ export const InventorySidebar = ({
             expiredValue: expVal,
             expiredItemsCount: expCount,
             activeExperiments: activeExp,
+            overheadItemsInStock: overheadInStock,
         };
     }, [inventory]);
 
@@ -138,18 +147,27 @@ export const InventorySidebar = ({
                 <div>
                     <h4 className="font-semibold text-xs text-muted-foreground mb-2">Top 5 Products Used in Services</h4>
                     <div className="space-y-2">
-                        {topUsedProducts.map(p => (
+                        {topUsedProducts.length > 0 ? topUsedProducts.map(p => (
                             <div key={p.name} className="flex justify-between items-center text-xs">
                                 <span className="truncate pr-2">{p.name}</span>
                                 <Badge variant="secondary">{p.count} uses</Badge>
                             </div>
-                        ))}
+                        )) : <p className="text-xs text-muted-foreground text-center py-2">No service usage yet.</p>}
                     </div>
                 </div>
                 <Separator />
-                <div className="flex justify-between items-center">
-                    <h4 className="font-semibold text-xs text-muted-foreground">Consumed Overhead</h4>
-                    <Button variant="outline" size="xs" onClick={onLogOverheadUse}>Log Use</Button>
+                <div>
+                    <h4 className="font-semibold text-xs text-muted-foreground mb-2">Overhead Consumables</h4>
+                    <div className="space-y-2">
+                         {overheadItemsInStock.length > 0 ? overheadItemsInStock.map(item => (
+                             <div key={item.id} className="flex justify-between items-center text-xs">
+                                <span className="truncate pr-2">{item.name}</span>
+                                <Button variant="outline" size="xs" onClick={() => onLogOverheadUse(item.id)}>
+                                    <Pipette className="mr-1.5 h-3 w-3"/> Log 1 Unit Used
+                                </Button>
+                            </div>
+                         )) : <p className="text-xs text-muted-foreground text-center py-2">No overhead items in stock.</p>}
+                    </div>
                 </div>
             </CardContent>
         </Card>
