@@ -71,6 +71,7 @@ export type Service = {
   products?: (InventoryItem & { quantityUsed: number })[]; // Add quantityUsed
   equipment?: InventoryItem[];
   description?: string;
+  isPrivate?: boolean;
 };
 
 export type Batch = {

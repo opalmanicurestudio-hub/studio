@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -49,6 +50,7 @@ const serviceSchema = z.object({
     padAfter: z.number().optional(),
     description: z.string().optional(),
     imageUrl: z.string().optional(),
+    isPrivate: z.boolean().optional(),
     isAddon: z.boolean().optional(),
     
     products: z.array(z.any()).optional(),
@@ -168,6 +170,19 @@ const Step1_Basics = ({
                 control={control}
                 render={({ field }) => (
                     <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} />
+                )}
+            />
+        </div>
+         <div className="flex items-center justify-between p-4 border rounded-lg">
+            <div className='space-y-1'>
+                <Label htmlFor="private-service-edit">Private Service</Label>
+                <p className='text-sm text-muted-foreground'>Hide from public booking page.</p>
+            </div>
+            <Controller
+                name="isPrivate"
+                control={control}
+                render={({ field }) => (
+                    <Switch id="private-service-edit" checked={field.value} onCheckedChange={field.onChange} />
                 )}
             />
         </div>
@@ -513,6 +528,7 @@ export const EditServiceDialog = ({
             name: service.name,
             type: service.type,
             isAddon: service.type === 'addon',
+            isPrivate: service.isPrivate,
             category: service.category,
             duration: service.duration,
             padBefore: service.padBefore || undefined,
@@ -578,6 +594,7 @@ export const EditServiceDialog = ({
         margin: profitMargin,
         imageUrl: data.imageUrl,
         description: data.description,
+        isPrivate: data.isPrivate,
         products: data.products,
         equipment: data.equipment,
       };

@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -76,10 +77,10 @@ const Step1_Basics = ({
     const category = watch('category');
 
     const handleAddNewCategory = () => {
-        if (newCategoryName.trim()) {
+        if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
             const newCategory = newCategoryName.trim();
             onNewCategory(newCategory);
-            setValue('category', newCategory, { shouldValidate: true });
+            setSelectedCategory(newCategory);
             setNewCategoryName('');
             setIsAddingCategory(false);
         }
@@ -589,6 +590,7 @@ export const AddServiceDialog = ({
         products: data.products,
         equipment: data.equipment,
         description: data.description,
+        isPrivate: data.isPrivate,
       };
       
       onServiceAdded(newService);
