@@ -187,7 +187,21 @@ const Step2_CostingPricing = ({ productType }: { productType: ProductType }) => 
                             </div>
                              <div className="space-y-2">
                                 <Label htmlFor="use-unit">Dispensing Unit</Label>
-                                <Input id="use-unit" placeholder="e.g., pumps, sprays" />
+                                <Select>
+                                    <SelectTrigger id="use-unit">
+                                        <SelectValue placeholder="Select dispensing unit" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="pumps">pumps</SelectItem>
+                                        <SelectItem value="sprays">sprays</SelectItem>
+                                        <SelectItem value="drops">drops</SelectItem>
+                                        <SelectItem value="applications">applications</SelectItem>
+                                        <SelectItem value="treatments">treatments</SelectItem>
+                                        <SelectItem value="scoops">scoops</SelectItem>
+                                        <SelectItem value="uses">uses</SelectItem>
+                                        <SelectItem value="services">services</SelectItem>
+                                    </SelectContent>
+                                </Select>
                             </div>
                         </div>
                     )}
