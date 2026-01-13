@@ -46,7 +46,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { ManageSpoilageDialog, type SpoilageItem } from '@/components/inventory/ManageSpoilageDialog';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { InventorySidebar } from '@/components/inventory/InventorySidebar';
 
 
@@ -65,11 +65,14 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
     const stockDisplay = useMemo(() => {
       const showPartialSize = item.costingMethod === 'size' && !item.isExperimentActive && item.partialContainerSize !== undefined && item.partialContainerSize > 0;
       const showPartialUses = item.costingMethod === 'uses' && !item.isExperimentActive && item.partialContainerUses !== undefined && item.partialContainerUses > 0;
+      
+      const shouldShowPartial = (item.totalStock > 0 || (item.totalStock === 0 && (showPartialSize || showPartialUses)));
+
       return (
         <div className="text-right">
             <p className="font-mono font-semibold text-lg">{item.totalStock} <span className="text-sm text-muted-foreground">full</span></p>
-            {showPartialSize && <p className="text-xs text-muted-foreground">{item.partialContainerSize!.toFixed(0)}{item.unit} left</p>}
-            {showPartialUses && <p className="text-xs text-muted-foreground">{item.partialContainerUses} uses left</p>}
+            {shouldShowPartial && showPartialSize && <p className="text-xs text-muted-foreground">{item.partialContainerSize!.toFixed(0)}{item.unit} left</p>}
+            {shouldShowPartial && showPartialUses && <p className="text-xs text-muted-foreground">{item.partialContainerUses} uses left</p>}
              {item.isExperimentActive && (
                 <Badge variant="secondary" className="mt-1 flex items-center gap-1.5 bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 w-fit ml-auto">
                     <FlaskConical className="h-3 w-3" />
@@ -560,15 +563,16 @@ export default function InventoryPage() {
                             {inventory.length > 0 ? (
                                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                                     {filteredInventory.length > 0 ? filteredInventory.map(item => (
-                                        <ProductCard 
-                                            key={item.id} 
-                                            item={item} 
-                                            onEdit={() => {}} 
-                                            onToggleExperiment={handleToggleExperiment} 
-                                            onEndExperiment={handleEndExperiment} 
-                                            onWriteOff={handleOpenWriteOff} 
-                                            onLogUse={handleOpenLogUse}
-                                        />
+                                       <ClientOnly key={item.id}>
+                                            <ProductCard 
+                                                item={item} 
+                                                onEdit={() => {}} 
+                                                onToggleExperiment={handleToggleExperiment} 
+                                                onEndExperiment={handleEndExperiment} 
+                                                onWriteOff={handleOpenWriteOff} 
+                                                onLogUse={handleOpenLogUse}
+                                            />
+                                        </ClientOnly>
                                     )) : (
                                         <p className="text-muted-foreground col-span-full text-center">No items match your search.</p>
                                     )}
@@ -700,6 +704,7 @@ export default function InventoryPage() {
   );
 
     
+
 
 
 
