@@ -779,7 +779,7 @@ export const EditServiceDialog = ({
                     <AlertTriangle className="h-4 w-4" />
                     <AlertTitle>Camera Access Required</AlertTitle>
                     <AlertDescription>
-                        Please allow camera access to use the scanner. You may need to change permissions in your browser settings.
+                        Please enable camera access to use the scanner. You may need to change permissions in your browser settings.
                     </AlertDescription>
                 </Alert>
             )}
