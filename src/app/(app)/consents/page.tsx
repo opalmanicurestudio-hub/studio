@@ -35,6 +35,7 @@ import { Progress } from '@/components/ui/progress';
 import { AddConsentFormDialog } from '@/components/consents/AddConsentFormDialog';
 import { FormField } from '@/components/consents/FieldEditor';
 import { PreviewConsentFormDialog } from '@/components/consents/PreviewConsentFormDialog';
+import { useToast } from '@/hooks/use-toast';
 
 type ConsentForm = {
   id: string;
@@ -93,7 +94,7 @@ const mockForms: ConsentForm[] = [
   },
 ];
 
-const ConsentCard = ({ form, onEdit, onPreview }: { form: ConsentForm, onEdit: (form: ConsentForm) => void; onPreview: (form: ConsentForm) => void; }) => {
+const ConsentCard = ({ form, onEdit, onPreview, onShare }: { form: ConsentForm, onEdit: (form: ConsentForm) => void; onPreview: (form: ConsentForm) => void; onShare: (form: ConsentForm) => void; }) => {
   const signedPercentage = form.totalClients > 0 ? (form.clientsSigned / form.totalClients) * 100 : 0;
 
   return (
@@ -119,7 +120,7 @@ const ConsentCard = ({ form, onEdit, onPreview }: { form: ConsentForm, onEdit: (
       </CardContent>
       <CardFooter className="p-2 border-t bg-muted/50 flex gap-2">
         <Button variant="ghost" size="sm" className="flex-1" onClick={() => onPreview(form)}><Eye className="w-4 h-4 mr-2"/>Preview</Button>
-        <Button variant="ghost" size="sm" className="flex-1"><Share2 className="w-4 h-4 mr-2"/>Share</Button>
+        <Button variant="ghost" size="sm" className="flex-1" onClick={() => onShare(form)}><Share2 className="w-4 h-4 mr-2"/>Share</Button>
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -154,6 +155,7 @@ export default function ConsentsPage() {
   const [isFormBuilderOpen, setIsFormBuilderOpen] = useState(false);
   const [editingForm, setEditingForm] = useState<ConsentForm | null>(null);
   const [previewingForm, setPreviewingForm] = useState<ConsentForm | null>(null);
+  const { toast } = useToast();
 
   const handleEditForm = (form: ConsentForm) => {
     setEditingForm(form);
@@ -168,6 +170,16 @@ export default function ConsentsPage() {
   const handlePreviewForm = (form: ConsentForm) => {
     setPreviewingForm(form);
   };
+
+  const handleShareForm = (form: ConsentForm) => {
+    // In a real app, you'd have a base URL from your environment variables
+    const bookingLink = `https://clarityflow.app/book/consent/${form.id}`;
+    navigator.clipboard.writeText(bookingLink);
+    toast({
+        title: "Link Copied!",
+        description: `A shareable link for "${form.title}" has been copied to your clipboard.`,
+    });
+  }
 
   const handleSaveForm = (savedForm: any) => {
     // This is where you would save to Firestore.
@@ -231,7 +243,7 @@ export default function ConsentsPage() {
             <TabsContent value={activeTab.toLowerCase()}>
                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                     {filteredForms.map(form => (
-                        <ConsentCard key={form.id} form={form} onEdit={handleEditForm} onPreview={handlePreviewForm} />
+                        <ConsentCard key={form.id} form={form} onEdit={handleEditForm} onPreview={handlePreviewForm} onShare={handleShareForm} />
                     ))}
                      <AddConsentCard onClick={handleAddNewForm}/>
                 </div>
