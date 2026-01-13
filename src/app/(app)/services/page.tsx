@@ -267,9 +267,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUp
             </div>
             <div className="p-2 rounded-md bg-muted/50">
                 <p className="text-xs text-muted-foreground">Margin</p>
-                 <Badge variant={profitPercentage > 75 ? 'default' : profitPercentage > 50 ? 'secondary' : 'destructive'} className='mt-1'>
-                    {profitPercentage.toFixed(0)}%
-                </Badge>
+                <p className={`font-semibold ${profitPercentage >= 0 ? 'text-primary' : 'text-destructive'}`}>{profitPercentage.toFixed(0)}%</p>
             </div>
         </div>
 
