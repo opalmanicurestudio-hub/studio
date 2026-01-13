@@ -12,12 +12,10 @@ import { ManageSpoilageDialog, SpoilageItem } from './ManageSpoilageDialog';
 import { useInventory } from '@/context/InventoryContext';
 import { type InventoryItem } from '@/lib/data';
 import { isPast, parseISO, differenceInMonths } from 'date-fns';
-import { useToast } from '@/hooks/use-toast';
 
-export const InventorySidebar = () => {
-    const { inventory, setInventory, stockCorrections, addStockCorrection } = useInventory();
+export const InventorySidebar = ({ onSpoilageConfirm }: { onSpoilageConfirm: (items: SpoilageItem[]) => void; }) => {
+    const { inventory, stockCorrections } = useInventory();
     const [isSpoilageDialogOpen, setIsSpoilageDialogOpen] = useState(false);
-    const { toast } = useToast();
 
     const {
         professionalValue,
@@ -92,43 +90,8 @@ export const InventorySidebar = () => {
         return Object.values(usageCounts).sort((a, b) => b.count - a.count).slice(0, 5);
     }, [stockCorrections, inventory]);
 
-    const handleSpoilageConfirm = (itemsToWriteOff: SpoilageItem[]) => {
-        setInventory(prevInventory => {
-            const newInventory = [...prevInventory];
-            itemsToWriteOff.forEach(item => {
-                const productIndex = newInventory.findIndex(p => p.id === item.productId);
-                if (productIndex !== -1) {
-                    const product = { ...newInventory[productIndex] };
-                    const batchIndex = product.batches.findIndex(b => b.id === item.batchId);
-                    if (batchIndex !== -1) {
-                        const batch = { ...product.batches[batchIndex] };
-                        const stockChange = batch.stock;
-                        batch.stock = 0; // Write off the entire batch stock
-                        product.batches[batchIndex] = batch;
-
-                        // Recalculate total stock
-                        product.totalStock = product.batches.reduce((acc, b) => acc + b.stock, 0);
-                        newInventory[productIndex] = product;
-
-                        // Create a stock correction record
-                        addStockCorrection({
-                            id: `sc-${Date.now()}-${item.productId}`,
-                            productId: item.productId,
-                            date: new Date().toISOString(),
-                            change: -stockChange,
-                            unit: 'units',
-                            reason: 'Expired',
-                        });
-                    }
-                }
-            });
-            return newInventory;
-        });
-
-        toast({
-            title: 'Spoilage Written Off',
-            description: `${itemsToWriteOff.length} item(s) have been removed from inventory.`,
-        });
+    const handleConfirmAndClose = (items: SpoilageItem[]) => {
+        onSpoilageConfirm(items);
         setIsSpoilageDialogOpen(false);
     };
 
@@ -234,9 +197,7 @@ export const InventorySidebar = () => {
             </CardContent>
         </Card>
 
-        <ManageSpoilageDialog open={isSpoilageDialogOpen} onOpenChange={setIsSpoilageDialogOpen} inventory={inventory} onConfirm={handleSpoilageConfirm} />
+        <ManageSpoilageDialog open={isSpoilageDialogOpen} onOpenChange={setIsSpoilageDialogOpen} inventory={inventory} onConfirm={handleConfirmAndClose} />
     </div>
     )
 };
-
-    
