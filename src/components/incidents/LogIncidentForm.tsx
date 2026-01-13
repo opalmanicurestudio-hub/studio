@@ -37,6 +37,8 @@ export const LogIncidentForm = () => {
                   <SelectValue placeholder="Select a type" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="Allergic Reaction">Allergic Reaction</SelectItem>
+                  <SelectItem value="Medical Issue">Medical Issue</SelectItem>
                   <SelectItem value="Client Complaint">Client Complaint</SelectItem>
                   <SelectItem value="Property Damage">Property Damage</SelectItem>
                   <SelectItem value="Facility Issue">Facility Issue</SelectItem>
