@@ -186,22 +186,22 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments }: { servi
 
 
   return (
-    <Card className="overflow-hidden w-full max-w-sm shrink-0 transition-all duration-200 hover:shadow-xl hover:-translate-y-1">
+    <Card className="overflow-hidden w-full max-w-[340px] shrink-0 transition-all duration-200 hover:shadow-xl hover:-translate-y-1">
       <CardContent className="p-3 space-y-3">
         <div className="flex items-start gap-3">
-          <Link href={`/services/${service.id}`} className="w-20 h-20 bg-muted rounded-md flex-shrink-0">
+          <Link href={`/services/${service.id}`} className="w-16 h-16 bg-muted rounded-md flex-shrink-0">
              <Image 
                 src={service.imageUrl || `https://picsum.photos/seed/svc${service.id}/200/200`} 
                 alt={service.name} 
-                width={80} 
-                height={80} 
+                width={64} 
+                height={64} 
                 className='rounded-md object-cover h-full w-full' 
                 data-ai-hint="manicure nails" 
             />
           </Link>
           <div className="flex-1 space-y-1">
             <div className="flex justify-between items-start">
-              <Link href={`/services/${service.id}`} className="font-semibold text-base hover:underline">{service.name}</Link>
+              <Link href={`/services/${service.id}`} className="font-semibold text-sm hover:underline">{service.name}</Link>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button aria-haspopup="true" size="icon" variant="ghost" className='-mt-1 h-8 w-8 flex-shrink-0'>
@@ -245,7 +245,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments }: { servi
 
         <Accordion type="multiple" className="w-full">
             <AccordionItem value="performance" className="border-b-0">
-                <AccordionTrigger className='p-3 text-sm font-medium hover:no-underline rounded-md bg-muted/50'>
+                <AccordionTrigger className='p-2.5 text-sm font-medium hover:no-underline rounded-md bg-muted/50'>
                     <div className='flex items-center gap-2'>
                         <BarChart className='w-4 h-4 text-primary' /> Performance
                     </div>
@@ -268,7 +268,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments }: { servi
                 </AccordionContent>
             </AccordionItem>
              <AccordionItem value="profit-tester" className="border-b-0 mt-2">
-                <AccordionTrigger className='p-3 text-sm font-medium hover:no-underline rounded-md bg-muted/50'>
+                <AccordionTrigger className='p-2.5 text-sm font-medium hover:no-underline rounded-md bg-muted/50'>
                     <div className='flex items-center gap-2'>
                         <Sparkles className='w-4 h-4 text-primary' /> Profit Tester
                     </div>
@@ -278,7 +278,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments }: { servi
                 </AccordionContent>
             </AccordionItem>
             <AccordionItem value="cost-breakdown" className="border-b-0 mt-2">
-                <AccordionTrigger className='p-3 text-sm font-medium hover:no-underline rounded-md bg-muted/50'>
+                <AccordionTrigger className='p-2.5 text-sm font-medium hover:no-underline rounded-md bg-muted/50'>
                     <div className='flex items-center gap-2'>
                         <FileText className='w-4 h-4 text-primary' /> Cost Breakdown
                     </div>
@@ -439,7 +439,7 @@ export default function ServicesPage() {
             </Button>
         </div>
 
-        <Card className="mb-6">
+         <Card className="mb-6">
             <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div className='flex-1'>
                     <h3 className="font-semibold">Your Default TMHR</h3>
@@ -470,7 +470,7 @@ export default function ServicesPage() {
         </div>
 
         <Tabs defaultValue="services">
-            <TabsList className="grid w-full grid-cols-2 sm:w-auto">
+            <TabsList className="grid w-full grid-cols-2 sm:w-auto sm:grid-cols-2">
                 <TabsTrigger value="services">Services</TabsTrigger>
                 <TabsTrigger value="add-ons">Add-ons</TabsTrigger>
             </TabsList>
@@ -517,3 +517,4 @@ export default function ServicesPage() {
     </div>
   );
 }
+
