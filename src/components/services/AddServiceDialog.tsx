@@ -433,14 +433,17 @@ const PricingForm = () => {
         }
     }, []);
 
-    const pricingStrategy = watch('pricingStrategy');
-    const margin = watch('margin', 60);
-    const manualPrice = watch('price');
-    const duration = watch('duration', 0);
-    const padBefore = watch('padBefore', 0);
-    const padAfter = watch('padAfter', 0);
-    const selectedProducts = watch('products', []);
-    const selectedEquipment = watch('equipment', []);
+    const formValues = watch();
+    const {
+        pricingStrategy,
+        duration,
+        padBefore,
+        padAfter,
+        products: selectedProducts,
+        equipment: selectedEquipment,
+        margin,
+        price: manualPrice,
+    } = formValues;
     
     const timeCost = useMemo(() => {
         const totalDuration = (duration || 0) + (padBefore || 0) + (padAfter || 0);
@@ -467,24 +470,27 @@ const PricingForm = () => {
 
     const breakEvenCost = timeCost + productCost + equipmentDepreciation;
 
-    const finalPrice = useMemo(() => {
-        if (pricingStrategy === 'manual') {
-            return manualPrice || 0;
+    let finalPrice = 0;
+    if (pricingStrategy === 'manual') {
+        finalPrice = manualPrice || 0;
+    } else {
+        const currentMargin = margin ?? 60;
+        if (breakEvenCost > 0 && currentMargin > 0 && (1 - (currentMargin / 100)) > 0) {
+            finalPrice = breakEvenCost / (1 - (currentMargin / 100));
+        } else {
+            finalPrice = breakEvenCost; // if margin is 0 or 100, price equals cost
         }
-        if (breakEvenCost > 0 && margin > 0 && (1 - (margin / 100)) > 0) {
-            return breakEvenCost / (1 - (margin / 100));
-        }
-        return breakEvenCost; // if margin is 0 or 100, price equals cost
-    }, [pricingStrategy, manualPrice, breakEvenCost, margin]);
+    }
     
-    const netProfit = finalPrice - breakEvenCost;
-    const profitMargin = finalPrice > 0 ? (netProfit / finalPrice) * 100 : 0;
-
     useEffect(() => {
         if (pricingStrategy === 'auto') {
-            setValue('price', finalPrice);
+            setValue('price', finalPrice, { shouldTouch: true });
         }
-    }, [finalPrice, setValue, pricingStrategy, breakEvenCost]);
+    }, [pricingStrategy, finalPrice, setValue]);
+
+
+    const netProfit = finalPrice - breakEvenCost;
+    const profitMargin = finalPrice > 0 ? (netProfit / finalPrice) * 100 : 0;
 
     return (
         <div className="grid gap-6 py-4">
