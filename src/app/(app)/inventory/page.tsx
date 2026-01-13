@@ -71,8 +71,8 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
       return (
         <div className="text-right">
             <p className="font-mono font-semibold text-lg">{item.totalStock} <span className="text-sm text-muted-foreground">full</span></p>
-            {shouldShowPartial && showPartialSize && <p className="text-xs text-muted-foreground">{item.partialContainerSize!.toFixed(0)}{item.unit} left</p>}
-            {shouldShowPartial && showPartialUses && <p className="text-xs text-muted-foreground">{item.partialContainerUses} uses left</p>}
+            {shouldShowPartial && showPartialSize && item.totalStock > 0 && <p className="text-xs text-muted-foreground">{item.partialContainerSize!.toFixed(0)}{item.unit} left</p>}
+            {shouldShowPartial && showPartialUses && item.totalStock > 0 && <p className="text-xs text-muted-foreground">{item.partialContainerUses} uses left</p>}
              {item.isExperimentActive && (
                 <Badge variant="secondary" className="mt-1 flex items-center gap-1.5 bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 w-fit ml-auto">
                     <FlaskConical className="h-3 w-3" />
@@ -354,7 +354,6 @@ export default function InventoryPage() {
     return { success, message };
   };
   
-
  const handleSpoilageConfirm = (itemsToWriteOff: SpoilageItem[]) => {
     setInventory(prevInventory => {
       const newInventory = [...prevInventory];
@@ -556,6 +555,7 @@ export default function InventoryPage() {
                                             <DropdownMenuItem onClick={() => setActiveFilter('professional')}>Professional</DropdownMenuItem>
                                             <DropdownMenuItem onClick={() => setActiveFilter('retail')}>Retail</DropdownMenuItem>
                                             <DropdownMenuItem onClick={() => setActiveFilter('equipment')}>Equipment</DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => setActiveFilter('overhead')}>Overhead</DropdownMenuItem>
                                         </DropdownMenuContent>
                                     </DropdownMenu>
                                 </div>
@@ -704,6 +704,7 @@ export default function InventoryPage() {
   );
 
     
+
 
 
 
