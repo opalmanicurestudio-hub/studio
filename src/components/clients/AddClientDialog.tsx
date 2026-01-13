@@ -116,15 +116,21 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
     const [referralSource, setReferralSource] = useState<string>('');
     const [tags, setTags] = useState<string[]>(['Friend of Owner']);
     const [tagInput, setTagInput] = useState('');
-
-    const handleTagInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-        if (e.key === 'Enter' && tagInput.trim()) {
-            e.preventDefault();
+    
+    const handleAddTag = () => {
+        if (tagInput.trim()) {
             const newTag = tagInput.trim();
             if (!tags.includes(newTag)) {
                 setTags([...tags, newTag]);
             }
             setTagInput('');
+        }
+    };
+
+    const handleTagInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            handleAddTag();
         }
     };
 
@@ -194,13 +200,16 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                     <h3 className="text-lg font-medium">Tags & Referral Source</h3>
                     <div className="space-y-2">
                         <Label htmlFor="custom-tags">Custom Tags</Label>
-                        <Input 
-                            id="custom-tags" 
-                            placeholder="Type a tag and press Enter (e.g., VIP)" 
-                            value={tagInput}
-                            onChange={(e) => setTagInput(e.target.value)}
-                            onKeyDown={handleTagInputKeyDown}
-                        />
+                        <div className="flex items-center gap-2">
+                            <Input 
+                                id="custom-tags" 
+                                placeholder="Type a tag..." 
+                                value={tagInput}
+                                onChange={(e) => setTagInput(e.target.value)}
+                                onKeyDown={handleTagInputKeyDown}
+                            />
+                            <Button type="button" onClick={handleAddTag}>Add</Button>
+                        </div>
                         <div className="flex flex-wrap gap-2 pt-2">
                             {tags.map(tag => (
                                 <Badge key={tag} variant="secondary" className="flex items-center gap-1">
