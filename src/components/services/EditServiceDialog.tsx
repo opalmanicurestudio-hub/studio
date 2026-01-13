@@ -706,11 +706,9 @@ export const EditServiceDialog = ({
     }
     
     const pricingStep = <PricingForm key={`step${totalSteps}`} />;
+    stepMap.push(pricingStep);
     
-    if (step === totalSteps) {
-      return pricingStep;
-    }
-    return stepMap[step - 1];
+    return stepMap[step-1];
   }
 
   return (
