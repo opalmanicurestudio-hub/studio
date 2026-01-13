@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -704,7 +705,6 @@ export const EditServiceDialog = ({
       stepMap.push(<Step3_Deposits key="step3" />);
     }
     
-    // Always add the pricing step last
     stepMap.push(<PricingForm key="pricing" />);
     
     return stepMap[step - 1];
