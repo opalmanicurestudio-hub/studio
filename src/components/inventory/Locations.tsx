@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState } from 'react';
@@ -74,7 +75,7 @@ const LocationCard = ({
 }) => {
     const Icon = locationType ? iconMap[locationType.icon]?.component : Box;
     return (
-        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => onClick(location)}>
+        <Card className="transition-all duration-200 hover:shadow-xl hover:-translate-y-1 cursor-pointer" onClick={() => onClick(location)}>
             <CardContent className="p-4 space-y-4">
                 <div className="flex items-start gap-4">
                     <div className="p-3 bg-muted/50 rounded-lg">
