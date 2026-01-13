@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -32,6 +31,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
+import { AddConsentFormDialog } from '@/components/consents/AddConsentFormDialog';
 
 type ConsentForm = {
   id: string;
@@ -82,7 +82,7 @@ const mockForms: ConsentForm[] = [
   },
 ];
 
-const ConsentCard = ({ form }: { form: ConsentForm }) => {
+const ConsentCard = ({ form, onEdit }: { form: ConsentForm, onEdit: (form: ConsentForm) => void; }) => {
   const signedPercentage = form.totalClients > 0 ? (form.clientsSigned / form.totalClients) * 100 : 0;
 
   return (
@@ -116,7 +116,7 @@ const ConsentCard = ({ form }: { form: ConsentForm }) => {
                 </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-                <DropdownMenuItem><FilePenLine className="w-4 h-4 mr-2"/>Edit</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onEdit(form)}><FilePenLine className="w-4 h-4 mr-2"/>Edit</DropdownMenuItem>
                 <DropdownMenuItem className="text-destructive"><Trash2 className="w-4 h-4 mr-2"/>Delete</DropdownMenuItem>
             </DropdownMenuContent>
         </DropdownMenu>
@@ -125,10 +125,10 @@ const ConsentCard = ({ form }: { form: ConsentForm }) => {
   );
 };
 
-const AddConsentCard = () => (
+const AddConsentCard = ({ onClick }: { onClick: () => void }) => (
     <Card className="border-2 border-dashed h-full flex items-center justify-center hover:border-primary transition-colors">
         <CardContent className="p-6 text-center">
-            <button className="flex flex-col items-center gap-2 text-muted-foreground hover:text-primary">
+            <button onClick={onClick} className="flex flex-col items-center gap-2 text-muted-foreground hover:text-primary">
                 <PlusCircle className="w-10 h-10" />
                 <span className="font-medium">Add New Form</span>
             </button>
@@ -140,6 +140,36 @@ export default function ConsentsPage() {
   const [forms, setForms] = useState<ConsentForm[]>(mockForms);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('all');
+  const [isFormBuilderOpen, setIsFormBuilderOpen] = useState(false);
+  const [editingForm, setEditingForm] = useState<ConsentForm | null>(null);
+
+  const handleEditForm = (form: ConsentForm) => {
+    setEditingForm(form);
+    setIsFormBuilderOpen(true);
+  };
+  
+  const handleAddNewForm = () => {
+    setEditingForm(null);
+    setIsFormBuilderOpen(true);
+  }
+
+  const handleSaveForm = (savedForm: any) => {
+    // This is where you would save to Firestore.
+    // For now, we'll just update the mock data.
+    console.log('Saving form:', savedForm);
+    if (editingForm) {
+      setForms(prev => prev.map(f => f.id === editingForm.id ? { ...f, ...savedForm, clientsSigned: f.clientsSigned, totalClients: f.totalClients } : f));
+    } else {
+      const newForm: ConsentForm = {
+        ...savedForm,
+        id: `form-${Date.now()}`,
+        clientsSigned: 0,
+        totalClients: 25, // Mock total
+      };
+      setForms(prev => [...prev, newForm]);
+    }
+  };
+
 
   const filteredForms = useMemo(() => {
     return forms
@@ -158,7 +188,7 @@ export default function ConsentsPage() {
               Create, manage, and track all your client-facing forms.
             </p>
           </div>
-          <Button>
+          <Button onClick={handleAddNewForm}>
             <PlusCircle className="mr-2 h-4 w-4" /> Add New Form
           </Button>
         </div>
@@ -185,13 +215,20 @@ export default function ConsentsPage() {
             <TabsContent value={activeTab.toLowerCase()}>
                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                     {filteredForms.map(form => (
-                        <ConsentCard key={form.id} form={form} />
+                        <ConsentCard key={form.id} form={form} onEdit={handleEditForm} />
                     ))}
-                     <AddConsentCard />
+                     <AddConsentCard onClick={handleAddNewForm}/>
                 </div>
             </TabsContent>
         </Tabs>
       </main>
+
+       <AddConsentFormDialog 
+        open={isFormBuilderOpen}
+        onOpenChange={setIsFormBuilderOpen}
+        onSave={handleSaveForm}
+        formToEdit={editingForm}
+       />
     </div>
   );
 }
