@@ -11,7 +11,7 @@ import {
   CardFooter
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Clock, DollarSign, Sparkles, Box, List, Pencil, Info, ShoppingCart, Hammer, BarChart, Users, TrendingUp, MapPin } from 'lucide-react';
+import { ArrowLeft, Clock, DollarSign, Sparkles, Box, List, Pencil, Info, ShoppingCart, Hammer, BarChart, Users, TrendingUp, MapPin, Link as LinkIcon } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { services as initialServices, type Service, inventory as allInventory, type InventoryItem, appointments, clients } from '@/lib/data';
@@ -21,9 +21,11 @@ import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
+import { useToast } from '@/hooks/use-toast';
 
-const ProfitAnalysisCard = ({ service, tmhr }: { service: Service; tmhr: number }) => {
+const ProfitAnalysisCard = ({ service, tmhr, onPriceUpdate }: { service: Service; tmhr: number; onPriceUpdate: (newPrice: number) => void; }) => {
     const [testPrice, setTestPrice] = useState(service.price);
+    const { toast } = useToast();
 
     useEffect(() => {
         setTestPrice(service.price);
@@ -47,6 +49,14 @@ const ProfitAnalysisCard = ({ service, tmhr }: { service: Service; tmhr: number 
 
         return { profit: profitValue, margin: marginValue, breakEvenPoint: breakEven };
     }, [service, testPrice, tmhr]);
+    
+    const handleUpdateClick = () => {
+        onPriceUpdate(testPrice);
+        toast({
+            title: "Price Updated",
+            description: `${service.name} price is now $${testPrice.toFixed(2)}.`,
+        });
+    };
 
   return (
     <Card className="lg:sticky top-24">
@@ -86,6 +96,11 @@ const ProfitAnalysisCard = ({ service, tmhr }: { service: Service; tmhr: number 
             <p>Break-Even Point: ${breakEvenPoint?.toFixed(2)}</p>
         </div>
       </CardContent>
+       <CardFooter>
+            <Button className="w-full" onClick={handleUpdateClick} disabled={testPrice === service.price}>
+                Update Service Price
+            </Button>
+        </CardFooter>
     </Card>
   );
 };
@@ -172,8 +187,9 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
 
 export default function ServiceDetailPage() {
     const { id } = useParams<{ id: string }>();
-    const service = initialServices.find(s => s.id === id);
+    const [service, setService] = useState<Service | undefined>(initialServices.find(s => s.id === id));
     const [tmhr, setTmhr] = useState(0);
+    const { toast } = useToast();
 
     useEffect(() => {
         if (typeof window !== 'undefined') {
@@ -197,6 +213,39 @@ export default function ServiceDetailPage() {
             avgRevenuePerBooking: bookings.length > 0 ? totalRevenue / bookings.length : 0,
         };
     }, [service]);
+    
+    const handlePriceUpdate = (newPrice: number) => {
+        if (!service) return;
+
+        const totalDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
+        const timeCost = (totalDuration / 60) * tmhr;
+        const productCost = (service.products || []).reduce((acc, p) => acc + (p.costPerUnit || 0), 0);
+        const equipmentDepreciation = (service.equipment || []).reduce((acc, eq) => {
+            const lifespanInMinutes = (eq.lifespanYears || 5) * 365 * 8 * 60;
+            const costPerMinute = (eq.costPerUnit || 0) / lifespanInMinutes;
+            return acc + (costPerMinute * totalDuration);
+        }, 0);
+        const breakEvenCost = timeCost + productCost + equipmentDepreciation;
+        const newProfit = newPrice - breakEvenCost;
+        const newMargin = newPrice > 0 ? (newProfit / newPrice) * 100 : 0;
+
+        setService(prevService => prevService ? {
+            ...prevService,
+            price: newPrice,
+            profit: newProfit,
+            margin: newMargin,
+        } : undefined);
+    };
+    
+     const handleCopyLink = () => {
+        if (!service) return;
+        const bookingLink = `https://book.clarityflow.app/${service.id}`;
+        navigator.clipboard.writeText(bookingLink);
+        toast({
+            title: "Booking Link Copied!",
+            description: "You can now share this direct link with your clients.",
+        });
+    };
 
 
     if (!service) {
@@ -216,10 +265,13 @@ export default function ServiceDetailPage() {
                 Back to Services
                 </Link>
             </Button>
-            <Button>
-                <Pencil className="mr-2 h-4 w-4" />
-                Edit Service
-            </Button>
+            <div className="flex items-center gap-2">
+                <Button variant="outline" onClick={handleCopyLink}><LinkIcon className="mr-2"/> Copy Booking Link</Button>
+                <Button>
+                    <Pencil className="mr-2 h-4 w-4" />
+                    Edit Service
+                </Button>
+            </div>
         </div>
 
         <div className="grid lg:grid-cols-3 gap-8 items-start">
@@ -304,7 +356,7 @@ export default function ServiceDetailPage() {
 
             </div>
             <div className="lg:col-span-1">
-                <ProfitAnalysisCard service={service} tmhr={tmhr} />
+                <ProfitAnalysisCard service={service} tmhr={tmhr} onPriceUpdate={handlePriceUpdate} />
             </div>
         </div>
       </main>
