@@ -114,7 +114,7 @@ const ClientIntelAccordion = () => (
 const AddClientForm = ({ clients }: { clients: Client[] }) => {
     const [date, setDate] = useState<Date>();
     const [referralSource, setReferralSource] = useState<string>('');
-    const [tags, setTags] = useState<string[]>(['Friend of Owner']);
+    const [tags, setTags] = useState<string[]>([]);
     const [tagInput, setTagInput] = useState('');
     
     const handleAddTag = () => {
