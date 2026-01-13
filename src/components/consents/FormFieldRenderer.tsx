@@ -12,6 +12,7 @@ import { Button } from '../ui/button';
 import { ImageUpload } from '../shared/ImageUpload';
 import SignatureCanvas from 'react-signature-canvas';
 import Image from 'next/image';
+import { cn } from '@/lib/utils';
 
 interface FormFieldRendererProps {
   field: FormField;
@@ -100,7 +101,7 @@ export const FormFieldRenderer: React.FC<FormFieldRendererProps> = ({ field }) =
       return (
         <div className="space-y-2">
           <Label>{field.label}</Label>
-           <div className="relative rounded-md border border-input bg-background aspect-video w-full">
+           <div className={cn("relative rounded-md border border-input bg-background w-full aspect-square md:aspect-video")}>
             {signatureDataUrl ? (
                  <Image src={signatureDataUrl} alt="signature" layout="fill" objectFit="contain" />
             ) : (
