@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { usePathname } from 'next/navigation';
@@ -29,7 +28,8 @@ import {
   Wallet,
   BookOpen,
   Landmark,
-  DollarSign
+  DollarSign,
+  FileSignature
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -61,6 +61,7 @@ const setupNavItems = [
   { href: '/services', icon: List, label: 'Services' },
   { href: '/inventory', icon: Box, label: 'Inventory' },
   { href: '/clients', icon: Users, label: 'Clients' },
+  { href: '/consents', icon: FileSignature, label: 'Consents' },
 ];
 
 const operationsNavItems = [
