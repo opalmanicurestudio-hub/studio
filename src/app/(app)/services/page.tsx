@@ -13,7 +13,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Clock, DollarSign, Sparkles, Box, List, Pencil, Search, SlidersHorizontal, Info, ShoppingCart, Hammer, FileText, BarChart, Users, TrendingUp, MapPin, Book, Calendar as CalendarIcon } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Clock, DollarSign, Sparkles, Box, List, Pencil, Search, SlidersHorizontal, Info, ShoppingCart, Hammer, FileText, BarChart, Users, TrendingUp, MapPin, Book, Calendar as CalendarIcon, Landmark } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,8 +38,9 @@ import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 
-const InlineProfitTester = ({ service, tmhr }: { service: Service, tmhr: number }) => {
+const InlineProfitTester = ({ service, tmhr, onPriceUpdate }: { service: Service, tmhr: number, onPriceUpdate: (newPrice: number) => void; }) => {
   const [testPrice, setTestPrice] = useState(service.price);
+  const { toast } = useToast();
 
   useEffect(() => {
     setTestPrice(service.price);
@@ -63,6 +64,14 @@ const InlineProfitTester = ({ service, tmhr }: { service: Service, tmhr: number 
 
     return { profit: profitValue, margin: marginValue, breakEvenPoint };
   }, [service, testPrice, tmhr]);
+  
+  const handleUpdateClick = () => {
+    onPriceUpdate(testPrice);
+    toast({
+        title: "Price Updated",
+        description: `${service.name} price is now $${testPrice.toFixed(2)}.`,
+    });
+  };
 
   return (
     <div className="space-y-4">
@@ -97,6 +106,9 @@ const InlineProfitTester = ({ service, tmhr }: { service: Service, tmhr: number 
        <div className='text-[10px] text-muted-foreground space-y-0.5 text-center'>
           <p>Break-Even: ${breakEvenPoint?.toFixed(2)}</p>
        </div>
+       <Button size="sm" className="w-full" onClick={handleUpdateClick} disabled={testPrice === service.price}>
+            Update Service Price
+        </Button>
     </div>
   );
 };
@@ -172,7 +184,7 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
   );
 };
 
-const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments }: { service: Service, onEditServiceOpen: (service: Service) => void, tmhr: number, appointments: Appointment[] | null }) => {
+const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUpdate }: { service: Service, onEditServiceOpen: (service: Service) => void, tmhr: number, appointments: Appointment[] | null, onPriceUpdate: (serviceId: string, newPrice: number) => void }) => {
   const profitPercentage = service.price > 0 ? (service.profit / service.price) * 100 : 0;
   const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
   
@@ -228,7 +240,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments }: { servi
             </div>
             <div className="text-sm text-muted-foreground space-y-1">
                 <div className="flex items-center gap-1.5"><Clock className="w-4 h-4" /> {service.duration} min {totalPadding > 0 && <span className='text-muted-foreground/50'>(+{totalPadding} pad)</span>}</div>
-                <div className="flex items-center gap-1.5"><DollarSign className="w-4 h-4" /> {service.price.toFixed(2)}</div>
+                <div className="flex items-center gap-1.5"><Landmark className="w-4 h-4" /> {service.price.toFixed(2)}</div>
             </div>
           </div>
         </div>
@@ -281,7 +293,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments }: { servi
                             </div>
                         </TabsContent>
                         <TabsContent value="profit" className="mt-4">
-                             <InlineProfitTester service={service} tmhr={tmhr} />
+                             <InlineProfitTester service={service} tmhr={tmhr} onPriceUpdate={(newPrice) => onPriceUpdate(service.id, newPrice)} />
                         </TabsContent>
                          <TabsContent value="cost" className="mt-4">
                             <CostBreakdown service={service} tmhr={tmhr} />
@@ -301,14 +313,14 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments }: { servi
   );
 };
 
-const ServiceCategory = ({ title, services, onEditServiceOpen, tmhr, appointments }: { title: string, services: Service[], onEditServiceOpen: (service: Service) => void, tmhr: number, appointments: Appointment[] | null }) => {
+const ServiceCategory = ({ title, services, onEditServiceOpen, tmhr, appointments, onPriceUpdate }: { title: string, services: Service[], onEditServiceOpen: (service: Service) => void, tmhr: number, appointments: Appointment[] | null, onPriceUpdate: (serviceId: string, newPrice: number) => void }) => {
     if (services.length === 0) return null;
     return (
         <div>
             <h2 className="text-2xl font-bold mb-4">{title}</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                 {services.map((service) => (
-                    <ServiceCard key={service.id} service={service} onEditServiceOpen={onEditServiceOpen} tmhr={tmhr} appointments={appointments} />
+                    <ServiceCard key={service.id} service={service} onEditServiceOpen={onEditServiceOpen} tmhr={tmhr} appointments={appointments} onPriceUpdate={onPriceUpdate} />
                 ))}
             </div>
         </div>
@@ -365,6 +377,23 @@ export default function ServicesPage() {
   const handleOpenEditService = (service: Service) => {
     setSelectedService(service);
     setIsEditServiceDialogOpen(true);
+  };
+  
+  const handlePriceUpdate = (serviceId: string, newPrice: number) => {
+    setServices(prevServices => prevServices.map(s => {
+        if (s.id === serviceId) {
+             const breakEvenCost = s.cost;
+             const newProfit = newPrice - breakEvenCost;
+             const newMargin = newPrice > 0 ? (newProfit / newPrice) * 100 : 0;
+            return {
+                ...s,
+                price: newPrice,
+                profit: newProfit,
+                margin: newMargin
+            };
+        }
+        return s;
+    }));
   };
   
   const filteredServices = useMemo(() => {
@@ -467,21 +496,21 @@ export default function ServicesPage() {
         </div>
         
         <Tabs defaultValue="services" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 sm:w-auto">
+          <TabsList className="grid w-full grid-cols-2 sm:w-auto sm:inline-flex">
             <TabsTrigger value="services">Services</TabsTrigger>
             <TabsTrigger value="add-ons">Add-ons</TabsTrigger>
           </TabsList>
           <TabsContent value="services" className="mt-6 space-y-8">
              {Object.keys(servicesByCategory).length > 0 ? (
                 Object.entries(servicesByCategory).map(([category, services]) => (
-                    <ServiceCategory key={category} title={category} services={services} onEditServiceOpen={handleOpenEditService} tmhr={tmhr} appointments={appointments} />
+                    <ServiceCategory key={category} title={category} services={services} onEditServiceOpen={handleOpenEditService} tmhr={tmhr} appointments={appointments} onPriceUpdate={handlePriceUpdate}/>
                 ))
             ) : <EmptyState onAddNewService={() => setIsAddServiceDialogOpen(true)} />}
           </TabsContent>
           <TabsContent value="add-ons" className="mt-6 space-y-8">
              {Object.keys(addOnsByCategory).length > 0 ? (
                 Object.entries(addOnsByCategory).map(([category, services]) => (
-                    <ServiceCategory key={category} title={category} services={services} onEditServiceOpen={handleOpenEditService} tmhr={tmhr} appointments={appointments} />
+                    <ServiceCategory key={category} title={category} services={services} onEditServiceOpen={handleOpenEditService} tmhr={tmhr} appointments={appointments} onPriceUpdate={handlePriceUpdate}/>
                 ))
              ) : (
                 <Card>
@@ -515,4 +544,3 @@ export default function ServicesPage() {
     </div>
   );
 }
-
