@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -58,9 +57,7 @@ const serviceSchema = z.object({
     depositType: z.enum(['none', 'deposit', 'full']),
     depositAmount: z.number().optional(),
     
-    pricingStrategy: z.enum(['manual', 'auto']),
     price: z.number().optional(),
-    margin: z.number().optional(),
 });
 
 type ServiceFormData = z.infer<typeof serviceSchema>;
@@ -421,11 +418,11 @@ const Step3_Deposits = () => {
 };
 
 const PricingPreview = () => {
-    const { watch, setValue } = useFormContext<ServiceFormData>();
+    const { watch } = useFormContext<ServiceFormData>();
     const [tmhr, setTmhr] = useState(0);
 
     const values = watch();
-    const { pricingStrategy, duration, padBefore, padAfter, products, equipment, margin, price: manualPrice } = values;
+    const { duration, padBefore, padAfter, products, equipment, price } = values;
 
     useEffect(() => {
         if (typeof window !== 'undefined') {
@@ -452,25 +449,8 @@ const PricingPreview = () => {
 
         return timeCost + productCost + equipmentDepreciation;
     }, [duration, padBefore, padAfter, products, equipment, tmhr]);
-
-    let finalPrice = 0;
-    if (pricingStrategy === 'manual') {
-        finalPrice = manualPrice || 0;
-    } else {
-        const currentMargin = margin ?? 60;
-        if (breakEvenCost > 0 && currentMargin > 0 && (1 - (currentMargin / 100)) > 0) {
-            finalPrice = breakEvenCost / (1 - (currentMargin / 100));
-        } else {
-            finalPrice = breakEvenCost;
-        }
-    }
     
-    useEffect(() => {
-        if (pricingStrategy === 'auto') {
-            setValue('price', finalPrice, { shouldTouch: true, shouldDirty: true });
-        }
-    }, [pricingStrategy, finalPrice, setValue]);
-
+    const finalPrice = price || 0;
     const netProfit = finalPrice - breakEvenCost;
     const profitMargin = finalPrice > 0 ? (netProfit / finalPrice) * 100 : 0;
     
@@ -506,65 +486,14 @@ const PricingPreview = () => {
 
 
 const PricingForm = () => {
-    const { control, register } = useFormContext<ServiceFormData>();
-    const pricingStrategy = watch('pricingStrategy');
-    const margin = watch('margin');
+    const { register } = useFormContext<ServiceFormData>();
 
     return (
         <div className="grid gap-6 py-4">
             <div className="space-y-2">
-                <Label>Pricing Strategy</Label>
-                 <Controller
-                    name="pricingStrategy"
-                    control={control}
-                    defaultValue="manual"
-                    render={({ field }) => (
-                        <RadioGroup
-                            onValueChange={field.onChange}
-                            defaultValue={field.value}
-                            className="grid grid-cols-2 gap-2"
-                        >
-                            <div>
-                                <RadioGroupItem value="manual" id="manual" className="peer sr-only" />
-                                <Label htmlFor="manual" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Manual</Label>
-                            </div>
-                            <div>
-                                <RadioGroupItem value="auto" id="auto" className="peer sr-only" />
-                                <Label htmlFor="auto" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Auto (Margin-Based)</Label>
-                            </div>
-                        </RadioGroup>
-                    )}
-                />
+                <Label htmlFor="final-price">Final Price</Label>
+                <Input id="final-price" type="number" placeholder="100.00" {...register('price', { valueAsNumber: true })} />
             </div>
-            
-            {pricingStrategy === 'manual' ? (
-                <div className="space-y-2">
-                    <Label htmlFor="final-price">Final Price</Label>
-                    <Input id="final-price" type="number" placeholder="100.00" {...register('price', { valueAsNumber: true })} />
-                </div>
-            ) : (
-                <div className="space-y-4">
-                    <div className="flex justify-between items-baseline">
-                        <Label>Desired Profit Margin</Label>
-                        <span className="text-2xl font-bold text-primary">{margin}%</span>
-                    </div>
-                     <Controller
-                        name="margin"
-                        control={control}
-                        defaultValue={60}
-                        render={({ field: { onChange, value, ...fieldProps } }) => (
-                           <Slider
-                                min={0}
-                                max={100}
-                                step={1}
-                                onValueChange={(value) => onChange(value[0])}
-                                value={[value || 60]}
-                                {...fieldProps}
-                            />
-                        )}
-                    />
-                </div>
-            )}
             <PricingPreview />
         </div>
     );
@@ -601,8 +530,7 @@ export const AddServiceDialog = ({
         equipment: [],
         addOns: [],
         depositType: 'none',
-        pricingStrategy: 'manual',
-        margin: 60,
+        price: 0,
     }
   });
 
@@ -727,7 +655,6 @@ export const AddServiceDialog = ({
       stepMap.push(<Step3_Deposits key="step3" />);
     }
     
-    // Always add the pricing step last
     stepMap.push(<PricingForm key="pricing" />);
     
     return stepMap[step - 1];
