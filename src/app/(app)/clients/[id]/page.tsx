@@ -1,5 +1,8 @@
 
 
+'use client';
+
+import React, { useState } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -11,9 +14,9 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, Hash, FileText, FlaskConical, PlusCircle } from 'lucide-react';
-import { clients, appointments, services, inventory, type CustomFormula } from '@/lib/data';
+import { clients as initialClients, appointments, services, inventory, type CustomFormula, Client } from '@/lib/data';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { format } from 'date-fns';
 import { Textarea } from '@/components/ui/textarea';
@@ -21,6 +24,8 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { AddFormulaDialog } from '@/components/clients/AddFormulaDialog';
+import { useToast } from '@/hooks/use-toast';
 
 const FormulaCard = ({ formula }: { formula: CustomFormula }) => (
     <AccordionItem value={formula.name} className="border-b-0">
@@ -43,7 +48,10 @@ const FormulaCard = ({ formula }: { formula: CustomFormula }) => (
 )
 
 export default function ClientDetailPage({ params }: { params: { id: string } }) {
+  const [clients, setClients] = useState<Client[]>(initialClients);
   const client = clients.find((c) => c.id === params.id);
+  const { toast } = useToast();
+  const [isAddFormulaOpen, setIsAddFormulaOpen] = useState(false);
 
   if (!client) {
     notFound();
@@ -53,6 +61,23 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const upcomingAppointments = clientAppointments.filter(apt => apt.startTime > new Date() && apt.status !== 'cancelled');
   const pastAppointments = clientAppointments.filter(apt => apt.startTime <= new Date()).sort((a,b) => b.startTime.getTime() - a.startTime.getTime());
 
+  const handleSaveFormula = (newFormula: CustomFormula) => {
+    setClients(prevClients => 
+      prevClients.map(c => {
+        if (c.id === client.id) {
+          return {
+            ...c,
+            customFormulas: [...(c.customFormulas || []), newFormula]
+          };
+        }
+        return c;
+      })
+    );
+    toast({
+      title: 'Formula Saved!',
+      description: `"${newFormula.name}" has been added to ${client.name}'s profile.`,
+    });
+  };
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -145,7 +170,9 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                                                 <p>No custom formulas saved for {client.name}.</p>
                                             </div>
                                         )}
-                                        <Button variant="outline" className="w-full"><PlusCircle className="w-4 h-4 mr-2" /> Add New Formula</Button>
+                                        <Button variant="outline" className="w-full" onClick={() => setIsAddFormulaOpen(true)}>
+                                            <PlusCircle className="w-4 h-4 mr-2" /> Add New Formula
+                                        </Button>
                                     </CardContent>
                                 </TabsContent>
                                 <TabsContent value="notes" className="m-0">
@@ -283,7 +310,12 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                 </Card>
             </TabsContent>
         </Tabs>
-
+        
+        <AddFormulaDialog 
+            open={isAddFormulaOpen}
+            onOpenChange={setIsAddFormulaOpen}
+            onSave={handleSaveFormula}
+        />
       </main>
     </div>
   );
