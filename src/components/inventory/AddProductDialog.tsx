@@ -176,14 +176,6 @@ const Step2_CostingPricing = ({ productType }: { productType: ProductType }) => 
                                         <SelectItem value="pt">pint (pt)</SelectItem>
                                         <SelectItem value="qt">quart (qt)</SelectItem>
                                         <SelectItem value="gal">gallon (gal)</SelectItem>
-                                        <SelectItem value="each">each</SelectItem>
-                                        <SelectItem value="piece">piece</SelectItem>
-                                        <SelectItem value="set">set</SelectItem>
-                                        <SelectItem value="pair">pair</SelectItem>
-                                        <SelectItem value="sheet">sheet</SelectItem>
-                                        <SelectItem value="capsule">capsule</SelectItem>
-                                        <SelectItem value="tablet">tablet</SelectItem>
-                                        <SelectItem value="wipe">wipe</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -201,6 +193,14 @@ const Step2_CostingPricing = ({ productType }: { productType: ProductType }) => 
                                         <SelectValue placeholder="Select dispensing unit" />
                                     </SelectTrigger>
                                     <SelectContent>
+                                        <SelectItem value="each">each</SelectItem>
+                                        <SelectItem value="piece">piece</SelectItem>
+                                        <SelectItem value="set">set</SelectItem>
+                                        <SelectItem value="pair">pair</SelectItem>
+                                        <SelectItem value="sheet">sheet</SelectItem>
+                                        <SelectItem value="capsule">capsule</SelectItem>
+                                        <SelectItem value="tablet">tablet</SelectItem>
+                                        <SelectItem value="wipe">wipe</SelectItem>
                                         <SelectItem value="pumps">pumps</SelectItem>
                                         <SelectItem value="sprays">sprays</SelectItem>
                                         <SelectItem value="drops">drops</SelectItem>
