@@ -12,7 +12,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette, QrCode, AlertTriangle, ListFilter, ChevronDown, ShoppingCart, Briefcase } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette, QrCode, AlertTriangle, ListFilter, ChevronDown, ShoppingCart, Briefcase, DollarSign, Activity, Eye, CircleHelp, Warehouse, Beaker, Recycle, TrendingUp } from 'lucide-react';
 import { type InventoryItem, type StockCorrection } from '@/lib/data';
 import {
   DropdownMenu,
@@ -37,20 +37,200 @@ import { Locations } from '@/components/inventory/Locations';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { isPast, parseISO } from 'date-fns';
+import { isPast, parseISO, differenceInMonths } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Separator } from '@/components/ui/separator';
+import { ManageSpoilageDialog } from '@/components/inventory/ManageSpoilageDialog';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 
-const KPI_CARDS = [
-    { title: "Total Inventory Value", value: "$1,850.75", icon: Package, description: "Landed cost of all stock" },
-    { title: "Potential Revenue", value: "$4,320.00", icon: BarChart, description: "Retail value of sellable stock" },
-    { title: "At-Risk Stock", value: "$75.00", icon: PackageX, description: "Value of expired/expiring items" },
-    { title: "Items to Reorder", value: "3", icon: ClipboardList, description: "Products at or below reorder point" }
-];
+const InventorySidebar = () => {
+    const { inventory, stockCorrections } = useInventory();
+    const [isSpoilageDialogOpen, setIsSpoilageDialogOpen] = useState(false);
+
+    const {
+        professionalValue,
+        retailValue,
+        overheadValue,
+        equipmentValue,
+        totalValue,
+        expiredValue,
+        expiredItemsCount,
+        activeExperiments,
+    } = useMemo(() => {
+        let profVal = 0;
+        let retVal = 0;
+        let overVal = 0;
+        let equipVal = 0;
+        let expVal = 0;
+        let expCount = 0;
+        const activeExp: InventoryItem[] = [];
+
+        inventory.forEach(item => {
+            const itemTotalValue = (item.totalStock || 0) * (item.costPerUnit || 0);
+
+            if (item.type === 'professional') profVal += itemTotalValue;
+            if (item.type === 'retail') retVal += itemTotalValue;
+            if (item.type === 'overhead') overVal += itemTotalValue;
+            if (item.type === 'equipment') {
+                const purchaseCost = item.costPerUnit || 0;
+                const lifespanMonths = (item.lifespanYears || 5) * 12;
+                const monthlyDepreciation = lifespanMonths > 0 ? purchaseCost / lifespanMonths : 0;
+                const purchaseDate = item.batches[0]?.receivedDate ? parseISO(item.batches[0].receivedDate) : new Date();
+                const monthsInService = differenceInMonths(new Date(), purchaseDate);
+                const accumulatedDepreciation = Math.min(monthlyDepreciation * monthsInService, purchaseCost);
+                equipVal += purchaseCost - accumulatedDepreciation;
+            }
+            if (item.isExperimentActive) {
+                activeExp.push(item);
+            }
+
+            item.batches.forEach(batch => {
+                if (batch.expirationDate && isPast(parseISO(batch.expirationDate)) && batch.stock > 0) {
+                    expVal += batch.stock * batch.costPerUnit;
+                    expCount += batch.stock;
+                }
+            });
+        });
+
+        return {
+            professionalValue: profVal,
+            retailValue: retVal,
+            overheadValue: overVal,
+            equipmentValue: equipVal,
+            totalValue: profVal + retVal + overVal + equipVal,
+            expiredValue: expVal,
+            expiredItemsCount: expCount,
+            activeExperiments: activeExp,
+        };
+    }, [inventory]);
+
+    const topUsedProducts = useMemo(() => {
+        const usageCounts: { [key: string]: { name: string; count: number } } = {};
+        stockCorrections
+            .filter(sc => sc.reason.startsWith('Appointment'))
+            .forEach(sc => {
+                const product = inventory.find(p => p.id === sc.productId);
+                if (product) {
+                    if (!usageCounts[sc.productId]) {
+                        usageCounts[sc.productId] = { name: product.name, count: 0 };
+                    }
+                    usageCounts[sc.productId].count += Math.abs(sc.change);
+                }
+            });
+        return Object.values(usageCounts).sort((a, b) => b.count - a.count).slice(0, 5);
+    }, [stockCorrections, inventory]);
+
+    return (
+    <div className="lg:sticky top-24 space-y-6">
+        <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2"><DollarSign className="text-primary"/> Inventory Value</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+                 <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground flex items-center gap-2"><Package className="w-4 h-4"/> Professional</span>
+                    <span className="font-semibold font-mono">${professionalValue.toFixed(2)}</span>
+                </div>
+                 <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground flex items-center gap-2"><Store className="w-4 h-4"/> Retail</span>
+                    <span className="font-semibold font-mono">${retailValue.toFixed(2)}</span>
+                </div>
+                 <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground flex items-center gap-2"><Recycle className="w-4 h-4"/> Overhead</span>
+                    <span className="font-semibold font-mono">${overheadValue.toFixed(2)}</span>
+                </div>
+                 <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground flex items-center gap-2"><Hammer className="w-4 h-4"/> Equipment</span>
+                    <span className="font-semibold font-mono">${equipmentValue.toFixed(2)}</span>
+                </div>
+            </CardContent>
+            <CardFooter className="p-4 bg-muted/50 flex justify-between items-baseline">
+                 <span className="font-semibold">Total Value</span>
+                 <span className="font-bold text-lg text-primary">${totalValue.toFixed(2)}</span>
+            </CardFooter>
+        </Card>
+         <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2"><TrendingUp className="text-primary"/> Usage & Consumption</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm">
+                <div>
+                    <h4 className="font-semibold text-xs text-muted-foreground mb-2">Top 5 Products Used in Services</h4>
+                    <div className="space-y-2">
+                        {topUsedProducts.map(p => (
+                            <div key={p.name} className="flex justify-between items-center text-xs">
+                                <span className="truncate pr-2">{p.name}</span>
+                                <Badge variant="secondary">{p.count} uses</Badge>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+                <Separator />
+                <div className="flex justify-between items-center">
+                    <h4 className="font-semibold text-xs text-muted-foreground">Consumed Overhead</h4>
+                     <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="outline" size="xs">Log Use</Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p>This feature is coming soon!</p>
+                            </TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
+                </div>
+            </CardContent>
+        </Card>
+        <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2"><AlertTriangle className="text-destructive"/> Spoilage & Risk</CardTitle>
+            </CardHeader>
+            <CardContent>
+                <div className="p-4 rounded-lg bg-destructive/10 text-destructive flex justify-between items-center">
+                    <div>
+                        <p className="font-bold">{expiredItemsCount} items expired</p>
+                        <p className="text-xs">Potential loss calculated</p>
+                    </div>
+                    <div className="text-right">
+                        <p className="text-2xl font-bold">${expiredValue.toFixed(2)}</p>
+                    </div>
+                </div>
+            </CardContent>
+             <CardFooter>
+                 <Button variant="destructive" className="w-full" onClick={() => setIsSpoilageDialogOpen(true)}><Recycle className="mr-2"/> Manage Spoilage</Button>
+             </CardFooter>
+        </Card>
+        <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2"><FlaskConical className="text-primary"/> Active Experiments</CardTitle>
+            </CardHeader>
+            <CardContent>
+                 {activeExperiments.length > 0 ? (
+                    <div className="space-y-2">
+                        {activeExperiments.map(item => (
+                            <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md">
+                                <span className="text-sm font-medium">{item.name}</span>
+                                <Badge variant="outline" className="border-purple-500/30 text-purple-700 dark:text-purple-300">
+                                    {item.type === 'equipment' ? 'Lifespan Test' : 'Cost-Per-Use'}
+                                </Badge>
+                            </div>
+                        ))}
+                    </div>
+                 ) : (
+                    <p className="text-sm text-center text-muted-foreground py-4">No active experiments.</p>
+                 )}
+            </CardContent>
+        </Card>
+
+        <ManageSpoilageDialog open={isSpoilageDialogOpen} onOpenChange={setIsSpoilageDialogOpen} inventory={inventory} onConfirm={() => {}} />
+    </div>
+    )
+}
 
 const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff, onLogUse }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (item: InventoryItem) => void, onLogUse: (item: InventoryItem) => void }) => {
     
@@ -69,10 +249,10 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
         <div className="text-right">
             <p className="font-mono font-semibold text-lg">{item.totalStock} <span className="text-sm text-muted-foreground">full</span></p>
             {item.costingMethod === 'size' && !item.isExperimentActive && item.partialContainerSize !== undefined && item.partialContainerSize > 0 && (
-                <p className="text-xs text-muted-foreground">{item.partialContainerSize.toFixed(0)}{item.unit} left in open container</p>
+                <p className="text-xs text-muted-foreground">{item.partialContainerSize.toFixed(0)}{item.unit} left</p>
             )}
             {item.costingMethod === 'uses' && !item.isExperimentActive && item.partialContainerUses !== undefined && item.partialContainerUses > 0 && (
-                <p className="text-xs text-muted-foreground">{item.partialContainerUses} uses left in open container</p>
+                <p className="text-xs text-muted-foreground">{item.partialContainerUses} uses left</p>
             )}
              {item.isExperimentActive && (
                 <Badge variant="secondary" className="mt-1 flex items-center gap-1.5 bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 w-fit ml-auto">
@@ -382,120 +562,113 @@ export default function InventoryPage() {
   return (
     <div className="flex h-screen w-full flex-col">
       <AppHeader title="Inventory Hub" />
-      <main className="flex-1 p-4 md:p-8 space-y-6">
+      <main className="flex-1 p-4 md:p-8">
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-             {KPI_CARDS.map((kpi, index) => (
-                <Card key={index}>
-                    <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">{kpi.title}</CardTitle>
-                        <kpi.icon className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{kpi.value}</div>
-                        <p className="text-xs text-muted-foreground">{kpi.description}</p>
-                    </CardContent>
-                </Card>
-            ))}
-        </div>
+        <div className="grid lg:grid-cols-4 gap-8">
+            <div className="lg:col-span-1">
+                <InventorySidebar />
+            </div>
 
-        <Tabs value={activeView} onValueChange={setActiveView} className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="products">Products</TabsTrigger>
-            <TabsTrigger value="locations">Locations</TabsTrigger>
-          </TabsList>
-          <TabsContent value="products" className="mt-6">
-             <Card>
-                <CardHeader>
-                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                        <div>
-                            <CardTitle>All Inventory</CardTitle>
-                            <CardDescription>A complete list of your professional, retail, and equipment stock.</CardDescription>
-                        </div>
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button className='w-full sm:w-auto'>
-                                    <PlusCircle className="mr-2 h-4 w-4" /> New Item <ChevronDown className="ml-2 h-4 w-4" />
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => setIsAddProductOpen(true)}>
-                                    <ShoppingCart className="mr-2 h-4 w-4" />
-                                    <span>Professional/Retail Product</span>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => setIsAddEquipmentOpen(true)}>
-                                    <Hammer className="mr-2 h-4 w-4" />
-                                    <span>Equipment</span>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => setIsAddOverheadOpen(true)}>
-                                    <Briefcase className="mr-2 h-4 w-4" />
-                                    <span>Overhead/Supply</span>
-                                </DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-                    </div>
-                </CardHeader>
-                <CardContent>
-                    <div className="flex flex-col sm:flex-row items-center gap-4 mb-4">
-                        <div className="relative flex-1 w-full">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input 
-                                placeholder="Search by name or SKU..." 
-                                className="pl-9"
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                            />
-                        </div>
-                        <div className="flex items-center gap-2 w-full sm:w-auto">
-                            <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
-                                <QrCode className="h-4 w-4" />
-                                <span className="sr-only">Scan</span>
-                            </Button>
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button variant="outline" className="w-full sm:w-auto">
-                                        <ListFilter className="mr-2 h-4 w-4" />
-                                        Filter
+            <div className="lg:col-span-3">
+                <Tabs value={activeView} onValueChange={setActiveView} className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="products">Products</TabsTrigger>
+                    <TabsTrigger value="locations">Locations</TabsTrigger>
+                </TabsList>
+                <TabsContent value="products" className="mt-6">
+                    <Card>
+                        <CardHeader>
+                            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                                <div>
+                                    <CardTitle>All Inventory</CardTitle>
+                                    <CardDescription>A complete list of your professional, retail, and equipment stock.</CardDescription>
+                                </div>
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button className='w-full sm:w-auto'>
+                                            <PlusCircle className="mr-2 h-4 w-4" /> New Item <ChevronDown className="ml-2 h-4 w-4" />
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                        <DropdownMenuItem onClick={() => setIsAddProductOpen(true)}>
+                                            <ShoppingCart className="mr-2 h-4 w-4" />
+                                            <span>Professional/Retail Product</span>
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => setIsAddEquipmentOpen(true)}>
+                                            <Hammer className="mr-2 h-4 w-4" />
+                                            <span>Equipment</span>
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => setIsAddOverheadOpen(true)}>
+                                            <Briefcase className="mr-2 h-4 w-4" />
+                                            <span>Overhead/Supply</span>
+                                        </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="flex flex-col sm:flex-row items-center gap-4 mb-4">
+                                <div className="relative flex-1 w-full">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                    <Input 
+                                        placeholder="Search by name or SKU..." 
+                                        className="pl-9"
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                    />
+                                </div>
+                                <div className="flex items-center gap-2 w-full sm:w-auto">
+                                    <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
+                                        <QrCode className="h-4 w-4" />
+                                        <span className="sr-only">Scan</span>
                                     </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                    <DropdownMenuItem onClick={() => setActiveFilter('all')}>All</DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => setActiveFilter('professional')}>Professional</DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => setActiveFilter('retail')}>Retail</DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => setActiveFilter('equipment')}>Equipment</DropdownMenuItem>
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-                        </div>
-                    </div>
-                    {inventory.length > 0 ? (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                            {filteredInventory.length > 0 ? filteredInventory.map(item => (
-                                <ProductCard 
-                                    key={item.id} 
-                                    item={item} 
-                                    onEdit={() => {}} 
-                                    onToggleExperiment={handleToggleExperiment} 
-                                    onEndExperiment={handleEndExperiment} 
-                                    onWriteOff={handleOpenWriteOff} 
-                                    onLogUse={handleOpenLogUse}
-                                />
-                            )) : (
-                                <p className="text-muted-foreground col-span-full text-center">No items match your search.</p>
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <Button variant="outline" className="w-full sm:w-auto">
+                                                <ListFilter className="mr-2 h-4 w-4" />
+                                                Filter
+                                            </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end">
+                                            <DropdownMenuItem onClick={() => setActiveFilter('all')}>All</DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => setActiveFilter('professional')}>Professional</DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => setActiveFilter('retail')}>Retail</DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => setActiveFilter('equipment')}>Equipment</DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
+                                </div>
+                            </div>
+                            {inventory.length > 0 ? (
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                                    {filteredInventory.length > 0 ? filteredInventory.map(item => (
+                                        <ProductCard 
+                                            key={item.id} 
+                                            item={item} 
+                                            onEdit={() => {}} 
+                                            onToggleExperiment={handleToggleExperiment} 
+                                            onEndExperiment={handleEndExperiment} 
+                                            onWriteOff={handleOpenWriteOff} 
+                                            onLogUse={handleOpenLogUse}
+                                        />
+                                    )) : (
+                                        <p className="text-muted-foreground col-span-full text-center">No items match your search.</p>
+                                    )}
+                                </div>
+                            ) : (
+                                <EmptyState onActionClick={() => setIsAddProductOpen(true)} />
                             )}
-                        </div>
-                    ) : (
-                        <EmptyState onActionClick={() => setIsAddProductOpen(true)} />
-                    )}
-                </CardContent>
-            </Card>
-          </TabsContent>
-           <TabsContent value="locations" className="mt-6">
-                <Locations 
-                    onAddLocation={handleOpenAddLocation}
-                    onEditLocation={handleOpenEditLocation}
-                />
-           </TabsContent>
-        </Tabs>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+                <TabsContent value="locations" className="mt-6">
+                        <Locations 
+                            onAddLocation={handleOpenAddLocation}
+                            onEditLocation={handleOpenEditLocation}
+                        />
+                </TabsContent>
+                </Tabs>
+            </div>
+        </div>
       </main>
       
       {selectedProduct && (
@@ -551,7 +724,6 @@ export default function InventoryPage() {
             isAddLocationDialogOpen={isAddLocationDialogOpen}
             onAddLocationDialogOpenChange={setAddLocationDialogOpen}
             onAddNewLocation={handleSaveLocation}
-            // Other required props
             categories={[]}
             onNewCategory={() => {}}
             onProductAdded={() => {}}
@@ -561,6 +733,11 @@ export default function InventoryPage() {
             open={isAddEquipmentOpen}
             onOpenChange={setIsAddEquipmentOpen}
             locations={locations}
+            locationTypes={locationTypes}
+            isAddLocationDialogOpen={isAddLocationDialogOpen}
+            onAddLocationDialogOpenChange={setAddLocationDialogOpen}
+            onAddNewLocation={handleSaveLocation}
+            onAddNewLocationType={handleAddNewLocationType}
             onEquipmentAdded={() => {}}
         />
         
@@ -602,3 +779,4 @@ export default function InventoryPage() {
       </Dialog>
     </div>
   );
+

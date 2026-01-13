@@ -120,7 +120,7 @@ export const ManageSpoilageDialog: React.FC<ManageSpoilageDialogProps> = ({
                       onCheckedChange={() => handleToggle(item.batchId)}
                     />
                     <div className='w-10 h-10 bg-muted rounded-md flex-shrink-0'>
-                        <Image src={`https://picsum.photos/seed/inv${item.productId}/100/100`} alt={item.productName} width={40} height={40} className='rounded-md'/>
+                        <Image src={inventory.find(p => p.id === item.productId)?.imageUrl || `https://picsum.photos/seed/inv${item.productId}/100/100`} alt={item.productName} width={40} height={40} className='rounded-md'/>
                     </div>
                     <div className="flex-1">
                       <label htmlFor={`spoilage-${item.batchId}`} className="font-medium">{item.productName}</label>
