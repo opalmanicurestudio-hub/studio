@@ -186,7 +186,6 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
 
 const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUpdate }: { service: Service, onEditServiceOpen: (service: Service) => void, tmhr: number, appointments: Appointment[] | null, onPriceUpdate: (serviceId: string, newPrice: number) => void }) => {
   const { toast } = useToast();
-  const profitPercentage = service.price > 0 ? (service.profit / service.price) * 100 : 0;
   const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
   
   const performance = useMemo(() => {
@@ -273,7 +272,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUp
             </div>
             <div className="p-2 rounded-md bg-muted/50">
                 <p className="text-xs text-muted-foreground">Margin</p>
-                <p className={`font-semibold ${profitPercentage >= 0 ? 'text-primary' : 'text-destructive'}`}>{profitPercentage.toFixed(0)}%</p>
+                <p className={`font-semibold ${service.margin >= 0 ? 'text-primary' : 'text-destructive'}`}>{service.margin.toFixed(0)}%</p>
             </div>
         </div>
 
@@ -319,9 +318,8 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUp
         </Accordion>
       </CardContent>
        <CardFooter className="p-2 border-t bg-muted/50">
-            <div className="grid grid-cols-2 gap-2 w-full">
-                <Button variant="ghost" size="sm" className="w-full" onClick={handleCopyLink}><LinkIcon className="mr-2 h-4 w-4"/>Share Link</Button>
-                <Button variant="ghost" size="sm" className="w-full" asChild><Link href={`/services/${service.id}`}><FileText className="mr-2 h-4 w-4"/>View</Link></Button>
+            <div className="grid grid-cols-1 gap-2 w-full">
+                <Button variant="ghost" size="sm" className="w-full" onClick={handleCopyLink}><LinkIcon className="mr-2 h-4 w-4"/>Share Booking Link</Button>
             </div>
         </CardFooter>
     </Card>
@@ -559,4 +557,5 @@ export default function ServicesPage() {
     </div>
   );
 }
+
 
