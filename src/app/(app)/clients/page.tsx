@@ -238,6 +238,39 @@ export default function ClientsPage() {
   };
 
   const ClientStatsSidebar = () => {
+    const stats = useMemo(() => {
+        const totalClients = filteredClients.length;
+        if (totalClients === 0) {
+            return {
+                totalActiveClients: 0,
+                retentionRate: 0,
+                avgSpend: 0,
+                serviceRevenue: 0,
+                retailRevenue: 0,
+                tipRevenue: 0,
+            };
+        }
+
+        const clientsWithMultipleAppointments = filteredClients.filter(c => {
+            return appointments.filter(apt => apt.clientId === c.id && apt.status === 'completed').length > 1;
+        }).length;
+
+        const allCompletedAppointments = filteredClients.flatMap(c => 
+            appointments.filter(apt => apt.clientId === c.id && apt.status === 'completed')
+        );
+
+        const totalRevenue = filteredClients.reduce((acc, c) => acc + c.lifetimeValue, 0);
+
+        return {
+            totalActiveClients: totalClients,
+            retentionRate: (clientsWithMultipleAppointments / totalClients) * 100,
+            avgSpend: allCompletedAppointments.length > 0 ? totalRevenue / allCompletedAppointments.length : 0,
+            serviceRevenue: totalRevenue * 0.8, // Mock data
+            retailRevenue: totalRevenue * 0.15, // Mock data
+            tipRevenue: totalRevenue * 0.05, // Mock data
+        };
+    }, [filteredClients]);
+
     return (
         <Card className="lg:sticky top-24">
             <CardHeader>
@@ -247,22 +280,22 @@ export default function ClientsPage() {
             <CardContent className="space-y-4">
                  <div className="p-3 bg-muted/50 rounded-lg">
                     <div className="text-sm font-medium text-muted-foreground">Total Active Clients</div>
-                    <div className="text-2xl font-bold">{clients.length}</div>
+                    <div className="text-2xl font-bold">{stats.totalActiveClients}</div>
                 </div>
                  <div className="p-3 bg-muted/50 rounded-lg">
                     <div className="text-sm font-medium text-muted-foreground">Client Retention Rate</div>
-                    <div className="text-2xl font-bold">87%</div>
+                    <div className="text-2xl font-bold">{stats.retentionRate.toFixed(0)}%</div>
                 </div>
                 <div className="p-3 bg-muted/50 rounded-lg">
                     <div className="text-sm font-medium text-muted-foreground">Avg. Spend / Appointment</div>
-                    <div className="text-2xl font-bold">$125.50</div>
+                    <div className="text-2xl font-bold">${stats.avgSpend.toFixed(2)}</div>
                 </div>
                 <div>
                     <h4 className="text-sm font-medium text-muted-foreground mb-2">Revenue Breakdown</h4>
                     <div className="space-y-1 text-xs">
-                        <div className="flex justify-between"><span>Services:</span> <span className="font-mono">$12,345.00</span></div>
-                        <div className="flex justify-between"><span>Retail:</span> <span className="font-mono">$2,876.50</span></div>
-                        <div className="flex justify-between"><span>Tips:</span> <span className="font-mono">$1,102.00</span></div>
+                        <div className="flex justify-between"><span>Services:</span> <span className="font-mono">${stats.serviceRevenue.toFixed(2)}</span></div>
+                        <div className="flex justify-between"><span>Retail:</span> <span className="font-mono">${stats.retailRevenue.toFixed(2)}</span></div>
+                        <div className="flex justify-between"><span>Tips:</span> <span className="font-mono">${stats.tipRevenue.toFixed(2)}</span></div>
                     </div>
                 </div>
             </CardContent>
