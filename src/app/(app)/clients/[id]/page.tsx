@@ -1,6 +1,7 @@
+
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -11,7 +12,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, ShieldAlert, Upload, Eye } from 'lucide-react';
 import { clients as initialClients, appointments, services, inventory, type CustomFormula, Client } from '@/lib/data';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
@@ -26,6 +27,19 @@ import { AddFormulaDialog } from '@/components/clients/AddFormulaDialog';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
+import { ImageUpload } from '@/components/shared/ImageUpload';
+import Image from 'next/image';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+
+type ClientPhoto = {
+  url: string;
+  label: string;
+};
 
 const FormulaCard = ({ formula }: { formula: CustomFormula }) => (
     <AccordionItem value={formula.name} className="border-b-0">
@@ -54,10 +68,25 @@ export default function ClientDetailPage() {
   const { toast } = useToast();
   const [isAddFormulaOpen, setIsAddFormulaOpen] = useState(false);
   const [isClient, setIsClient] = useState(false);
+  const [photos, setPhotos] = useState<ClientPhoto[]>([]);
+  const [selectedPhoto, setSelectedPhoto] = useState<ClientPhoto | null>(null);
 
   useEffect(() => {
     setIsClient(true);
-  }, []);
+    if (client) {
+        const collectedPhotos: ClientPhoto[] = [];
+        if (client.inspirationPhotoUrl) {
+            collectedPhotos.push({ url: client.inspirationPhotoUrl, label: 'Client Inspiration' });
+        }
+        
+        appointments.forEach(apt => {
+            if (apt.clientId === client.id && apt.inspirationPhotoUrl) {
+                collectedPhotos.push({ url: apt.inspirationPhotoUrl, label: `Inspo for ${format(apt.startTime, 'MMM d, yyyy')}`});
+            }
+        });
+        setPhotos(collectedPhotos);
+    }
+  }, [client]);
 
   if (!client) {
     notFound();
@@ -84,6 +113,17 @@ export default function ClientDetailPage() {
       description: `"${newFormula.name}" has been added to ${client.name}'s profile.`,
     });
   };
+
+  const handleNewPhotoUpload = (url: string) => {
+      if (url) {
+          const newPhoto: ClientPhoto = { url, label: `Uploaded on ${format(new Date(), 'MMM d, yyyy')}` };
+          setPhotos(prev => [newPhoto, ...prev]);
+          toast({
+              title: "Photo Uploaded!",
+              description: "The new image has been added to the client's gallery."
+          })
+      }
+  }
 
   if (!isClient) {
     return (
@@ -342,14 +382,42 @@ export default function ClientDetailPage() {
                     </CardContent>
                 </Card>
             </TabsContent>
-            <TabsContent value="photos" className="mt-6">
+             <TabsContent value="photos" className="mt-6">
                 <Card>
                     <CardHeader>
-                        <CardTitle>Photo Gallery</CardTitle>
-                        <CardDescription>Inspiration and before/after photos.</CardDescription>
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                            <div>
+                                <CardTitle>Photo Gallery</CardTitle>
+                                <CardDescription>Inspiration and before/after photos.</CardDescription>
+                            </div>
+                            <ImageUpload onImageUploaded={handleNewPhotoUpload} />
+                        </div>
                     </CardHeader>
                     <CardContent>
-                        <p className="text-sm text-muted-foreground text-center py-12">Photo gallery functionality coming soon.</p>
+                        {photos.length > 0 ? (
+                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                {photos.map((photo, index) => (
+                                    <div key={index} className="group relative aspect-square" onClick={() => setSelectedPhoto(photo)}>
+                                        <Image
+                                            src={photo.url}
+                                            alt={photo.label}
+                                            fill
+                                            className="object-cover rounded-md transition-transform group-hover:scale-105"
+                                        />
+                                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                            <Eye className="w-8 h-8 text-white" />
+                                        </div>
+                                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2 rounded-b-md">
+                                            <p className="text-white text-xs truncate">{photo.label}</p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="text-center py-16 px-6 border-2 border-dashed rounded-lg">
+                                <p className="text-muted-foreground">No photos have been added for {client.name} yet.</p>
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
             </TabsContent>
@@ -382,6 +450,19 @@ export default function ClientDetailPage() {
             onOpenChange={setIsAddFormulaOpen}
             onSave={handleSaveFormula}
         />
+
+        <Dialog open={!!selectedPhoto} onOpenChange={() => setSelectedPhoto(null)}>
+            <DialogContent className="max-w-3xl">
+                <DialogHeader>
+                    <DialogTitle>{selectedPhoto?.label}</DialogTitle>
+                </DialogHeader>
+                {selectedPhoto && (
+                    <div className="relative aspect-video">
+                        <Image src={selectedPhoto.url} alt={selectedPhoto.label} fill className="object-contain rounded-md" />
+                    </div>
+                )}
+            </DialogContent>
+        </Dialog>
       </main>
     </div>
   );
