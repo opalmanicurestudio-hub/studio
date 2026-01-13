@@ -13,6 +13,12 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
   PlusCircle,
   Search,
   Eye,
@@ -21,6 +27,7 @@ import {
   Share2,
   Lock,
   Bell,
+  MoreHorizontal,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -99,13 +106,20 @@ const ConsentCard = ({ form }: { form: ConsentForm }) => {
           {form.notifyOnEdit && <Bell className="w-4 h-4" title="Notified on Edits" />}
         </div>
       </CardContent>
-      <CardFooter className="p-2 border-t bg-muted/50">
-        <div className="w-full grid grid-cols-4 gap-1">
-          <Button variant="ghost" size="sm" className="flex-1"><Eye className="w-4 h-4 mr-2"/>Preview</Button>
-          <Button variant="ghost" size="sm" className="flex-1"><Share2 className="w-4 h-4 mr-2"/>Share</Button>
-          <Button variant="ghost" size="sm" className="flex-1"><FilePenLine className="w-4 h-4 mr-2"/>Edit</Button>
-          <Button variant="ghost" size="sm" className="flex-1 text-destructive hover:text-destructive"><Trash2 className="w-4 h-4 mr-2"/>Delete</Button>
-        </div>
+      <CardFooter className="p-2 border-t bg-muted/50 flex gap-2">
+        <Button variant="ghost" size="sm" className="flex-1"><Eye className="w-4 h-4 mr-2"/>Preview</Button>
+        <Button variant="ghost" size="sm" className="flex-1"><Share2 className="w-4 h-4 mr-2"/>Share</Button>
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8">
+                    <MoreHorizontal className="w-4 h-4" />
+                </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+                <DropdownMenuItem><FilePenLine className="w-4 h-4 mr-2"/>Edit</DropdownMenuItem>
+                <DropdownMenuItem className="text-destructive"><Trash2 className="w-4 h-4 mr-2"/>Delete</DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
       </CardFooter>
     </Card>
   );
@@ -169,7 +183,7 @@ export default function ConsentsPage() {
             </div>
             
             <TabsContent value={activeTab.toLowerCase()}>
-                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                     {filteredForms.map(form => (
                         <ConsentCard key={form.id} form={form} />
                     ))}
