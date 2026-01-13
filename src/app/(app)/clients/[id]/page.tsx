@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState } from 'react';
@@ -47,7 +46,8 @@ const FormulaCard = ({ formula }: { formula: CustomFormula }) => (
     </AccordionItem>
 )
 
-export default function ClientDetailPage({ params }: { params: { id: string } }) {
+export default function ClientDetailPage() {
+  const params = useParams<{ id: string }>();
   const [clients, setClients] = useState<Client[]>(initialClients);
   const client = clients.find((c) => c.id === params.id);
   const { toast } = useToast();
@@ -320,5 +320,3 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     </div>
   );
 }
-
-    
