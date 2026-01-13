@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { AlertCircle, CheckCircle, FileText, FlaskConical, PlusCircle, Trash2, Library, Wand, QrCode, Search, AlertTriangle, ShoppingCart, CreditCard, Banknote, Gift, Coins } from 'lucide-react';
+import { AlertCircle, CheckCircle, FileText, FlaskConical, PlusCircle, Trash2, Library, Wand, QrCode, Search, AlertTriangle, ShoppingCart, CreditCard, Banknote, Gift, Coins, ShieldAlert } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type StockCorrection, type CustomFormula } from '@/lib/data';
 import { Input } from '../ui/input';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
@@ -28,6 +28,9 @@ import { Label } from '../ui/label';
 import { Switch } from '../ui/switch';
 import { cn } from '@/lib/utils';
 import { ReceiptData } from './PrintReceipt';
+import { LogIncidentForm, incidentSchema, type IncidentFormData } from '../incidents/LogIncidentForm';
+import { FormProvider, useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 
 type EditableFormulaItem = {
     id: string; // productId
@@ -47,7 +50,7 @@ interface CompleteAppointmentDialogProps {
     client: Client | undefined;
     service: Service | undefined;
   };
-  onConfirmCheckout: (updatedInventory: InventoryItem[], newCorrections: StockCorrection[], receiptData: Omit<ReceiptData, 'business'>) => void;
+  onConfirmCheckout: (updatedInventory: InventoryItem[], newCorrections: StockCorrection[], receiptData: Omit<ReceiptData, 'business'>, incident?: IncidentFormData) => void;
 }
 
 export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps> = ({
@@ -68,13 +71,24 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   const [amountTendered, setAmountTendered] = useState<number>(0);
   const [tipAmount, setTipAmount] = useState<number>(0);
 
-
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
   const videoRef = useRef<HTMLVideoElement>(null);
   
   const [actualDuration, setActualDuration] = useState(service?.duration || 0);
   const [applyAdditionalCharges, setApplyAdditionalCharges] = useState(true);
+
+  const [logIncident, setLogIncident] = useState(false);
+  const incidentMethods = useForm<IncidentFormData>({
+    resolver: zodResolver(incidentSchema),
+    defaultValues: {
+      type: 'Other',
+      severity: 'Minor',
+      description: '',
+      actionsTaken: '',
+      photoUrl: '',
+    },
+  });
 
   
   useEffect(() => {
@@ -94,8 +108,10 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         setPaymentTab('card');
         setActualDuration(service.duration);
         setApplyAdditionalCharges(true);
+        setLogIncident(false);
+        incidentMethods.reset();
     }
-  }, [service, open]);
+  }, [service, open, incidentMethods]);
 
   const { initialBreakEven, finalBreakEven, additionalCharge, absorbedCost } = useMemo(() => {
     if (!service) return { initialBreakEven: 0, finalBreakEven: 0, additionalCharge: 0, absorbedCost: 0 };
@@ -223,7 +239,21 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     return { updatedInventory: tempInventory, displayCorrections: editableFormula, newCorrections, warnings };
   }, [editableFormula, inventory, appointment.id]);
   
-  const handleCompleteAppointment = () => {
+  const handleCompleteAppointment = async () => {
+    let incidentData: IncidentFormData | undefined = undefined;
+    if (logIncident) {
+        const isValid = await incidentMethods.trigger();
+        if (!isValid) {
+            toast({
+                variant: 'destructive',
+                title: "Incident Form Incomplete",
+                description: "Please fill out all required fields for the incident report.",
+            });
+            return;
+        }
+        incidentData = incidentMethods.getValues();
+    }
+
     if (!client || !service) return;
 
     const receiptData: Omit<ReceiptData, 'business'> = {
@@ -248,7 +278,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
             changeDue: changeDue > 0 ? changeDue : 0,
         }
     };
-    onConfirmCheckout(updatedInventory, newCorrections, receiptData);
+    onConfirmCheckout(updatedInventory, newCorrections, receiptData, incidentData);
   };
 
 
@@ -427,6 +457,23 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                         <Button variant="outline" size="sm" onClick={() => setIsScannerOpen(true)}><QrCode className="mr-2 h-4 w-4"/>Scan to Add</Button>
                       </div>
                 </CardContent>
+              </Card>
+              
+               <Card>
+                <CardHeader>
+                  <CardTitle>Incident Report</CardTitle>
+                  <div className="flex items-center justify-between">
+                    <CardDescription>Log an incident related to this appointment.</CardDescription>
+                    <Switch checked={logIncident} onCheckedChange={setLogIncident} />
+                  </div>
+                </CardHeader>
+                {logIncident && (
+                  <CardContent>
+                     <FormProvider {...incidentMethods}>
+                        <LogIncidentForm />
+                     </FormProvider>
+                  </CardContent>
+                )}
               </Card>
 
                <Card>

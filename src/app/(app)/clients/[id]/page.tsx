@@ -13,7 +13,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, ShieldAlert, Upload, Eye } from 'lucide-react';
-import { clients as initialClients, appointments, services, inventory, type CustomFormula, Client } from '@/lib/data';
+import { clients as initialClients, appointments, services, inventory, type CustomFormula, Client, type Incident } from '@/lib/data';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -28,13 +28,15 @@ import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import Image from 'next/image';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { LogIncidentDialog } from '@/components/incidents/LogIncidentDialog';
+import { IncidentFormData } from '@/components/incidents/LogIncidentForm';
+
 
 type ClientPhoto = {
   url: string;
@@ -67,6 +69,7 @@ export default function ClientDetailPage() {
   const client = clients.find((c) => c.id === params.id);
   const { toast } = useToast();
   const [isAddFormulaOpen, setIsAddFormulaOpen] = useState(false);
+  const [isLogIncidentOpen, setIsLogIncidentOpen] = useState(false);
   const [isClient, setIsClient] = useState(false);
   const [photos, setPhotos] = useState<ClientPhoto[]>([]);
   const [selectedPhoto, setSelectedPhoto] = useState<ClientPhoto | null>(null);
@@ -124,11 +127,39 @@ export default function ClientDetailPage() {
           })
       }
   }
+  
+   const handleIncidentLogged = (incidentData: IncidentFormData) => {
+    setClients(prevClients =>
+      prevClients.map(c => {
+        if (c.id === client.id) {
+          const newIncident: Incident = {
+            ...incidentData,
+            id: `inc-${Date.now()}`,
+            date: new Date().toISOString(),
+          };
+          const existingIncidents = c.intel?.incidents || [];
+          return {
+            ...c,
+            intel: {
+              ...c.intel,
+              hasIncidents: true,
+              incidents: [...existingIncidents, newIncident],
+            },
+          };
+        }
+        return c;
+      })
+    );
+    toast({
+      title: "Incident Logged",
+      description: `A new incident has been recorded for ${client.name}.`,
+    });
+  };
 
   if (!isClient) {
     return (
         <div className="flex min-h-screen w-full flex-col">
-            <AppHeader title="Client Profile" />
+            <AppHeader />
             <main className="flex-1 p-4 md:p-8 space-y-6">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                     <Skeleton className="h-7 w-7" />
@@ -148,7 +179,7 @@ export default function ClientDetailPage() {
 
   return (
     <div className="flex min-h-screen w-full flex-col">
-      <AppHeader title="Client Profile" />
+      <AppHeader />
       <main className="flex-1 p-4 md:p-8 space-y-6">
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
             <div className="flex items-center gap-4 w-full">
@@ -428,14 +459,32 @@ export default function ClientDetailPage() {
                             <CardTitle>Incident Log</CardTitle>
                             <CardDescription>A secure log of any incidents or issues.</CardDescription>
                         </div>
-                        <Button variant="outline"><PlusCircle className="mr-2 h-4 w-4"/>Log New Incident</Button>
+                        <Button variant="outline" onClick={() => setIsLogIncidentOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Log New Incident</Button>
                     </CardHeader>
                     <CardContent>
-                       <div className="border-2 border-dashed rounded-lg p-12 text-center">
-                            <ShieldAlert className="w-10 h-10 text-muted-foreground mx-auto mb-4" />
-                            <h3 className="font-semibold text-lg">No Incidents Logged</h3>
-                            <p className="text-sm text-muted-foreground">This client has a clean record.</p>
-                       </div>
+                       {client.intel?.incidents && client.intel.incidents.length > 0 ? (
+                           <div className="space-y-4">
+                               {client.intel.incidents.map(incident => (
+                                   <div key={incident.id} className="p-4 rounded-lg border bg-muted/50">
+                                       <div className="flex justify-between items-start">
+                                           <div>
+                                               <p className="font-semibold">{incident.type}</p>
+                                                <p className="text-sm text-muted-foreground">{format(new Date(incident.date), 'MMM d, yyyy h:mm a')}</p>
+                                           </div>
+                                           <Badge variant={incident.severity === 'Severe' ? 'destructive' : 'secondary'}>{incident.severity}</Badge>
+                                       </div>
+                                       <p className="text-sm mt-2">{incident.description}</p>
+                                        {incident.actionsTaken && <p className="text-xs mt-2 text-muted-foreground border-t pt-2">Actions Taken: {incident.actionsTaken}</p>}
+                                   </div>
+                               ))}
+                           </div>
+                       ) : (
+                           <div className="border-2 border-dashed rounded-lg p-12 text-center">
+                                <ShieldAlert className="w-10 h-10 text-muted-foreground mx-auto mb-4" />
+                                <h3 className="font-semibold text-lg">No Incidents Logged</h3>
+                                <p className="text-sm text-muted-foreground">This client has a clean record.</p>
+                           </div>
+                       )}
                     </CardContent>
                 </Card>
             </TabsContent>
@@ -463,6 +512,13 @@ export default function ClientDetailPage() {
             open={isAddFormulaOpen}
             onOpenChange={setIsAddFormulaOpen}
             onSave={handleSaveFormula}
+        />
+
+        <LogIncidentDialog 
+            open={isLogIncidentOpen}
+            onOpenChange={setIsLogIncidentOpen}
+            client={client}
+            onIncidentLogged={handleIncidentLogged}
         />
 
         <Dialog open={!!selectedPhoto} onOpenChange={() => setSelectedPhoto(null)}>

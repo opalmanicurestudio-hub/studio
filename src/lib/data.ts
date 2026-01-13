@@ -2,6 +2,22 @@
 import { BillDefinition, billDefinitions, billInstances } from './financial-data';
 import { addDays, subDays, setHours, setMinutes, startOfDay } from 'date-fns';
 
+export type Incident = {
+    id: string;
+    date: string;
+    type: string;
+    severity: 'Minor' | 'Moderate' | 'Severe';
+    description: string;
+    actionsTaken?: string;
+    photoUrl?: string;
+    appointmentId?: string; // Optional link to an appointment
+};
+
+export type ClientIntel = {
+    hasIncidents?: boolean;
+    incidents?: Incident[];
+};
+
 export type CustomFormula = {
   name: string;
   items: {
@@ -28,6 +44,7 @@ export type Client = {
   sensoryNeeds?: string;
   inspirationPhotoUrl?: string;
   isMember?: boolean;
+  intel?: ClientIntel;
 };
 
 export type LocationType = {
@@ -133,6 +150,7 @@ export type Appointment = {
   addOnIds?: string[];
   inspirationPhotoUrl?: string;
   absorbedCost?: number;
+  incident?: Incident;
 };
 
 export type EventChecklistItem = {
