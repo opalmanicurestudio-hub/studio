@@ -423,23 +423,37 @@ export default function ClientDetailPage() {
             </TabsContent>
             <TabsContent value="incidents" className="mt-6">
                  <Card>
-                    <CardHeader>
-                        <CardTitle>Incident Log</CardTitle>
-                        <CardDescription>Record of any incidents for this client.</CardDescription>
+                    <CardHeader className="flex flex-row items-center justify-between">
+                        <div>
+                            <CardTitle>Incident Log</CardTitle>
+                            <CardDescription>A secure log of any incidents or issues.</CardDescription>
+                        </div>
+                        <Button variant="outline"><PlusCircle className="mr-2 h-4 w-4"/>Log New Incident</Button>
                     </CardHeader>
                     <CardContent>
-                        <p className="text-sm text-muted-foreground text-center py-12">Incident logging functionality coming soon.</p>
+                       <div className="border-2 border-dashed rounded-lg p-12 text-center">
+                            <ShieldAlert className="w-10 h-10 text-muted-foreground mx-auto mb-4" />
+                            <h3 className="font-semibold text-lg">No Incidents Logged</h3>
+                            <p className="text-sm text-muted-foreground">This client has a clean record.</p>
+                       </div>
                     </CardContent>
                 </Card>
             </TabsContent>
              <TabsContent value="consents" className="mt-6">
                  <Card>
-                    <CardHeader>
-                        <CardTitle>Signed Forms</CardTitle>
-                        <CardDescription>All consent forms signed by {client.name}.</CardDescription>
+                    <CardHeader className="flex flex-row items-center justify-between">
+                         <div>
+                            <CardTitle>Signed Forms</CardTitle>
+                            <CardDescription>All consent forms signed by {client.name}.</CardDescription>
+                         </div>
+                         <Button variant="outline"><PlusCircle className="mr-2 h-4 w-4"/>Send New Form</Button>
                     </CardHeader>
                     <CardContent>
-                        <p className="text-sm text-muted-foreground text-center py-12">Consent form management coming soon.</p>
+                        <div className="border-2 border-dashed rounded-lg p-12 text-center">
+                            <FileText className="w-10 h-10 text-muted-foreground mx-auto mb-4" />
+                            <h3 className="font-semibold text-lg">No Forms Signed</h3>
+                            <p className="text-sm text-muted-foreground">This client hasn't signed any consent forms yet.</p>
+                       </div>
                     </CardContent>
                 </Card>
             </TabsContent>
