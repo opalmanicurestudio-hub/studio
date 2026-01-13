@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
@@ -292,59 +293,66 @@ export default function InventoryPage() {
     return { success, message };
   };
 
-  const handleWriteOffConfirm = (productId: string, batchId: string, quantity: number, reason: string) => {
+  const handleWriteOffConfirm = (productId: string, batchId: string, quantity: number, reason: string): { success: boolean, message: string } => {
     let success = false;
     let message = '';
-
+  
     setInventory(prevInventory => {
-        const newInventory = [...prevInventory];
-        const productIndex = newInventory.findIndex(p => p.id === productId);
-
-        if (productIndex === -1) {
-            message = 'Product not found.';
-            return prevInventory;
-        }
-
-        const product = { ...newInventory[productIndex] };
-        const batchIndex = product.batches.findIndex(b => b.id === batchId);
-
-        if (batchIndex === -1) {
-            message = 'Batch not found.';
-            return prevInventory;
-        }
-        
-        const batch = { ...product.batches[batchIndex] };
-
-        if (batch.stock < quantity) {
-            message = `Cannot write off more than available in batch (${batch.stock}).`;
-            return prevInventory;
-        }
-
-        batch.stock -= quantity;
-        product.batches[batchIndex] = batch;
-
-        // Recalculate total stock for the product
-        product.totalStock = product.batches.reduce((acc, b) => acc + b.stock, 0);
-
-        newInventory[productIndex] = product;
-        
-        const newCorrection: StockCorrection = {
-            id: `sc-${Date.now()}`,
-            productId: productId,
-            date: new Date().toISOString(),
-            change: -quantity,
-            unit: product.unit || 'units',
-            reason: reason,
-        };
-        addStockCorrection(newCorrection);
-        
-        success = true;
-        message = `${quantity} unit(s) of ${product.name} written off.`;
-        return newInventory;
+      const newInventory = [...prevInventory];
+      const productIndex = newInventory.findIndex(p => p.id === productId);
+  
+      if (productIndex === -1) {
+        message = 'Product not found.';
+        return prevInventory;
+      }
+  
+      const product = { ...newInventory[productIndex] };
+      const batchIndex = product.batches.findIndex(b => b.id === batchId);
+  
+      if (batchIndex === -1) {
+        message = 'Batch not found.';
+        return prevInventory;
+      }
+  
+      const batch = { ...product.batches[batchIndex] };
+  
+      if (batch.stock < quantity) {
+        message = `Cannot write off more than available in batch (${batch.stock}).`;
+        return prevInventory;
+      }
+  
+      batch.stock -= quantity;
+      product.batches[batchIndex] = batch;
+  
+      // Recalculate total stock for the product
+      product.totalStock = product.batches.reduce((acc, b) => acc + b.stock, 0);
+  
+      // If total stock is now zero, also zero out partials
+      if (product.totalStock === 0) {
+        product.partialContainerSize = 0;
+        product.partialContainerUses = 0;
+      }
+  
+      newInventory[productIndex] = product;
+  
+      const newCorrection: StockCorrection = {
+        id: `sc-${Date.now()}`,
+        productId: productId,
+        date: new Date().toISOString(),
+        change: -quantity,
+        unit: 'units', // Assuming write-offs are per-unit for simplicity
+        reason: reason,
+      };
+      addStockCorrection(newCorrection);
+  
+      success = true;
+      message = `${quantity} unit(s) of ${product.name} written off.`;
+      return newInventory;
     });
-    
+  
     return { success, message };
   };
+  
 
   const handleSpoilageConfirm = (itemsToWriteOff: SpoilageItem[]) => {
     setInventory(prevInventory => {
@@ -687,3 +695,4 @@ export default function InventoryPage() {
   );
 
     
+
