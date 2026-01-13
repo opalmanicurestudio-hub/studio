@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -28,6 +28,16 @@ import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { MergeClientsDialog } from '@/components/clients/MergeClientsDialog';
 
 const ClientCard = ({ client }: { client: any }) => {
+    const [isClient, setIsClient] = useState(false);
+
+    useEffect(() => {
+        setIsClient(true);
+    }, []);
+
+    if (!isClient) {
+        return null; // Or a skeleton loader
+    }
+
     return (
         <Card>
             <CardContent className="p-4 space-y-4">

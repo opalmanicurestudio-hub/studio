@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -25,6 +25,7 @@ import { cn } from '@/lib/utils';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { AddFormulaDialog } from '@/components/clients/AddFormulaDialog';
 import { useToast } from '@/hooks/use-toast';
+import { Skeleton } from '@/components/ui/skeleton';
 
 const FormulaCard = ({ formula }: { formula: CustomFormula }) => (
     <AccordionItem value={formula.name} className="border-b-0">
@@ -52,6 +53,11 @@ export default function ClientDetailPage() {
   const client = clients.find((c) => c.id === params.id);
   const { toast } = useToast();
   const [isAddFormulaOpen, setIsAddFormulaOpen] = useState(false);
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   if (!client) {
     notFound();
@@ -78,6 +84,27 @@ export default function ClientDetailPage() {
       description: `"${newFormula.name}" has been added to ${client.name}'s profile.`,
     });
   };
+
+  if (!isClient) {
+    return (
+        <div className="flex min-h-screen w-full flex-col">
+            <AppHeader title="Client Profile" />
+            <main className="flex-1 p-4 md:p-8 space-y-6">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                    <Skeleton className="h-7 w-7" />
+                    <Skeleton className="w-12 h-12 rounded-full" />
+                    <div className='flex-1 space-y-2'>
+                        <Skeleton className="h-5 w-48" />
+                        <Skeleton className="h-4 w-64" />
+                    </div>
+                    <Skeleton className="h-10 w-28" />
+                </div>
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-96 w-full" />
+            </main>
+        </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen w-full flex-col">
