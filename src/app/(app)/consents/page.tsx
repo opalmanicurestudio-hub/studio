@@ -28,6 +28,7 @@ import {
   Lock,
   Bell,
   MoreHorizontal,
+  Users,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -95,7 +96,6 @@ const mockForms: ConsentForm[] = [
 ];
 
 const ConsentCard = ({ form, onEdit, onPreview, onShare }: { form: ConsentForm, onEdit: (form: ConsentForm) => void; onPreview: (form: ConsentForm) => void; onShare: (form: ConsentForm) => void; }) => {
-  const signedPercentage = form.totalClients > 0 ? (form.clientsSigned / form.totalClients) * 100 : 0;
 
   return (
     <Card className="flex flex-col">
@@ -104,15 +104,11 @@ const ConsentCard = ({ form, onEdit, onPreview, onShare }: { form: ConsentForm, 
         <CardDescription>{form.category}</CardDescription>
       </CardHeader>
       <CardContent className="flex-1 space-y-4">
-        <div>
-          <div className="flex justify-between text-sm text-muted-foreground mb-1">
-            <span>Signed</span>
-            <span>
-              {form.clientsSigned} / {form.totalClients}
-            </span>
-          </div>
-          <Progress value={signedPercentage} />
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Users className="w-4 h-4" />
+            <span>{form.clientsSigned} signed</span>
         </div>
+        <Progress value={(form.clientsSigned / form.totalClients) * 100} className="h-2" />
         <div className="flex items-center gap-4 text-muted-foreground">
           {form.isPasswordProtected && <Lock className="w-4 h-4" title="Password Protected" />}
           {form.notifyOnEdit && <Bell className="w-4 h-4" title="Notified on Edits" />}
