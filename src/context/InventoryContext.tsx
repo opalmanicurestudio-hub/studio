@@ -9,6 +9,8 @@ import {
     type StockCorrection,
     type Location as LocationType,
     type LocationType as LocType,
+    clients as initialClients,
+    type Client,
 } from '@/lib/data';
 import {
     billDefinitions as initialBillDefinitions,
@@ -49,6 +51,8 @@ interface InventoryContextType {
   setBillInstances: React.Dispatch<React.SetStateAction<BillInstance[]>>;
   transactions: Transaction[];
   setTransactions: React.Dispatch<React.SetStateAction<Transaction[]>>;
+  clients: Client[];
+  setClients: React.Dispatch<React.SetStateAction<Client[]>>;
 }
 
 const InventoryContext = createContext<InventoryContextType | undefined>(undefined);
@@ -62,6 +66,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const [billDefinitions, setBillDefinitions] = useState<Bill[]>(initialBillDefinitions);
   const [billInstances, setBillInstances] = useState<BillInstance[]>(initialBillInstances);
   const [transactions, setTransactions] = useState<Transaction[]>(initialTransactions);
+  const [clients, setClients] = useState<Client[]>(initialClients);
 
 
   const addStockCorrection = useCallback((correction: StockCorrection) => {
@@ -83,6 +88,8 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     setBillInstances,
     transactions,
     setTransactions,
+    clients,
+    setClients,
   };
 
   return (

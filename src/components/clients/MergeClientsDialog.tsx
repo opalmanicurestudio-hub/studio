@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -37,12 +36,14 @@ export const MergeClientsDialog = ({
     open, 
     onOpenChange, 
     allClients,
-    allAppointments
+    allAppointments,
+    onMerge
 }: { 
     open: boolean, 
     onOpenChange: (open: boolean) => void,
     allClients: Client[],
-    allAppointments: Appointment[]
+    allAppointments: Appointment[],
+    onMerge: (primaryClientId: string, clientIdsToDelete: string[]) => void;
 }) => {
   const [step, setStep] = useState(1);
   const [email, setEmail] = useState('');
@@ -61,13 +62,13 @@ export const MergeClientsDialog = ({
       });
     } else {
       setDuplicates(found);
+      setPrimaryClientId(found[0]?.id || null); // Default to first found
       setStep(2);
     }
   };
 
   const handleClose = () => {
     onOpenChange(false);
-    // Reset state after a short delay to allow for animations
     setTimeout(() => {
         setStep(1);
         setEmail('');
@@ -90,18 +91,16 @@ export const MergeClientsDialog = ({
     }, 0);
   }, [clientsToMerge, allAppointments])
 
-  const handleMerge = () => {
-      // In a real app, this would trigger a Firestore writeBatch.
-      console.log("Merging clients...", {
-          primary: selectedPrimaryClient,
-          deleting: clientsToMerge,
-      });
-      toast({
-          title: "Merge Successful",
-          description: `Clients have been merged into ${selectedPrimaryClient?.name}'s profile.`,
-      })
-      setIsConfirmOpen(false);
-      handleClose();
+  const handleConfirmMerge = () => {
+    if (!primaryClientId) return;
+    const idsToDelete = clientsToMerge.map(c => c.id);
+    onMerge(primaryClientId, idsToDelete);
+    toast({
+        title: "Merge Successful",
+        description: `Clients have been merged into ${selectedPrimaryClient?.name}'s profile.`,
+    })
+    setIsConfirmOpen(false);
+    handleClose();
   }
 
   return (
@@ -170,10 +169,12 @@ export const MergeClientsDialog = ({
         )}
 
         <DialogFooter>
-            <Button variant="outline" onClick={handleClose}>Cancel</Button>
-            {step > 1 && (
-                <Button onClick={() => setIsConfirmOpen(true)} disabled={!primaryClientId}>Merge Profiles</Button>
-            )}
+          {step === 2 && <Button variant="ghost" onClick={() => setStep(1)}>Back</Button>}
+          <div className="flex-1" />
+          <Button variant="outline" onClick={handleClose}>Cancel</Button>
+          {step > 1 && (
+              <Button onClick={() => setIsConfirmOpen(true)} disabled={!primaryClientId}>Merge Profiles</Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -192,7 +193,7 @@ export const MergeClientsDialog = ({
             </AlertDialogHeader>
             <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleMerge} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            <AlertDialogAction onClick={handleConfirmMerge} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
                 Yes, Merge Clients
             </AlertDialogAction>
             </AlertDialogFooter>

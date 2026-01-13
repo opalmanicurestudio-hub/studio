@@ -18,7 +18,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { clients as initialClients, appointments } from '@/lib/data';
+import { appointments, type Client } from '@/lib/data';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { formatDistanceToNow, subDays } from 'date-fns';
@@ -27,42 +27,16 @@ import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { MergeClientsDialog } from '@/components/clients/MergeClientsDialog';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { useInventory } from '@/context/InventoryContext';
 
-const ClientStatsSidebar = () => {
-    // These would be calculated based on the filtered list of clients
-    return (
-        <Card className="lg:sticky top-24">
-            <CardHeader>
-                <CardTitle>Client Stats</CardTitle>
-                <CardDescription>Metrics for the current client view.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-                 <div className="p-3 bg-muted/50 rounded-lg">
-                    <div className="text-sm font-medium text-muted-foreground">Total Active Clients</div>
-                    <div className="text-2xl font-bold">{initialClients.length}</div>
-                </div>
-                 <div className="p-3 bg-muted/50 rounded-lg">
-                    <div className="text-sm font-medium text-muted-foreground">Client Retention Rate</div>
-                    <div className="text-2xl font-bold">87%</div>
-                </div>
-                <div className="p-3 bg-muted/50 rounded-lg">
-                    <div className="text-sm font-medium text-muted-foreground">Avg. Spend / Appointment</div>
-                    <div className="text-2xl font-bold">$125.50</div>
-                </div>
-                <div>
-                    <h4 className="text-sm font-medium text-muted-foreground mb-2">Revenue Breakdown</h4>
-                    <div className="space-y-1 text-xs">
-                        <div className="flex justify-between"><span>Services:</span> <span className="font-mono">$12,345.00</span></div>
-                        <div className="flex justify-between"><span>Retail:</span> <span className="font-mono">$2,876.50</span></div>
-                        <div className="flex justify-between"><span>Tips:</span> <span className="font-mono">$1,102.00</span></div>
-                    </div>
-                </div>
-            </CardContent>
-        </Card>
-    );
-};
 
-const ClientCard = ({ client }: { client: any }) => {
+const ClientCard = ({ client }: { client: Client }) => {
+    const { clients } = useInventory();
+    const lastAppointment = useMemo(() => {
+        if (!client.lastAppointment) return null;
+        return new Date(client.lastAppointment);
+    }, [client.lastAppointment]);
+
     return (
       <ClientOnly>
         <Card className="transition-all hover:shadow-lg hover:-translate-y-1">
@@ -76,7 +50,9 @@ const ClientCard = ({ client }: { client: any }) => {
                         <Link href={`/clients/${client.id}`} className="group">
                             <p className="font-semibold text-lg group-hover:underline">{client.name}</p>
                         </Link>
-                        <p className="text-sm text-muted-foreground">Last seen: {formatDistanceToNow(new Date(client.lastAppointment), { addSuffix: true })}</p>
+                        {lastAppointment && (
+                            <p className="text-sm text-muted-foreground">Last seen: {formatDistanceToNow(lastAppointment, { addSuffix: true })}</p>
+                        )}
                     </div>
                      <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -161,13 +137,14 @@ const EmptyState = ({ onAddClient }: { onAddClient: () => void }) => (
 
 
 export default function ClientsPage() {
+  const { clients, setClients } = useInventory();
   const [isAddClientOpen, setIsAddClientOpen] = useState(false);
   const [isMergeClientsOpen, setIsMergeClientsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [lastSeenFilter, setLastSeenFilter] = useState('all');
   
   const filteredClients = useMemo(() => {
-    let clientsToFilter = initialClients;
+    let clientsToFilter = clients;
     
     if (lastSeenFilter !== 'all') {
       const days = parseInt(lastSeenFilter);
@@ -183,10 +160,85 @@ export default function ClientsPage() {
     }
 
     return clientsToFilter.sort((a,b) => new Date(b.lastAppointment).getTime() - new Date(a.lastAppointment).getTime());
-  }, [searchTerm, lastSeenFilter]);
+  }, [clients, searchTerm, lastSeenFilter]);
   
-  const hasClients = initialClients.length > 0;
+  const hasClients = clients.length > 0;
   const hasFilteredClients = filteredClients.length > 0;
+
+  const handleMergeConfirm = (primaryClientId: string, clientIdsToDelete: string[]) => {
+    setClients(prevClients => {
+        // Find the primary client
+        const primaryClient = prevClients.find(c => c.id === primaryClientId);
+        if (!primaryClient) return prevClients;
+
+        // Collect all data to be merged
+        let appointmentsToReassign: string[] = [];
+        let mergedNotes = primaryClient.notes ? [primaryClient.notes] : [];
+        let mergedFormulas = primaryClient.customFormulas || [];
+
+        clientIdsToDelete.forEach(id => {
+            const clientToDelete = prevClients.find(c => c.id === id);
+            if (clientToDelete) {
+                // Collect appointment IDs
+                appointments.filter(a => a.clientId === id).forEach(a => appointmentsToReassign.push(a.id));
+                // Merge notes
+                if (clientToDelete.notes) mergedNotes.push(`Merged note from ${clientToDelete.name}: ${clientToDelete.notes}`);
+                // Merge formulas (simple concat, could be smarter)
+                if (clientToDelete.customFormulas) mergedFormulas = [...mergedFormulas, ...clientToDelete.customFormulas];
+            }
+        });
+        
+        // This is a mock update. In a real app, this would be a Firestore transaction
+        // Re-assigning appointments isn't done here because `appointments` is a separate mock data source
+        // but the principle is shown.
+        console.log("Reassigning appointments:", appointmentsToReassign, "to client", primaryClientId);
+
+        // Update the primary client
+        const updatedPrimaryClient = {
+            ...primaryClient,
+            notes: mergedNotes.join('\n\n'),
+            customFormulas: mergedFormulas
+        };
+
+        // Filter out deleted clients and update the primary one
+        return prevClients
+            .filter(c => !clientIdsToDelete.includes(c.id))
+            .map(c => c.id === primaryClientId ? updatedPrimaryClient : c);
+    });
+  };
+
+  const ClientStatsSidebar = () => {
+    return (
+        <Card className="lg:sticky top-24">
+            <CardHeader>
+                <CardTitle>Client Stats</CardTitle>
+                <CardDescription>Metrics for the current client view.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+                 <div className="p-3 bg-muted/50 rounded-lg">
+                    <div className="text-sm font-medium text-muted-foreground">Total Active Clients</div>
+                    <div className="text-2xl font-bold">{clients.length}</div>
+                </div>
+                 <div className="p-3 bg-muted/50 rounded-lg">
+                    <div className="text-sm font-medium text-muted-foreground">Client Retention Rate</div>
+                    <div className="text-2xl font-bold">87%</div>
+                </div>
+                <div className="p-3 bg-muted/50 rounded-lg">
+                    <div className="text-sm font-medium text-muted-foreground">Avg. Spend / Appointment</div>
+                    <div className="text-2xl font-bold">$125.50</div>
+                </div>
+                <div>
+                    <h4 className="text-sm font-medium text-muted-foreground mb-2">Revenue Breakdown</h4>
+                    <div className="space-y-1 text-xs">
+                        <div className="flex justify-between"><span>Services:</span> <span className="font-mono">$12,345.00</span></div>
+                        <div className="flex justify-between"><span>Retail:</span> <span className="font-mono">$2,876.50</span></div>
+                        <div className="flex justify-between"><span>Tips:</span> <span className="font-mono">$1,102.00</span></div>
+                    </div>
+                </div>
+            </CardContent>
+        </Card>
+    );
+  };
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -262,8 +314,14 @@ export default function ClientsPage() {
 
       </main>
 
-      <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={initialClients} />
-      <MergeClientsDialog open={isMergeClientsOpen} onOpenChange={setIsMergeClientsOpen} allClients={initialClients} allAppointments={appointments} />
+      <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients} />
+      <MergeClientsDialog 
+        open={isMergeClientsOpen} 
+        onOpenChange={setIsMergeClientsOpen} 
+        allClients={clients} 
+        allAppointments={appointments}
+        onMerge={handleMergeConfirm}
+      />
 
     </div>
   );
