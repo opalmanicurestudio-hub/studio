@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, KeyboardEvent } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
@@ -203,7 +203,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                         <div className="flex items-center gap-2">
                             <Input 
                                 id="custom-tags" 
-                                placeholder="Type a tag..." 
+                                placeholder="Type a tag and press Enter..." 
                                 value={tagInput}
                                 onChange={(e) => setTagInput(e.target.value)}
                                 onKeyDown={handleTagInputKeyDown}
@@ -266,7 +266,32 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                 {/* Section 4: Notes */}
                 <div className="space-y-4">
                     <h3 className="text-lg font-medium">Initial Consultation Notes</h3>
-                    <Textarea rows={5} placeholder="Add any initial notes, preferences, or goals from your first interaction."/>
+                    <Accordion type="multiple" className="w-full space-y-2">
+                        <AccordionItem value="goals" className="border rounded-lg">
+                            <AccordionTrigger className="p-3 text-base font-semibold">Client Goals</AccordionTrigger>
+                            <AccordionContent className="p-4">
+                                <Textarea placeholder="What is the client hoping to achieve today and in the long term?" />
+                            </AccordionContent>
+                        </AccordionItem>
+                        <AccordionItem value="routine" className="border rounded-lg">
+                            <AccordionTrigger className="p-3 text-base font-semibold">Current Routine & Products</AccordionTrigger>
+                            <AccordionContent className="p-4">
+                                <Textarea placeholder="What products are they currently using? What is their daily maintenance routine?" />
+                            </AccordionContent>
+                        </AccordionItem>
+                        <AccordionItem value="history" className="border rounded-lg">
+                            <AccordionTrigger className="p-3 text-base font-semibold">Past Service History</AccordionTrigger>
+                            <AccordionContent className="p-4">
+                                <Textarea placeholder="Any good or bad experiences with this type of service in the past? What did they like or dislike?" />
+                            </AccordionContent>
+                        </AccordionItem>
+                         <AccordionItem value="other" className="border rounded-lg">
+                            <AccordionTrigger className="p-3 text-base font-semibold">Other Notes</AccordionTrigger>
+                            <AccordionContent className="p-4">
+                                <Textarea placeholder="Any other relevant details, preferences, or notes." />
+                            </AccordionContent>
+                        </AccordionItem>
+                    </Accordion>
                 </div>
             </div>
         </ScrollArea>
