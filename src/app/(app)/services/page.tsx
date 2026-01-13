@@ -13,7 +13,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Clock, DollarSign, Sparkles, Box, List, Pencil, Search, SlidersHorizontal, Info, ShoppingCart, Hammer, FileText, BarChart, Users, TrendingUp, MapPin, Book, Calendar as CalendarIcon, Landmark } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Clock, DollarSign, Sparkles, Box, List, Pencil, Search, SlidersHorizontal, Info, ShoppingCart, Hammer, FileText, BarChart, Users, TrendingUp, MapPin, Book, Calendar as CalendarIcon, Landmark, Link as LinkIcon } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -185,6 +185,7 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
 };
 
 const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUpdate }: { service: Service, onEditServiceOpen: (service: Service) => void, tmhr: number, appointments: Appointment[] | null, onPriceUpdate: (serviceId: string, newPrice: number) => void }) => {
+  const { toast } = useToast();
   const profitPercentage = service.price > 0 ? (service.profit / service.price) * 100 : 0;
   const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
   
@@ -199,6 +200,15 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUp
         uniqueClients
     };
   }, [service.id, service.price, appointments]);
+
+  const handleCopyLink = () => {
+    const bookingLink = `https://clarityflow.app/book/${service.id}`; // This is a placeholder URL
+    navigator.clipboard.writeText(bookingLink);
+    toast({
+        title: "Booking Link Copied!",
+        description: "You can now share this direct link with your clients.",
+    });
+  };
 
 
   return (
@@ -271,7 +281,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUp
                 </AccordionTrigger>
                 <AccordionContent className='pt-4 space-y-4'>
                     <Tabs defaultValue="performance">
-                        <TabsList className="grid w-full grid-cols-3 text-xs h-8 p-0 rounded-md">
+                        <TabsList className="grid w-full grid-cols-3 text-xs h-8 rounded-md">
                             <TabsTrigger value="performance" className="h-full rounded-sm">Performance</TabsTrigger>
                             <TabsTrigger value="profit" className="h-full rounded-sm">Profit Tester</TabsTrigger>
                             <TabsTrigger value="cost" className="h-full rounded-sm">Cost Breakdown</TabsTrigger>
@@ -305,7 +315,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUp
       </CardContent>
        <CardFooter className="p-2 border-t bg-muted/50">
             <div className="grid grid-cols-2 gap-2 w-full">
-                <Button variant="ghost" size="sm" className="w-full"><Book className="mr-2 h-4 w-4"/>Book</Button>
+                <Button variant="ghost" size="sm" className="w-full" onClick={handleCopyLink}><LinkIcon className="mr-2 h-4 w-4"/>Share Link</Button>
                 <Button variant="ghost" size="sm" className="w-full" asChild><Link href={`/services/${service.id}`}><FileText className="mr-2 h-4 w-4"/>View</Link></Button>
             </div>
         </CardFooter>
