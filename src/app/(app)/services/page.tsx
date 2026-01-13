@@ -8,10 +8,11 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  CardDescription
+  CardDescription,
+  CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Clock, DollarSign, Sparkles, Box, List, Pencil, Search, SlidersHorizontal, Info, ShoppingCart, Hammer, FileText, BarChart, Users, TrendingUp, MapPin } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Clock, DollarSign, Sparkles, Box, List, Pencil, Search, SlidersHorizontal, Info, ShoppingCart, Hammer, FileText, BarChart, Users, TrendingUp, MapPin, Book, Calendar as CalendarIcon } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,7 +22,6 @@ import {
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { services as initialServices, type Service, inventory as allInventory, type InventoryItem, type Appointment } from '@/lib/data';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -32,6 +32,8 @@ import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast';
 import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
 import { collection } from 'firebase/firestore';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
 
 const InlineProfitTester = ({ service, tmhr }: { service: Service, tmhr: number }) => {
   const [testPrice, setTestPrice] = useState(service.price);
@@ -167,7 +169,6 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
   );
 };
 
-
 const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments }: { service: Service, onEditServiceOpen: (service: Service) => void, tmhr: number, appointments: Appointment[] | null }) => {
   const profitPercentage = service.price > 0 ? (service.profit / service.price) * 100 : 0;
   const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
@@ -186,22 +187,24 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments }: { servi
 
 
   return (
-    <Card className="overflow-hidden w-full max-w-[340px] shrink-0 transition-all duration-200 hover:shadow-xl hover:-translate-y-1">
-      <CardContent className="p-3 space-y-3">
-        <div className="flex items-start gap-3">
-          <Link href={`/services/${service.id}`} className="w-16 h-16 bg-muted rounded-md flex-shrink-0">
+    <Card className="overflow-hidden flex flex-col transition-all duration-200 hover:shadow-xl hover:-translate-y-1">
+      <CardContent className="p-4 space-y-4 flex-1">
+        <div className="flex items-start gap-4">
+          <Link href={`/services/${service.id}`} className="w-20 h-20 bg-muted rounded-md flex-shrink-0">
              <Image 
                 src={service.imageUrl || `https://picsum.photos/seed/svc${service.id}/200/200`} 
                 alt={service.name} 
-                width={64} 
-                height={64} 
+                width={80} 
+                height={80} 
                 className='rounded-md object-cover h-full w-full' 
                 data-ai-hint="manicure nails" 
             />
           </Link>
-          <div className="flex-1 space-y-1">
+          <div className="flex-1 space-y-1 min-w-0">
             <div className="flex justify-between items-start">
-              <Link href={`/services/${service.id}`} className="font-semibold text-sm hover:underline">{service.name}</Link>
+              <Link href={`/services/${service.id}`} className="font-semibold text-base leading-tight hover:underline pr-2 group">
+                {service.name}
+              </Link>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button aria-haspopup="true" size="icon" variant="ghost" className='-mt-1 h-8 w-8 flex-shrink-0'>
@@ -220,76 +223,77 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments }: { servi
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
-            <p className="text-xs text-muted-foreground flex items-center gap-1.5"><Clock className="w-3 h-3" /> {service.duration} min {totalPadding > 0 && <span className='text-muted-foreground/50'>(+{totalPadding} pad)</span>}</p>
-            <p className="text-xs text-muted-foreground flex items-center gap-1.5"><DollarSign className="w-3 h-3" /> Deposit</p>
+            <div className="text-sm text-muted-foreground flex items-center gap-4">
+                <div className="flex items-center gap-1.5"><Clock className="w-4 h-4" /> {service.duration} min {totalPadding > 0 && <span className='text-muted-foreground/50'>(+{totalPadding} pad)</span>}</div>
+                <div className="flex items-center gap-1.5"><DollarSign className="w-4 h-4" /> ${service.price.toFixed(2)}</div>
+            </div>
           </div>
         </div>
         
-        <div className="space-y-1.5">
-            <Progress value={profitPercentage} className={`h-1.5 ${service.profit >= 0 ? 'text-green-500' : 'text-destructive'}`} />
-            <div className="grid grid-cols-3 gap-2 text-xs">
-                <div>
-                    <p className="text-muted-foreground">Price</p>
-                    <p className="font-semibold text-sm">${service.price.toFixed(2)}</p>
-                </div>
-                 <div className='text-center'>
-                    <p className="text-muted-foreground">Cost</p>
-                    <p className="font-semibold text-sm text-destructive">${service.cost.toFixed(2)}</p>
-                </div>
-                 <div className='text-right'>
-                    <p className="text-muted-foreground">Profit</p>
-                    <p className={`font-semibold text-sm ${service.profit >= 0 ? 'text-primary' : 'text-destructive'}`}>${service.profit.toFixed(2)}</p>
-                </div>
+        <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="p-2 rounded-md bg-muted/50">
+                <p className="text-xs text-muted-foreground">Cost</p>
+                <p className="font-semibold text-destructive">${service.cost.toFixed(2)}</p>
+            </div>
+            <div className="p-2 rounded-md bg-muted/50">
+                <p className="text-xs text-muted-foreground">Profit</p>
+                <p className={`font-semibold ${service.profit >= 0 ? 'text-primary' : 'text-destructive'}`}>${service.profit.toFixed(2)}</p>
+            </div>
+            <div className="p-2 rounded-md bg-muted/50">
+                <p className="text-xs text-muted-foreground">Margin</p>
+                 <Badge variant={profitPercentage > 75 ? 'default' : profitPercentage > 50 ? 'secondary' : 'destructive'} className='mt-1'>
+                    {profitPercentage.toFixed(0)}%
+                </Badge>
             </div>
         </div>
 
         <Accordion type="multiple" className="w-full">
-            <AccordionItem value="performance" className="border-b-0">
+            <AccordionItem value="details" className="border-b-0">
                 <AccordionTrigger className='p-2.5 text-sm font-medium hover:no-underline rounded-md bg-muted/50'>
                     <div className='flex items-center gap-2'>
-                        <BarChart className='w-4 h-4 text-primary' /> Performance
+                         <Sparkles className='w-4 h-4 text-primary' /> More Details
                     </div>
                 </AccordionTrigger>
-                <AccordionContent className='pt-4 text-sm'>
-                    <div className='grid grid-cols-3 gap-2'>
-                        <div className='text-center p-2 rounded-md bg-background'>
-                            <p className='text-xs text-muted-foreground'>Bookings</p>
-                            <p className='font-bold text-lg'>{performance.totalBookings}</p>
-                        </div>
-                        <div className='text-center p-2 rounded-md bg-background'>
-                            <p className='text-xs text-muted-foreground'>Revenue</p>
-                            <p className='font-bold text-base'>${performance.totalRevenue.toFixed(2)}</p>
-                        </div>
-                         <div className='text-center p-2 rounded-md bg-background'>
-                            <p className='text-xs text-muted-foreground'>Clients</p>
-                            <p className='font-bold text-lg'>{performance.uniqueClients}</p>
-                        </div>
-                    </div>
-                </AccordionContent>
-            </AccordionItem>
-             <AccordionItem value="profit-tester" className="border-b-0 mt-2">
-                <AccordionTrigger className='p-2.5 text-sm font-medium hover:no-underline rounded-md bg-muted/50'>
-                    <div className='flex items-center gap-2'>
-                        <Sparkles className='w-4 h-4 text-primary' /> Profit Tester
-                    </div>
-                </AccordionTrigger>
-                <AccordionContent className='pt-4'>
-                    <InlineProfitTester service={service} tmhr={tmhr} />
-                </AccordionContent>
-            </AccordionItem>
-            <AccordionItem value="cost-breakdown" className="border-b-0 mt-2">
-                <AccordionTrigger className='p-2.5 text-sm font-medium hover:no-underline rounded-md bg-muted/50'>
-                    <div className='flex items-center gap-2'>
-                        <FileText className='w-4 h-4 text-primary' /> Cost Breakdown
-                    </div>
-                </AccordionTrigger>
-                <AccordionContent className='pt-4'>
-                    <CostBreakdown service={service} tmhr={tmhr} />
+                <AccordionContent className='pt-4 space-y-4'>
+                    <Tabs defaultValue="performance">
+                        <TabsList className="grid grid-cols-3 w-full text-xs h-8">
+                            <TabsTrigger value="performance" className="h-full">Performance</TabsTrigger>
+                            <TabsTrigger value="profit" className="h-full">Profit Tester</TabsTrigger>
+                            <TabsTrigger value="cost" className="h-full">Cost Breakdown</TabsTrigger>
+                        </TabsList>
+                        <TabsContent value="performance" className="mt-4">
+                            <div className='grid grid-cols-3 gap-2'>
+                                <div className='text-center p-2 rounded-md bg-background'>
+                                    <p className='text-xs text-muted-foreground'>Bookings</p>
+                                    <p className='font-bold text-lg'>{performance.totalBookings}</p>
+                                </div>
+                                <div className='text-center p-2 rounded-md bg-background'>
+                                    <p className='text-xs text-muted-foreground'>Revenue</p>
+                                    <p className='font-bold text-base'>${performance.totalRevenue.toFixed(2)}</p>
+                                </div>
+                                <div className='text-center p-2 rounded-md bg-background'>
+                                    <p className='text-xs text-muted-foreground'>Clients</p>
+                                    <p className='font-bold text-lg'>{performance.uniqueClients}</p>
+                                </div>
+                            </div>
+                        </TabsContent>
+                        <TabsContent value="profit" className="mt-4">
+                             <InlineProfitTester service={service} tmhr={tmhr} />
+                        </TabsContent>
+                         <TabsContent value="cost" className="mt-4">
+                            <CostBreakdown service={service} tmhr={tmhr} />
+                        </TabsContent>
+                    </Tabs>
                 </AccordionContent>
             </AccordionItem>
         </Accordion>
-
       </CardContent>
+       <CardFooter className="p-2 border-t bg-muted/50">
+            <div className="grid grid-cols-2 gap-2 w-full">
+                <Button variant="ghost" size="sm" className="w-full"><Book className="mr-2 h-4 w-4"/>Book</Button>
+                <Button variant="ghost" size="sm" className="w-full" asChild><Link href={`/services/${service.id}`}><FileText className="mr-2 h-4 w-4"/>View</Link></Button>
+            </div>
+        </CardFooter>
     </Card>
   );
 };
@@ -297,20 +301,14 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments }: { servi
 const ServiceCategory = ({ title, services, onEditServiceOpen, tmhr, appointments }: { title: string, services: Service[], onEditServiceOpen: (service: Service) => void, tmhr: number, appointments: Appointment[] | null }) => {
     if (services.length === 0) return null;
     return (
-        <Accordion type="single" collapsible defaultValue="item-1">
-            <AccordionItem value="item-1">
-                <AccordionTrigger className="text-xl font-bold hover:no-underline">
-                    {title}
-                </AccordionTrigger>
-                <AccordionContent>
-                    <div className="flex flex-wrap gap-6 pt-4">
-                        {services.map((service) => (
-                            <ServiceCard key={service.id} service={service} onEditServiceOpen={onEditServiceOpen} tmhr={tmhr} appointments={appointments} />
-                        ))}
-                    </div>
-                </AccordionContent>
-            </AccordionItem>
-        </Accordion>
+        <div>
+            <h2 className="text-2xl font-bold mb-4">{title}</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {services.map((service) => (
+                    <ServiceCard key={service.id} service={service} onEditServiceOpen={onEditServiceOpen} tmhr={tmhr} appointments={appointments} />
+                ))}
+            </div>
+        </div>
     )
 }
 
@@ -355,12 +353,11 @@ export default function ServicesPage() {
 
 
   useEffect(() => {
-    // This code now runs only on the client, after the initial render.
     const storedTmhr = localStorage.getItem('tmhr');
     if (storedTmhr) {
       setTmhr(parseFloat(storedTmhr));
     }
-  }, []); // The empty dependency array ensures this runs only once on mount.
+  }, []);
 
   const handleOpenEditService = (service: Service) => {
     setSelectedService(service);
@@ -468,20 +465,20 @@ export default function ServicesPage() {
                 <Button variant="outline" className='w-full'><SlidersHorizontal className="mr-2 h-4 w-4" /> Filters</Button>
             </div>
         </div>
-
-        <Tabs defaultValue="services">
-            <TabsList className="grid w-full grid-cols-2 sm:w-auto sm:grid-cols-2">
-                <TabsTrigger value="services">Services</TabsTrigger>
-                <TabsTrigger value="add-ons">Add-ons</TabsTrigger>
-            </TabsList>
+        
+        <Tabs defaultValue="services" className="w-full">
+          <TabsList>
+            <TabsTrigger value="services">Main Services</TabsTrigger>
+            <TabsTrigger value="add-ons">Add-ons</TabsTrigger>
+          </TabsList>
           <TabsContent value="services" className="mt-6 space-y-8">
-            {Object.keys(servicesByCategory).length > 0 ? (
+             {Object.keys(servicesByCategory).length > 0 ? (
                 Object.entries(servicesByCategory).map(([category, services]) => (
                     <ServiceCategory key={category} title={category} services={services} onEditServiceOpen={handleOpenEditService} tmhr={tmhr} appointments={appointments} />
                 ))
             ) : <EmptyState onAddNewService={() => setIsAddServiceDialogOpen(true)} />}
           </TabsContent>
-           <TabsContent value="add-ons" className="mt-6 space-y-8">
+          <TabsContent value="add-ons" className="mt-6 space-y-8">
              {Object.keys(addOnsByCategory).length > 0 ? (
                 Object.entries(addOnsByCategory).map(([category, services]) => (
                     <ServiceCategory key={category} title={category} services={services} onEditServiceOpen={handleOpenEditService} tmhr={tmhr} appointments={appointments} />
@@ -495,6 +492,7 @@ export default function ServicesPage() {
              )}
           </TabsContent>
         </Tabs>
+
       </main>
 
       <AddServiceDialog 
@@ -517,4 +515,3 @@ export default function ServicesPage() {
     </div>
   );
 }
-
