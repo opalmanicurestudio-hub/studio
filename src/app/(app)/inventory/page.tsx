@@ -63,15 +63,13 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
     const detailHref = `/inventory/${item.id}`;
 
     const stockDisplay = useMemo(() => {
+      const showPartialSize = item.costingMethod === 'size' && !item.isExperimentActive && item.partialContainerSize !== undefined && item.partialContainerSize > 0;
+      const showPartialUses = item.costingMethod === 'uses' && !item.isExperimentActive && item.partialContainerUses !== undefined && item.partialContainerUses > 0;
       return (
         <div className="text-right">
             <p className="font-mono font-semibold text-lg">{item.totalStock} <span className="text-sm text-muted-foreground">full</span></p>
-            {item.costingMethod === 'size' && !item.isExperimentActive && item.partialContainerSize !== undefined && item.partialContainerSize > 0 && (
-                <p className="text-xs text-muted-foreground">{item.partialContainerSize.toFixed(0)}{item.unit} left</p>
-            )}
-            {item.costingMethod === 'uses' && !item.isExperimentActive && item.partialContainerUses !== undefined && item.partialContainerUses > 0 && (
-                <p className="text-xs text-muted-foreground">{item.partialContainerUses} uses left</p>
-            )}
+            {showPartialSize && <p className="text-xs text-muted-foreground">{item.partialContainerSize!.toFixed(0)}{item.unit} left</p>}
+            {showPartialUses && <p className="text-xs text-muted-foreground">{item.partialContainerUses} uses left</p>}
              {item.isExperimentActive && (
                 <Badge variant="secondary" className="mt-1 flex items-center gap-1.5 bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 w-fit ml-auto">
                     <FlaskConical className="h-3 w-3" />
@@ -354,44 +352,51 @@ export default function InventoryPage() {
   };
   
 
-  const handleSpoilageConfirm = (itemsToWriteOff: SpoilageItem[]) => {
+ const handleSpoilageConfirm = (itemsToWriteOff: SpoilageItem[]) => {
     setInventory(prevInventory => {
-        const newInventory = [...prevInventory];
-        itemsToWriteOff.forEach(item => {
-            const productIndex = newInventory.findIndex(p => p.id === item.productId);
-            if (productIndex !== -1) {
-                const product = { ...newInventory[productIndex] };
-                const batchIndex = product.batches.findIndex(b => b.id === item.batchId);
-                if (batchIndex !== -1) {
-                    const batch = { ...product.batches[batchIndex] };
-                    const stockChange = batch.stock;
-                    batch.stock = 0; // Write off the entire batch stock
-                    product.batches[batchIndex] = batch;
+      const newInventory = [...prevInventory];
+      itemsToWriteOff.forEach(item => {
+        const productIndex = newInventory.findIndex(p => p.id === item.productId);
+        if (productIndex !== -1) {
+          const product = { ...newInventory[productIndex] };
+          const batchIndex = product.batches.findIndex(b => b.id === item.batchId);
+          if (batchIndex !== -1) {
+            const batch = { ...product.batches[batchIndex] };
+            const stockChange = batch.stock;
+            batch.stock = 0; // Write off the entire batch stock
+            product.batches[batchIndex] = batch;
 
-                    // Recalculate total stock
-                    product.totalStock = product.batches.reduce((acc, b) => acc + b.stock, 0);
-                    newInventory[productIndex] = product;
-
-                    // Create a stock correction record
-                    addStockCorrection({
-                        id: `sc-${Date.now()}-${item.productId}`,
-                        productId: item.productId,
-                        date: new Date().toISOString(),
-                        change: -stockChange,
-                        unit: 'units',
-                        reason: 'Expired',
-                    });
-                }
+            // Recalculate total stock
+            product.totalStock = product.batches.reduce((acc, b) => acc + b.stock, 0);
+            
+            // If total stock is now zero, also zero out partials
+            if (product.totalStock === 0) {
+              product.partialContainerSize = 0;
+              product.partialContainerUses = 0;
             }
-        });
-        return newInventory;
+
+            newInventory[productIndex] = product;
+
+            // Create a stock correction record
+            addStockCorrection({
+              id: `sc-${Date.now()}-${item.productId}`,
+              productId: item.productId,
+              date: new Date().toISOString(),
+              change: -stockChange,
+              unit: 'units',
+              reason: 'Expired',
+            });
+          }
+        }
+      });
+      return newInventory;
     });
 
     toast({
-        title: 'Spoilage Written Off',
-        description: `${itemsToWriteOff.length} item(s) have been removed from inventory.`,
+      title: 'Spoilage Written Off',
+      description: `${itemsToWriteOff.length} item(s) have been removed from inventory.`,
     });
-  }
+  };
   
   const handleToggleExperiment = (item: InventoryItem) => {
     setInventory(prev => prev.map(p => 
@@ -695,5 +700,6 @@ export default function InventoryPage() {
   );
 
     
+
 
 
