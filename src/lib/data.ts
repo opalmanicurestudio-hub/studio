@@ -1,5 +1,4 @@
 
-
 import { BillDefinition, billDefinitions, billInstances } from './financial-data';
 import { addDays, subDays, setHours, setMinutes, startOfDay } from 'date-fns';
 
@@ -113,6 +112,7 @@ export type InventoryItem = {
   size?: number; // e.g., 1000 for 1000ml
   unit?: 'ml' | 'oz' | 'g' | 'unit';
   estimatedUses?: number; // e.g., 100 uses per bottle
+  useUnit?: string; // e.g., 'pumps', 'sprays', 'drops'
   
   partialContainerSize?: number; // Amount left in the open container (e.g., 750ml)
   partialContainerUses?: number; // Uses left in the open container (e.g., 80 uses)

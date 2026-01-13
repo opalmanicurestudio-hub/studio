@@ -165,23 +165,30 @@ const Step2_CostingPricing = ({ productType }: { productType: ProductType }) => 
                                         <SelectValue placeholder="Select unit" />
                                     </SelectTrigger>
                                     <SelectContent>
+                                        <SelectItem value="g">gram (g)</SelectItem>
+                                        <SelectItem value="kg">kilogram (kg)</SelectItem>
+                                        <SelectItem value="oz_wt">ounce (oz)</SelectItem>
+                                        <SelectItem value="lb">pound (lb)</SelectItem>
                                         <SelectItem value="ml">milliliter (ml)</SelectItem>
                                         <SelectItem value="l">liter (l)</SelectItem>
-                                        <SelectItem value="oz">fluid ounce (oz)</SelectItem>
+                                        <SelectItem value="oz_fl">fluid ounce (fl oz)</SelectItem>
                                         <SelectItem value="pt">pint (pt)</SelectItem>
                                         <SelectItem value="qt">quart (qt)</SelectItem>
                                         <SelectItem value="gal">gallon (gal)</SelectItem>
-                                        <SelectItem value="g">gram (g)</SelectItem>
-                                        <SelectItem value="kg">kilogram (kg)</SelectItem>
-                                        <SelectItem value="lb">pound (lb)</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
                         </div>
                     ) : (
-                         <div className="space-y-2">
-                            <Label htmlFor="estimated-uses">Estimated Uses Per Container</Label>
-                            <Input id="estimated-uses" type="number" placeholder="e.g., 50" />
+                         <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="estimated-uses">Estimated Quantity</Label>
+                                <Input id="estimated-uses" type="number" placeholder="e.g., 160" />
+                            </div>
+                             <div className="space-y-2">
+                                <Label htmlFor="use-unit">Dispensing Unit</Label>
+                                <Input id="use-unit" placeholder="e.g., pumps, sprays" />
+                            </div>
                         </div>
                     )}
                     <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
