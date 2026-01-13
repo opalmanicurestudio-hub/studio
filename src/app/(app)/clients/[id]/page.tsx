@@ -491,18 +491,17 @@ export default function ClientDetailPage() {
             </TabsContent>
              <TabsContent value="consents" className="mt-6">
                  <Card>
-                    <CardHeader className="flex flex-row items-center justify-between">
+                    <CardHeader>
                          <div>
                             <CardTitle>Signed Forms</CardTitle>
                             <CardDescription>All consent forms signed by {client.name}.</CardDescription>
                          </div>
-                         <Button variant="outline"><PlusCircle className="mr-2 h-4 w-4"/>Send New Form</Button>
                     </CardHeader>
                     <CardContent>
                         <div className="border-2 border-dashed rounded-lg p-12 text-center">
                             <FileText className="w-10 h-10 text-muted-foreground mx-auto mb-4" />
-                            <h3 className="font-semibold text-lg">No Forms Signed</h3>
-                            <p className="text-sm text-muted-foreground">This client hasn't signed any consent forms yet.</p>
+                            <h3 className="font-semibold text-lg">No Forms on File</h3>
+                            <p className="text-sm text-muted-foreground">The ability to send and track forms is coming soon.</p>
                        </div>
                     </CardContent>
                 </Card>
