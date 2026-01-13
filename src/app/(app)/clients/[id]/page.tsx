@@ -501,7 +501,7 @@ export default function ClientDetailPage() {
                         <div className="border-2 border-dashed rounded-lg p-12 text-center">
                             <FileText className="w-10 h-10 text-muted-foreground mx-auto mb-4" />
                             <h3 className="font-semibold text-lg">No Forms on File</h3>
-                            <p className="text-sm text-muted-foreground">The ability to send and track forms is coming soon.</p>
+                            <p className="text-sm text-muted-foreground">This feature is not yet available.</p>
                        </div>
                     </CardContent>
                 </Card>
@@ -537,5 +537,7 @@ export default function ClientDetailPage() {
     </div>
   );
 }
+
+    
 
     
