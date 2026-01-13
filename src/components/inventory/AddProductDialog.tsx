@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState } from 'react';
@@ -129,6 +128,7 @@ const Step1_BasicDetails = ({
 
 const Step2_CostingPricing = ({ productType }: { productType: ProductType }) => {
     const [costingMethod, setCostingMethod] = useState('by-size');
+    const [showCustomUseUnit, setShowCustomUseUnit] = useState(false);
 
     return (
     <div className="grid gap-6 py-4">
@@ -188,7 +188,7 @@ const Step2_CostingPricing = ({ productType }: { productType: ProductType }) => 
                             </div>
                              <div className="space-y-2">
                                 <Label htmlFor="use-unit">Dispensing Unit</Label>
-                                <Select>
+                                <Select onValueChange={(value) => setShowCustomUseUnit(value === 'other')}>
                                     <SelectTrigger id="use-unit">
                                         <SelectValue placeholder="Select dispensing unit" />
                                     </SelectTrigger>
@@ -209,9 +209,16 @@ const Step2_CostingPricing = ({ productType }: { productType: ProductType }) => 
                                         <SelectItem value="scoops">scoops</SelectItem>
                                         <SelectItem value="uses">uses</SelectItem>
                                         <SelectItem value="services">services</SelectItem>
+                                        <SelectItem value="other">Other...</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
+                            {showCustomUseUnit && (
+                                <div className="space-y-2 col-span-2">
+                                    <Label htmlFor="custom-use-unit">Custom Unit Name</Label>
+                                    <Input id="custom-use-unit" placeholder="Enter your custom unit" />
+                                </div>
+                            )}
                         </div>
                     )}
                     <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
@@ -479,3 +486,5 @@ export const AddProductDialog = ({
     </Dialog>
   );
 };
+
+    
