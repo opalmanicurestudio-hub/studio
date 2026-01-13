@@ -105,6 +105,8 @@ export type InventoryItem = {
   costPerUnit?: number; // Landed cost of one full container
   reorderPoint?: number;
   imageUrl?: string;
+  primaryLocationId?: string;
+  secondaryLocationIds?: string[];
   
   // For partial usage tracking
   costingMethod?: 'uses' | 'size'; // How to deduct from a partial container
@@ -212,17 +214,17 @@ export const clients: Client[] = [
 ];
 
 export const inventory: InventoryItem[] = [
-  { id: 'inv-1', name: 'Nail File', type: 'professional', category: 'Tools', totalStock: 50, reorderPoint: 20, supplier: 'ProNailSupply', supplierUrl: 'https://www.nails-r-us.com/pro-files', batches: [{id: 'b1-1', stock: 50, costPerUnit: 0.25, receivedDate: '2024-05-01'}], costingMethod: 'uses', estimatedUses: 1, partialContainerUses: 50, unit: 'uses' },
-  { id: 'inv-2', name: 'Cuticle Oil', type: 'professional', category: 'Care', totalStock: 1, reorderPoint: 25, supplier: 'ProNailSupply', batches: [{id: 'b2-1', stock: 1, costPerUnit: 15.00, receivedDate: '2024-05-01'}], costingMethod: 'size', size: 500, unit: 'ml', partialContainerSize: 350 },
-  { id: 'inv-3', name: 'Base Coat Polish', type: 'professional', category: 'Color', totalStock: 30, reorderPoint: 10, supplier: 'ColorWorld', isExperimentActive: true, experimentUses: 22, estimatedUses: 30, batches: [{id: 'b3-1', stock: 30, costPerUnit: 0.50, receivedDate: '2024-05-01'}], costingMethod: 'uses', partialContainerUses: 8, unit: 'uses' },
-  { id: 'inv-4', name: 'Top Coat Polish', type: 'professional', category: 'Color', totalStock: 30, reorderPoint: 10, supplier: 'ColorWorld', batches: [{id: 'b4-1', stock: 30, costPerUnit: 0.50, receivedDate: '2024-05-01'}], costingMethod: 'uses', partialContainerUses: 30, unit: 'uses' },
-  { id: 'inv-5', name: 'Red Nail Polish', type: 'professional', category: 'Color', totalStock: 15, reorderPoint: 5, supplier: 'ColorWorld', batches: [{id: 'b5-1', stock: 15, costPerUnit: 0.80, receivedDate: '2024-05-01', expirationDate: '2024-06-30'}], costingMethod: 'uses', partialContainerUses: 15, unit: 'uses' },
-  { id: 'inv-6', name: 'Lotion', type: 'professional', category: 'Care', totalStock: 0, reorderPoint: 20, supplier: 'BeautyCare', batches: [{id: 'b6-1', stock: 0, costPerUnit: 30.00, receivedDate: '2024-05-01'}], costingMethod: 'size', size: 1000, unit: 'ml', partialContainerSize: 50 },
-  { id: 'inv-7', name: 'UV Gel Lamp', type: 'equipment', category: 'Tools', totalStock: 2, supplier: 'EquipPro', lifespanYears: 3, batches: [{id: 'b7-1', stock: 2, costPerUnit: 150.00, receivedDate: '2022-01-15'}], maintenanceHistory: [{ id: 'maint-1', date: '2023-08-01', description: 'Replaced UV bulb', cost: 25.00 }] },
+  { id: 'inv-1', name: 'Nail File', type: 'professional', category: 'Tools', totalStock: 50, reorderPoint: 20, supplier: 'ProNailSupply', supplierUrl: 'https://www.nails-r-us.com/pro-files', batches: [{id: 'b1-1', stock: 50, costPerUnit: 0.25, receivedDate: '2024-05-01'}], costingMethod: 'uses', estimatedUses: 1, partialContainerUses: 50, unit: 'uses', primaryLocationId: 'loc-3' },
+  { id: 'inv-2', name: 'Cuticle Oil', type: 'professional', category: 'Care', totalStock: 1, reorderPoint: 25, supplier: 'ProNailSupply', batches: [{id: 'b2-1', stock: 1, costPerUnit: 15.00, receivedDate: '2024-05-01'}], costingMethod: 'size', size: 500, unit: 'ml', partialContainerSize: 350, primaryLocationId: 'loc-1' },
+  { id: 'inv-3', name: 'Base Coat Polish', type: 'professional', category: 'Color', totalStock: 30, reorderPoint: 10, supplier: 'ColorWorld', isExperimentActive: true, experimentUses: 22, estimatedUses: 30, batches: [{id: 'b3-1', stock: 30, costPerUnit: 0.50, receivedDate: '2024-05-01'}], costingMethod: 'uses', partialContainerUses: 8, unit: 'uses', primaryLocationId: 'loc-1' },
+  { id: 'inv-4', name: 'Top Coat Polish', type: 'professional', category: 'Color', totalStock: 30, reorderPoint: 10, supplier: 'ColorWorld', batches: [{id: 'b4-1', stock: 30, costPerUnit: 0.50, receivedDate: '2024-05-01'}], costingMethod: 'uses', partialContainerUses: 30, unit: 'uses', primaryLocationId: 'loc-1' },
+  { id: 'inv-5', name: 'Red Nail Polish', type: 'professional', category: 'Color', totalStock: 15, reorderPoint: 5, supplier: 'ColorWorld', batches: [{id: 'b5-1', stock: 15, costPerUnit: 0.80, receivedDate: '2024-05-01', expirationDate: '2024-06-30'}], costingMethod: 'uses', partialContainerUses: 15, unit: 'uses', primaryLocationId: 'loc-1' },
+  { id: 'inv-6', name: 'Lotion', type: 'professional', category: 'Care', totalStock: 0, reorderPoint: 20, supplier: 'BeautyCare', batches: [{id: 'b6-1', stock: 0, costPerUnit: 30.00, receivedDate: '2024-05-01'}], costingMethod: 'size', size: 1000, unit: 'ml', partialContainerSize: 50, primaryLocationId: 'loc-1' },
+  { id: 'inv-7', name: 'UV Gel Lamp', type: 'equipment', category: 'Tools', totalStock: 2, supplier: 'EquipPro', lifespanYears: 3, batches: [{id: 'b7-1', stock: 2, costPerUnit: 150.00, receivedDate: '2022-01-15'}], maintenanceHistory: [{ id: 'maint-1', date: '2023-08-01', description: 'Replaced UV bulb', cost: 25.00 }], primaryLocationId: 'loc-3' },
   { id: 'inv-8', name: 'Disinfectant Wipes', type: 'overhead', category: 'Cleaning', totalStock: 5, reorderPoint: 2, supplier: 'CleanSupplies', batches: [{id: 'b8-1', stock: 5, costPerUnit: 10.00, receivedDate: '2024-06-01'}] },
-  { id: 'inv-9', name: 'Retail Shine Serum', type: 'retail', category: 'Styling', totalStock: 12, reorderPoint: 5, supplier: 'BeautyCare', batches: [{id: 'b9-1', stock: 12, costPerUnit: 8.50, receivedDate: '2024-06-01'}] },
-  { id: 'inv-10', name: 'Pro Color Tube 5N', type: 'professional', category: 'Color', totalStock: 2, reorderPoint: 5, supplier: 'ColorWorld', isExperimentActive: false, experimentUses: 0, estimatedUses: 25, batches: [{id: 'b10-1', stock: 2, costPerUnit: 7.00, receivedDate: '2024-06-01'}], costingMethod: 'uses', partialContainerUses: 25, unit: 'uses' },
-  { id: 'inv-11', name: '20 Vol Developer', type: 'professional', category: 'Color', totalStock: 1, reorderPoint: 1, supplier: 'ColorWorld', batches: [{id: 'b11-1', stock: 1, costPerUnit: 12.00, receivedDate: '2024-06-01'}], costingMethod: 'size', size: 1000, unit: 'ml', partialContainerSize: 800 },
+  { id: 'inv-9', name: 'Retail Shine Serum', type: 'retail', category: 'Styling', totalStock: 12, reorderPoint: 5, supplier: 'BeautyCare', batches: [{id: 'b9-1', stock: 12, costPerUnit: 8.50, receivedDate: '2024-06-01'}], primaryLocationId: 'loc-2' },
+  { id: 'inv-10', name: 'Pro Color Tube 5N', type: 'professional', category: 'Color', totalStock: 2, reorderPoint: 5, supplier: 'ColorWorld', isExperimentActive: false, experimentUses: 0, estimatedUses: 25, batches: [{id: 'b10-1', stock: 2, costPerUnit: 7.00, receivedDate: '2024-06-01'}], costingMethod: 'uses', partialContainerUses: 25, unit: 'uses', primaryLocationId: 'loc-1' },
+  { id: 'inv-11', name: '20 Vol Developer', type: 'professional', category: 'Color', totalStock: 1, reorderPoint: 1, supplier: 'ColorWorld', batches: [{id: 'b11-1', stock: 1, costPerUnit: 12.00, receivedDate: '2024-06-01'}], costingMethod: 'size', size: 1000, unit: 'ml', partialContainerSize: 800, primaryLocationId: 'loc-1' },
 ];
 
 export const services: Service[] = [
@@ -249,7 +251,8 @@ export const services: Service[] = [
     ],
     equipment: [
         inventory.find(i => i.id === 'inv-7')!
-    ]
+    ],
+    isPrivate: false,
   },
   { 
     id: 'svc-2', 
@@ -277,6 +280,7 @@ export const services: Service[] = [
     profit: 215.00,
     margin: 86.0,
     imageUrl: 'https://picsum.photos/seed/haircolor/200/200',
+    isPrivate: false,
   },
   { 
     id: 'svc-4', 
@@ -289,6 +293,7 @@ export const services: Service[] = [
     profit: 105.00,
     margin: 87.5,
     imageUrl: 'https://picsum.photos/seed/facial/200/200',
+    isPrivate: false,
   },
   { 
     id: 'svc-5', 
@@ -302,6 +307,7 @@ export const services: Service[] = [
     profit: 300.00,
     margin: 85.7,
     imageUrl: 'https://picsum.photos/seed/balayage/200/200',
+    isPrivate: false,
   },
   { 
     id: 'svc-6', 
@@ -315,6 +321,7 @@ export const services: Service[] = [
     profit: 48.00,
     margin: 96.0,
     imageUrl: 'https://picsum.photos/seed/menscut/200/200',
+    isPrivate: false,
   },
   { 
     id: 'svc-7', 
@@ -329,6 +336,7 @@ export const services: Service[] = [
     profit: 83.00,
     margin: 87.4,
     imageUrl: 'https://picsum.photos/seed/gelx/200/200',
+    isPrivate: false,
   },
   { 
     id: 'svc-8', 
@@ -341,6 +349,7 @@ export const services: Service[] = [
     profit: 23.50,
     margin: 94.0,
     imageUrl: 'https://picsum.photos/seed/eyebrow/200/200',
+    isPrivate: false,
   },
   { 
     id: 'svc-9', 
@@ -354,6 +363,7 @@ export const services: Service[] = [
     profit: 100.00,
     margin: 83.3,
     imageUrl: 'https://picsum.photos/seed/root-touchup/200/200',
+    isPrivate: false,
   },
   { 
     id: 'svc-10', 
@@ -366,6 +376,7 @@ export const services: Service[] = [
     profit: 65.00,
     margin: 86.7,
     imageUrl: 'https://picsum.photos/seed/toner/200/200',
+    isPrivate: false,
   },
   { 
     id: 'svc-11', 
@@ -378,6 +389,7 @@ export const services: Service[] = [
     profit: 55.00,
     margin: 91.7,
     imageUrl: 'https://picsum.photos/seed/blowout/200/200',
+    isPrivate: false,
   },
   { 
     id: 'svc-12', 
@@ -390,6 +402,7 @@ export const services: Service[] = [
     profit: 82.00,
     margin: 91.1,
     imageUrl: 'https://picsum.photos/seed/updo/200/200',
+    isPrivate: false,
   },
   { 
     id: 'svc-addon-1', 
@@ -401,6 +414,7 @@ export const services: Service[] = [
     cost: 2.50,
     profit: 17.50,
     margin: 87.5,
+    isPrivate: false,
   },
   { 
     id: 'svc-addon-2', 
@@ -412,6 +426,7 @@ export const services: Service[] = [
     cost: 8.00,
     profit: 27.00,
     margin: 77.1,
+    isPrivate: false,
   },
   { 
     id: 'svc-addon-3', 
@@ -423,6 +438,7 @@ export const services: Service[] = [
     cost: 1.00,
     profit: 24.00,
     margin: 96.0,
+    isPrivate: false,
   },
   {
     id: 'svc-addon-4',
@@ -434,6 +450,7 @@ export const services: Service[] = [
     cost: 10.00,
     profit: 30.00,
     margin: 75.0,
+    isPrivate: false,
   },
 ];
 

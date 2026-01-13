@@ -12,7 +12,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette, QrCode, AlertTriangle } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette, QrCode, AlertTriangle, ListFilter } from 'lucide-react';
 import { type InventoryItem, type StockCorrection } from '@/lib/data';
 import {
   DropdownMenu,
@@ -27,9 +27,11 @@ import { Input } from '@/components/ui/input';
 import { AddProductDialog } from '@/components/inventory/AddProductDialog';
 import { EditProductDialog } from '@/components/inventory/EditProductDialog';
 import { AddLocationDialog, type Location, type LocationType } from '@/components/inventory/AddLocationDialog';
+import { EditLocationDialog } from '@/components/inventory/EditLocationDialog';
 import { EndCostPerUseTestDialog } from '@/components/inventory/EndCostPerUseTestDialog';
 import { WriteOffDialog } from '@/components/inventory/WriteOffDialog';
 import { LogUseDialog } from '@/components/inventory/LogUseDialog';
+import { Locations } from '@/components/inventory/Locations';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -38,6 +40,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 
 const KPI_CARDS = [
@@ -151,13 +154,16 @@ export default function InventoryPage() {
   const { inventory, setInventory, addStockCorrection, stockCorrections, locations, setLocations, locationTypes, setLocationTypes } = useInventory();
   const { toast } = useToast();
   
-  const [activeTab, setActiveTab] = useState('all');
+  const [activeView, setActiveView] = useState('products');
+  const [activeFilter, setActiveFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  
   const [isAddLocationDialogOpen, setAddLocationDialogOpen] = useState(false);
   const [isEditLocationDialogOpen, setIsEditLocationDialogOpen] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
 
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
+  const [isEditProductOpen, setIsEditProductOpen] = useState(false);
   const [isLogUseOpen, setIsLogUseOpen] = useState(false);
   const [isWriteOffOpen, setIsWriteOffOpen] = useState(false);
   const [isEndExperimentOpen, setIsEndExperimentOpen] = useState(false);
@@ -167,12 +173,29 @@ export default function InventoryPage() {
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
   const videoRef = useRef<HTMLVideoElement>(null);
 
+  const handleOpenAddLocation = () => setAddLocationDialogOpen(true);
+  const handleOpenEditLocation = (location: Location) => {
+    setSelectedLocation(location);
+    setIsEditLocationDialogOpen(true);
+  };
+  const handleSaveLocation = (newLocation: Omit<Location, 'id'>) => {
+    const newLocWithId = { ...newLocation, id: `loc-${Date.now()}`};
+    setLocations(prev => [...prev, newLocWithId]);
+  };
+  const handleUpdateLocation = (updatedLocation: Location) => {
+    setLocations(prev => prev.map(loc => loc.id === updatedLocation.id ? updatedLocation : loc));
+  };
+   const handleAddNewLocationType = (name: string, icon: string): LocationType => {
+    const newType = { id: `lt-${Date.now()}`, name, icon };
+    setLocationTypes(prev => [...prev, newType]);
+    return newType;
+  };
+
 
   const handleOpenLogUse = (item: InventoryItem) => {
     setSelectedProduct(item);
     setIsLogUseOpen(true);
   }
-
   const handleOpenWriteOff = (item: InventoryItem) => {
     setSelectedProduct(item);
     setIsWriteOffOpen(true);
@@ -290,8 +313,8 @@ export default function InventoryPage() {
   const filteredInventory = useMemo(() => {
     let items = inventory;
 
-    if (activeTab !== 'all') {
-      items = items.filter(item => item.type === activeTab);
+    if (activeFilter !== 'all') {
+      items = items.filter(item => item.type === activeFilter);
     }
     
     if (searchTerm) {
@@ -302,7 +325,7 @@ export default function InventoryPage() {
     }
 
     return items;
-  }, [inventory, activeTab, searchTerm]);
+  }, [inventory, activeFilter, searchTerm]);
 
   useEffect(() => {
     if (isScannerOpen) {
@@ -353,63 +376,85 @@ export default function InventoryPage() {
             ))}
         </div>
 
-        <Card>
-            <CardHeader>
-                 <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                    <div>
-                        <CardTitle>All Inventory</CardTitle>
-                        <CardDescription>A complete list of your professional, retail, and equipment stock.</CardDescription>
-                    </div>
-                     <Button className='w-full sm:w-auto' onClick={() => setIsAddProductOpen(true)}>
-                        <PlusCircle className="mr-2 h-4 w-4" /> New Item
-                    </Button>
-                </div>
-            </CardHeader>
-            <CardContent>
-                <div className="flex flex-col sm:flex-row items-center gap-4 mb-4">
-                    <div className="relative flex-1 w-full">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input 
-                            placeholder="Search by name or SKU..." 
-                            className="pl-9"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                         />
-                    </div>
-                    <div className="flex items-center gap-2 w-full sm:w-auto">
-                        <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
-                            <QrCode className="h-4 w-4" />
-                            <span className="sr-only">Scan</span>
+        <Tabs value={activeView} onValueChange={setActiveView} className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="products">Products</TabsTrigger>
+            <TabsTrigger value="locations">Locations</TabsTrigger>
+          </TabsList>
+          <TabsContent value="products" className="mt-6">
+             <Card>
+                <CardHeader>
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                        <div>
+                            <CardTitle>All Inventory</CardTitle>
+                            <CardDescription>A complete list of your professional, retail, and equipment stock.</CardDescription>
+                        </div>
+                        <Button className='w-full sm:w-auto' onClick={() => setIsAddProductOpen(true)}>
+                            <PlusCircle className="mr-2 h-4 w-4" /> New Item
                         </Button>
-                        <div className="flex items-center gap-2 w-full sm:w-auto p-1 bg-muted rounded-md">
-                          <Button variant={activeTab === 'all' ? 'default' : 'ghost'} onClick={() => setActiveTab('all')} className="flex-1 text-xs h-8">All</Button>
-                          <Button variant={activeTab === 'professional' ? 'default' : 'ghost'} onClick={() => setActiveTab('professional')} className="flex-1 text-xs h-8">Pro</Button>
-                          <Button variant={activeTab === 'retail' ? 'default' : 'ghost'} onClick={() => setActiveTab('retail')} className="flex-1 text-xs h-8">Retail</Button>
-                          <Button variant={activeTab === 'equipment' ? 'default' : 'ghost'} onClick={() => setActiveTab('equipment')} className="flex-1 text-xs h-8">Equip</Button>
+                    </div>
+                </CardHeader>
+                <CardContent>
+                    <div className="flex flex-col sm:flex-row items-center gap-4 mb-4">
+                        <div className="relative flex-1 w-full">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input 
+                                placeholder="Search by name or SKU..." 
+                                className="pl-9"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
+                        </div>
+                        <div className="flex items-center gap-2 w-full sm:w-auto">
+                            <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
+                                <QrCode className="h-4 w-4" />
+                                <span className="sr-only">Scan</span>
+                            </Button>
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="outline" className="w-full sm:w-auto">
+                                        <ListFilter className="mr-2 h-4 w-4" />
+                                        Filter
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                    <DropdownMenuItem onClick={() => setActiveFilter('all')}>All</DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => setActiveFilter('professional')}>Professional</DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => setActiveFilter('retail')}>Retail</DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => setActiveFilter('equipment')}>Equipment</DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
                         </div>
                     </div>
-                </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                    {filteredInventory.length > 0 ? filteredInventory.map(item => (
-                        <ProductCard 
-                            key={item.id} 
-                            item={item} 
-                            onEdit={() => {}} 
-                            onToggleExperiment={handleToggleExperiment} 
-                            onEndExperiment={handleEndExperiment} 
-                            onWriteOff={handleOpenWriteOff} 
-                            onLogUse={handleOpenLogUse}
-                        />
-                    )) : (
-                        <EmptyState 
-                            message={`You haven't added any ${activeTab} items yet.`}
-                            onActionClick={() => setIsAddProductOpen(true)}
-                        />
-                    )}
-                </div>
-            </CardContent>
-        </Card>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                        {filteredInventory.length > 0 ? filteredInventory.map(item => (
+                            <ProductCard 
+                                key={item.id} 
+                                item={item} 
+                                onEdit={() => {}} 
+                                onToggleExperiment={handleToggleExperiment} 
+                                onEndExperiment={handleEndExperiment} 
+                                onWriteOff={handleOpenWriteOff} 
+                                onLogUse={handleOpenLogUse}
+                            />
+                        )) : (
+                            <EmptyState 
+                                message={`You haven't added any ${activeFilter} items yet.`}
+                                onActionClick={() => setIsAddProductOpen(true)}
+                            />
+                        )}
+                    </div>
+                </CardContent>
+            </Card>
+          </TabsContent>
+           <TabsContent value="locations" className="mt-6">
+                <Locations 
+                    onAddLocation={handleOpenAddLocation}
+                    onEditLocation={handleOpenEditLocation}
+                />
+           </TabsContent>
+        </Tabs>
       </main>
       
       {selectedProduct && (
@@ -438,6 +483,24 @@ export default function InventoryPage() {
             onConfirm={handleEndExperimentConfirmed}
         />
        )}
+        <AddLocationDialog 
+            open={isAddLocationDialogOpen} 
+            onOpenChange={setAddLocationDialogOpen}
+            onSave={handleSaveLocation}
+            locationTypes={locationTypes}
+            onAddNewLocationType={handleAddNewLocationType}
+        />
+        {selectedLocation && (
+            <EditLocationDialog
+                open={isEditLocationDialogOpen}
+                onOpenChange={setIsEditLocationDialogOpen}
+                location={selectedLocation}
+                onSave={handleUpdateLocation}
+                locationTypes={locationTypes}
+                onAddNewLocationType={handleAddNewLocationType}
+            />
+        )}
+
 
        <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
         <DialogContent className="sm:max-w-md p-0">
@@ -471,6 +534,7 @@ export default function InventoryPage() {
   );
 
     
+
 
 
 

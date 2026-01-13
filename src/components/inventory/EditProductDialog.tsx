@@ -274,7 +274,7 @@ const Step2_CostingPricing = () => {
 };
 
 
-const Step3_InventorySupplier = ({ locations }: { locations: Location[] }) => {
+const Step3_InventorySupplier = ({ onAddLocationClick, locations }: { onAddLocationClick: () => void, locations: Location[] }) => {
     const [secondaryLocations, setSecondaryLocations] = useState<string[]>([]);
     const addSecondaryLocation = () => setSecondaryLocations(prev => [...prev, `loc-${Date.now()}`]);
     const removeSecondaryLocation = (id: string) => setSecondaryLocations(prev => prev.filter(locId => locId !== id));
@@ -322,7 +322,7 @@ const Step3_InventorySupplier = ({ locations }: { locations: Location[] }) => {
                                 ))}
                             </SelectContent>
                         </Select>
-                         <Button variant="outline" size="icon" type="button"><PlusCircle className="h-4 w-4" /></Button>
+                         <Button variant="outline" size="icon" onClick={onAddLocationClick} type="button"><PlusCircle className="h-4 w-4" /></Button>
                     </div>
                 </div>
                  <div className="space-y-2">
@@ -382,7 +382,7 @@ export const EditProductDialog = ({
     locationTypes: LocationType[],
     categories: string[],
     onNewCategory: (category: string) => void,
-    onAddNewLocationType: (name: string) => LocationType,
+    onAddNewLocationType: (name: string, icon: string) => LocationType,
 }) => {
   const [step, setStep] = useState(1);
   const totalSteps = 3;
@@ -440,7 +440,9 @@ export const EditProductDialog = ({
         <form onSubmit={methods.handleSubmit(onSubmit)}>
             <DialogHeader>
             <DialogTitle>Edit Product</DialogTitle>
-            <DialogDescription>Update the details for &quot;{product.name}&quot;.</DialogDescription>
+            <DialogDescription>
+                Update the details for &quot;{product.name}&quot;.
+            </DialogDescription>
             </DialogHeader>
 
             <div className="py-4 space-y-4">
@@ -448,7 +450,7 @@ export const EditProductDialog = ({
                 <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
                     {step === 1 && <Step1_BasicDetails categories={categories} onNewCategory={onNewCategory} />}
                     {step === 2 && <Step2_CostingPricing />}
-                    {step === 3 && <Step3_InventorySupplier locations={locations} />}
+                    {step === 3 && <Step3_InventorySupplier onAddLocationClick={() => {}} locations={locations} />}
                 </div>
             </div>
 

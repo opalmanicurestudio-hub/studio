@@ -301,7 +301,7 @@ const Step3_InventorySupplier = ({ onAddLocationClick, locations }: { onAddLocat
                                 ))}
                             </SelectContent>
                         </Select>
-                         <Button variant="outline" size="icon" onClick={onAddLocationClick}><PlusCircle className="h-4 w-4" /></Button>
+                         <Button variant="outline" size="icon" onClick={onAddLocationClick} type="button"><PlusCircle className="h-4 w-4" /></Button>
                     </div>
                 </div>
                  <div className="space-y-2">
@@ -319,11 +319,11 @@ const Step3_InventorySupplier = ({ onAddLocationClick, locations }: { onAddLocat
                                         ))}
                                     </SelectContent>
                                 </Select>
-                                <Button variant="ghost" size="icon" className="text-destructive" onClick={() => removeSecondaryLocation(locId)}><Trash2 className="h-4 w-4" /></Button>
+                                <Button variant="ghost" size="icon" className="text-destructive" onClick={() => removeSecondaryLocation(locId)} type="button"><Trash2 className="h-4 w-4" /></Button>
                             </div>
                         </div>
                     ))}
-                    <Button variant="outline" size="sm" onClick={addSecondaryLocation}><PlusCircle className="mr-2 h-4 w-4" />Add Secondary Location</Button>
+                    <Button variant="outline" size="sm" onClick={addSecondaryLocation} type="button"><PlusCircle className="mr-2 h-4 w-4" />Add Secondary Location</Button>
                 </div>
             </CardContent>
         </Card>
@@ -367,8 +367,8 @@ export const AddProductDialog = ({
     locations: Location[],
     locationTypes: LocationType[],
     categories: string[],
-    onNewCategory: (category: string) => void,
-    onAddNewLocationType: (name: string) => LocationType,
+    onNewCategory: (category: string) => void;
+    onAddNewLocationType: (name: string, icon: string) => LocationType,
     isAddLocationDialogOpen: boolean, 
     onAddLocationDialogOpenChange: (open: boolean) => void,
     onAddNewLocation: (newLocation: Omit<Location, 'id'>) => void,
