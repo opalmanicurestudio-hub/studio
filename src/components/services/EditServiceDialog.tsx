@@ -190,30 +190,30 @@ const Step2_Formula = ({ onScanClick }: { onScanClick: () => void; }) => {
     const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
 
     const handleProductSelect = (products: InventoryItem[]) => {
-        setValue('products', products);
+        setValue('products', products, { shouldDirty: true, shouldTouch: true });
         setIsProductBrowserOpen(false);
     };
     
     const handleEquipmentSelect = (equipment: InventoryItem[]) => {
-        setValue('equipment', equipment);
+        setValue('equipment', equipment, { shouldDirty: true, shouldTouch: true });
         setIsEquipmentSelectorOpen(false);
     };
     
     const handleAddOnSelect = (addOns: Service[]) => {
-        setValue('addOns', addOns);
+        setValue('addOns', addOns, { shouldDirty: true, shouldTouch: true });
         setIsAddOnSelectorOpen(false);
     };
 
     const removeProduct = (productId: string) => {
-        setValue('products', selectedProducts.filter(p => p.id !== productId));
+        setValue('products', selectedProducts.filter(p => p.id !== productId), { shouldDirty: true, shouldTouch: true });
     };
 
     const removeEquipment = (equipmentId: string) => {
-        setValue('equipment', selectedEquipment.filter(e => e.id !== equipmentId));
+        setValue('equipment', selectedEquipment.filter(e => e.id !== equipmentId), { shouldDirty: true, shouldTouch: true });
     };
     
     const removeAddOn = (addOnId: string) => {
-        setValue('addOns', selectedAddOns.filter(a => a.id !== addOnId));
+        setValue('addOns', selectedAddOns.filter(a => a.id !== addOnId), { shouldDirty: true, shouldTouch: true });
     };
 
     return (
@@ -400,55 +400,38 @@ const Step3_Deposits = () => {
     );
 };
 
-const PricingForm = () => {
-    const { control, watch, register, setValue } = useFormContext<ServiceFormData>();
+const PricingPreview = () => {
+    const { watch, setValue } = useFormContext<ServiceFormData>();
     const [tmhr, setTmhr] = useState(0);
+
+    const values = watch();
+    const { pricingStrategy, duration, padBefore, padAfter, products, equipment, margin, price: manualPrice } = values;
 
     useEffect(() => {
         if (typeof window !== 'undefined') {
-            const storedTmhr = localStorage.getItem('tmhr');
-            if (storedTmhr) {
-                setTmhr(parseFloat(storedTmhr));
-            }
+            setTmhr(parseFloat(localStorage.getItem('tmhr') || '50'));
         }
     }, []);
 
-    const formValues = watch();
-    const {
-        pricingStrategy,
-        duration,
-        padBefore,
-        padAfter,
-        products: selectedProducts,
-        equipment: selectedEquipment,
-        margin,
-        price: manualPrice,
-    } = formValues;
-
-    const timeCost = useMemo(() => {
+    const breakEvenCost = useMemo(() => {
         const totalDuration = (duration || 0) + (padBefore || 0) + (padAfter || 0);
-        return (totalDuration / 60) * tmhr;
-    }, [duration, padBefore, padAfter, tmhr]);
+        const timeCost = (totalDuration / 60) * tmhr;
 
-    const productCost = useMemo(() => {
-        return (selectedProducts || []).reduce((acc: number, p: any) => {
+        const productCost = (products || []).reduce((acc: number, p: any) => {
             const product = inventory.find(i => i.id === p.id);
             return acc + (product?.costPerUnit || 0);
         }, 0);
-    }, [selectedProducts]);
-    
-    const equipmentDepreciation = useMemo(() => {
-        return (selectedEquipment || []).reduce((acc: any, eq: any) => {
+
+        const equipmentDepreciation = (equipment || []).reduce((acc: any, eq: any) => {
             const equipmentItem = inventory.find(i => i.id === eq.id);
             if (!equipmentItem) return acc;
-            const totalDuration = (duration || 0) + (padBefore || 0) + (padAfter || 0);
-            const lifespanInMinutes = (equipmentItem.lifespanYears || 5) * 365 * 8 * 60; // Assuming 8hr work day
+            const lifespanInMinutes = (equipmentItem.lifespanYears || 5) * 365 * 8 * 60;
             const costPerMinute = (equipmentItem.costPerUnit || 0) / lifespanInMinutes;
             return acc + (costPerMinute * totalDuration);
         }, 0);
-    }, [selectedEquipment, duration, padBefore, padAfter]);
 
-    const breakEvenCost = timeCost + productCost + equipmentDepreciation;
+        return timeCost + productCost + equipmentDepreciation;
+    }, [duration, padBefore, padAfter, products, equipment, tmhr]);
 
     let finalPrice = 0;
     if (pricingStrategy === 'manual') {
@@ -464,13 +447,49 @@ const PricingForm = () => {
     
     useEffect(() => {
         if (pricingStrategy === 'auto') {
-            setValue('price', finalPrice, { shouldTouch: true });
+            setValue('price', finalPrice, { shouldTouch: true, shouldDirty: true });
         }
     }, [pricingStrategy, finalPrice, setValue]);
 
     const netProfit = finalPrice - breakEvenCost;
     const profitMargin = finalPrice > 0 ? (netProfit / finalPrice) * 100 : 0;
     
+    return (
+        <Card>
+            <CardContent className="p-4 space-y-4">
+                <h4 className="font-semibold text-center">Profitability Preview</h4>
+                <div className="flex justify-between items-center p-4 rounded-lg bg-primary/10">
+                    <div>
+                    <p className="text-sm text-primary/80">Final Price</p>
+                    <p className="text-2xl font-bold text-primary">${finalPrice.toFixed(2)}</p>
+                    </div>
+                </div>
+                 <div className="space-y-2 text-sm text-muted-foreground">
+                    <div className="flex justify-between">
+                        <span>Break-Even Cost:</span>
+                        <span className="font-mono text-destructive">${breakEvenCost.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between font-medium border-t pt-2 mt-2">
+                        <span>Net Profit:</span>
+                        <span className="text-primary">${netProfit.toFixed(2)}</span>
+                    </div>
+                     <div className="flex justify-between text-sm text-muted-foreground">
+                        <span>Profit Margin:</span>
+                        <span className="text-primary">{profitMargin.toFixed(1)}%</span>
+                    </div>
+                </div>
+                 <Progress value={profitMargin} className="h-2 text-green-500" />
+            </CardContent>
+        </Card>
+    )
+}
+
+
+const PricingForm = () => {
+    const { control, register, watch } = useFormContext<ServiceFormData>();
+    const pricingStrategy = watch('pricingStrategy');
+    const margin = watch('margin');
+
     return (
         <div className="grid gap-6 py-4">
             <div className="space-y-2">
@@ -526,34 +545,7 @@ const PricingForm = () => {
                     />
                 </div>
             )}
-
-            <Card>
-                <CardContent className="p-4 space-y-4">
-                    <h4 className="font-semibold text-center">Profitability Preview</h4>
-                    <div className="flex justify-between items-center p-4 rounded-lg bg-primary/10">
-                        <div>
-                        <p className="text-sm text-primary/80">Final Price</p>
-                        <p className="text-2xl font-bold text-primary">${finalPrice.toFixed(2)}</p>
-                        </div>
-                    </div>
-                     <div className="space-y-2 text-sm text-muted-foreground">
-                        <div className="flex justify-between">
-                            <span>Break-Even Cost:</span>
-                            <span className="font-mono text-destructive">${breakEvenCost.toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between font-medium border-t pt-2 mt-2">
-                            <span>Net Profit:</span>
-                            <span className="text-primary">${netProfit.toFixed(2)}</span>
-                        </div>
-                         <div className="flex justify-between text-sm text-muted-foreground">
-                            <span>Profit Margin:</span>
-                            <span className="text-primary">{profitMargin.toFixed(1)}%</span>
-                        </div>
-                    </div>
-                     <Progress value={profitMargin} className="h-2 text-green-500" />
-                </CardContent>
-            </Card>
-
+            <PricingPreview />
         </div>
     );
 };
