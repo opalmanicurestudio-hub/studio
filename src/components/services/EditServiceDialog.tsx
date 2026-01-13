@@ -427,13 +427,20 @@ const PricingForm = () => {
         return (totalDuration / 60) * tmhr;
     }, [duration, padBefore, padAfter, tmhr]);
 
-    const productCost = useMemo(() => selectedProducts.reduce((acc: number, p: any) => acc + (p.costPerUnit || 0), 0), [selectedProducts]);
+    const productCost = useMemo(() => {
+        return (selectedProducts || []).reduce((acc: number, p: any) => {
+            const product = inventory.find(i => i.id === p.id);
+            return acc + (product?.costPerUnit || 0);
+        }, 0);
+    }, [selectedProducts]);
     
     const equipmentDepreciation = useMemo(() => {
-        return selectedEquipment.reduce((acc: any, eq: any) => {
+        return (selectedEquipment || []).reduce((acc: any, eq: any) => {
+            const equipmentItem = inventory.find(i => i.id === eq.id);
+            if (!equipmentItem) return acc;
             const totalDuration = (duration || 0) + (padBefore || 0) + (padAfter || 0);
-            const lifespanInMinutes = (eq.lifespanYears || 5) * 365 * 8 * 60; // Assuming 8hr work day
-            const costPerMinute = (eq.cost || 0) / lifespanInMinutes;
+            const lifespanInMinutes = (equipmentItem.lifespanYears || 5) * 365 * 8 * 60; // Assuming 8hr work day
+            const costPerMinute = (equipmentItem.costPerUnit || 0) / lifespanInMinutes;
             return acc + (costPerMinute * totalDuration);
         }, 0);
     }, [selectedEquipment, duration, padBefore, padAfter]);
@@ -618,10 +625,15 @@ export const EditServiceDialog = ({
       const tmhr = (typeof window !== 'undefined' && parseFloat(localStorage.getItem('tmhr') || '0')) || 0;
       const totalTime = duration + padBefore + padAfter;
       const timeCost = (totalTime / 60) * tmhr;
-      const productCost = (data.products || []).reduce((acc: number, p: any) => acc + (p.costPerUnit || 0), 0);
+      const productCost = (data.products || []).reduce((acc: number, p: any) => {
+        const product = inventory.find(i => i.id === p.id);
+        return acc + (product?.costPerUnit || 0);
+      }, 0);
       const equipmentDepreciation = (data.equipment || []).reduce((acc: any, eq: any) => {
-          const lifespanInMinutes = (eq.lifespanYears || 5) * 365 * 8 * 60;
-          const costPerMinute = (eq.cost || 0) / lifespanInMinutes;
+          const equipmentItem = inventory.find(i => i.id === eq.id);
+          if (!equipmentItem) return acc;
+          const lifespanInMinutes = (equipmentItem.lifespanYears || 5) * 365 * 8 * 60;
+          const costPerMinute = (equipmentItem.costPerUnit || 0) / lifespanInMinutes;
           return acc + (costPerMinute * totalTime);
       }, 0);
       const breakEvenCost = timeCost + productCost + equipmentDepreciation;
@@ -738,7 +750,7 @@ export const EditServiceDialog = ({
                 <div className="flex gap-2">
                     <Button variant="outline" onClick={() => handleOpenChange(false)} type="button">Cancel</Button>
                     {step < totalSteps ? (
-                        <Button onClick={handleNext} type="button">Next</Button>
+                        <Button type="button" onClick={handleNext}>Next</Button>
                     ) : (
                         <Button type="button" onClick={methods.handleSubmit(onSubmit)}>Save Changes</Button>
                     )}
