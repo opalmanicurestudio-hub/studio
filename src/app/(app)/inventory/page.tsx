@@ -44,13 +44,14 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
-import { ManageSpoilageDialog } from '@/components/inventory/ManageSpoilageDialog';
+import { ManageSpoilageDialog, type SpoilageItem } from '@/components/inventory/ManageSpoilageDialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 
 const InventorySidebar = () => {
     const { inventory, stockCorrections } = useInventory();
     const [isSpoilageDialogOpen, setIsSpoilageDialogOpen] = useState(false);
+    const { toast } = useToast();
 
     const {
         professionalValue,
@@ -124,6 +125,11 @@ const InventorySidebar = () => {
             });
         return Object.values(usageCounts).sort((a, b) => b.count - a.count).slice(0, 5);
     }, [stockCorrections, inventory]);
+    
+    const handleSpoilageConfirm = (items: SpoilageItem[]) => {
+        // This is where the logic would live if it were in this component
+    };
+
 
     return (
     <div className="lg:sticky top-24 space-y-6">
@@ -227,7 +233,7 @@ const InventorySidebar = () => {
             </CardContent>
         </Card>
 
-        <ManageSpoilageDialog open={isSpoilageDialogOpen} onOpenChange={setIsSpoilageDialogOpen} inventory={inventory} onConfirm={() => {}} />
+        <ManageSpoilageDialog open={isSpoilageDialogOpen} onOpenChange={setIsSpoilageDialogOpen} inventory={inventory} onConfirm={handleSpoilageConfirm} />
     </div>
     )
 }
@@ -476,7 +482,67 @@ export default function InventoryPage() {
   };
 
   const handleWriteOffConfirm = (productId: string, batchId: string, quantity: number, reason: string) => {
-    // Logic similar to handleLogUseConfirm, but for a specific batch and with a different reason.
+    let success = false;
+    let message = '';
+
+    setInventory(prevInventory => {
+        const newInventory = [...prevInventory];
+        const productIndex = newInventory.findIndex(p => p.id === productId);
+
+        if (productIndex === -1) {
+            message = 'Product not found.';
+            return prevInventory;
+        }
+
+        const product = { ...newInventory[productIndex] };
+        const batchIndex = product.batches.findIndex(b => b.id === batchId);
+
+        if (batchIndex === -1) {
+            message = 'Batch not found.';
+            return prevInventory;
+        }
+        
+        const batch = { ...product.batches[batchIndex] };
+
+        if (batch.stock < quantity) {
+            message = `Cannot write off more than available in batch (${batch.stock}).`;
+            return prevInventory;
+        }
+
+        batch.stock -= quantity;
+        product.batches[batchIndex] = batch;
+
+        // Recalculate total stock for the product
+        product.totalStock = product.batches.reduce((acc, b) => acc + b.stock, 0);
+
+        newInventory[productIndex] = product;
+        
+        const newCorrection: StockCorrection = {
+            id: `sc-${Date.now()}`,
+            productId: productId,
+            date: new Date().toISOString(),
+            change: -quantity,
+            unit: product.unit || 'units',
+            reason: reason,
+        };
+        addStockCorrection(newCorrection);
+        
+        success = true;
+        message = `${quantity} unit(s) of ${product.name} written off.`;
+        return newInventory;
+    });
+    
+    return { success, message };
+  };
+
+  const handleSpoilageConfirm = (items: SpoilageItem[]) => {
+    items.forEach(item => {
+        handleWriteOffConfirm(item.productId, item.batchId, item.stock, 'Expired');
+    });
+    toast({
+        title: `${items.length} Batch(es) Written Off`,
+        description: "Expired items have been removed from stock and logged.",
+    });
   }
   
   const handleToggleExperiment = (item: InventoryItem) => {
@@ -779,3 +845,5 @@ export default function InventoryPage() {
       </Dialog>
     </div>
   );
+
+    

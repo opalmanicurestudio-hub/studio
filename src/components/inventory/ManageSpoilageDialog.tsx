@@ -19,7 +19,7 @@ import { type InventoryItem } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
 import Image from 'next/image';
 
-interface SpoilageItem {
+export interface SpoilageItem {
   productId: string;
   productName: string;
   batchId: string;
@@ -32,7 +32,7 @@ interface ManageSpoilageDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   inventory: InventoryItem[];
-  onConfirm: (productId: string, batchId: string, quantity: number, reason: string) => void;
+  onConfirm: (itemsToWriteOff: SpoilageItem[]) => void;
 }
 
 export const ManageSpoilageDialog: React.FC<ManageSpoilageDialogProps> = ({
@@ -90,12 +90,8 @@ export const ManageSpoilageDialog: React.FC<ManageSpoilageDialogProps> = ({
   }, [selectedSpoilage, expiredItems]);
 
   const handleWriteOffSelected = () => {
-    selectedSpoilage.forEach(batchId => {
-      const item = expiredItems.find(i => i.batchId === batchId);
-      if (item) {
-        onConfirm(item.productId, item.batchId, item.stock, 'Expired');
-      }
-    });
+    const itemsToWriteOff = expiredItems.filter(item => selectedSpoilage.has(item.batchId));
+    onConfirm(itemsToWriteOff);
     onOpenChange(false);
   };
 
@@ -163,3 +159,5 @@ export const ManageSpoilageDialog: React.FC<ManageSpoilageDialogProps> = ({
     </Dialog>
   );
 };
+
+    
