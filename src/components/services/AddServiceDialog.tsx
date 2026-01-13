@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -88,112 +89,112 @@ const Step1_Basics = ({
     };
     
     return (
-    <div className="grid gap-6 py-4">
-        <div className="flex items-center justify-between p-4 border rounded-lg">
-            <div className='space-y-1'>
-                <Label htmlFor="is-addon">Is this an Add-on Service?</Label>
-                <p className='text-sm text-muted-foreground'>Add-ons can be appended to primary services.</p>
-            </div>
-            <Controller
-                name="isAddon"
-                control={control}
-                render={({ field }) => (
-                    <Switch id="is-addon" checked={field.value} onCheckedChange={field.onChange} />
-                )}
-            />
-        </div>
-        <div className="space-y-2">
-            <Label htmlFor="service-name">Name</Label>
-            <Input id="service-name" placeholder="e.g., Signature Haircut" {...register('name')} />
-             {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
-        </div>
-        <div className="space-y-2">
-            <Label htmlFor="category">Category</Label>
-            {isAddingCategory ? (
-                <div className="flex gap-2">
-                    <Input
-                        placeholder="Enter new category name..."
-                        value={newCategoryName}
-                        onChange={(e) => setNewCategoryName(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()}
-                    />
-                    <Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button>
-                </div>
-            ) : (
-                <div className="flex gap-2">
-                    <Controller
-                        name="category"
-                        control={control}
-                        render={({ field }) => (
-                             <Select onValueChange={field.onChange} value={field.value}>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select a category" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {categories.map(cat => (
-                                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        )}
-                    />
-                   
-                    <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"><PlusCircle className="h-4 w-4" /></Button>
-                </div>
-            )}
-             {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
-        </div>
-        <div className="grid grid-cols-3 gap-4">
-            <div className="space-y-2">
-                <Label htmlFor="duration">Duration (min)</Label>
-                <Input id="duration" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>
-                {errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}
-            </div>
-            <div className="space-y-2">
-                <Label htmlFor="pad-before">Pad Before (min)</Label>
-                <Input id="pad-before" type="number" placeholder="e.g., 0" {...register('padBefore', { valueAsNumber: true })} />
-            </div>
-            <div className="space-y-2">
-                <Label htmlFor="pad-after">Pad After (min)</Label>
-                <Input id="pad-after" type="number" placeholder="e.g., 15" {...register('padAfter', { valueAsNumber: true })} />
-            </div>
-        </div>
-        <div className="space-y-2">
-            <Label htmlFor="description">Description</Label>
-            <Textarea id="description" placeholder="Describe the service for your booking page..." {...register('description')} />
-        </div>
-        <div className="space-y-2">
-            <Label>Service Image</Label>
-             <Controller
-                name="imageUrl"
-                control={control}
-                render={({ field }) => (
-                    <ImageUpload onImageUploaded={field.onChange} />
-                )}
-            />
-        </div>
-        <div className="flex items-center justify-between p-4 border rounded-lg">
-            <div className='space-y-1'>
-                <Label htmlFor="private-service">Private Service</Label>
-                <p className='text-sm text-muted-foreground'>Hide from public booking page.</p>
-            </div>
-            <Controller
-                name="isPrivate"
-                control={control}
-                render={({ field }) => (
-                    <Switch id="private-service" checked={field.value} onCheckedChange={field.onChange} />
-                )}
-            />
-        </div>
-         <div className="space-y-2">
-            <Label>Required Consent Forms</Label>
-            <Card>
-                <CardContent className="p-4 text-center text-sm text-muted-foreground">
-                    Consent form selection will go here.
-                </CardContent>
-            </Card>
-        </div>
+  <div className="grid gap-6 py-4">
+    <div className="flex items-center justify-between p-4 border rounded-lg">
+      <div className='space-y-1'>
+        <Label htmlFor="is-addon">Is this an Add-on Service?</Label>
+        <p className='text-sm text-muted-foreground'>Add-ons can be appended to primary services.</p>
+      </div>
+      <Controller
+        name="isAddon"
+        control={control}
+        render={({ field }) => (
+          <Switch id="is-addon" checked={field.value} onCheckedChange={field.onChange} />
+        )}
+      />
     </div>
+    <div className="space-y-2">
+      <Label htmlFor="service-name">Name</Label>
+      <Input id="service-name" placeholder="e.g., Signature Haircut" {...register('name')} />
+       {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+    </div>
+    <div className="space-y-2">
+      <Label htmlFor="category">Category</Label>
+      {isAddingCategory ? (
+        <div className="flex gap-2">
+          <Input
+            placeholder="Enter new category name..."
+            value={newCategoryName}
+            onChange={(e) => setNewCategoryName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()}
+          />
+          <Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button>
+        </div>
+      ) : (
+        <div className="flex gap-2">
+          <Controller
+            name="category"
+            control={control}
+            render={({ field }) => (
+               <Select onValueChange={field.onChange} value={field.value}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map(cat => (
+                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          />
+         
+          <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"><PlusCircle className="h-4 w-4" /></Button>
+        </div>
+      )}
+       {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
+    </div>
+    <div className="grid grid-cols-3 gap-4">
+      <div className="space-y-2">
+        <Label htmlFor="duration">Duration (min)</Label>
+        <Input id="duration" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>
+        {errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="pad-before">Pad Before (min)</Label>
+        <Input id="pad-before" type="number" placeholder="e.g., 0" {...register('padBefore', { valueAsNumber: true })} />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="pad-after">Pad After (min)</Label>
+        <Input id="pad-after" type="number" placeholder="e.g., 15" {...register('padAfter', { valueAsNumber: true })} />
+      </div>
+    </div>
+    <div className="space-y-2">
+      <Label htmlFor="description">Description</Label>
+      <Textarea id="description" placeholder="Describe the service for your booking page..." {...register('description')} />
+    </div>
+    <div className="space-y-2">
+      <Label>Service Image</Label>
+       <Controller
+        name="imageUrl"
+        control={control}
+        render={({ field }) => (
+          <ImageUpload onImageUploaded={field.onChange} />
+        )}
+      />
+    </div>
+    <div className="flex items-center justify-between p-4 border rounded-lg">
+      <div className='space-y-1'>
+        <Label htmlFor="private-service">Private Service</Label>
+        <p className='text-sm text-muted-foreground'>Hide from public booking page.</p>
+      </div>
+      <Controller
+        name="isPrivate"
+        control={control}
+        render={({ field }) => (
+          <Switch id="private-service" checked={field.value} onCheckedChange={field.onChange} />
+        )}
+      />
+    </div>
+     <div className="space-y-2">
+      <Label>Required Consent Forms</Label>
+      <Card>
+        <CardContent className="p-4 text-center text-sm text-muted-foreground">
+          Consent form selection will go here.
+        </CardContent>
+      </Card>
+    </div>
+  </div>
     );
 };
 
@@ -717,12 +718,9 @@ export const AddServiceDialog = ({
       stepMap.push(<Step3_Deposits key="step3" />);
     }
     
-    // This is the key fix: The pricing form is always the last step.
-    const pricingStep = <PricingForm key={`step${totalSteps}`} />;
+    // Always add the pricing step last
+    stepMap.push(<PricingForm key="pricing" />);
     
-    if (step === totalSteps) {
-      return pricingStep;
-    }
     return stepMap[step - 1];
   }
 

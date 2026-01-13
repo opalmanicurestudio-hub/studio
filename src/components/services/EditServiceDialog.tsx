@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -700,15 +699,15 @@ export const EditServiceDialog = ({
       <Step1_Basics key="step1" categories={categories} onNewCategory={onNewCategory} />,
       <Step2_Formula key="step2" onScanClick={() => setIsScannerOpen(true)} />,
     ];
-
+    
     if (!isAddon) {
       stepMap.push(<Step3_Deposits key="step3" />);
     }
     
-    const pricingStep = <PricingForm key={`step${totalSteps}`} />;
-    stepMap.push(pricingStep);
+    // Always add the pricing step last
+    stepMap.push(<PricingForm key="pricing" />);
     
-    return stepMap[step-1];
+    return stepMap[step - 1];
   }
 
   return (
