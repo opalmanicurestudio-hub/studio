@@ -72,6 +72,8 @@ export type Service = {
   equipment?: InventoryItem[];
   description?: string;
   isPrivate?: boolean;
+  confirmationMessage?: string;
+  requiredFormIds?: string[];
 };
 
 export type Batch = {
@@ -261,6 +263,7 @@ export const services: Service[] = [
     profit: 80.00,
     margin: 94.1,
     imageUrl: 'https://picsum.photos/seed/haircut/200/200',
+    isPrivate: true,
   },
    { 
     id: 'svc-3', 

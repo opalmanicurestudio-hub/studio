@@ -61,6 +61,8 @@ const serviceSchema = z.object({
     depositAmount: z.number().optional(),
     
     price: z.number().optional(),
+    confirmationMessage: z.string().optional(),
+    requiredFormIds: z.array(z.string()).optional(),
 });
 
 type ServiceFormData = z.infer<typeof serviceSchema>;
@@ -163,6 +165,10 @@ const Step1_Basics = ({
             <Label htmlFor="description">Description</Label>
             <Textarea id="description" placeholder="Describe the service for your booking page..." {...register('description')} />
         </div>
+         <div className="space-y-2">
+            <Label htmlFor="confirmationMessage">Confirmation Message</Label>
+            <Textarea id="confirmationMessage" placeholder="Optional: A message to show clients after they book this service." {...register('confirmationMessage')} />
+        </div>
         <div className="space-y-2">
             <Label>Service Image</Label>
              <Controller
@@ -185,6 +191,14 @@ const Step1_Basics = ({
                     <Switch id="private-service-edit" checked={field.value} onCheckedChange={field.onChange} />
                 )}
             />
+        </div>
+         <div className="space-y-2">
+            <Label>Required Consent Forms</Label>
+            <Card>
+                <CardContent className="p-4 text-center text-sm text-muted-foreground">
+                Consent form selection will go here.
+                </CardContent>
+            </Card>
         </div>
     </div>
     );
@@ -540,6 +554,8 @@ export const EditServiceDialog = ({
             equipment: service.equipment || [],
             addOns: [], // This should come from service data if available
             depositType: 'none', // This should come from service data if available
+            confirmationMessage: service.confirmationMessage || '',
+            requiredFormIds: service.requiredFormIds || [],
           });
       }
   }, [service, methods.reset])
@@ -597,6 +613,8 @@ export const EditServiceDialog = ({
         isPrivate: data.isPrivate,
         products: data.products,
         equipment: data.equipment,
+        confirmationMessage: data.confirmationMessage,
+        requiredFormIds: data.requiredFormIds,
       };
       
       onServiceUpdated(updatedService);

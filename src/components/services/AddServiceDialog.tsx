@@ -59,6 +59,8 @@ const serviceSchema = z.object({
     depositAmount: z.number().optional(),
     
     price: z.number().optional(),
+    confirmationMessage: z.string().optional(),
+    requiredFormIds: z.array(z.string()).optional(),
 });
 
 type ServiceFormData = z.infer<typeof serviceSchema>;
@@ -80,7 +82,7 @@ const Step1_Basics = ({
         if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
             const newCategory = newCategoryName.trim();
             onNewCategory(newCategory);
-            setSelectedCategory(newCategory);
+            setValue('category', newCategory, { shouldValidate: true });
             setNewCategoryName('');
             setIsAddingCategory(false);
         }
@@ -160,6 +162,10 @@ const Step1_Basics = ({
     <div className="space-y-2">
       <Label htmlFor="description">Description</Label>
       <Textarea id="description" placeholder="Describe the service for your booking page..." {...register('description')} />
+    </div>
+    <div className="space-y-2">
+        <Label htmlFor="confirmationMessage">Confirmation Message</Label>
+        <Textarea id="confirmationMessage" placeholder="Optional: A message to show clients after they book this service." {...register('confirmationMessage')} />
     </div>
     <div className="space-y-2">
       <Label>Service Image</Label>
@@ -591,6 +597,8 @@ export const AddServiceDialog = ({
         equipment: data.equipment,
         description: data.description,
         isPrivate: data.isPrivate,
+        confirmationMessage: data.confirmationMessage,
+        requiredFormIds: data.requiredFormIds,
       };
       
       onServiceAdded(newService);
