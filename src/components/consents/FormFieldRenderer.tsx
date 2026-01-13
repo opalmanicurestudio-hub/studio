@@ -13,6 +13,7 @@ import { ImageUpload } from '../shared/ImageUpload';
 import SignatureCanvas from 'react-signature-canvas';
 import Image from 'next/image';
 import { cn } from '@/lib/utils';
+import { Signature } from 'lucide-react';
 
 interface FormFieldRendererProps {
   field: FormField;
@@ -101,7 +102,7 @@ export const FormFieldRenderer: React.FC<FormFieldRendererProps> = ({ field }) =
       return (
         <div className="space-y-2">
           <Label>{field.label}</Label>
-           <div className={cn("relative rounded-md border border-input bg-background w-full aspect-square md:aspect-video")}>
+           <div className={cn("relative rounded-md border border-input w-full aspect-video")}>
             {signatureDataUrl ? (
                  <Image src={signatureDataUrl} alt="signature" layout="fill" objectFit="contain" />
             ) : (
@@ -110,10 +111,10 @@ export const FormFieldRenderer: React.FC<FormFieldRendererProps> = ({ field }) =
                         ref={sigCanvas}
                         penColor="black"
                         canvasProps={{ className: 'w-full h-full rounded-md' }}
-                        backgroundColor="rgba(250, 250, 250, 1)"
+                        backgroundColor="rgba(238, 238, 242, 1)"
                         onEnd={handleSignatureEnd}
                     />
-                    <div className="absolute bottom-10 left-4 right-4 flex items-center gap-2 pointer-events-none">
+                    <div className="absolute bottom-4 left-4 right-4 flex items-center gap-2 pointer-events-none">
                     <span className="text-muted-foreground text-lg">X</span>
                     <div className="flex-1 border-b border-dashed border-muted-foreground"></div>
                     </div>
