@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -22,7 +23,7 @@ import {
 import { appointments, type Client } from '@/lib/data';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
-import { formatDistanceToNow, subDays } from 'date-fns';
+import { formatDistanceToNow, subDays, format } from 'date-fns';
 import { Input } from '@/components/ui/input';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { MergeClientsDialog } from '@/components/clients/MergeClientsDialog';
@@ -208,6 +209,34 @@ export default function ClientsPage() {
     });
   };
 
+  const handleExport = () => {
+    const headers = ['Name', 'Email', 'Phone', 'Lifetime Value', 'Last Seen'];
+    const clientData = filteredClients.map(client => [
+      client.name,
+      client.email,
+      client.phone,
+      client.lifetimeValue.toString(),
+      format(new Date(client.lastAppointment), 'yyyy-MM-dd')
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...clientData.map(row => row.join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    if (link.href) {
+      URL.revokeObjectURL(link.href);
+    }
+    const url = URL.createObjectURL(blob);
+    link.href = url;
+    link.setAttribute('download', `clients_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const ClientStatsSidebar = () => {
     return (
         <Card className="lg:sticky top-24">
@@ -284,7 +313,7 @@ export default function ClientsPage() {
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent>
                                         <DropdownMenuItem onClick={() => setIsMergeClientsOpen(true)}><Merge className="mr-2 h-4 w-4"/>Merge Duplicates</DropdownMenuItem>
-                                        <DropdownMenuItem><FileDown className="mr-2 h-4 w-4"/>Export List</DropdownMenuItem>
+                                        <DropdownMenuItem onClick={handleExport}><FileDown className="mr-2 h-4 w-4"/>Export List</DropdownMenuItem>
                                     </DropdownMenuContent>
                                 </DropdownMenu>
                                 <Button className='w-full sm:w-auto' onClick={() => setIsAddClientOpen(true)}><UserPlus className="mr-2 h-4 w-4" /> New Client</Button>
