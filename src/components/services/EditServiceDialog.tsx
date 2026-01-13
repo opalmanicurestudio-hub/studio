@@ -548,18 +548,18 @@ const PricingForm = () => {
 
 export const EditServiceDialog = ({ 
     open, 
-    onOpenChange,
+    onOpenChange, 
     service,
+    onServiceUpdated,
     categories,
     onNewCategory,
-    onServiceUpdated
-}: {
+}: { 
     open: boolean;
     onOpenChange: (open: boolean) => void;
     service: Service;
+    onServiceUpdated: (service: Service) => void;
     categories: string[];
     onNewCategory: (category: string) => void;
-    onServiceUpdated: (service: Service) => void;
 }) => {
   const [step, setStep] = useState(1);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -704,9 +704,12 @@ export const EditServiceDialog = ({
     if (!isAddon) {
       stepMap.push(<Step3_Deposits key="step3" />);
     }
-
-    stepMap.push(<PricingForm key={`step${totalSteps}`} />);
-
+    
+    const pricingStep = <PricingForm key={`step${totalSteps}`} />;
+    
+    if (step === totalSteps) {
+      return pricingStep;
+    }
     return stepMap[step - 1];
   }
 
