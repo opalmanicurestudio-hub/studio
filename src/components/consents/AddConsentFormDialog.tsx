@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -133,8 +134,8 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
     <ScrollArea className="h-[70vh] pr-4">
         <div className="space-y-6">
             <div className="space-y-2">
-                <Label htmlFor="form-title" className="text-base">Form Title</Label>
-                <Input id="form-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., New Client Intake Form" className="text-lg h-12" />
+                <Label htmlFor="form-title">Form Title</Label>
+                <Input id="form-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., New Client Intake Form" />
             </div>
              <div className="space-y-2">
                 <Label htmlFor="form-category">Category</Label>
