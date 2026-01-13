@@ -202,7 +202,8 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUp
   }, [service.id, service.price, appointments]);
 
   const handleCopyLink = () => {
-    const bookingLink = `https://clarityflow.app/book/${service.id}`; // This is a placeholder URL
+    const tenantId = 'tenant-abc'; // This should be dynamic in a real multi-tenant app
+    const bookingLink = `https://clarityflow.app/book/${tenantId}/${service.id}`;
     navigator.clipboard.writeText(bookingLink);
     toast({
         title: "Booking Link Copied!",
@@ -281,7 +282,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUp
                 </AccordionTrigger>
                 <AccordionContent className='pt-4 space-y-4'>
                     <Tabs defaultValue="performance">
-                        <TabsList className="grid w-full grid-cols-3 text-xs h-8 rounded-md">
+                        <TabsList className="grid w-full grid-cols-3 text-xs h-8 rounded-sm">
                             <TabsTrigger value="performance" className="h-full rounded-sm">Performance</TabsTrigger>
                             <TabsTrigger value="profit" className="h-full rounded-sm">Profit Tester</TabsTrigger>
                             <TabsTrigger value="cost" className="h-full rounded-sm">Cost Breakdown</TabsTrigger>
