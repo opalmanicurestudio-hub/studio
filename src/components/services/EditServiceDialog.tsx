@@ -715,7 +715,7 @@ export const EditServiceDialog = ({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-xl">
         <FormProvider {...methods}>
-        <form onSubmit={methods.handleSubmit(onSubmit)}>
+        <form>
             <DialogHeader>
             <DialogTitle>Edit {isAddon ? 'Add-on' : 'Service'}</DialogTitle>
             <DialogDescription>
@@ -740,7 +740,7 @@ export const EditServiceDialog = ({
                     {step < totalSteps ? (
                         <Button onClick={handleNext} type="button">Next</Button>
                     ) : (
-                        <Button type="submit">Save Changes</Button>
+                        <Button type="button" onClick={methods.handleSubmit(onSubmit)}>Save Changes</Button>
                     )}
                 </div>
             </div>
