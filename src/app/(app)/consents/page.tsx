@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -32,15 +33,18 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import { AddConsentFormDialog } from '@/components/consents/AddConsentFormDialog';
+import { FormField } from '@/components/consents/FieldEditor';
+import { PreviewConsentFormDialog } from '@/components/consents/PreviewConsentFormDialog';
 
 type ConsentForm = {
   id: string;
   title: string;
-  category: 'Intake' | 'Waiver' | 'Release';
+  category: 'Intake' | 'Waiver' | 'Release' | 'General';
   clientsSigned: number;
   totalClients: number;
   isPasswordProtected: boolean;
   notifyOnEdit: boolean;
+  fields?: FormField[];
 };
 
 const mockForms: ConsentForm[] = [
@@ -52,6 +56,13 @@ const mockForms: ConsentForm[] = [
     totalClients: 25,
     isPasswordProtected: false,
     notifyOnEdit: true,
+    fields: [
+        { id: 'f1', type: 'short-text', label: 'Full Name' },
+        { id: 'f2', type: 'short-text', label: 'Email Address' },
+        { id: 'f3', type: 'paragraph', label: 'Please list any known allergies or medical conditions.' },
+        { id: 'f4', type: 'long-text', label: '' },
+        { id: 'f5', type: 'signature', label: 'Client Signature' },
+    ]
   },
   {
     id: 'form-2',
@@ -82,7 +93,7 @@ const mockForms: ConsentForm[] = [
   },
 ];
 
-const ConsentCard = ({ form, onEdit }: { form: ConsentForm, onEdit: (form: ConsentForm) => void; }) => {
+const ConsentCard = ({ form, onEdit, onPreview }: { form: ConsentForm, onEdit: (form: ConsentForm) => void; onPreview: (form: ConsentForm) => void; }) => {
   const signedPercentage = form.totalClients > 0 ? (form.clientsSigned / form.totalClients) * 100 : 0;
 
   return (
@@ -107,7 +118,7 @@ const ConsentCard = ({ form, onEdit }: { form: ConsentForm, onEdit: (form: Conse
         </div>
       </CardContent>
       <CardFooter className="p-2 border-t bg-muted/50 flex gap-2">
-        <Button variant="ghost" size="sm" className="flex-1"><Eye className="w-4 h-4 mr-2"/>Preview</Button>
+        <Button variant="ghost" size="sm" className="flex-1" onClick={() => onPreview(form)}><Eye className="w-4 h-4 mr-2"/>Preview</Button>
         <Button variant="ghost" size="sm" className="flex-1"><Share2 className="w-4 h-4 mr-2"/>Share</Button>
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -142,6 +153,7 @@ export default function ConsentsPage() {
   const [activeTab, setActiveTab] = useState('all');
   const [isFormBuilderOpen, setIsFormBuilderOpen] = useState(false);
   const [editingForm, setEditingForm] = useState<ConsentForm | null>(null);
+  const [previewingForm, setPreviewingForm] = useState<ConsentForm | null>(null);
 
   const handleEditForm = (form: ConsentForm) => {
     setEditingForm(form);
@@ -152,6 +164,10 @@ export default function ConsentsPage() {
     setEditingForm(null);
     setIsFormBuilderOpen(true);
   }
+
+  const handlePreviewForm = (form: ConsentForm) => {
+    setPreviewingForm(form);
+  };
 
   const handleSaveForm = (savedForm: any) => {
     // This is where you would save to Firestore.
@@ -215,7 +231,7 @@ export default function ConsentsPage() {
             <TabsContent value={activeTab.toLowerCase()}>
                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                     {filteredForms.map(form => (
-                        <ConsentCard key={form.id} form={form} onEdit={handleEditForm} />
+                        <ConsentCard key={form.id} form={form} onEdit={handleEditForm} onPreview={handlePreviewForm} />
                     ))}
                      <AddConsentCard onClick={handleAddNewForm}/>
                 </div>
@@ -229,6 +245,14 @@ export default function ConsentsPage() {
         onSave={handleSaveForm}
         formToEdit={editingForm}
        />
+
+       {previewingForm && (
+            <PreviewConsentFormDialog
+                open={!!previewingForm}
+                onOpenChange={() => setPreviewingForm(null)}
+                form={previewingForm}
+            />
+       )}
     </div>
   );
 }
