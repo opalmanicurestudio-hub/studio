@@ -1,7 +1,7 @@
 
 'use client';
 
-import React from 'react';
+import React, { useRef } from 'react';
 import { FormField } from './FieldEditor';
 import { Label } from '../ui/label';
 import { Input } from '../ui/input';
@@ -11,12 +11,20 @@ import { Checkbox } from '../ui/checkbox';
 import { Signature } from 'lucide-react';
 import { Button } from '../ui/button';
 import { ImageUpload } from '../shared/ImageUpload';
+import SignatureCanvas from 'react-signature-canvas';
 
 interface FormFieldRendererProps {
   field: FormField;
 }
 
 export const FormFieldRenderer: React.FC<FormFieldRendererProps> = ({ field }) => {
+  const sigCanvas = useRef<SignatureCanvas | null>(null);
+
+  const clearSignature = () => {
+    sigCanvas.current?.clear();
+  };
+
+
   switch (field.type) {
     case 'heading':
       return <h2 className="text-xl font-semibold">{field.label}</h2>;
@@ -75,11 +83,16 @@ export const FormFieldRenderer: React.FC<FormFieldRendererProps> = ({ field }) =
       return (
         <div className="space-y-2">
           <Label>{field.label}</Label>
-          <div className="w-full h-32 rounded-md border-2 border-dashed bg-muted/50 flex flex-col items-center justify-center text-center">
-            <Signature className="w-8 h-8 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground mt-2">Signature Pad</p>
-            <p className="text-xs text-muted-foreground">Client will sign here.</p>
+           <div className="rounded-md border border-input bg-background">
+             <SignatureCanvas
+                ref={sigCanvas}
+                penColor="hsl(var(--foreground))"
+                canvasProps={{ className: 'w-full h-32 rounded-md' }}
+            />
           </div>
+          <Button type="button" variant="outline" size="sm" onClick={clearSignature}>
+            Clear
+          </Button>
         </div>
       );
     default:
