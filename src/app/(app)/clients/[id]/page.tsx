@@ -10,8 +10,8 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, Hash, FileText } from 'lucide-react';
-import { clients, appointments, services } from '@/lib/data';
+import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, Hash, FileText, FlaskConical, PlusCircle } from 'lucide-react';
+import { clients, appointments, services, inventory, type CustomFormula } from '@/lib/data';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -20,6 +20,27 @@ import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+
+const FormulaCard = ({ formula }: { formula: CustomFormula }) => (
+    <AccordionItem value={formula.name} className="border-b-0">
+        <AccordionTrigger className="p-3 bg-muted/50 rounded-md hover:no-underline text-base">
+            <div className="flex items-center gap-3">
+                <FlaskConical className="w-5 h-5 text-primary" />
+                <span className="font-semibold">{formula.name}</span>
+            </div>
+        </AccordionTrigger>
+        <AccordionContent className="pt-4 space-y-3">
+            {formula.items.map((item, index) => (
+                <div key={index} className="p-3 rounded-md bg-background border text-sm">
+                    <p className="font-medium">{item.quantityUsed}{item.unit} {item.productName}</p>
+                    {item.note && <p className="text-xs text-muted-foreground pl-4">&ndash; {item.note}</p>}
+                </div>
+            ))}
+             <Button variant="outline" size="sm" className="mt-2"><Edit className="w-3 h-3 mr-2"/>Edit Formula</Button>
+        </AccordionContent>
+    </AccordionItem>
+)
 
 export default function ClientDetailPage({ params }: { params: { id: string } }) {
   const client = clients.find((c) => c.id === params.id);
@@ -29,7 +50,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   }
 
   const clientAppointments = appointments.filter(apt => apt.clientId === client.id);
-  const upcomingAppointments = clientAppointments.filter(apt => apt.startTime > new Date() && apt.status !== 'canceled');
+  const upcomingAppointments = clientAppointments.filter(apt => apt.startTime > new Date() && apt.status !== 'cancelled');
   const pastAppointments = clientAppointments.filter(apt => apt.startTime <= new Date()).sort((a,b) => b.startTime.getTime() - a.startTime.getTime());
 
 
@@ -104,14 +125,36 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                     </div>
                      <div className="md:col-span-1">
                         <Card>
-                            <CardHeader>
-                                <CardTitle>Notes</CardTitle>
-                                <CardDescription>Color formulas, preferences, etc.</CardDescription>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                                <Textarea placeholder="Add a new note..." defaultValue={client.notes || "Redken Shades EQ 1oz 9NB, 1oz 9G. Process for 20 minutes."}/>
-                                <Button>Save Note</Button>
-                            </CardContent>
+                            <Tabs defaultValue="formulas" className="w-full">
+                                <CardHeader className="p-4">
+                                    <TabsList className="grid w-full grid-cols-2">
+                                        <TabsTrigger value="formulas">Formulas</TabsTrigger>
+                                        <TabsTrigger value="notes">Notes</TabsTrigger>
+                                    </TabsList>
+                                </CardHeader>
+                                <TabsContent value="formulas" className="m-0">
+                                    <CardContent className="p-4 pt-0 space-y-4">
+                                        {client.customFormulas && client.customFormulas.length > 0 ? (
+                                            <Accordion type="multiple" className="w-full space-y-4">
+                                                {client.customFormulas.map(formula => (
+                                                    <FormulaCard key={formula.name} formula={formula} />
+                                                ))}
+                                            </Accordion>
+                                        ) : (
+                                            <div className="text-center text-sm text-muted-foreground py-8">
+                                                <p>No custom formulas saved for {client.name}.</p>
+                                            </div>
+                                        )}
+                                        <Button variant="outline" className="w-full"><PlusCircle className="w-4 h-4 mr-2" /> Add New Formula</Button>
+                                    </CardContent>
+                                </TabsContent>
+                                <TabsContent value="notes" className="m-0">
+                                    <CardContent className="p-4 pt-0 space-y-4">
+                                        <Textarea placeholder="General client notes, preferences, etc." defaultValue={client.notes || ""}/>
+                                        <Button>Save Note</Button>
+                                    </CardContent>
+                                </TabsContent>
+                            </Tabs>
                         </Card>
                      </div>
                 </div>
@@ -245,3 +288,5 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     </div>
   );
 }
+
+    
