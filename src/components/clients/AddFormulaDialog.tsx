@@ -59,12 +59,20 @@ const AddFormulaForm = ({
   const { toast } = useToast();
 
   const handleAddProducts = (products: InventoryItem[]) => {
-    const newItems: EditableFormulaItem[] = products.map(p => ({
-      productId: p.id,
-      productName: p.name,
-      quantityUsed: 1,
-      unit: p.unit || 'uses',
-    }));
+    const newItems: EditableFormulaItem[] = products.map(p => {
+        let unit = 'unit';
+        if (p.costingMethod === 'uses' && p.useUnit) {
+            unit = p.useUnit;
+        } else if (p.costingMethod === 'size' && p.unit) {
+            unit = p.unit;
+        }
+        return {
+            productId: p.id,
+            productName: p.name,
+            quantityUsed: 1,
+            unit: unit,
+        }
+    });
     
     setItems(prev => {
         const existingIds = new Set(prev.map(item => item.productId));
@@ -137,7 +145,7 @@ const AddFormulaForm = ({
                                         </div>
                                          <div className="space-y-1">
                                             <Label htmlFor={`unit-${item.productId}`} className="text-xs">Unit</Label>
-                                            <Input id={`unit-${item.productId}`} value={item.unit} onChange={e => handleItemChange(item.productId, 'unit', e.target.value)} className="h-9"/>
+                                            <Input id={`unit-${item.productId}`} value={item.unit} disabled className="h-9"/>
                                         </div>
                                     </div>
                                      <div className="space-y-1">
