@@ -46,67 +46,109 @@ import { ShieldAlert, AlertTriangle, Ear, Upload, CalendarIcon, PlusCircle, Tras
 import { cn } from '@/lib/utils';
 import { Client } from '@/lib/data';
 
+const ClientIntelCategory = ({
+  title,
+  icon,
+  color,
+  predefinedItems,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  color: string;
+  predefinedItems: string[];
+}) => {
+  const [customItems, setCustomItems] = useState<string[]>([]);
+  const [inputValue, setInputValue] = useState('');
+
+  const handleAddItem = () => {
+    if (inputValue.trim() && !customItems.includes(inputValue.trim())) {
+      setCustomItems([...customItems, inputValue.trim()]);
+      setInputValue('');
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAddItem();
+    }
+  };
+
+  const handleRemoveItem = (itemToRemove: string) => {
+    setCustomItems(customItems.filter(item => item !== itemToRemove));
+  };
+  
+  const colorClasses = {
+      red: 'bg-red-500/5',
+      amber: 'bg-amber-500/5',
+      blue: 'bg-blue-500/5',
+  }
+
+  return (
+    <AccordionItem value={title.toLowerCase().replace(' ', '-')} className="border rounded-lg">
+      <AccordionTrigger className={cn("p-4 hover:no-underline rounded-t-lg", colorClasses[color as keyof typeof colorClasses] || 'bg-muted/50')}>
+        <div className="flex items-center gap-3">
+          {icon}
+          <span className="font-semibold text-base">{title}</span>
+        </div>
+      </AccordionTrigger>
+      <AccordionContent className="p-4 space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          {predefinedItems.map(item => (
+            <div key={item} className="flex items-center space-x-2">
+              <Checkbox id={`check-${title}-${item}`} />
+              <Label htmlFor={`check-${title}-${item}`}>{item}</Label>
+            </div>
+          ))}
+        </div>
+        <div className="space-y-2">
+             <Label className="text-xs">Custom Fields</Label>
+             <div className="flex gap-2">
+                <Input 
+                    placeholder="Add custom field..." 
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                />
+                <Button type="button" variant="outline" onClick={handleAddItem}>Add</Button>
+            </div>
+             <div className="flex flex-wrap gap-2 pt-2">
+                {customItems.map(item => (
+                    <Badge key={item} variant="secondary">
+                        {item}
+                        <button type="button" onClick={() => handleRemoveItem(item)} className="ml-1.5 -mr-0.5 rounded-full p-0.5 hover:bg-destructive/20">
+                            <Trash2 className="h-3 w-3" />
+                        </button>
+                    </Badge>
+                ))}
+            </div>
+        </div>
+        <Textarea placeholder={`Add detailed ${title.toLowerCase()} notes...`} />
+      </AccordionContent>
+    </AccordionItem>
+  )
+};
+
 const ClientIntelAccordion = () => (
   <Accordion type="multiple" className="w-full space-y-4">
-    <AccordionItem value="medical-health" className="border rounded-lg">
-      <AccordionTrigger className="p-4 bg-red-500/5 hover:no-underline rounded-t-lg">
-        <div className="flex items-center gap-3">
-          <ShieldAlert className="w-5 h-5 text-red-500" />
-          <span className="font-semibold text-base">Medical & Health</span>
-        </div>
-      </AccordionTrigger>
-      <AccordionContent className="p-4 space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          {['Pregnant', 'Pacemaker', 'Diabetes', 'High Blood Pressure'].map(item => (
-            <div key={item} className="flex items-center space-x-2">
-              <Checkbox id={`med-${item}`} />
-              <Label htmlFor={`med-${item}`}>{item}</Label>
-            </div>
-          ))}
-        </div>
-        <Textarea placeholder="Add detailed medical notes..." />
-      </AccordionContent>
-    </AccordionItem>
-
-    <AccordionItem value="allergies-sensitivities" className="border rounded-lg">
-      <AccordionTrigger className="p-4 bg-amber-500/5 hover:no-underline rounded-t-lg">
-        <div className="flex items-center gap-3">
-          <AlertTriangle className="w-5 h-5 text-amber-500" />
-          <span className="font-semibold text-base">Allergies & Sensitivities</span>
-        </div>
-      </AccordionTrigger>
-      <AccordionContent className="p-4 space-y-4">
-         <div className="grid grid-cols-2 gap-4">
-          {['Latex', 'Fragrance', 'Nuts', 'Aspirin'].map(item => (
-            <div key={item} className="flex items-center space-x-2">
-              <Checkbox id={`allergy-${item}`} />
-              <Label htmlFor={`allergy-${item}`}>{item}</Label>
-            </div>
-          ))}
-        </div>
-        <Textarea placeholder="Add detailed allergy notes..." />
-      </AccordionContent>
-    </AccordionItem>
-
-    <AccordionItem value="disabilities-sensory" className="border rounded-lg">
-      <AccordionTrigger className="p-4 bg-blue-500/5 hover:no-underline rounded-t-lg">
-        <div className="flex items-center gap-3">
-          <Ear className="w-5 h-5 text-blue-500" />
-          <span className="font-semibold text-base">Disabilities & Sensory Needs</span>
-        </div>
-      </AccordionTrigger>
-      <AccordionContent className="p-4 space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          {['Wheelchair Access', 'Prefers Quiet', 'Sensory Sensitivities', 'Service Animal'].map(item => (
-            <div key={item} className="flex items-center space-x-2">
-              <Checkbox id={`need-${item}`} />
-              <Label htmlFor={`need-${item}`}>{item}</Label>
-            </div>
-          ))}
-        </div>
-        <Textarea placeholder="Add detailed needs or preferences..." />
-      </AccordionContent>
-    </AccordionItem>
+    <ClientIntelCategory
+        title="Medical & Health"
+        icon={<ShieldAlert className="w-5 h-5 text-red-500" />}
+        color="red"
+        predefinedItems={['Pregnant', 'Pacemaker', 'Diabetes', 'High Blood Pressure']}
+    />
+    <ClientIntelCategory
+        title="Allergies & Sensitivities"
+        icon={<AlertTriangle className="w-5 h-5 text-amber-500" />}
+        color="amber"
+        predefinedItems={['Latex', 'Fragrance', 'Nuts', 'Aspirin']}
+    />
+    <ClientIntelCategory
+        title="Disabilities & Sensory Needs"
+        icon={<Ear className="w-5 h-5 text-blue-500" />}
+        color="blue"
+        predefinedItems={['Wheelchair Access', 'Prefers Quiet', 'Sensory Sensitivities', 'Service Animal']}
+    />
   </Accordion>
 );
 
@@ -212,16 +254,15 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                         </div>
                         <div className="flex flex-wrap gap-2 pt-2">
                             {tags.map(tag => (
-                                <Badge key={tag} variant="secondary" className="flex items-center gap-1">
+                                <Badge key={tag} variant="secondary">
                                     {tag}
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-4 w-4 -mr-1"
+                                    <button
+                                        type="button"
+                                        className="ml-1.5 -mr-0.5 rounded-full p-0.5 hover:bg-destructive/20"
                                         onClick={() => removeTag(tag)}
                                     >
                                         <Trash2 className="h-3 w-3" />
-                                    </Button>
+                                    </button>
                                 </Badge>
                             ))}
                         </div>
