@@ -86,7 +86,8 @@ export const FormFieldRenderer: React.FC<FormFieldRendererProps> = ({ field }) =
            <div className="rounded-md border border-input bg-background aspect-video w-full">
              <SignatureCanvas
                 ref={sigCanvas}
-                penColor="hsl(var(--foreground))"
+                penColor="black"
+                backgroundColor="white"
                 canvasProps={{ className: 'w-full h-full rounded-md' }}
             />
           </div>
