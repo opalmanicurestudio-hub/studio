@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState } from 'react';
@@ -355,6 +354,7 @@ export const AddProductDialog = ({
     onOpenChange, 
     locations,
     locationTypes,
+    onProductAdded,
     categories,
     onNewCategory,
     onAddNewLocationType,
@@ -366,7 +366,8 @@ export const AddProductDialog = ({
     onOpenChange: (open: boolean) => void, 
     locations: Location[],
     locationTypes: LocationType[],
-    categories: string[],
+    onProductAdded: (product: any) => void;
+    categories: string[];
     onNewCategory: (category: string) => void;
     onAddNewLocationType: (name: string, icon: string) => LocationType,
     isAddLocationDialogOpen: boolean, 
@@ -425,7 +426,7 @@ export const AddProductDialog = ({
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => handleOpenChange(false)}>Cancel</Button>
                 {step < totalSteps && <Button onClick={handleNext}>Next</Button>}
-                {step === totalSteps && <Button>Save Product</Button>}
+                {step === totalSteps && <Button onClick={() => onProductAdded({})}>Save Product</Button>}
               </div>
           </div>
         </DialogFooter>

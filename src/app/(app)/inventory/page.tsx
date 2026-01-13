@@ -12,7 +12,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette, QrCode, AlertTriangle, ListFilter } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette, QrCode, AlertTriangle, ListFilter, ChevronDown, ShoppingCart, Briefcase } from 'lucide-react';
 import { type InventoryItem, type StockCorrection } from '@/lib/data';
 import {
   DropdownMenu,
@@ -25,6 +25,8 @@ import Image from 'next/image';
 import { useToast } from '@/hooks/use-toast';
 import { Input } from '@/components/ui/input';
 import { AddProductDialog } from '@/components/inventory/AddProductDialog';
+import { AddEquipmentDialog } from '@/components/inventory/AddEquipmentDialog';
+import { AddOverheadDialog } from '@/components/inventory/AddOverheadDialog';
 import { EditProductDialog } from '@/components/inventory/EditProductDialog';
 import { AddLocationDialog, type Location, type LocationType } from '@/components/inventory/AddLocationDialog';
 import { EditLocationDialog } from '@/components/inventory/EditLocationDialog';
@@ -135,18 +137,36 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
     )
 }
 
-const EmptyState = ({ message, onActionClick }: { message: string, onActionClick: () => void }) => (
+const EmptyState = ({ onActionClick }: { onActionClick: () => void }) => (
     <div className="text-center py-20 px-6 col-span-full border-2 border-dashed rounded-lg">
         <div className='flex justify-center mb-6'>
             <div className='w-20 h-20 bg-muted rounded-full flex items-center justify-center'>
                 <Package className='w-10 h-10 text-muted-foreground' />
             </div>
         </div>
-        <h3 className="text-xl font-semibold mb-2">No Items Found</h3>
-        <p className="text-muted-foreground max-w-sm mx-auto mb-6">{message}</p>
-        <Button onClick={onActionClick}>
-            <PlusCircle className="mr-2 h-4 w-4" /> Add Your First Product
-        </Button>
+        <h3 className="text-xl font-semibold mb-2">Your Inventory is Empty</h3>
+        <p className="text-muted-foreground max-w-sm mx-auto mb-6">Get started by adding your first product, piece of equipment, or overhead supply.</p>
+         <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <Button>
+                    <PlusCircle className="mr-2 h-4 w-4" /> New Item <ChevronDown className="ml-2 h-4 w-4" />
+                </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="center">
+                <DropdownMenuItem onClick={onActionClick}>
+                    <ShoppingCart className="mr-2 h-4 w-4" />
+                    <span>Professional/Retail Product</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled>
+                    <Hammer className="mr-2 h-4 w-4" />
+                    <span>Equipment</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled>
+                    <Briefcase className="mr-2 h-4 w-4" />
+                    <span>Overhead/Supply</span>
+                </DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
     </div>
 );
 
@@ -163,6 +183,9 @@ export default function InventoryPage() {
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
 
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
+  const [isAddEquipmentOpen, setIsAddEquipmentOpen] = useState(false);
+  const [isAddOverheadOpen, setIsAddOverheadOpen] = useState(false);
+  
   const [isEditProductOpen, setIsEditProductOpen] = useState(false);
   const [isLogUseOpen, setIsLogUseOpen] = useState(false);
   const [isWriteOffOpen, setIsWriteOffOpen] = useState(false);
@@ -389,9 +412,27 @@ export default function InventoryPage() {
                             <CardTitle>All Inventory</CardTitle>
                             <CardDescription>A complete list of your professional, retail, and equipment stock.</CardDescription>
                         </div>
-                        <Button className='w-full sm:w-auto' onClick={() => setIsAddProductOpen(true)}>
-                            <PlusCircle className="mr-2 h-4 w-4" /> New Item
-                        </Button>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button className='w-full sm:w-auto'>
+                                    <PlusCircle className="mr-2 h-4 w-4" /> New Item <ChevronDown className="ml-2 h-4 w-4" />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => setIsAddProductOpen(true)}>
+                                    <ShoppingCart className="mr-2 h-4 w-4" />
+                                    <span>Professional/Retail Product</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => setIsAddEquipmentOpen(true)}>
+                                    <Hammer className="mr-2 h-4 w-4" />
+                                    <span>Equipment</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => setIsAddOverheadOpen(true)}>
+                                    <Briefcase className="mr-2 h-4 w-4" />
+                                    <span>Overhead/Supply</span>
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
                     </div>
                 </CardHeader>
                 <CardContent>
@@ -426,25 +467,25 @@ export default function InventoryPage() {
                             </DropdownMenu>
                         </div>
                     </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                        {filteredInventory.length > 0 ? filteredInventory.map(item => (
-                            <ProductCard 
-                                key={item.id} 
-                                item={item} 
-                                onEdit={() => {}} 
-                                onToggleExperiment={handleToggleExperiment} 
-                                onEndExperiment={handleEndExperiment} 
-                                onWriteOff={handleOpenWriteOff} 
-                                onLogUse={handleOpenLogUse}
-                            />
-                        )) : (
-                            <EmptyState 
-                                message={`You haven't added any ${activeFilter} items yet.`}
-                                onActionClick={() => setIsAddProductOpen(true)}
-                            />
-                        )}
-                    </div>
+                    {inventory.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                            {filteredInventory.length > 0 ? filteredInventory.map(item => (
+                                <ProductCard 
+                                    key={item.id} 
+                                    item={item} 
+                                    onEdit={() => {}} 
+                                    onToggleExperiment={handleToggleExperiment} 
+                                    onEndExperiment={handleEndExperiment} 
+                                    onWriteOff={handleOpenWriteOff} 
+                                    onLogUse={handleOpenLogUse}
+                                />
+                            )) : (
+                                <p className="text-muted-foreground col-span-full text-center">No items match your search.</p>
+                            )}
+                        </div>
+                    ) : (
+                        <EmptyState onActionClick={() => setIsAddProductOpen(true)} />
+                    )}
                 </CardContent>
             </Card>
           </TabsContent>
@@ -500,6 +541,35 @@ export default function InventoryPage() {
                 onAddNewLocationType={handleAddNewLocationType}
             />
         )}
+        
+        <AddProductDialog 
+            open={isAddProductOpen}
+            onOpenChange={setIsAddProductOpen}
+            locations={locations}
+            locationTypes={locationTypes}
+            onAddNewLocationType={handleAddNewLocationType}
+            isAddLocationDialogOpen={isAddLocationDialogOpen}
+            onAddLocationDialogOpenChange={setAddLocationDialogOpen}
+            onAddNewLocation={handleSaveLocation}
+            // Other required props
+            categories={[]}
+            onNewCategory={() => {}}
+            onProductAdded={() => {}}
+        />
+
+        <AddEquipmentDialog 
+            open={isAddEquipmentOpen}
+            onOpenChange={setIsAddEquipmentOpen}
+            locations={locations}
+            onEquipmentAdded={() => {}}
+        />
+        
+        <AddOverheadDialog 
+            open={isAddOverheadOpen}
+            onOpenChange={setIsAddOverheadOpen}
+            locations={locations}
+            onOverheadAdded={() => {}}
+        />
 
 
        <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
@@ -532,10 +602,3 @@ export default function InventoryPage() {
       </Dialog>
     </div>
   );
-
-    
-
-
-
-
-
