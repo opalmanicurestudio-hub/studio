@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -12,7 +11,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, Hash, FileText, FlaskConical, PlusCircle } from 'lucide-react';
+import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, Hash, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, ShieldAlert } from 'lucide-react';
 import { clients as initialClients, appointments, services, inventory, type CustomFormula, Client } from '@/lib/data';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
@@ -26,6 +25,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { AddFormulaDialog } from '@/components/clients/AddFormulaDialog';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Separator } from '@/components/ui/separator';
 
 const FormulaCard = ({ formula }: { formula: CustomFormula }) => (
     <AccordionItem value={formula.name} className="border-b-0">
@@ -147,35 +147,74 @@ export default function ClientDetailPage() {
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="history">History</TabsTrigger>
                 <TabsTrigger value="photos">Photos</TabsTrigger>
-                <TabsTrigger value="referrals">Referrals</TabsTrigger>
                 <TabsTrigger value="incidents">Incidents</TabsTrigger>
+                <TabsTrigger value="consents">Consents</TabsTrigger>
               </TabsList>
               <ScrollBar orientation="horizontal" />
             </ScrollArea>
             <TabsContent value="overview" className="mt-6">
-                <div className="grid gap-6 md:grid-cols-3">
-                    <div className="md:col-span-2 space-y-6">
+                <div className="grid gap-6 lg:grid-cols-3">
+                    <div className="lg:col-span-2 space-y-6">
                         <Card>
-                             <CardHeader>
-                                <CardTitle>Client Stats</CardTitle>
+                            <CardHeader>
+                                <CardTitle>Client Details</CardTitle>
                             </CardHeader>
-                            <CardContent className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                <div className="p-4 rounded-lg bg-muted/50">
-                                    <div className="text-sm text-muted-foreground flex items-center gap-2"><DollarSign className="w-4 h-4" /> Lifetime Value</div>
-                                    <div className="text-2xl font-bold">${client.lifetimeValue.toFixed(2)}</div>
+                            <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div className="space-y-1">
+                                    <p className="text-sm font-medium text-muted-foreground">Email</p>
+                                    <p>{client.email}</p>
                                 </div>
-                                <div className="p-4 rounded-lg bg-muted/50">
-                                    <div className="text-sm text-muted-foreground flex items-center gap-2"><Calendar className="w-4 h-4" /> Last Visit</div>
-                                    <div className="text-xl font-bold">{format(new Date(client.lastAppointment), "MMM d, yyyy")}</div>
+                                <div className="space-y-1">
+                                    <p className="text-sm font-medium text-muted-foreground">Phone</p>
+                                    <p>{client.phone}</p>
                                 </div>
-                                <div className="p-4 rounded-lg bg-muted/50">
-                                    <div className="text-sm text-muted-foreground flex items-center gap-2"><Hash className="w-4 h-4" /> Total Appointments</div>
-                                    <div className="text-2xl font-bold">{clientAppointments.length}</div>
+                                 <div className="space-y-1">
+                                    <p className="text-sm font-medium text-muted-foreground">Birthday</p>
+                                    <p>October 26</p>
+                                </div>
+                                <div className="space-y-1">
+                                    <p className="text-sm font-medium text-muted-foreground">Referral Source</p>
+                                    <p>Client Referral</p>
                                 </div>
                             </CardContent>
                         </Card>
+                        <Card>
+                             <CardHeader>
+                                <CardTitle>Client Wallet</CardTitle>
+                            </CardHeader>
+                            <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div className="p-4 rounded-lg bg-muted/50">
+                                    <div className="text-sm text-muted-foreground">Store Credit</div>
+                                    <div className="text-2xl font-bold">$0.00</div>
+                                </div>
+                                <div className="p-4 rounded-lg bg-muted/50">
+                                    <div className="text-sm text-muted-foreground">Gift Card Balance</div>
+                                    <div className="text-2xl font-bold">$50.00</div>
+                                </div>
+                            </CardContent>
+                        </Card>
+                         <Card>
+                             <CardHeader>
+                                <CardTitle>Active Offers</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <p className="text-sm text-center text-muted-foreground py-8">No active memberships or packages.</p>
+                            </CardContent>
+                        </Card>
                     </div>
-                     <div className="md:col-span-1">
+                     <div className="lg:col-span-1 space-y-6">
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Client Intel</CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                {client.medicalNotes && <div className="flex items-start gap-3 p-3 rounded-md bg-red-500/5"><ShieldPlus className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" /><p className="text-sm">{client.medicalNotes}</p></div>}
+                                {client.allergyNotes && <div className="flex items-start gap-3 p-3 rounded-md bg-orange-500/5"><AlertTriangle className="w-5 h-5 text-orange-500 mt-0.5 flex-shrink-0" /><p className="text-sm">{client.allergyNotes}</p></div>}
+                                {client.sensoryNeeds && <div className="flex items-start gap-3 p-3 rounded-md bg-blue-500/5"><Ear className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" /><p className="text-sm">{client.sensoryNeeds}</p></div>}
+                                {(!client.medicalNotes && !client.allergyNotes && !client.sensoryNeeds) && <p className="text-xs text-muted-foreground text-center">No special intel recorded.</p>}
+                            </CardContent>
+                        </Card>
+
                         <Card>
                             <Tabs defaultValue="formulas" className="w-full">
                                 <CardHeader className="p-4">
@@ -314,18 +353,7 @@ export default function ClientDetailPage() {
                     </CardContent>
                 </Card>
             </TabsContent>
-            <TabsContent value="referrals" className="mt-6">
-                 <Card>
-                    <CardHeader>
-                        <CardTitle>Referrals</CardTitle>
-                        <CardDescription>Track clients referred by {client.name}.</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <p className="text-sm text-muted-foreground text-center py-12">Referral tracking functionality coming soon.</p>
-                    </CardContent>
-                </Card>
-            </TabsContent>
-             <TabsContent value="incidents" className="mt-6">
+            <TabsContent value="incidents" className="mt-6">
                  <Card>
                     <CardHeader>
                         <CardTitle>Incident Log</CardTitle>
@@ -333,6 +361,17 @@ export default function ClientDetailPage() {
                     </CardHeader>
                     <CardContent>
                         <p className="text-sm text-muted-foreground text-center py-12">Incident logging functionality coming soon.</p>
+                    </CardContent>
+                </Card>
+            </TabsContent>
+             <TabsContent value="consents" className="mt-6">
+                 <Card>
+                    <CardHeader>
+                        <CardTitle>Signed Forms</CardTitle>
+                        <CardDescription>All consent forms signed by {client.name}.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <p className="text-sm text-muted-foreground text-center py-12">Consent form management coming soon.</p>
                     </CardContent>
                 </Card>
             </TabsContent>

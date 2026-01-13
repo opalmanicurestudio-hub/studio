@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -12,34 +11,61 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Search, FileDown, UserPlus, Merge, Users } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Search, FileDown, UserPlus, Merge, Users, ShieldPlus, AlertTriangle, Ear, ShieldAlert, BadgeInfo, Ban } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { clients, appointments } from '@/lib/data';
+import { clients as initialClients, appointments } from '@/lib/data';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, subDays } from 'date-fns';
 import { Input } from '@/components/ui/input';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { MergeClientsDialog } from '@/components/clients/MergeClientsDialog';
+import { ClientOnly } from '@/components/shared/ClientOnly';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+
+const ClientStatsSidebar = () => {
+    // These would be calculated based on the filtered list of clients
+    return (
+        <Card className="lg:sticky top-24">
+            <CardHeader>
+                <CardTitle>Client Stats</CardTitle>
+                <CardDescription>Metrics for the current client view.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+                 <div className="p-3 bg-muted/50 rounded-lg">
+                    <div className="text-sm font-medium text-muted-foreground">Total Active Clients</div>
+                    <div className="text-2xl font-bold">{initialClients.length}</div>
+                </div>
+                 <div className="p-3 bg-muted/50 rounded-lg">
+                    <div className="text-sm font-medium text-muted-foreground">Client Retention Rate</div>
+                    <div className="text-2xl font-bold">87%</div>
+                </div>
+                <div className="p-3 bg-muted/50 rounded-lg">
+                    <div className="text-sm font-medium text-muted-foreground">Avg. Spend / Appointment</div>
+                    <div className="text-2xl font-bold">$125.50</div>
+                </div>
+                <div>
+                    <h4 className="text-sm font-medium text-muted-foreground mb-2">Revenue Breakdown</h4>
+                    <div className="space-y-1 text-xs">
+                        <div className="flex justify-between"><span>Services:</span> <span className="font-mono">$12,345.00</span></div>
+                        <div className="flex justify-between"><span>Retail:</span> <span className="font-mono">$2,876.50</span></div>
+                        <div className="flex justify-between"><span>Tips:</span> <span className="font-mono">$1,102.00</span></div>
+                    </div>
+                </div>
+            </CardContent>
+        </Card>
+    );
+};
 
 const ClientCard = ({ client }: { client: any }) => {
-    const [isClient, setIsClient] = useState(false);
-
-    useEffect(() => {
-        setIsClient(true);
-    }, []);
-
-    if (!isClient) {
-        return null; // Or a skeleton loader
-    }
-
     return (
-        <Card>
+      <ClientOnly>
+        <Card className="transition-all hover:shadow-lg hover:-translate-y-1">
             <CardContent className="p-4 space-y-4">
                 <div className="flex items-start gap-4">
                      <Avatar className="w-16 h-16 border">
@@ -61,24 +87,62 @@ const ClientCard = ({ client }: { client: any }) => {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                              <DropdownMenuItem asChild>
-                                <Link href={`/clients/${client.id}`}>View Details</Link>
+                                <Link href={`/clients/${client.id}`}>View/Edit Details</Link>
                             </DropdownMenuItem>
                             <DropdownMenuItem>Book Appointment</DropdownMenuItem>
+                            <DropdownMenuItem>Generate Report</DropdownMenuItem>
                             <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
                 </div>
-                 <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center justify-between text-sm">
                     <span className='text-muted-foreground'>Lifetime Value</span>
                     <Badge variant="outline" className="font-mono text-base">${client.lifetimeValue.toFixed(2)}</Badge>
                 </div>
+                <div className="flex items-center gap-2 border-t pt-3">
+                    <TooltipProvider>
+                         {client.medicalNotes && (
+                            <Tooltip>
+                                <TooltipTrigger><ShieldPlus className="w-5 h-5 text-red-500" /></TooltipTrigger>
+                                <TooltipContent><p>Medical Alert</p></TooltipContent>
+                            </Tooltip>
+                         )}
+                         {client.allergyNotes && (
+                             <Tooltip>
+                                <TooltipTrigger><AlertTriangle className="w-5 h-5 text-orange-500" /></TooltipTrigger>
+                                <TooltipContent><p>Allergy Alert</p></TooltipContent>
+                            </Tooltip>
+                         )}
+                          {client.sensoryNeeds && (
+                             <Tooltip>
+                                <TooltipTrigger><Ear className="w-5 h-5 text-blue-500" /></TooltipTrigger>
+                                <TooltipContent><p>Sensory Needs</p></TooltipContent>
+                            </Tooltip>
+                         )}
+                         {/* Placeholder for future features */}
+                         {/* <Tooltip>
+                            <TooltipTrigger><ShieldAlert className="w-5 h-5 text-purple-500" /></TooltipTrigger>
+                            <TooltipContent><p>Incident History</p></TooltipContent>
+                         </Tooltip>
+                         <Tooltip>
+                            <TooltipTrigger><Ban className="w-5 h-5 text-destructive" /></TooltipTrigger>
+                            <TooltipContent><p>Banned Client</p></TooltipContent>
+                         </Tooltip> */}
+                    </TooltipProvider>
+
+                    <div className="flex-1 flex flex-wrap gap-1 justify-end">
+                        {client.isMember && <Badge variant="secondary" className="bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300">Member</Badge>}
+                        <Badge variant="secondary">VIP</Badge>
+                    </div>
+                </div>
             </CardContent>
         </Card>
+        </ClientOnly>
     )
 }
 
 const EmptyState = ({ onAddClient }: { onAddClient: () => void }) => (
-    <div className="text-center py-20 px-6">
+    <div className="text-center py-20 px-6 col-span-full border-2 border-dashed rounded-lg">
         <div className='flex justify-center mb-6'>
             <div className='w-20 h-20 bg-muted rounded-full flex items-center justify-center'>
                 <Users className='w-10 h-10 text-muted-foreground' />
@@ -100,68 +164,106 @@ export default function ClientsPage() {
   const [isAddClientOpen, setIsAddClientOpen] = useState(false);
   const [isMergeClientsOpen, setIsMergeClientsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [lastSeenFilter, setLastSeenFilter] = useState('all');
   
   const filteredClients = useMemo(() => {
-    return clients
-      .filter(client => 
-        client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        client.email.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-      .sort((a,b) => new Date(b.lastAppointment).getTime() - new Date(a.lastAppointment).getTime());
-  }, [searchTerm]);
+    let clientsToFilter = initialClients;
+    
+    if (lastSeenFilter !== 'all') {
+      const days = parseInt(lastSeenFilter);
+      const cutoffDate = subDays(new Date(), days);
+      clientsToFilter = clientsToFilter.filter(client => new Date(client.lastAppointment) < cutoffDate);
+    }
+    
+    if (searchTerm) {
+        clientsToFilter = clientsToFilter.filter(client => 
+            client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            client.email.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    }
+
+    return clientsToFilter.sort((a,b) => new Date(b.lastAppointment).getTime() - new Date(a.lastAppointment).getTime());
+  }, [searchTerm, lastSeenFilter]);
   
-  const hasClients = clients.length > 0;
+  const hasClients = initialClients.length > 0;
   const hasFilteredClients = filteredClients.length > 0;
 
   return (
     <div className="flex min-h-screen w-full flex-col">
-      <AppHeader title="Clients" />
-      <main className="flex-1 p-4 md:p-8 space-y-6">
-        <div>
-            <h1 className="text-3xl font-bold">Client Log</h1>
-            <p className="text-muted-foreground">A scannable rolodex of your entire client base.</p>
-        </div>
-
-        <Card>
-            <CardHeader>
-                <div className="flex flex-col sm:flex-row items-center gap-4">
-                    <div className="relative w-full sm:max-w-xs">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input 
-                            placeholder="Search by name or email..." 
-                            className="pl-9"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                         />
-                    </div>
-                    <div className="ml-auto flex w-full flex-col sm:flex-row sm:w-auto items-center gap-2">
-                        <Button variant="outline" className='w-full sm:w-auto'><FileDown className="mr-2 h-4 w-4" /> Export</Button>
-                        <Button variant="outline" className='w-full sm:w-auto' onClick={() => setIsMergeClientsOpen(true)}><Merge className="mr-2 h-4 w-4" /> Merge</Button>
-                        <Button className='w-full sm:w-auto' onClick={() => setIsAddClientOpen(true)}><UserPlus className="mr-2 h-4 w-4" /> New Client</Button>
-                    </div>
+      <AppHeader title="Client Log" />
+      <main className="flex-1 p-4 md:p-8">
+        <div className="grid lg:grid-cols-[1fr,300px] gap-8 items-start">
+            <div className="space-y-6">
+                 <div>
+                    <h1 className="text-3xl font-bold">Client Rolodex</h1>
+                    <p className="text-muted-foreground">A scannable rolodex of your entire client base.</p>
                 </div>
-            </CardHeader>
-            <CardContent>
-                 {!hasClients ? (
-                    <EmptyState onAddClient={() => setIsAddClientOpen(true)} />
-                 ) : !hasFilteredClients ? (
-                    <div className="text-center py-20 px-6">
-                        <p className="text-muted-foreground">No clients found for &quot;{searchTerm}&quot;.</p>
-                    </div>
-                 ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                        {filteredClients.map((client) => (
-                            <ClientCard key={client.id} client={client} />
-                        ))}
-                    </div>
-                 )}
-            </CardContent>
-        </Card>
+                <Card>
+                    <CardHeader>
+                        <div className="flex flex-col sm:flex-row items-center gap-4">
+                            <div className="relative w-full sm:max-w-xs">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input 
+                                    placeholder="Search by name or email..." 
+                                    className="pl-9"
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                />
+                            </div>
+                             <div className="flex-1 w-full sm:w-auto">
+                                <select
+                                    value={lastSeenFilter}
+                                    onChange={(e) => setLastSeenFilter(e.target.value)}
+                                    className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                                >
+                                    <option value="all">Filter by last seen...</option>
+                                    <option value="30">Over 30 days ago</option>
+                                    <option value="90">Over 90 days ago</option>
+                                    <option value="180">Over 180 days ago</option>
+                                </select>
+                            </div>
+                            <div className="ml-auto flex w-full flex-col sm:flex-row sm:w-auto items-center gap-2">
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button variant="outline" className='w-full sm:w-auto'>
+                                            <MoreHorizontal className="mr-2 h-4 w-4" /> More
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent>
+                                        <DropdownMenuItem onClick={() => setIsMergeClientsOpen(true)}><Merge className="mr-2 h-4 w-4"/>Merge Duplicates</DropdownMenuItem>
+                                        <DropdownMenuItem><FileDown className="mr-2 h-4 w-4"/>Export List</DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                                <Button className='w-full sm:w-auto' onClick={() => setIsAddClientOpen(true)}><UserPlus className="mr-2 h-4 w-4" /> New Client</Button>
+                            </div>
+                        </div>
+                    </CardHeader>
+                    <CardContent>
+                        {!hasClients ? (
+                            <EmptyState onAddClient={() => setIsAddClientOpen(true)} />
+                        ) : !hasFilteredClients ? (
+                            <div className="text-center py-20 px-6">
+                                <p className="text-muted-foreground">No clients found matching your filters.</p>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                                {filteredClients.map((client) => (
+                                    <ClientCard key={client.id} client={client} />
+                                ))}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            </div>
+            <div className="hidden lg:block">
+                <ClientStatsSidebar />
+            </div>
+        </div>
 
       </main>
 
-      <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients} />
-      <MergeClientsDialog open={isMergeClientsOpen} onOpenChange={setIsMergeClientsOpen} allClients={clients} allAppointments={appointments} />
+      <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={initialClients} />
+      <MergeClientsDialog open={isMergeClientsOpen} onOpenChange={setIsMergeClientsOpen} allClients={initialClients} allAppointments={appointments} />
 
     </div>
   );
