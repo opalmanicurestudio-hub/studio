@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -18,6 +18,7 @@ import { services } from '@/lib/data';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import Image from 'next/image';
 import { Checkbox } from '../ui/checkbox';
+import { ChevronDown } from 'lucide-react';
 
 interface PickingListDialogProps {
   open: boolean;
@@ -123,9 +124,9 @@ export const PickingListDialog: React.FC<PickingListDialogProps> = ({
                   <Accordion type="multiple" className="space-y-2">
                     {products.map(item => (
                       <AccordionItem key={item.product.id} value={item.product.id} className="border rounded-md">
-                        <AccordionTrigger className="p-3 hover:no-underline [&[data-state=open]>div>div>svg]:rotate-90">
-                           <div className="flex items-center gap-3 w-full">
-                                <Checkbox id={`check-${item.product.id}`} className="h-5 w-5" />
+                        <div className="flex items-center p-3">
+                           <Checkbox id={`check-${item.product.id}`} className="h-5 w-5" />
+                           <div className="flex items-center gap-3 w-full ml-3">
                                 <div className="w-10 h-10 bg-muted rounded-md flex-shrink-0">
                                     <Image src={item.product.imageUrl || `https://picsum.photos/seed/inv${item.product.id}/100/100`} alt={item.product.name} width={40} height={40} className='rounded-md'/>
                                 </div>
@@ -137,9 +138,12 @@ export const PickingListDialog: React.FC<PickingListDialogProps> = ({
                                     <p className="text-xs text-muted-foreground">Total</p>
                                 </div>
                            </div>
-                        </AccordionTrigger>
+                           <AccordionTrigger className="p-1 hover:no-underline">
+                                <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200" />
+                           </AccordionTrigger>
+                        </div>
                         <AccordionContent className="px-3 pb-3">
-                           <div className="space-y-1 text-xs text-muted-foreground pl-10">
+                           <div className="space-y-1 text-xs text-muted-foreground pl-16">
                              {item.appointments.map((apt, index) => (
                                 <div key={index} className="flex justify-between">
                                     <span>{apt.clientName}</span>
