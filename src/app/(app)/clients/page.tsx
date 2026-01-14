@@ -50,7 +50,7 @@ const ClientCard = ({ client }: { client: Client }) => {
                     </Avatar>
                     <div className="flex-1 min-w-0">
                         <Link href={`/clients/${client.id}`} className="group">
-                            <p className="font-semibold text-lg group-hover:underline truncate">{client.name}</p>
+                            <p className="font-semibold text-lg group-hover:underline">{client.name}</p>
                         </Link>
                         {lastAppointment && (
                             <p className="text-sm text-muted-foreground">Last seen: {formatDistanceToNow(lastAppointment, { addSuffix: true })}</p>
@@ -361,7 +361,7 @@ export default function ClientsPage() {
                                 <p className="text-muted-foreground">No clients found matching your filters.</p>
                             </div>
                         ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-6">
                                 {filteredClients.map((client) => (
                                     <ClientCard key={client.id} client={client} />
                                 ))}
