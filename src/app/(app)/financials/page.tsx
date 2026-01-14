@@ -61,6 +61,9 @@ import {
   Calculator,
   Info,
   Check,
+  Link,
+  Calendar,
+  AlertTriangle
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -72,76 +75,103 @@ import { cn } from '@/lib/utils';
 const BillItemRow = ({
   bill,
   isEditing = false,
-  onAmountChange,
+  onBillChange,
 }: {
-  bill: { title: string; amount: number; isCustom?: boolean };
+  bill: { title: string; amount: number; isCustom?: boolean; dueDay?: number; paymentUrl?: string; lateFee?: number; lateByDay?: number; };
   isEditing?: boolean;
-  onAmountChange: (newAmount: number) => void;
+  onBillChange: (billTitle: string, field: string, value: any) => void;
 }) => (
-    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-3 rounded-md bg-background/50 hover:bg-background transition-colors">
-       <div className="flex-1">
-        {bill.isCustom && isEditing ? (
-            <Input defaultValue={bill.title} className="font-semibold border-dashed h-9" disabled={!isEditing} />
-        ) : (
-            <Label className="font-medium pt-2 block">{bill.title}</Label>
-        )}
+    <div className="flex flex-col p-3 rounded-lg border bg-background hover:bg-muted/50 transition-colors">
+      <div className="flex items-center justify-between">
+          <div className="flex-1">
+              {bill.isCustom && isEditing ? (
+                  <Input defaultValue={bill.title} className="font-semibold border-dashed h-9" disabled={!isEditing} />
+              ) : (
+                  <Label className="font-medium pt-2 block">{bill.title}</Label>
+              )}
+          </div>
+          <div className="flex items-center gap-2 w-full sm:w-auto max-w-[150px]">
+              <div className="relative flex-1">
+              <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                  type="number"
+                  placeholder="0.00"
+                  className="pl-8"
+                  disabled={!isEditing}
+                  value={bill.amount || ''}
+                  onChange={(e) => onBillChange(bill.title, 'amount', parseFloat(e.target.value) || 0)}
+              />
+              </div>
+          </div>
       </div>
-      <div className="flex items-center gap-2 w-full sm:w-auto">
-        <div className="relative flex-1 sm:max-w-[120px]">
-          <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            type="number"
-            placeholder="0.00"
-            className="pl-8"
-            disabled={!isEditing}
-            value={bill.amount || ''}
-            onChange={(e) => onAmountChange(parseFloat(e.target.value) || 0)}
-          />
-        </div>
-        {isEditing && (
-            <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <MoreHorizontal className="w-4 h-4"/>
-                    </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent>
-                     {bill.isCustom && <DropdownMenuItem className='text-destructive'><Trash2 className="w-4 h-4 mr-2"/> Delete</DropdownMenuItem>}
-                     <DropdownMenuItem>Payment Details</DropdownMenuItem>
-                </DropdownMenuContent>
-            </DropdownMenu>
-        )}
-      </div>
+      {isEditing && (
+         <Accordion type="single" collapsible className="w-full mt-2">
+            <AccordionItem value="details" className="border-0">
+                <AccordionTrigger className="text-xs justify-start gap-2 p-1 hover:no-underline text-muted-foreground">More Options</AccordionTrigger>
+                <AccordionContent className="pt-4 space-y-4">
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <Label htmlFor={`dueDay-${bill.title}`} className="text-xs">Due Day</Label>
+                            <Input id={`dueDay-${bill.title}`} type="number" placeholder="e.g., 1" value={bill.dueDay || ''} onChange={(e) => onBillChange(bill.title, 'dueDay', parseInt(e.target.value) || undefined)} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor={`paymentUrl-${bill.title}`} className="text-xs">Payment URL</Label>
+                             <div className="relative">
+                                <Link className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input id={`paymentUrl-${bill.title}`} placeholder="https://..." value={bill.paymentUrl || ''} onChange={(e) => onBillChange(bill.title, 'paymentUrl', e.target.value)} className="pl-8" />
+                            </div>
+                        </div>
+                     </div>
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <Label htmlFor={`lateByDay-${bill.title}`} className="text-xs">Late After (Days)</Label>
+                            <Input id={`lateByDay-${bill.title}`} type="number" placeholder="e.g., 5" value={bill.lateByDay || ''} onChange={(e) => onBillChange(bill.title, 'lateByDay', parseInt(e.target.value) || undefined)} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor={`lateFee-${bill.title}`} className="text-xs">Late Fee</Label>
+                            <div className="relative">
+                                <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input id={`lateFee-${bill.title}`} type="number" placeholder="0.00" value={bill.lateFee || ''} onChange={(e) => onBillChange(bill.title, 'lateFee', parseFloat(e.target.value) || undefined)} className="pl-8" />
+                            </div>
+                        </div>
+                     </div>
+                      {bill.isCustom && (
+                        <Button variant="outline" size="sm" className="text-destructive w-full"><Trash2 className="w-4 h-4 mr-2"/>Delete Custom Bill</Button>
+                      )}
+                </AccordionContent>
+            </AccordionItem>
+        </Accordion>
+      )}
     </div>
 );
 
 const lifestyleCategoriesTemplate = [
-  { name: 'Housing', icon: <Home className="w-5 h-5 text-primary" />, bills: [ { title: "Rent/Mortgage", amount: 0 }, { title: "Property Taxes", amount: 0 }, { title: "HOA Fees", amount: 0 }, { title: "Insurance (Homeowner's/Renter's)", amount: 0 } ]},
-  { name: 'Utilities', icon: <Receipt className="w-5 h-5 text-primary" />, bills: [ { title: "Electric", amount: 0 }, { title: "Water", amount: 0 }, { title: "Gas", amount: 0 }, { title: "Waste Management", amount: 0 } ]},
-  { name: 'Internet & Phone', icon: <Wifi className="w-5 h-5 text-primary" />, bills: [{ title: 'Internet Bill', amount: 0 }, { title: 'Cell Phone Bill', amount: 0 }] },
-  { name: 'Streaming & Subscriptions', icon: <Film className="w-5 h-5 text-primary" />, bills: [ { title: "Netflix", amount: 0 }, { title: "Spotify", amount: 0 }, { title: "News Subscription", amount: 0 }, { title: "Cloud Storage (iCloud, Google Drive, etc.)", amount: 0 } ]},
-  { name: 'Food', icon: <ShoppingCart className="w-5 h-5 text-primary" />, bills: [{ title: 'Groceries', amount: 0 }, { title: 'Restaurants', amount: 0 }] },
-  { name: 'Transportation', icon: <Car className="w-5 h-5 text-primary" />, bills: [ { title: "Car Payment", amount: 0 }, { title: "Car Insurance", amount: 0 }, { title: "Gas/Fuel", amount: 0 }, { title: "Public Transit", amount: 0 } ]},
-  { name: 'Health & Wellness', icon: <Heart className="w-5 h-5 text-primary" />, bills: [ { title: "Personal Health Insurance", amount: 0 }, { title: "Gym Membership", amount: 0 }, { title: "Therapy/Counseling", amount: 0 }, { title: "Medication", amount: 0 } ]},
-  { name: 'Debt Repayment', icon: <CreditCard className="w-5 h-5 text-primary" />, bills: [ { title: "Student Loans", amount: 0 }, { title: "Credit Card Payments", amount: 0 }, { title: "Buy Now, Pay Later (e.g., Klarna, Afterpay)", amount: 0 } ]},
-  { name: 'Family & Childcare', icon: <Baby className="w-5 h-5 text-primary" />, bills: [ { title: "Childcare / Daycare", amount: 0 }, { title: "Kids' Activities", amount: 0 }, { title: "Child Support", amount: 0 } ]},
-  { name: 'Pets', icon: <Dog className="w-5 h-5 text-primary" />, bills: [{ title: 'Pet Food & Supplies', amount: 0 }, { title: 'Pet Insurance', amount: 0 }] },
-  { name: 'Personal Spending', icon: <Sparkles className="w-5 h-5 text-primary" />, bills: [ { title: "Shopping (Clothes, etc.)", amount: 0 }, { title: "Entertainment (Movies, Concerts, etc.)", amount: 0 }, { title: "Hobbies & Recreation", amount: 0 }, { title: "Personal Care (Haircuts, etc. that you don't do yourself)", amount: 0 } ]},
-  { name: 'Gifts & Donations', icon: <Gift className="w-5 h-5 text-primary" />, bills: [{ title: 'Gifts', amount: 0 }, { title: 'Donations', amount: 0 }] },
-  { name: 'Financial Goals', icon: <PiggyBank className="w-5 h-5 text-primary" />, bills: [ { title: "Personal Savings", amount: 0 }, { title: "Retirement (IRA/401k contributions)", amount: 0 } ]},
+  { name: 'Housing', icon: <Home className="w-5 h-5 text-primary" />, bills: [ { title: "Rent/Mortgage", amount: 0, dueDay: 1 }, { title: "Property Taxes", amount: 0, dueDay: 15 }, { title: "HOA Fees", amount: 0, dueDay: 1 }, { title: "Insurance (Homeowner's/Renter's)", amount: 0, dueDay: 10 } ]},
+  { name: 'Utilities', icon: <Receipt className="w-5 h-5 text-primary" />, bills: [ { title: "Electric", amount: 0, dueDay: 20 }, { title: "Water", amount: 0, dueDay: 20 }, { title: "Gas", amount: 0, dueDay: 20 }, { title: "Waste Management", amount: 0, dueDay: 20 } ]},
+  { name: 'Internet & Phone', icon: <Wifi className="w-5 h-5 text-primary" />, bills: [{ title: 'Internet Bill', amount: 0, dueDay: 5 }, { title: 'Cell Phone Bill', amount: 0, dueDay: 15 }] },
+  { name: 'Streaming & Subscriptions', icon: <Film className="w-5 h-5 text-primary" />, bills: [ { title: "Netflix", amount: 0, dueDay: 1 }, { title: "Spotify", amount: 0, dueDay: 1 }, { title: "News Subscription", amount: 0, dueDay: 1 }, { title: "Cloud Storage (iCloud, Google Drive, etc.)", amount: 0, dueDay: 1 } ]},
+  { name: 'Food', icon: <ShoppingCart className="w-5 h-5 text-primary" />, bills: [{ title: 'Groceries', amount: 0, dueDay: 1 }, { title: 'Restaurants', amount: 0, dueDay: 1 }] },
+  { name: 'Transportation', icon: <Car className="w-5 h-5 text-primary" />, bills: [ { title: "Car Payment", amount: 0, dueDay: 25 }, { title: "Car Insurance", amount: 0, dueDay: 15 }, { title: "Gas/Fuel", amount: 0, dueDay: 1 }, { title: "Public Transit", amount: 0, dueDay: 1 } ]},
+  { name: 'Health & Wellness', icon: <Heart className="w-5 h-5 text-primary" />, bills: [ { title: "Personal Health Insurance", amount: 0, dueDay: 1 }, { title: "Gym Membership", amount: 0, dueDay: 1 }, { title: "Therapy/Counseling", amount: 0, dueDay: 1 }, { title: "Medication", amount: 0, dueDay: 1 } ]},
+  { name: 'Debt Repayment', icon: <CreditCard className="w-5 h-5 text-primary" />, bills: [ { title: "Student Loans", amount: 0, dueDay: 25 }, { title: "Credit Card Payments", amount: 0, dueDay: 1 }, { title: "Buy Now, Pay Later (e.g., Klarna, Afterpay)", amount: 0, dueDay: 1 } ]},
+  { name: 'Family & Childcare', icon: <Baby className="w-5 h-5 text-primary" />, bills: [ { title: "Childcare / Daycare", amount: 0, dueDay: 1 }, { title: "Kids' Activities", amount: 0, dueDay: 1 }, { title: "Child Support", amount: 0, dueDay: 1 } ]},
+  { name: 'Pets', icon: <Dog className="w-5 h-5 text-primary" />, bills: [{ title: 'Pet Food & Supplies', amount: 0, dueDay: 1 }, { title: 'Pet Insurance', amount: 0, dueDay: 1 }] },
+  { name: 'Personal Spending', icon: <Sparkles className="w-5 h-5 text-primary" />, bills: [ { title: "Shopping (Clothes, etc.)", amount: 0, dueDay: 1 }, { title: "Entertainment (Movies, Concerts, etc.)", amount: 0, dueDay: 1 }, { title: "Hobbies & Recreation", amount: 0, dueDay: 1 }, { title: "Personal Care (Haircuts, etc. that you don't do yourself)", amount: 0, dueDay: 1 } ]},
+  { name: 'Gifts & Donations', icon: <Gift className="w-5 h-5 text-primary" />, bills: [{ title: 'Gifts', amount: 0, dueDay: 1 }, { title: 'Donations', amount: 0, dueDay: 1 }] },
+  { name: 'Financial Goals', icon: <PiggyBank className="w-5 h-5 text-primary" />, bills: [ { title: "Personal Savings", amount: 0, dueDay: 1 }, { title: "Retirement (IRA/401k contributions)", amount: 0, dueDay: 1 } ]},
 ];
 
 const businessCategoriesTemplate = [
-   { name: "Rent & Facility", icon: <Building className="w-5 h-5 text-primary"/>, bills: [ {title: "Studio Rent/Mortgage", amount: 0}, {title: "Business Insurance (Liability, Property)", amount: 0} ]},
-   { name: "Utilities", icon: <Receipt className="w-5 h-5 text-primary"/>, bills: [{title: "Electric", amount: 0}, {title: "Water", amount: 0}, {title: "Gas", amount: 0}, {title: "Waste Management", amount: 0}] },
+   { name: "Rent & Facility", icon: <Building className="w-5 h-5 text-primary"/>, bills: [ {title: "Studio Rent/Mortgage", amount: 0, dueDay: 1}, {title: "Business Insurance (Liability, Property)", amount: 0, dueDay: 20} ]},
+   { name: "Utilities", icon: <Receipt className="w-5 h-5 text-primary"/>, bills: [{title: "Electric", amount: 0, dueDay: 20}, {title: "Water", amount: 0, dueDay: 20}, {title: "Gas", amount: 0, dueDay: 20}, {title: "Waste Management", amount: 0, dueDay: 20}] },
    { name: "Capital Equipment", icon: <Briefcase className="w-5 h-5 text-primary" />, bills: [] },
-   { name: "Software & Systems", icon: <Monitor className="w-5 h-5 text-primary"/>, bills: [ {title: "Booking Software (e.g., ClarityFlow itself, Acuity, Square)", amount: 0}, {title: "Website Hosting", amount: 0}, {title: "Email Marketing (e.g., Mailchimp, ConvertKit)", amount: 0} ]},
-   { name: "Tech & Comms", icon: <Phone className="w-5 h-5 text-primary"/>, bills: [{title: "Business Phone Line", amount: 0}] },
-   { name: "Professional & Admin", icon: <Briefcase className="w-5 h-5 text-primary"/>, bills: [{title: "Accountant/Bookkeeper", amount: 0}, {title: "Licensing & Dues", amount: 0}] },
-   { name: "Marketing & Growth", icon: <Megaphone className="w-5 h-5 text-primary"/>, bills: [{title: "Social Media Ads", amount: 0}, {title: "Print Materials (Business Cards, Flyers)", amount: 0}] },
-   { name: "Retail & Marketing Materials", icon: <Package className="w-5 h-5 text-primary"/>, bills: [{title: "Packaging & Bags", amount: 0}] },
-   { name: "Business Debt", icon: <Landmark className="w-5 h-5 text-primary"/>, bills: [{title: "Business Loan", amount: 0}, {title: "Tax Debt Payment", amount: 0}] },
-   { name: "Miscellaneous", icon: <Sparkles className="w-5 h-5 text-primary"/>, bills: [{title: "Bank Fees", amount: 0, isCustom: true}] }
+   { name: "Software & Systems", icon: <Monitor className="w-5 h-5 text-primary"/>, bills: [ {title: "Booking Software (e.g., ClarityFlow itself, Acuity, Square)", amount: 0, dueDay: 5}, {title: "Website Hosting", amount: 0, dueDay: 1}, {title: "Email Marketing (e.g., Mailchimp, ConvertKit)", amount: 0, dueDay: 1} ]},
+   { name: "Tech & Comms", icon: <Phone className="w-5 h-5 text-primary"/>, bills: [{title: "Business Phone Line", amount: 0, dueDay: 1}] },
+   { name: "Professional & Admin", icon: <Briefcase className="w-5 h-5 text-primary"/>, bills: [{title: "Accountant/Bookkeeper", amount: 0, dueDay: 1}, {title: "Licensing & Dues", amount: 0, dueDay: 1}] },
+   { name: "Marketing & Growth", icon: <Megaphone className="w-5 h-5 text-primary"/>, bills: [{title: "Social Media Ads", amount: 0, dueDay: 1}, {title: "Print Materials (Business Cards, Flyers)", amount: 0, dueDay: 1}] },
+   { name: "Retail & Marketing Materials", icon: <Package className="w-5 h-5 text-primary"/>, bills: [{title: "Packaging & Bags", amount: 0, dueDay: 1}] },
+   { name: "Business Debt", icon: <Landmark className="w-5 h-5 text-primary"/>, bills: [{title: "Business Loan", amount: 0, dueDay: 1}, {title: "Tax Debt Payment", amount: 0, dueDay: 1}] },
+   { name: "Miscellaneous", icon: <Sparkles className="w-5 h-5 text-primary"/>, bills: [{title: "Bank Fees", amount: 0, isCustom: true, dueDay: 1}] }
 ];
 
 const deepCopyTemplate = (template: any[]) => {
@@ -161,10 +191,10 @@ const BillEditor = ({
   categories: {
     name: string;
     icon: React.ReactNode;
-    bills: { title: string; amount: number; isCustom?: boolean }[];
+    bills: { title: string; amount: number; isCustom?: boolean; dueDay?: number; paymentUrl?: string; lateFee?: number; lateByDay?: number; }[];
   }[];
   isEditing: boolean;
-  onBillChange: (categoryName: string, billTitle: string, newAmount: number) => void;
+  onBillChange: (categoryName: string, billTitle: string, field: string, value: any) => void;
 }) => {
   const total = useMemo(() => {
     return categories.reduce((acc, category) => {
@@ -190,7 +220,7 @@ const BillEditor = ({
                       key={bill.title}
                       bill={bill}
                       isEditing={isEditing}
-                      onAmountChange={(newAmount) => onBillChange(category.name, bill.title, newAmount)}
+                      onBillChange={(billTitle, field, value) => onBillChange(category.name, billTitle, field, value)}
                     />
                   ))}
               </AccordionContent>
@@ -235,7 +265,7 @@ const LifestyleTab = ({
 }: {
   isEditing: boolean;
   profileData: any;
-  onBillChange: (categoryName: string, billTitle: string, newAmount: number) => void;
+  onBillChange: (categoryName: string, billTitle: string, field: string, value: any) => void;
 }) => {
   if (!profileData) return null;
   return (
@@ -258,7 +288,7 @@ const BusinessTab = ({
 }: {
   isEditing: boolean;
   profileData: any;
-  onBillChange: (categoryName: string, billTitle: string, newAmount: number) => void;
+  onBillChange: (categoryName: string, billTitle: string, field: string, value: any) => void;
 }) => {
   if (!profileData) return null;
   return (
@@ -645,7 +675,7 @@ export default function FinancialFoundationPage() {
     const activeScheduleProfile = useMemo(() => profiles.scheduleProfiles.find(p => p.isActive), [profiles.scheduleProfiles]);
 
 
-    const handleBillChange = useCallback((profileType: 'lifestyle' | 'business', categoryName: string, billTitle: string, newAmount: number) => {
+    const handleBillChange = useCallback((profileType: 'lifestyle' | 'business', categoryName: string, billTitle: string, field: string, value: any) => {
         const profileKey = `${profileType}Profiles` as const;
 
         setProfiles(prev => {
@@ -655,7 +685,7 @@ export default function FinancialFoundationPage() {
                         if (cat.name === categoryName) {
                             const newBills = cat.bills.map(bill => {
                                 if (bill.title === billTitle) {
-                                    return { ...bill, amount: newAmount };
+                                    return { ...bill, [field]: value };
                                 }
                                 return bill;
                             });
@@ -811,14 +841,14 @@ export default function FinancialFoundationPage() {
                                <LifestyleTab
                                  isEditing={isEditing}
                                  profileData={activeLifestyleProfile}
-                                 onBillChange={(categoryName, billTitle, newAmount) => handleBillChange('lifestyle', categoryName, billTitle, newAmount)}
+                                 onBillChange={(categoryName, billTitle, field, value) => handleBillChange('lifestyle', categoryName, billTitle, field, value)}
                                />
                             </TabsContent>
                             <TabsContent value="business" className="m-0">
                                <BusinessTab
                                  isEditing={isEditing}
                                  profileData={activeBusinessProfile}
-                                 onBillChange={(categoryName, billTitle, newAmount) => handleBillChange('business', categoryName, billTitle, newAmount)}
+                                 onBillChange={(categoryName, billTitle, field, value) => handleBillChange('business', categoryName, billTitle, field, value)}
                                />
                             </TabsContent>
                             <TabsContent value="schedule" className="m-0">
@@ -844,6 +874,8 @@ export default function FinancialFoundationPage() {
 
 
 
+
+    
 
     
 
