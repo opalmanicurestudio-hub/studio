@@ -26,7 +26,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-import { ArrowLeft, Save, PlusCircle, Trash2, Calculator, Info, DollarSign } from 'lucide-react';
+import { ArrowLeft, Save, PlusCircle, Trash2, Calculator, Info, DollarSign, Calendar as CalendarIcon, UserPlus } from 'lucide-react';
 import Link from 'next/link';
 import { clients as initialClients, services as initialServices, type Client, type Service, inventory as allInventory } from '@/lib/data';
 import { Textarea } from '@/components/ui/textarea';
@@ -35,6 +35,13 @@ import { useToast } from '@/hooks/use-toast';
 import { useFirebase, addDocumentNonBlocking } from '@/firebase';
 import { collection } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { Switch } from '@/components/ui/switch';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Slider } from '@/components/ui/slider';
+import { cn } from '@/lib/utils';
+import { format } from 'date-fns';
 
 type LineItem = {
     id: string;
@@ -42,6 +49,7 @@ type LineItem = {
     description: string;
     price: number;
     cost: number;
+    quantity: number;
 };
 
 const ProfitAnalysisCard = ({ 
@@ -58,8 +66,8 @@ const ProfitAnalysisCard = ({
     totalHours: number;
 }) => {
     const { servicesSubtotal, servicesCost } = useMemo(() => {
-        const subtotal = lineItems.reduce((acc, item) => acc + item.price, 0);
-        const cost = lineItems.reduce((acc, item) => acc + item.cost, 0);
+        const subtotal = lineItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+        const cost = lineItems.reduce((acc, item) => acc + (item.cost * item.quantity), 0);
         return { servicesSubtotal: subtotal, servicesCost: cost };
     }, [lineItems]);
 
@@ -122,52 +130,43 @@ const ProfitAnalysisCard = ({
 };
 
 export default function QuoteGeneratorPage() {
-    const { clients } = useInventory();
+    const { clients, setClients: setAllClients } = useInventory();
     const [tmhr, setTmhr] = useState(0);
     const { toast } = useToast();
     const { firestore, user } = useFirebase();
     const router = useRouter();
 
+    // Event Details
     const [clientId, setClientId] = useState('');
+    const [isAddingClient, setIsAddingClient] = useState(false);
     const [eventName, setEventName] = useState('');
-    const [eventDate, setEventDate] = useState('');
-    
-    const [street, setStreet] = useState('');
-    const [city, setCity] = useState('');
-    const [state, setState] = useState('');
-    const [zip, setZip] = useState('');
-    const [country, setCountry] = useState('');
-
-    const [lineItems, setLineItems] = useState<LineItem[]>([]);
-    const [travelExpenses, setTravelExpenses] = useState(0);
-    const [projectFee, setProjectFee] = useState(0);
-    const [notes, setNotes] = useState('');
+    const [eventStartDate, setEventStartDate] = useState<Date | undefined>(new Date());
+    const [eventEndDate, setEventEndDate] = useState<Date | undefined>();
+    const [eventStartTime, setEventStartTime] = useState('09:00');
+    const [eventEndTime, setEventEndTime] = useState('17:00');
+    const [isMultiDay, setIsMultiDay] = useState(false);
     const [totalHours, setTotalHours] = useState(0);
+
+    // Line Items
+    const [lineItems, setLineItems] = useState<LineItem[]>([]);
+
+    // Travel & Expenses
+    const [travelExpenses, setTravelExpenses] = useState(0);
+
+    // Fees & Payment
+    const [projectFee, setProjectFee] = useState(0);
+    const [price, setPrice] = useState(0);
+    const [depositType, setDepositType] = useState('none');
+    const [depositAmount, setDepositAmount] = useState(0);
+    const [notes, setNotes] = useState('');
+
 
     useEffect(() => {
         if (typeof window !== 'undefined') {
             setTmhr(parseFloat(localStorage.getItem('tmhr') || '50'));
         }
     }, []);
-
-    const addServiceAsLineItem = (serviceId: string) => {
-        const service = initialServices.find(s => s.id === serviceId);
-        if (service && !lineItems.some(item => item.id === service.id)) {
-            const newItem: LineItem = {
-                id: service.id,
-                name: service.name,
-                description: service.description || '',
-                price: service.price,
-                cost: service.cost,
-            };
-            setLineItems(prev => [...prev, newItem]);
-        }
-    };
-
-    const removeLineItem = (itemId: string) => {
-        setLineItems(prev => prev.filter(item => item.id !== itemId));
-    };
-
+    
     const handleSaveQuote = async () => {
         if (!clientId || !eventName || !firestore || !user) {
             toast({
@@ -181,9 +180,8 @@ export default function QuoteGeneratorPage() {
         const quoteData = {
             clientId,
             eventName,
-            eventDate,
-            eventLocation: { street, city, state, zip, country },
-            lineItems,
+            eventDate: eventStartDate?.toISOString(),
+            lineItems: lineItems,
             travelExpenses,
             projectFee,
             notes,
@@ -210,6 +208,29 @@ export default function QuoteGeneratorPage() {
             });
         }
     };
+    
+    const addServiceAsLineItem = (serviceId: string) => {
+        const service = initialServices.find(s => s.id === serviceId);
+        if (service && !lineItems.some(item => item.id === service.id)) {
+            const newItem: LineItem = {
+                id: service.id,
+                name: service.name,
+                description: service.description || '',
+                price: service.price,
+                cost: service.cost,
+                quantity: 1,
+            };
+            setLineItems(prev => [...prev, newItem]);
+        }
+    };
+    
+    const removeLineItem = (itemId: string) => {
+        setLineItems(prev => prev.filter(item => item.id !== itemId));
+    };
+
+    const handleLineItemQuantityChange = (id: string, quantity: number) => {
+        setLineItems(prev => prev.map(item => item.id === id ? {...item, quantity: quantity} : item));
+    }
 
 
   return (
@@ -228,58 +249,93 @@ export default function QuoteGeneratorPage() {
 
           <div className="grid lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2 space-y-6">
-              <Accordion type="multiple" defaultValue={['item-1']} className="w-full space-y-6">
-                <AccordionItem value="item-1">
+              <Accordion type="multiple" defaultValue={['event-details', 'services-products']} className="w-full space-y-6">
+                <AccordionItem value="event-details">
                   <AccordionTrigger className='text-lg font-semibold'>Event Details</AccordionTrigger>
                   <AccordionContent className='pt-4'>
                     <Card>
                       <CardContent className="p-6 grid gap-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                           <div className="space-y-2">
-                              <Label htmlFor="client">Client</Label>
-                              <Select value={clientId} onValueChange={setClientId}>
+                        <div className="space-y-2">
+                           <Label htmlFor="client">Client</Label>
+                            <div className="flex gap-2">
+                              <Select value={clientId} onValueChange={(value) => {
+                                  if (value === 'add-new') {
+                                      setIsAddingClient(true);
+                                      setClientId('');
+                                  } else {
+                                      setIsAddingClient(false);
+                                      setClientId(value);
+                                  }
+                              }}>
                                 <SelectTrigger id="client">
                                   <SelectValue placeholder="Select an existing client" />
                                 </SelectTrigger>
                                 <SelectContent>
                                   {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                                  <SelectItem value="add-new">
+                                      <span className="flex items-center gap-2"><UserPlus /> Register New Client</span>
+                                  </SelectItem>
                                 </SelectContent>
                               </Select>
                             </div>
-                            <div className="flex items-end">
-                                <Button variant="outline" className="w-full md:w-auto"><PlusCircle className="mr-2"/>New Client</Button>
-                            </div>
                         </div>
+                        {isAddingClient && (
+                            <Card className="bg-muted/50 p-4 space-y-4">
+                                <h4 className="font-medium">New Client</h4>
+                                <Input placeholder="Full Name" />
+                                <Input type="email" placeholder="Email Address" />
+                                <Input type="tel" placeholder="Phone Number" />
+                            </Card>
+                        )}
                         <div className="space-y-2">
                           <Label htmlFor="event-name">Event Name</Label>
                           <Input id="event-name" value={eventName} onChange={e => setEventName(e.target.value)} placeholder="e.g., Carla & Mark's Wedding" />
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="event-date">Event Date</Label>
-                            <Input id="event-date" type="date" value={eventDate} onChange={e => setEventDate(e.target.value)} />
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="event-location-street">Event Location</Label>
-                            <Input id="event-location-street" value={street} onChange={e => setStreet(e.target.value)} placeholder="Street Address" />
-                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <Input value={city} onChange={e => setCity(e.target.value)} placeholder="City" />
-                                <Input value={state} onChange={e => setState(e.target.value)} placeholder="State / Province" />
+                            <div className="flex items-center justify-between">
+                                <Label>Event Date(s)</Label>
+                                <div className="flex items-center gap-2">
+                                    <Label htmlFor="multi-day" className="text-sm">Multi-Day Event</Label>
+                                    <Switch id="multi-day" checked={isMultiDay} onCheckedChange={setIsMultiDay} />
+                                </div>
                             </div>
                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <Input value={zip} onChange={e => setZip(e.target.value)} placeholder="ZIP / Postal Code" />
-                                <Input value={country} onChange={e => setCountry(e.target.value)} placeholder="Country" />
+                               <Popover>
+                                    <PopoverTrigger asChild>
+                                    <Button variant="outline" className="justify-start font-normal h-11">
+                                        <CalendarIcon className="mr-2 h-4 w-4" />
+                                        {eventStartDate ? format(eventStartDate, "PPP") : <span>Start Date</span>}
+                                    </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0">
+                                    <Calendar mode="single" selected={eventStartDate} onSelect={setEventStartDate} initialFocus />
+                                    </PopoverContent>
+                                </Popover>
+                                {isMultiDay && (
+                                     <Popover>
+                                        <PopoverTrigger asChild>
+                                        <Button variant="outline" className="justify-start font-normal h-11">
+                                            <CalendarIcon className="mr-2 h-4 w-4" />
+                                            {eventEndDate ? format(eventEndDate, "PPP") : <span>End Date</span>}
+                                        </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-auto p-0">
+                                        <Calendar mode="single" selected={eventEndDate} onSelect={setEventEndDate} initialFocus disabled={{ before: eventStartDate }}/>
+                                        </PopoverContent>
+                                    </Popover>
+                                )}
                             </div>
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="total-hours">Total Billable Hours</Label>
-                            <Input id="total-hours" type="number" value={totalHours} onChange={e => setTotalHours(Number(e.target.value))} placeholder="e.g., 8" />
+                            <Input id="total-hours" type="number" value={totalHours || ''} onChange={e => setTotalHours(Number(e.target.value))} placeholder="e.g., 8" />
                         </div>
                       </CardContent>
                     </Card>
                   </AccordionContent>
                 </AccordionItem>
                 
-                <AccordionItem value="item-2">
+                <AccordionItem value="services-products">
                   <AccordionTrigger className='text-lg font-semibold'>Services & Products</AccordionTrigger>
                   <AccordionContent className='pt-4'>
                     <Card>
@@ -295,9 +351,12 @@ export default function QuoteGeneratorPage() {
                                         <p className="font-medium">{item.name}</p>
                                         <p className="text-sm text-muted-foreground">${item.price.toFixed(2)}</p>
                                     </div>
-                                    <Button variant="ghost" size="icon" className="text-destructive" onClick={() => removeLineItem(item.id)}>
-                                        <Trash2 className="w-4 h-4" />
-                                    </Button>
+                                    <div className="flex items-center gap-2">
+                                        <Input type="number" value={item.quantity} onChange={e => handleLineItemQuantityChange(item.id, Number(e.target.value))} className="w-16 h-8" />
+                                        <Button variant="ghost" size="icon" className="text-destructive h-8 w-8" onClick={() => removeLineItem(item.id)}>
+                                            <Trash2 className="w-4 h-4" />
+                                        </Button>
+                                    </div>
                                 </div>
                             ))
                         ) : (
@@ -320,7 +379,7 @@ export default function QuoteGeneratorPage() {
                   </AccordionContent>
                 </AccordionItem>
 
-                 <AccordionItem value="item-3">
+                 <AccordionItem value="travel-expenses">
                   <AccordionTrigger className='text-lg font-semibold'>Travel & Expenses</AccordionTrigger>
                   <AccordionContent className='pt-4'>
                     <Card>
@@ -329,7 +388,7 @@ export default function QuoteGeneratorPage() {
                             <Label htmlFor="travel-expenses">Flat Travel & Expenses</Label>
                              <div className="relative">
                                 <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                <Input id="travel-expenses" type="number" value={travelExpenses} onChange={e => setTravelExpenses(Number(e.target.value))} className="pl-9" />
+                                <Input id="travel-expenses" type="number" value={travelExpenses || ''} onChange={e => setTravelExpenses(Number(e.target.value))} className="pl-9" />
                             </div>
                         </div>
                       </CardContent>
@@ -337,14 +396,14 @@ export default function QuoteGeneratorPage() {
                   </AccordionContent>
                 </AccordionItem>
                 
-                 <AccordionItem value="item-4">
+                 <AccordionItem value="fees-payment">
                   <AccordionTrigger className='text-lg font-semibold'>Fees & Payment Terms</AccordionTrigger>
                   <AccordionContent className='pt-4'>
                     <Card>
                       <CardContent className="p-6 grid gap-6">
                         <div className="space-y-2">
                             <Label htmlFor="project-fee">Project Fee (%)</Label>
-                            <Input id="project-fee" type="number" value={projectFee} onChange={e => setProjectFee(Number(e.target.value))} placeholder="e.g., 10 for a 10% project fee" />
+                            <Input id="project-fee" type="number" value={projectFee || ''} onChange={e => setProjectFee(Number(e.target.value))} placeholder="e.g., 10 for a 10% project fee" />
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="notes">Notes & Conditions</Label>

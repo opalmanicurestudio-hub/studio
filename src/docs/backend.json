@@ -147,6 +147,23 @@
                 "relationship": { "type": "string" },
                 "phone": { "type": "string" }
             }
+        },
+        "referralCode": {
+            "type": "string",
+            "description": "Unique, customizable code for the client to share."
+        },
+        "referredBy": {
+            "type": "string",
+            "description": "The name of the client who referred this person."
+        },
+        "successfulReferrals": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "A list of names of clients this person has successfully referred."
+        },
+        "walletCredit": {
+            "type": "number",
+            "description": "The amount of store credit a client has, often earned via referrals."
         }
       },
       "required": [
