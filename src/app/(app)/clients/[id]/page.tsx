@@ -194,11 +194,11 @@ export default function ClientDetailPage() {
                     <AvatarImage src={client.avatarUrl} alt={client.name} />
                     <AvatarFallback>{client.name.substring(0, 2)}</AvatarFallback>
                 </Avatar>
-                <div className='flex-1'>
+                <div className='flex-1 min-w-0'>
                     <h1 className="whitespace-nowrap text-xl font-semibold tracking-tight">
                         {client.name}
                     </h1>
-                     <div className="text-xs sm:text-sm text-muted-foreground flex flex-col sm:flex-row sm:items-center sm:gap-4">
+                     <div className="text-xs sm:text-sm text-muted-foreground flex flex-col sm:flex-row sm:items-center sm:gap-4 break-words">
                         <span>{client.email}</span>
                         <span>{client.phone}</span>
                     </div>
@@ -232,11 +232,11 @@ export default function ClientDetailPage() {
                                 <CardTitle>Client Details</CardTitle>
                             </CardHeader>
                             <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div className="space-y-1">
+                                <div className="space-y-1 break-words">
                                     <p className="text-sm font-medium text-muted-foreground">Email</p>
                                     <p>{client.email}</p>
                                 </div>
-                                <div className="space-y-1">
+                                <div className="space-y-1 break-words">
                                     <p className="text-sm font-medium text-muted-foreground">Phone</p>
                                     <p>{client.phone}</p>
                                 </div>
@@ -498,10 +498,10 @@ export default function ClientDetailPage() {
                          </div>
                     </CardHeader>
                     <CardContent>
-                        <div className="border-2 border-dashed rounded-lg p-12 text-center">
+                       <div className="border-2 border-dashed rounded-lg p-12 text-center">
                             <FileText className="w-10 h-10 text-muted-foreground mx-auto mb-4" />
                             <h3 className="font-semibold text-lg">No Forms on File</h3>
-                            <p className="text-sm text-muted-foreground">This feature is not yet available.</p>
+                            <p className="text-sm text-muted-foreground">The ability to send and track forms is coming soon.</p>
                        </div>
                     </CardContent>
                 </Card>
@@ -537,6 +537,8 @@ export default function ClientDetailPage() {
     </div>
   );
 }
+
+    
 
     
 
