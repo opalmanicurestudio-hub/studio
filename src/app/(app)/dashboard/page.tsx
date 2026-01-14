@@ -9,6 +9,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  CardFooter,
 } from '@/components/ui/card';
 import {
   Users,
@@ -17,13 +18,16 @@ import {
   ArrowUp,
   Sparkles,
   Loader,
+  TrendingUp,
+  HeartHandshake
 } from 'lucide-react';
 import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
+  ChartConfig,
 } from '@/components/ui/chart';
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis, Pie, PieChart, Cell } from 'recharts';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { type Appointment, type Transaction, type Service } from '@/lib/data';
 import { Button } from '@/components/ui/button';
@@ -40,15 +44,27 @@ import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
 import { collection, query, where, Timestamp } from 'firebase/firestore';
-import { startOfDay, endOfDay, subDays, format as formatDate } from 'date-fns';
+import { startOfDay, endOfDay, subDays, format as formatDate, startOfWeek } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 
-const chartConfig = {
+const barChartConfig = {
   profit: {
     label: 'Profit',
     color: 'hsl(var(--primary))',
   },
-};
+} satisfies ChartConfig;
+
+const pieChartConfig = {
+  services: {
+    label: 'Services',
+    color: 'hsl(var(--chart-1))',
+  },
+  retail: {
+    label: 'Retail',
+    color: 'hsl(var(--chart-2))',
+  },
+} satisfies ChartConfig;
+
 
 type Activity = {
   apt: Appointment;
@@ -63,12 +79,12 @@ export default function DashboardPage() {
   const { toast } = useToast();
   
   const { firestore, user, isUserLoading } = useFirebase();
-  const { inventory, clients, services, appointments: allAppointments } = useInventory();
+  const { inventory, clients, services, appointments: allAppointments, transactions: allTransactions } = useInventory();
   const tenantId = 'tenant-abc';
   
   const todayStart = startOfDay(new Date());
   const todayEnd = endOfDay(new Date());
-  const weekStart = startOfDay(subDays(new Date(), 6));
+  const weekStart = startOfWeek(new Date(), { weekStartsOn: 0 });
 
   // Queries for today's data
   const todayTransactionsQuery = useMemoFirebase(() => {
@@ -121,7 +137,7 @@ export default function DashboardPage() {
     return { todaysRevenue: revenue, todaysExpenses: expenses, profitPercentage: percentage };
   }, [todayTransactions]);
   
-  const chartData = useMemo(() => {
+  const barChartData = useMemo(() => {
     if (!weeklyTransactions) return [];
     
     const dailyData: { [key: string]: { revenue: number, expense: number } } = {};
@@ -152,7 +168,7 @@ export default function DashboardPage() {
    const newClientsThisWeek = useMemo(() => {
     if (!allAppointments || !clients) return 0;
 
-    const startOfWeekDate = startOfDay(subDays(new Date(), 6));
+    const startOfWeekDate = startOfWeek(new Date(), { weekStartsOn: 0 });
     let newClientCount = 0;
     const clientsWithAppointmentsThisWeek = new Set<string>();
 
@@ -165,14 +181,41 @@ export default function DashboardPage() {
       // Find all appointments for this client
       const clientAppointments = allAppointments.filter(apt => apt.clientId === clientId);
       
-      // If they only have appointments within this week, they are a new client for this week
-      if (clientAppointments.every(apt => new Date(apt.startTime) >= startOfWeekDate)) {
+      // If they only have one appointment ever, and it's this week, they are new.
+      // A more robust check might look at their all-time appointment history.
+      if (clientAppointments.length === 1 && new Date(clientAppointments[0].startTime) >= startOfWeekDate) {
         newClientCount++;
       }
     });
 
     return newClientCount;
   }, [allAppointments, clients]);
+  
+   const clientRetentionRate = useMemo(() => {
+    if (!clients || clients.length === 0 || !allAppointments) return 0;
+    const returningClients = clients.filter(client => {
+      return allAppointments.filter(apt => apt.clientId === client.id).length > 1;
+    }).length;
+
+    return (returningClients / clients.length) * 100;
+  }, [clients, allAppointments]);
+
+  const revenueBreakdown = useMemo(() => {
+    if (!allTransactions) return [];
+    
+    const serviceRevenue = allTransactions
+        .filter(t => t.type === 'income' && t.category === 'Service')
+        .reduce((acc, t) => acc + t.amount, 0);
+
+    const retailRevenue = allTransactions
+        .filter(t => t.type === 'income' && t.category === 'Retail')
+        .reduce((acc, t) => acc + t.amount, 0);
+
+    return [
+      { name: 'Services', value: serviceRevenue, fill: 'var(--color-services)' },
+      { name: 'Retail', value: retailRevenue, fill: 'var(--color-retail)' },
+    ];
+  }, [allTransactions]);
 
 
   const recentActivities = useMemo(() => {
@@ -192,10 +235,9 @@ export default function DashboardPage() {
     setIsGenerating(true);
     setDebriefContent('');
     try {
-      // Dynamically get some inventory levels
       const inventoryLevels = inventory
         .filter(item => item.type === 'professional')
-        .slice(0, 5) // Limit for conciseness
+        .slice(0, 5)
         .reduce((acc, item) => {
           acc[item.name] = item.totalStock;
           return acc;
@@ -265,36 +307,27 @@ export default function DashboardPage() {
               <p className="text-xs text-muted-foreground">this week</p>
             </CardContent>
           </Card>
-          <Card className="bg-primary/5 border-primary/20">
-            <CardHeader className="pb-2">
-              <CardTitle>End-of-Day Debrief</CardTitle>
-              <CardDescription>Get an AI summary of your day.</CardDescription>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Client Retention</CardTitle>
+              <HeartHandshake className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <Button
-                size="sm"
-                className="w-full"
-                onClick={() => {
-                  setIsDebriefDialogOpen(true);
-                  handleGenerateDebrief();
-                }}
-              >
-                <Sparkles className="mr-2 h-4 w-4" />
-                Generate Now
-              </Button>
+              {isLoading ? <Skeleton className="h-8 w-20 inline-block"/> : <div className="text-2xl font-bold">{clientRetentionRate.toFixed(0)}%</div>}
+              <p className="text-xs text-muted-foreground">All-time repeat clients</p>
             </CardContent>
           </Card>
         </div>
         <div className="grid gap-4 grid-cols-1 lg:grid-cols-7">
-          <Card className="lg:col-span-4">
+          <Card className="lg:col-span-3">
             <CardHeader>
               <CardTitle>Weekly Profit</CardTitle>
               <CardDescription>Your profit over the last 7 days.</CardDescription>
             </CardHeader>
             <CardContent className="pl-2">
-              <ChartContainer config={chartConfig} className="h-[300px] w-full">
+              <ChartContainer config={barChartConfig} className="h-[300px] w-full">
                 {isLoading ? <Skeleton className="w-full h-full" /> : (
-                    <BarChart accessibilityLayer data={chartData}>
+                    <BarChart accessibilityLayer data={barChartData}>
                     <CartesianGrid vertical={false} />
                     <XAxis
                         dataKey="day"
@@ -318,7 +351,39 @@ export default function DashboardPage() {
               </ChartContainer>
             </CardContent>
           </Card>
-          <Card className="lg:col-span-3">
+           <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle>Revenue Breakdown</CardTitle>
+              <CardDescription>All-time revenue from services vs. retail.</CardDescription>
+            </CardHeader>
+            <CardContent className="flex-1 pb-0">
+              <ChartContainer
+                config={pieChartConfig}
+                className="mx-auto aspect-square h-[250px]"
+              >
+                <PieChart>
+                  <ChartTooltip
+                    cursor={false}
+                    content={<ChartTooltipContent hideLabel />}
+                  />
+                  <Pie data={revenueBreakdown} dataKey="value" nameKey="name" innerRadius={60}>
+                     {revenueBreakdown.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.fill} />
+                     ))}
+                  </Pie>
+                </PieChart>
+              </ChartContainer>
+            </CardContent>
+            <CardFooter className="flex-col gap-2 text-sm">
+                <div className="flex w-full items-center gap-2 font-medium leading-none">
+                    Services <TrendingUp className="h-4 w-4" />
+                </div>
+                <div className="flex w-full items-center gap-2 font-medium leading-none">
+                    Retail <TrendingUp className="h-4 w-4" />
+                </div>
+             </CardFooter>
+          </Card>
+          <Card className="lg:col-span-2">
             <CardHeader>
               <CardTitle>Recent Activity</CardTitle>
               <CardDescription>
@@ -366,6 +431,25 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         </div>
+         <Card className="bg-primary/5 border-primary/20">
+            <CardHeader className="pb-4">
+              <CardTitle>End-of-Day Debrief</CardTitle>
+              <CardDescription>Get an AI summary of your day's performance and inventory needs.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button
+                size="sm"
+                className="w-full sm:w-auto"
+                onClick={() => {
+                  setIsDebriefDialogOpen(true);
+                  handleGenerateDebrief();
+                }}
+              >
+                <Sparkles className="mr-2 h-4 w-4" />
+                Generate Today's Debrief
+              </Button>
+            </CardContent>
+          </Card>
       </main>
       <Dialog
         open={isDebriefDialogOpen}
