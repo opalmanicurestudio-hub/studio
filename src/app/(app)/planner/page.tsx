@@ -4,7 +4,7 @@
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem, type StockCorrection } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual } from 'date-fns';
@@ -57,6 +57,7 @@ import { RescheduleDialog } from '@/components/planner/RescheduleDialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { LogPaymentDialog } from '@/components/bills/LogPaymentDialog';
+import { PickingListDialog } from '@/components/planner/PickingListDialog';
 
 
 const TimeIndicator = () => {
@@ -107,6 +108,7 @@ const DayTimeline = ({
     dailyTransactions,
     onAddTransaction,
     onReschedule,
+    onOpenPickingList,
 }: { 
     date: Date; 
     appointments: Appointment[]; 
@@ -123,6 +125,7 @@ const DayTimeline = ({
     dailyTransactions: Transaction[] | null;
     onAddTransaction: (transaction: any) => void;
     onReschedule: (appointment: Appointment) => void;
+    onOpenPickingList: () => void;
 }) => {
     const viewportRef = useRef<HTMLDivElement>(null);
     const START_HOUR = 0; // Start at midnight
@@ -276,6 +279,12 @@ const DayTimeline = ({
                 </AccordionItem>
             </Accordion>
             
+            <div className='px-4 py-2 border-b'>
+                 <Button variant="outline" size="sm" className="w-full" onClick={onOpenPickingList}>
+                    <List className="w-4 h-4 mr-2"/>
+                    View Picking List
+                </Button>
+            </div>
 
             <ScrollArea className="flex-1" viewportRef={viewportRef}>
                 <div className="grid grid-cols-[auto,1fr] p-4">
@@ -433,6 +442,7 @@ export default function PlannerPage() {
   const [isEditEventOpen, setIsEditEventOpen] = useState(false);
   const [isKpiSheetOpen, setIsKpiSheetOpen] = useState(false);
   const [isBillsSheetOpen, setIsBillsSheetOpen] = useState(false);
+  const [isPickingListOpen, setIsPickingListOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [selectedBill, setSelectedBill] = useState<(BillInstance & { definition: BillDefinition }) | null>(null);
@@ -873,6 +883,7 @@ export default function PlannerPage() {
               dailyTransactions={dailyTransactions}
               onAddTransaction={handleAddTransaction}
               onReschedule={handleRescheduleClick}
+              onOpenPickingList={() => setIsPickingListOpen(true)}
           />
       </main>
       {selectedAppointmentData && (
@@ -929,6 +940,12 @@ export default function PlannerPage() {
         <WeeklyKpiSheet open={isKpiSheetOpen} onOpenChange={setIsKpiSheetOpen} kpis={weeklyKpis} isMobile={!!isMobile} />
         <BillsDueSheet open={isBillsSheetOpen} onOpenChange={setIsBillsSheetOpen} billInstances={dailyBillInstances} isMobile={!!isMobile} onLogPaymentClick={handleLogPaymentClick}/>
         
+        <PickingListDialog
+            open={isPickingListOpen}
+            onOpenChange={setIsPickingListOpen}
+            appointments={appointmentsForDay}
+        />
+        
         {selectedBill && (
             <LogPaymentDialog
                 open={!!selectedBill}
@@ -962,4 +979,5 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
