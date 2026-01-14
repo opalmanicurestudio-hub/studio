@@ -194,9 +194,44 @@ const DayTimeline = ({
     const renderItem = (item: any) => {
         const dayStart = setHours(startOfDay(date), START_HOUR);
         
-        if (item.itemType === 'appointment') {
-            const service = services.find(s => s.id === item.serviceId);
-            if (!service) return null;
+        if (item.itemType === 'appointment' || (item.itemType === 'event' && item.quoteId)) {
+            let client;
+            let service;
+            let appointment;
+
+            if (item.itemType === 'event') {
+                // This is a booked quote, adapt its data to look like an appointment
+                const quoteClient = clients.find(c => c.id === item.clientId);
+                if (!quoteClient) return null;
+                
+                const quoteTotal = (item.lineItems || []).reduce((acc: number, li: any) => acc + li.price, 0) + (item.travelExpenses || 0) + ((item.lineItems || []).reduce((acc: number, li: any) => acc + li.price, 0) * ((item.projectFee || 0) / 100));
+
+                client = quoteClient;
+                service = { // Create a mock service object from the event/quote data
+                    id: item.id,
+                    name: item.title,
+                    duration: differenceInMinutes(item.endTime, item.startTime),
+                    price: quoteTotal,
+                    cost: 0, // Placeholder
+                    profit: 0, // Placeholder
+                    margin: 0, // Placeholder
+                    type: 'service',
+                    category: 'Event',
+                };
+                appointment = { // Create a mock appointment object
+                    ...item,
+                    clientId: item.clientId,
+                    serviceId: item.id,
+                    status: 'confirmed',
+                };
+
+            } else {
+                client = clients.find(c => c.id === item.clientId);
+                service = services.find(s => s.id === item.serviceId);
+                appointment = item;
+            }
+
+            if (!client || !service) return null;
 
             const padBefore = service.padBefore || 0;
             const padAfter = service.padAfter || 0;
@@ -205,20 +240,16 @@ const DayTimeline = ({
             const actualStartTime = subMinutes(item.startTime, padBefore);
             const minutesFromStart = differenceInMinutes(actualStartTime, dayStart);
             
+            if (minutesFromStart < 0) return null; // Don't render items before the start hour
+
             const top = minutesFromStart * (160/60);
             const height = totalDuration * (160/60);
-            
-            if (top < 0) return null; // Don't render items before the start hour
-
             const style = { top: `${top}px`, height: `${height}px` };
-
-            const client = clients.find(c => c.id === item.clientId);
-            if (!client) return null;
            
             return (
                 <div key={item.id} className="absolute w-full pr-2" style={style}>
                     <AppointmentCard
-                        appointment={item}
+                        appointment={appointment}
                         client={client}
                         service={service}
                         style={{ height: '100%'}}
@@ -233,7 +264,7 @@ const DayTimeline = ({
                     />
                 </div>
             );
-        } else { // item.itemType === 'event'
+        } else { // item.itemType === 'event' and NOT a booked quote
              const minutesFromStart = differenceInMinutes(item.startTime, dayStart);
              if (minutesFromStart < 0) return null;
 
@@ -1005,8 +1036,8 @@ export default function PlannerPage() {
         {ticketToPrint && <PrintTicket data={ticketToPrint} />}
       </div>
       <Dialog open={!!ticketToPrint} onOpenChange={(open) => !open && setTicketToPrint(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
+        <DialogContent className="max-w-md print-content">
+          <DialogHeader className="print:hidden">
             <DialogTitle>Appointment Ticket</DialogTitle>
           </DialogHeader>
           <div id="ticket-area-dialog">
@@ -1024,6 +1055,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
