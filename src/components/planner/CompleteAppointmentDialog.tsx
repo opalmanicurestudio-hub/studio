@@ -90,6 +90,9 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     },
   });
 
+  const [promoCode, setPromoCode] = useState('');
+  const [discount, setDiscount] = useState(0);
+
   
   useEffect(() => {
     if (open && service) {
@@ -110,8 +113,10 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         setApplyAdditionalCharges(true);
         setLogIncident(false);
         incidentMethods.reset();
+        setPromoCode(client?.referredBy ? 'NEWCLIENT15' : ''); // Mock auto-apply
+        setDiscount(0);
     }
-  }, [service, open, incidentMethods]);
+  }, [service, open, incidentMethods, client]);
 
   const { initialBreakEven, finalBreakEven, additionalCharge, absorbedCost } = useMemo(() => {
     if (!service) return { initialBreakEven: 0, finalBreakEven: 0, additionalCharge: 0, absorbedCost: 0 };
@@ -156,10 +161,27 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   }, [retailItems, inventory]);
   
   const subtotal = (service?.price || 0) + retailTotal + (applyAdditionalCharges ? additionalCharge : 0);
-  const mockTax = subtotal * 0.07; // 7% tax for demo
-  const grandTotal = subtotal + mockTax + tipAmount;
+  const mockTax = (subtotal - discount) * 0.07; // 7% tax for demo
+  const grandTotal = subtotal - discount + mockTax + tipAmount;
   
   const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - grandTotal : 0;
+
+  const handleApplyPromo = () => {
+    // Mock validation logic
+    if (promoCode === 'NEWCLIENT15' && client && client.lifetimeValue < (service?.price || 0)) {
+        setDiscount(15);
+        toast({
+            title: "Discount Applied!",
+            description: "$15.00 new client discount has been applied.",
+        })
+    } else {
+        toast({
+            variant: "destructive",
+            title: "Invalid Code",
+            description: "This promo code is not valid for this client or appointment.",
+        })
+    }
+  }
 
   const handleKeepTheChange = () => {
     if (changeDue > 0) {
@@ -481,6 +503,13 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                       <CardTitle>Payment & Checkout</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
+                      <div className="space-y-2">
+                          <Label htmlFor="promo-code">Promo Code</Label>
+                          <div className="flex gap-2">
+                              <Input id="promo-code" value={promoCode} onChange={e => setPromoCode(e.target.value)} placeholder="e.g., NEWCLIENT15" />
+                              <Button variant="outline" onClick={handleApplyPromo}>Apply</Button>
+                          </div>
+                      </div>
                       <div className="p-4 rounded-lg bg-muted/50 space-y-2 text-sm">
                         <div className='flex justify-between'><span>Base Service Price:</span><span>${service.price.toFixed(2)}</span></div>
                         <div className='flex justify-between'><span>Retail:</span><span>${retailTotal.toFixed(2)}</span></div>
@@ -503,8 +532,14 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                                 </div>
                             </div>
                         )}
+                        {discount > 0 && (
+                            <div className='flex justify-between text-primary font-semibold'>
+                                <span>Referral Discount:</span>
+                                <span>-${discount.toFixed(2)}</span>
+                            </div>
+                        )}
                          <Separator className="my-2" />
-                        <div className='flex justify-between font-semibold'><span>Subtotal:</span><span>${subtotal.toFixed(2)}</span></div>
+                        <div className='flex justify-between font-semibold'><span>Subtotal:</span><span>${(subtotal - discount).toFixed(2)}</span></div>
                         <div className='flex justify-between'><span>Taxes (7%):</span><span>${mockTax.toFixed(2)}</span></div>
                          {tipAmount > 0 && (
                             <div className='flex justify-between font-semibold text-primary'><span>Tip:</span><span>${tipAmount.toFixed(2)}</span></div>
