@@ -37,7 +37,7 @@ const clientSchema = z.object({
 type ClientFormData = z.infer<typeof clientSchema>;
 
 const EditClientForm = ({ client }: { client: Client }) => {
-  const { register, control, formState: { errors } } = useFormContext<ClientFormData>();
+  const { register, formState: { errors } } = useFormContext<ClientFormData>();
 
   return (
     <div className="space-y-4">
