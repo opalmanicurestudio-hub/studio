@@ -184,22 +184,24 @@ export default function ClientDetailPage() {
       <main className="flex-1 p-4 md:p-8 space-y-6">
         
         <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+            <div className="flex items-center">
                 <Button variant="outline" size="icon" className="h-8 w-8 flex-shrink-0" asChild>
                     <Link href="/clients">
                         <ArrowLeft className="h-4 w-4" />
                         <span className="sr-only">Back</span>
                     </Link>
                 </Button>
-                <div className="flex flex-1 items-center gap-4 min-w-0">
+            </div>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div className="flex items-center gap-4">
                     <Avatar className="w-16 h-16 text-xl">
                         <AvatarImage src={client.avatarUrl} alt={client.name} />
                         <AvatarFallback>{client.name.substring(0, 2)}</AvatarFallback>
                     </Avatar>
-                    <div className="space-y-1 flex-1 min-w-0">
-                        <h1 className="text-2xl font-bold break-words">{client.name}</h1>
+                    <div className="space-y-1 min-w-0">
+                        <h1 className="text-2xl font-bold">{client.name}</h1>
                         <p className="text-muted-foreground break-all">{client.email}</p>
-                        <p className="text-muted-foreground break-all">{client.phone}</p>
+                        <p className="text-muted-foreground">{client.phone}</p>
                     </div>
                 </div>
                  <div className="w-full sm:w-auto">
@@ -223,7 +225,7 @@ export default function ClientDetailPage() {
               <ScrollBar orientation="horizontal" />
             </ScrollArea>
             <TabsContent value="overview" className="mt-6">
-                <div className="grid gap-6 lg:grid-cols-3">
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                     <div className="lg:col-span-2 space-y-6">
                         <Card>
                             <CardHeader>
@@ -232,7 +234,7 @@ export default function ClientDetailPage() {
                             <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div className="space-y-1 break-words">
                                     <p className="text-sm font-medium text-muted-foreground">Email</p>
-                                    <p>{client.email}</p>
+                                    <p className="break-all">{client.email}</p>
                                 </div>
                                 <div className="space-y-1 break-words">
                                     <p className="text-sm font-medium text-muted-foreground">Phone</p>
@@ -453,12 +455,12 @@ export default function ClientDetailPage() {
             </TabsContent>
             <TabsContent value="incidents" className="mt-6">
                  <Card>
-                    <CardHeader className="flex flex-row items-center justify-between">
+                    <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                         <div>
                             <CardTitle>Incident Log</CardTitle>
                             <CardDescription>A secure log of any incidents or issues.</CardDescription>
                         </div>
-                        <Button variant="outline" onClick={() => setIsLogIncidentOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Log New Incident</Button>
+                        <Button variant="outline" onClick={() => setIsLogIncidentOpen(true)} className="w-full sm:w-auto"><PlusCircle className="mr-2 h-4 w-4"/>Log New Incident</Button>
                     </CardHeader>
                     <CardContent>
                        {client.intel?.incidents && client.intel.incidents.length > 0 ? (
@@ -535,5 +537,7 @@ export default function ClientDetailPage() {
     </div>
   );
 }
+
+    
 
     
