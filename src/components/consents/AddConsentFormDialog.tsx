@@ -131,72 +131,70 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
   }
 
   const FormContent = (
-    <ScrollArea className="h-[70vh] pr-4">
-        <div className="space-y-6">
-            <div className="space-y-2">
-                <Label htmlFor="form-title">Form Title</Label>
-                <Input id="form-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., New Client Intake Form" />
-            </div>
-             <div className="space-y-2">
-                <Label htmlFor="form-category">Category</Label>
-                <Select value={category} onValueChange={(v: any) => setCategory(v)}>
-                    <SelectTrigger id="form-category">
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="General">General</SelectItem>
-                        <SelectItem value="Intake">Intake</SelectItem>
-                        <SelectItem value="Waiver">Waiver</SelectItem>
-                        <SelectItem value="Release">Release</SelectItem>
-                    </SelectContent>
-                </Select>
-            </div>
-            
-            <div className="space-y-4">
-                {fields.map((field, index) => (
-                    <FieldEditor 
-                        key={field.id}
-                        field={field}
-                        onUpdate={handleUpdateField}
-                        onDelete={handleRemoveField}
-                        onMove={handleMoveField}
-                        isFirst={index === 0}
-                        isLast={index === fields.length - 1}
-                    />
-                ))}
-                <Button variant="outline" className="w-full border-dashed" onClick={handleAddField}>
-                    <PlusCircle className="mr-2" /> Add Question
-                </Button>
-            </div>
-            
-             <div className="space-y-4 pt-6">
-                <h3 className="font-semibold text-lg">Form Rules & Security</h3>
-                <div className="space-y-4 rounded-lg border p-4">
-                    <div className="flex items-center justify-between">
-                        <Label htmlFor="password-protect">Password Protect</Label>
-                        <Switch id="password-protect" checked={isPasswordProtected} onCheckedChange={setIsPasswordProtected} />
-                    </div>
-                     <div className="space-y-2">
-                        <Label>Client Access Level</Label>
-                         <RadioGroup defaultValue="view" value={clientAccess} onValueChange={setClientAccess} className="grid grid-cols-2 gap-2">
-                            <div>
-                                <RadioGroupItem value="view" id="view" className="peer sr-only" />
-                                <Label htmlFor="view" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">View Only</Label>
-                            </div>
-                            <div>
-                                <RadioGroupItem value="edit" id="edit" className="peer sr-only" />
-                                <Label htmlFor="edit" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Allowed to Edit</Label>
-                            </div>
-                        </RadioGroup>
-                    </div>
-                    <div className="flex items-center justify-between">
-                        <Label htmlFor="notify-on-edit">Notify me on edit</Label>
-                        <Switch id="notify-on-edit" checked={notifyOnEdit} onCheckedChange={setNotifyOnEdit} />
-                    </div>
+    <div className="space-y-6">
+        <div className="space-y-2">
+            <Label htmlFor="form-title">Form Title</Label>
+            <Input id="form-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., New Client Intake Form" />
+        </div>
+         <div className="space-y-2">
+            <Label htmlFor="form-category">Category</Label>
+            <Select value={category} onValueChange={(v: any) => setCategory(v)}>
+                <SelectTrigger id="form-category">
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="General">General</SelectItem>
+                    <SelectItem value="Intake">Intake</SelectItem>
+                    <SelectItem value="Waiver">Waiver</SelectItem>
+                    <SelectItem value="Release">Release</SelectItem>
+                </SelectContent>
+            </Select>
+        </div>
+        
+        <div className="space-y-4">
+            {fields.map((field, index) => (
+                <FieldEditor 
+                    key={field.id}
+                    field={field}
+                    onUpdate={handleUpdateField}
+                    onDelete={handleRemoveField}
+                    onMove={handleMoveField}
+                    isFirst={index === 0}
+                    isLast={index === fields.length - 1}
+                />
+            ))}
+            <Button variant="outline" className="w-full border-dashed" onClick={handleAddField}>
+                <PlusCircle className="mr-2" /> Add Question
+            </Button>
+        </div>
+        
+         <div className="space-y-4 pt-6">
+            <h3 className="font-semibold text-lg">Form Rules & Security</h3>
+            <div className="space-y-4 rounded-lg border p-4">
+                <div className="flex items-center justify-between">
+                    <Label htmlFor="password-protect">Password Protect</Label>
+                    <Switch id="password-protect" checked={isPasswordProtected} onCheckedChange={setIsPasswordProtected} />
+                </div>
+                 <div className="space-y-2">
+                    <Label>Client Access Level</Label>
+                     <RadioGroup defaultValue="view" value={clientAccess} onValueChange={setClientAccess} className="grid grid-cols-2 gap-2">
+                        <div>
+                            <RadioGroupItem value="view" id="view" className="peer sr-only" />
+                            <Label htmlFor="view" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">View Only</Label>
+                        </div>
+                        <div>
+                            <RadioGroupItem value="edit" id="edit" className="peer sr-only" />
+                            <Label htmlFor="edit" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Allowed to Edit</Label>
+                        </div>
+                    </RadioGroup>
+                </div>
+                <div className="flex items-center justify-between">
+                    <Label htmlFor="notify-on-edit">Notify me on edit</Label>
+                    <Switch id="notify-on-edit" checked={notifyOnEdit} onCheckedChange={setNotifyOnEdit} />
                 </div>
             </div>
         </div>
-    </ScrollArea>
+    </div>
   );
 
   const dialogTitle = formToEdit ? `Edit: ${formToEdit.title}` : 'Create New Consent Form';
@@ -204,15 +202,17 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95vh] flex flex-col">
-          <SheetHeader className="text-left">
+        <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
+          <SheetHeader className="p-6 text-left">
             <SheetTitle>{dialogTitle}</SheetTitle>
             <SheetDescription>Build your form by adding and configuring fields.</SheetDescription>
           </SheetHeader>
-          <div className="py-4 flex-1">{FormContent}</div>
-          <SheetFooter>
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button onClick={handleSave}>Save Form</Button>
+          <ScrollArea className="flex-1 px-6">
+            {FormContent}
+          </ScrollArea>
+          <SheetFooter className="p-6 pt-4 border-t bg-background">
+            <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full sm:w-auto">Cancel</Button>
+            <Button onClick={handleSave} className="w-full sm:w-auto">Save Form</Button>
           </SheetFooter>
         </SheetContent>
       </Sheet>
@@ -226,8 +226,12 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
           <DialogTitle>{dialogTitle}</DialogTitle>
           <DialogDescription>Build your form by adding and configuring fields.</DialogDescription>
         </DialogHeader>
-        <div className="py-4">{FormContent}</div>
-        <DialogFooter>
+        <ScrollArea className="max-h-[70vh] -mr-6 pr-6">
+            <div className="py-4 pl-6">
+                {FormContent}
+            </div>
+        </ScrollArea>
+        <DialogFooter className="pt-4 border-t pr-6">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={handleSave}>Save Form</Button>
         </DialogFooter>
