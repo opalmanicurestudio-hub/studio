@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon } from 'lucide-react';
+import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy } from 'lucide-react';
 import { clients as initialClients, appointments, services, inventory, type CustomFormula, Client, type Incident } from '@/lib/data';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
@@ -38,6 +38,7 @@ import { LogIncidentDialog } from '@/components/incidents/LogIncidentDialog';
 import { IncidentFormData } from '@/components/incidents/LogIncidentForm';
 import Image from 'next/image';
 import { EditClientDialog } from '@/components/clients/EditClientDialog';
+import { Input } from '@/components/ui/input';
 
 
 type ClientPhoto = {
@@ -213,6 +214,16 @@ export default function ClientDetailPage() {
       description: `A new incident has been recorded for ${client.name}.`,
     });
   };
+  
+  const handleCopyReferralCode = () => {
+    if (client.referralCode) {
+        navigator.clipboard.writeText(client.referralCode);
+        toast({
+            title: "Referral Code Copied",
+            description: "The client's referral code has been copied to your clipboard.",
+        })
+    }
+  }
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -270,6 +281,7 @@ export default function ClientDetailPage() {
                   <TabsList className="inline-flex h-auto p-0 bg-transparent gap-1">
                     <TabsTrigger value="overview" className="h-10">Overview</TabsTrigger>
                     <TabsTrigger value="history" className="h-10">History</TabsTrigger>
+                    <TabsTrigger value="referrals" className="h-10">Referrals</TabsTrigger>
                     <TabsTrigger value="photos" className="h-10">Photos</TabsTrigger>
                     <TabsTrigger value="incidents" className="h-10">Incidents</TabsTrigger>
                     <TabsTrigger value="consents" className="h-10">Consents</TabsTrigger>
@@ -313,7 +325,7 @@ export default function ClientDetailPage() {
                                 <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     <div className="p-4 rounded-lg bg-muted/50">
                                         <div className="text-sm text-muted-foreground">Store Credit</div>
-                                        <div className="text-2xl font-bold">$0.00</div>
+                                        <div className="text-2xl font-bold">${(client.walletCredit || 0).toFixed(2)}</div>
                                     </div>
                                     <div className="p-4 rounded-lg bg-muted/50">
                                         <div className="text-sm text-muted-foreground">Gift Card Balance</div>
@@ -458,7 +470,47 @@ export default function ClientDetailPage() {
                         </CardContent>
                     </Card>
                 </TabsContent>
-                 <TabsContent value="photos" className="mt-6">
+                 <TabsContent value="referrals" className="mt-6">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Referral Program</CardTitle>
+                            <CardDescription>Manage this client's referral activity.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                            <div className="space-y-2">
+                                <Label htmlFor="referral-code">Unique Referral Code</Label>
+                                <div className="flex gap-2">
+                                    <Input id="referral-code" value={client.referralCode} />
+                                    <Button variant="outline" onClick={handleCopyReferralCode}><Copy className="w-4 h-4 mr-2" /> Copy</Button>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div className="p-4 rounded-lg bg-muted/50">
+                                    <div className="text-sm text-muted-foreground">Referred By</div>
+                                    <div className="text-lg font-semibold">{client.referredBy || 'N/A'}</div>
+                                </div>
+                                <div className="p-4 rounded-lg bg-muted/50">
+                                    <div className="text-sm text-muted-foreground">Successful Referrals</div>
+                                    <div className="text-lg font-semibold">{client.successfulReferrals?.length || 0}</div>
+                                </div>
+                            </div>
+                             {client.successfulReferrals && client.successfulReferrals.length > 0 && (
+                                <div>
+                                    <h4 className="font-medium text-sm mb-2">Referred Clients</h4>
+                                    <div className="space-y-2">
+                                        {client.successfulReferrals.map((name, index) => (
+                                            <div key={index} className="flex items-center p-3 rounded-md bg-muted/50">
+                                                <UserIcon className="w-4 h-4 mr-3 text-muted-foreground" />
+                                                <span className="text-sm">{name}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+                <TabsContent value="photos" className="mt-6">
                     <Card>
                         <CardHeader>
                             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">

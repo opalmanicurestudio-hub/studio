@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, KeyboardEvent } from 'react';
@@ -42,7 +41,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { ShieldAlert, AlertTriangle, Ear, Upload, CalendarIcon, PlusCircle, Trash2, User, Home } from 'lucide-react';
+import { ShieldAlert, AlertTriangle, Ear, Upload, CalendarIcon, PlusCircle, Trash2, User, Home, Gift } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Client } from '@/lib/data';
 
@@ -285,7 +284,14 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
 
                  {/* Section 2: Tags & Referral */}
                  <div className="space-y-4">
-                    <h3 className="text-lg font-medium">Tags & Referral Source</h3>
+                    <h3 className="text-lg font-medium">Acquisition & Marketing</h3>
+                    <div className="space-y-2">
+                        <Label htmlFor="referral-code">Referral or Promo Code</Label>
+                        <div className="relative">
+                            <Gift className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input id="referral-code" placeholder="e.g., JANE10" className="pl-9" />
+                        </div>
+                    </div>
                     <div className="space-y-2">
                         <Label htmlFor="custom-tags">Custom Tags</Label>
                         <div className="flex items-center gap-2">
