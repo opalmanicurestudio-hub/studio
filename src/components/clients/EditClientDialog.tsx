@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, KeyboardEvent } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
@@ -35,13 +35,16 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-import { ShieldAlert, AlertTriangle, Ear } from 'lucide-react';
+import { ShieldAlert, AlertTriangle, Ear, Upload, CalendarIcon, PlusCircle, Trash2 } from 'lucide-react';
 import { ImageUpload } from '../shared/ImageUpload';
 import { Popover, PopoverTrigger, PopoverContent } from '../ui/popover';
-import { CalendarIcon } from 'lucide-react';
 import { Calendar } from '../ui/calendar';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Badge } from '../ui/badge';
+import { clients as allClients } from '@/lib/data';
+
 
 const clientSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
@@ -59,7 +62,8 @@ const clientSchema = z.object({
 
 type ClientFormData = z.infer<typeof clientSchema>;
 
-const EditClientIntelCategory = ({
+
+const ClientIntelCategory = ({
   title,
   icon,
   fieldName,
@@ -68,40 +72,87 @@ const EditClientIntelCategory = ({
   icon: React.ReactNode;
   fieldName: keyof ClientFormData;
 }) => {
-  const { control } = useForm<ClientFormData>();
+    const { control } = useFormContext<ClientFormData>();
+
   return (
-    <AccordionItem value={title.toLowerCase().replace(/ & /g, '-').replace(/ /g, '-')}>
-        <AccordionTrigger className="text-base font-semibold">{icon}{title}</AccordionTrigger>
-        <AccordionContent>
-            <Controller
-            name={fieldName}
-            control={control}
-            render={({ field }) => (
-                <Textarea
-                placeholder={`Enter ${title.toLowerCase()} notes...`}
-                {...field}
-                />
-            )}
+    <AccordionItem value={title.toLowerCase().replace(' ', '-')}>
+      <AccordionTrigger className="text-base font-semibold">{icon}{title}</AccordionTrigger>
+      <AccordionContent>
+        <Controller
+          name={fieldName}
+          control={control}
+          render={({ field }) => (
+            <Textarea
+              placeholder={`Add detailed ${title.toLowerCase()} notes...`}
+              {...field}
             />
-        </AccordionContent>
+          )}
+        />
+      </AccordionContent>
     </AccordionItem>
   );
 };
 
+const ClientIntelAccordion = () => (
+    <Accordion type="multiple" className="w-full space-y-4">
+        <ClientIntelCategory
+            title="Medical & Health"
+            icon={<ShieldAlert className="w-5 h-5 text-red-500 mr-2" />}
+            fieldName="medicalNotes"
+        />
+        <ClientIntelCategory
+            title="Allergies & Sensitivities"
+            icon={<AlertTriangle className="w-5 h-5 text-amber-500 mr-2" />}
+            fieldName="allergyNotes"
+        />
+        <ClientIntelCategory
+            title="Disabilities & Sensory Needs"
+            icon={<Ear className="w-5 h-5 text-blue-500 mr-2" />}
+            fieldName="sensoryNeeds"
+        />
+    </Accordion>
+);
+
 
 const EditClientForm = ({ client }: { client: Client }) => {
-  const { register, control, formState: { errors } } = useForm<ClientFormData>();
+  const { register, control, formState: { errors } } = useFormContext<ClientFormData>();
+    const [tags, setTags] = useState<string[]>([]);
+    const [tagInput, setTagInput] = useState('');
+    const [referralSource, setReferralSource] = useState<string>('');
+    
+    const handleAddTag = () => {
+        if (tagInput.trim()) {
+            const newTag = tagInput.trim();
+            if (!tags.includes(newTag)) {
+                setTags([...tags, newTag]);
+            }
+            setTagInput('');
+        }
+    };
+
+    const handleTagInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            handleAddTag();
+        }
+    };
+
+    const removeTag = (tagToRemove: string) => {
+        setTags(tags.filter(tag => tag !== tagToRemove));
+    };
 
   return (
-    <div className="space-y-6">
-        <div className="space-y-2">
-            <Label>Profile Picture</Label>
-            <div className="flex items-center gap-4">
-                 <Controller
+    <ScrollArea className="h-[70vh] pr-6">
+      <div className="space-y-8">
+        {/* Section 1: Basic Info */}
+        <div className="space-y-4">
+            <h3 className="text-lg font-medium">Basic Information</h3>
+            <div className="flex flex-col items-center space-y-4">
+                  <Controller
                     name="avatarUrl"
                     control={control}
                     render={({ field }) => (
-                         <Avatar className="w-20 h-20">
+                         <Avatar className="w-24 h-24 text-lg">
                             <AvatarImage src={field.value || undefined} alt={client.name} />
                             <AvatarFallback>{client.name.substring(0, 2)}</AvatarFallback>
                         </Avatar>
@@ -115,97 +166,151 @@ const EditClientForm = ({ client }: { client: Client }) => {
                     )}
                  />
             </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                    <Label htmlFor="full-name">Full Name</Label>
+                    <Input id="full-name" {...register('name')} />
+                    {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+                </div>
+                <div className="space-y-2">
+                    <Label htmlFor="email">Email</Label>
+                    <Input id="email" type="email" {...register('email')} />
+                    {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
+                </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                    <Label htmlFor="phone">Phone Number</Label>
+                    <Input id="phone" type="tel" {...register('phone')} />
+                    {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
+                </div>
+                <div className="space-y-2">
+                    <Label htmlFor="birthday">Birthday</Label>
+                    <Controller
+                        name="birthday"
+                        control={control}
+                        render={({ field }) => (
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                <Button
+                                    variant={"outline"}
+                                    className={cn(
+                                    "w-full justify-start text-left font-normal",
+                                    !field.value && "text-muted-foreground"
+                                    )}
+                                >
+                                    <CalendarIcon className="mr-2 h-4 w-4" />
+                                    {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
+                                </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0">
+                                <Calendar
+                                    mode="single"
+                                    selected={field.value}
+                                    onSelect={field.onChange}
+                                    initialFocus
+                                />
+                                </PopoverContent>
+                            </Popover>
+                        )}
+                    />
+                </div>
+            </div>
         </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="name">Full Name</Label>
-        <Input id="name" {...register('name')} />
-        {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="email">Email</Label>
-        <Input id="email" type="email" {...register('email')} />
-        {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="phone">Phone Number</Label>
-        <Input id="phone" type="tel" {...register('phone')} />
-        {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
-      </div>
+        {/* Section 2: Tags & Referral */}
+        <div className="space-y-4">
+            <h3 className="text-lg font-medium">Tags & Referral Source</h3>
+            <div className="space-y-2">
+                <Label htmlFor="custom-tags">Custom Tags</Label>
+                <div className="flex items-center gap-2">
+                    <Input 
+                        id="custom-tags" 
+                        placeholder="Type a tag and press Enter..." 
+                        value={tagInput}
+                        onChange={(e) => setTagInput(e.target.value)}
+                        onKeyDown={handleTagInputKeyDown}
+                    />
+                    <Button type="button" onClick={handleAddTag}>Add</Button>
+                </div>
+                <div className="flex flex-wrap gap-2 pt-2">
+                    {tags.map(tag => (
+                        <Badge key={tag} variant="secondary">
+                            {tag}
+                            <button
+                                type="button"
+                                className="ml-1.5 -mr-0.5 rounded-full p-0.5 hover:bg-destructive/20"
+                                onClick={() => removeTag(tag)}
+                            >
+                                <Trash2 className="h-3 w-3" />
+                            </button>
+                        </Badge>
+                    ))}
+                </div>
+            </div>
+            <div className="space-y-2">
+                <Label htmlFor="referral-source">Referral Source</Label>
+                <Controller
+                    name="referralSource"
+                    control={control}
+                    render={({ field }) => (
+                        <Select onValueChange={(value) => { field.onChange(value); setReferralSource(value); }} value={field.value}>
+                            <SelectTrigger id="referral-source">
+                                <SelectValue placeholder="How did they find you?" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="social-media">Social Media</SelectItem>
+                                <SelectItem value="online-search">Online Search</SelectItem>
+                                <SelectItem value="client-referral">Client Referral</SelectItem>
+                                <SelectItem value="walk-in">Walk-in</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    )}
+                />
+            </div>
+            {referralSource === 'client-referral' && (
+                <div className="space-y-2">
+                    <Label htmlFor="referring-client">Referring Client</Label>
+                    <Select>
+                        <SelectTrigger id="referring-client">
+                        <SelectValue placeholder="Select referring client" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {allClients.map(c => (
+                                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+            )}
+        </div>
 
-       <div className="space-y-2">
-        <Label htmlFor="address">Address</Label>
-        <Input id="address" {...register('address')} />
-      </div>
+        {/* Section 3: Client Intel */}
+        <div className="space-y-4">
+            <h3 className="text-lg font-medium">Client Intel</h3>
+            <ClientIntelAccordion />
+        </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-            <Label htmlFor="birthday">Birthday</Label>
-            <Controller
-                name="birthday"
-                control={control}
-                render={({ field }) => (
-                     <Popover>
-                        <PopoverTrigger asChild>
-                        <Button
-                            variant={"outline"}
-                            className={cn(
-                            "w-full justify-start text-left font-normal",
-                            !field.value && "text-muted-foreground"
+        {/* Section 4: Notes */}
+        <div className="space-y-4">
+            <h3 className="text-lg font-medium">General Notes</h3>
+            <Accordion type="single" collapsible className="w-full space-y-2">
+                <AccordionItem value="other" className="border rounded-lg">
+                    <AccordionTrigger className="p-3 text-base font-semibold">Notes</AccordionTrigger>
+                    <AccordionContent className="p-4">
+                        <Controller
+                            name="notes"
+                            control={control}
+                            render={({ field }) => (
+                                <Textarea placeholder="Any other relevant details, preferences, or notes." {...field}/>
                             )}
-                        >
-                            <CalendarIcon className="mr-2 h-4 w-4" />
-                            {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
-                        </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0">
-                        <Calendar
-                            mode="single"
-                            selected={field.value}
-                            onSelect={field.onChange}
-                            initialFocus
                         />
-                        </PopoverContent>
-                    </Popover>
-                )}
-            />
-        </div>
-        <div className="space-y-2">
-            <Label htmlFor="referralSource">Referral Source</Label>
-            <Input id="referralSource" {...register('referralSource')} />
+                    </AccordionContent>
+                </AccordionItem>
+            </Accordion>
         </div>
       </div>
-      
-       <Accordion type="multiple" className="w-full space-y-4">
-          <EditClientIntelCategory
-            title="Medical & Health"
-            icon={<ShieldAlert className="w-5 h-5 text-red-500 mr-2" />}
-            fieldName="medicalNotes"
-          />
-          <EditClientIntelCategory
-            title="Allergies & Sensitivities"
-            icon={<AlertTriangle className="w-5 h-5 text-amber-500 mr-2" />}
-            fieldName="allergyNotes"
-          />
-          <EditClientIntelCategory
-            title="Disabilities & Sensory Needs"
-            icon={<Ear className="w-5 h-5 text-blue-500 mr-2" />}
-            fieldName="sensoryNeeds"
-          />
-        </Accordion>
-        
-        <div className="space-y-2">
-            <Label htmlFor="general-notes">General Notes</Label>
-            <Controller
-              name="notes"
-              control={control}
-              render={({ field }) => (
-                <Textarea id="general-notes" placeholder="General client notes, preferences, etc." {...field} />
-              )}
-            />
-        </div>
-
-    </div>
+    </ScrollArea>
   );
 };
 
@@ -236,8 +341,7 @@ export const EditClientDialog = ({
         allergyNotes: client.allergyNotes || '',
         sensoryNeeds: client.sensoryNeeds || '',
         notes: client.notes || '',
-        // These fields are not in the Client type yet
-        // birthday: client.birthday ? new Date(client.birthday) : undefined,
+        // birthday: client.birthday ? new Date(client.birthday) : undefined, // Add when birthday is on Client type
         // address: client.address || '',
         // referralSource: client.referralSource || ''
       });
@@ -256,9 +360,7 @@ export const EditClientDialog = ({
   const FormContent = (
     <FormProvider {...methods}>
       <form id={formId} onSubmit={methods.handleSubmit(handleSave)}>
-        <ScrollArea className="h-[70vh] pr-4">
-          <EditClientForm client={client} />
-        </ScrollArea>
+        <EditClientForm client={client} />
       </form>
     </FormProvider>
   );
@@ -283,7 +385,7 @@ export const EditClientDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
