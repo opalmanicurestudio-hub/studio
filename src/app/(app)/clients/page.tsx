@@ -48,9 +48,9 @@ const ClientCard = ({ client }: { client: Client }) => {
                         <AvatarImage src={client.avatarUrl} alt={client.name} data-ai-hint="person portrait" />
                         <AvatarFallback>{client.name.charAt(0)}</AvatarFallback>
                     </Avatar>
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                         <Link href={`/clients/${client.id}`} className="group">
-                            <p className="font-semibold text-lg group-hover:underline">{client.name}</p>
+                            <p className="font-semibold text-lg group-hover:underline truncate">{client.name}</p>
                         </Link>
                         {lastAppointment && (
                             <p className="text-sm text-muted-foreground">Last seen: {formatDistanceToNow(lastAppointment, { addSuffix: true })}</p>
@@ -389,5 +389,7 @@ export default function ClientsPage() {
     </div>
   );
 }
+
+    
 
     
