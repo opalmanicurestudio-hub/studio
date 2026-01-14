@@ -1,7 +1,6 @@
-
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -27,6 +26,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuPortal,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -38,20 +42,17 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { clients, quotes, type Quote } from '@/lib/data';
+import { clients, type Quote as QuoteType } from '@/lib/data';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
-
-const kpiData = {
-  acceptedValue: 2150.0,
-  conversionRate: 66.7,
-  avgQuoteValue: 1762.5,
-  awaitingResponse: 1,
-};
+import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
+import { collection, doc } from 'firebase/firestore';
+import { useToast } from '@/hooks/use-toast';
+import { useRouter } from 'next/navigation';
 
 const statusConfig: {
-  [key in Quote['status']]: {
+  [key in QuoteType['status']]: {
     label: string;
     className: string;
   };
@@ -63,16 +64,21 @@ const statusConfig: {
   booked: { label: 'Booked', className: 'bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300' },
 };
 
-const QuoteTableRow = ({ quote }: { quote: Quote }) => {
+const QuoteTableRow = ({ quote, onStatusChange, onBookEvent }: { quote: QuoteType, onStatusChange: (id: string, status: QuoteType['status']) => void, onBookEvent: (quote: QuoteType) => void }) => {
   const client = clients.find((c) => c.id === quote.clientId);
   const statusInfo = statusConfig[quote.status];
 
-  // By using parseISO, we treat the date string as UTC, avoiding timezone shifts.
-  const quoteDate = parseISO(quote.date);
+  const quoteDate = quote.eventDate ? parseISO(quote.eventDate) : parseISO(quote.createdAt);
+
+  const total = useMemo(() => {
+    const servicesTotal = quote.lineItems.reduce((acc, item) => acc + item.price, 0);
+    const fee = servicesTotal * (quote.projectFee / 100);
+    return servicesTotal + quote.travelExpenses + fee;
+  }, [quote]);
 
   return (
     <TableRow>
-      <TableCell className="font-medium">{quote.quoteNumber}</TableCell>
+      <TableCell className="font-medium">{quote.id.slice(-6).toUpperCase()}</TableCell>
       <TableCell>{client?.name || 'N/A'}</TableCell>
       <TableCell>{quote.eventName}</TableCell>
       <TableCell>{format(quoteDate, 'MMM d, yyyy')}</TableCell>
@@ -81,7 +87,7 @@ const QuoteTableRow = ({ quote }: { quote: Quote }) => {
           {statusInfo.label}
         </Badge>
       </TableCell>
-      <TableCell className="text-right font-mono">${quote.total.toFixed(2)}</TableCell>
+      <TableCell className="text-right font-mono">${total.toFixed(2)}</TableCell>
       <TableCell>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -99,10 +105,23 @@ const QuoteTableRow = ({ quote }: { quote: Quote }) => {
               <Printer />
               <span>Print Quote</span>
             </DropdownMenuItem>
-            <DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>Mark as...</DropdownMenuSubTrigger>
+              <DropdownMenuPortal>
+                <DropdownMenuSubContent>
+                  <DropdownMenuItem onClick={() => onStatusChange(quote.id, 'sent')}>Sent</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onStatusChange(quote.id, 'accepted')}>Accepted</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onStatusChange(quote.id, 'declined')}>Declined</DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuPortal>
+            </DropdownMenuSub>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => onBookEvent(quote)} disabled={quote.status !== 'accepted'}>
               <FileStack />
               <span>Book</span>
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem className="text-destructive">
               <Trash2 />
               <span>Delete</span>
@@ -114,9 +133,15 @@ const QuoteTableRow = ({ quote }: { quote: Quote }) => {
   );
 };
 
-const QuoteCard = ({ quote }: { quote: Quote }) => {
+const QuoteCard = ({ quote, onStatusChange, onBookEvent }: { quote: QuoteType, onStatusChange: (id: string, status: QuoteType['status']) => void, onBookEvent: (quote: QuoteType) => void }) => {
     const client = clients.find((c) => c.id === quote.clientId);
     const statusInfo = statusConfig[quote.status];
+
+    const total = useMemo(() => {
+        const servicesTotal = quote.lineItems.reduce((acc, item) => acc + item.price, 0);
+        const fee = servicesTotal * (quote.projectFee / 100);
+        return servicesTotal + quote.travelExpenses + fee;
+    }, [quote]);
 
     return (
         <Card>
@@ -124,7 +149,7 @@ const QuoteCard = ({ quote }: { quote: Quote }) => {
                  <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 space-y-1">
                         <p className="font-semibold">{quote.eventName}</p>
-                        <p className="text-sm text-muted-foreground">{client?.name || 'N/A'} &middot; {quote.quoteNumber}</p>
+                        <p className="text-sm text-muted-foreground">{client?.name || 'N/A'} &middot; {quote.id.slice(-6).toUpperCase()}</p>
                     </div>
                      <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -142,10 +167,23 @@ const QuoteCard = ({ quote }: { quote: Quote }) => {
                                <Printer className="mr-2 h-4 w-4"/>
                               <span>Print Quote</span>
                             </DropdownMenuItem>
-                            <DropdownMenuItem>
+                             <DropdownMenuSeparator />
+                            <DropdownMenuSub>
+                                <DropdownMenuSubTrigger>Mark as...</DropdownMenuSubTrigger>
+                                <DropdownMenuPortal>
+                                    <DropdownMenuSubContent>
+                                    <DropdownMenuItem onClick={() => onStatusChange(quote.id, 'sent')}>Sent</DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => onStatusChange(quote.id, 'accepted')}>Accepted</DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => onStatusChange(quote.id, 'declined')}>Declined</DropdownMenuItem>
+                                    </DropdownMenuSubContent>
+                                </DropdownMenuPortal>
+                            </DropdownMenuSub>
+                            <DropdownMenuSeparator />
+                             <DropdownMenuItem onClick={() => onBookEvent(quote)} disabled={quote.status !== 'accepted'}>
                               <FileStack className="mr-2 h-4 w-4"/>
                               <span>Book</span>
                             </DropdownMenuItem>
+                            <DropdownMenuSeparator />
                             <DropdownMenuItem className="text-destructive">
                               <Trash2 className="mr-2 h-4 w-4"/>
                               <span>Delete</span>
@@ -155,7 +193,7 @@ const QuoteCard = ({ quote }: { quote: Quote }) => {
                 </div>
                 <div className="flex items-center justify-between text-sm">
                     <Badge variant="secondary" className={cn('capitalize', statusInfo.className)}>{statusInfo.label}</Badge>
-                    <span className="font-semibold text-lg">${quote.total.toFixed(2)}</span>
+                    <span className="font-semibold text-lg">${total.toFixed(2)}</span>
                 </div>
             </CardContent>
         </Card>
@@ -163,6 +201,83 @@ const QuoteCard = ({ quote }: { quote: Quote }) => {
 }
 
 export default function QuotesPage() {
+    const { firestore, user } = useFirebase();
+    const { toast } = useToast();
+    const router = useRouter();
+    const tenantId = 'tenant-abc';
+    
+    const quotesQuery = useMemoFirebase(() => {
+        if (!user || !firestore) return null;
+        return collection(firestore, 'tenants', tenantId, 'quotes');
+    }, [user, firestore]);
+    
+    const { data: quotes, isLoading } = useCollection<QuoteType>(quotesQuery);
+    
+    const sortedQuotes = useMemo(() => {
+        if (!quotes) return [];
+        return [...quotes].sort((a,b) => parseISO(b.createdAt).getTime() - parseISO(a.createdAt).getTime());
+    }, [quotes]);
+    
+    const kpiData = useMemo(() => {
+        if (!quotes) return { acceptedValue: 0, conversionRate: 0, avgQuoteValue: 0, awaitingResponse: 0 };
+        
+        const sentOrBeyond = quotes.filter(q => q.status !== 'draft');
+        const accepted = quotes.filter(q => q.status === 'accepted' || q.status === 'booked');
+        
+        const acceptedValue = accepted.reduce((acc, q) => {
+            const servicesTotal = q.lineItems.reduce((sAcc, item) => sAcc + item.price, 0);
+            const fee = servicesTotal * (q.projectFee / 100);
+            return acc + servicesTotal + q.travelExpenses + fee;
+        }, 0);
+        
+        const totalValue = sentOrBeyond.reduce((acc, q) => {
+             const servicesTotal = q.lineItems.reduce((sAcc, item) => sAcc + item.price, 0);
+            const fee = servicesTotal * (q.projectFee / 100);
+            return acc + servicesTotal + q.travelExpenses + fee;
+        }, 0);
+
+        return {
+            acceptedValue,
+            conversionRate: sentOrBeyond.length > 0 ? (accepted.length / sentOrBeyond.length) * 100 : 0,
+            avgQuoteValue: sentOrBeyond.length > 0 ? totalValue / sentOrBeyond.length : 0,
+            awaitingResponse: quotes.filter(q => q.status === 'sent').length
+        }
+
+    }, [quotes]);
+
+    const handleStatusChange = (id: string, status: QuoteType['status']) => {
+        if (!firestore) return;
+        const quoteRef = doc(firestore, 'tenants', tenantId, 'quotes', id);
+        updateDocumentNonBlocking(quoteRef, { status });
+        toast({ title: "Status Updated", description: `Quote status changed to ${status}.` });
+    };
+    
+    const handleBookEvent = async (quote: QuoteType) => {
+        if (!firestore) return;
+
+        const eventRef = collection(firestore, 'tenants', tenantId, 'events');
+        
+        const newEvent = {
+            title: quote.eventName,
+            type: 'business',
+            startTime: parseISO(quote.eventDate),
+            endTime: parseISO(quote.eventDate), // Placeholder, needs duration logic
+            location: quote.eventLocation,
+            notes: `Booked from Quote #${quote.id.slice(-6).toUpperCase()}. \n\n${quote.notes}`,
+            quoteId: quote.id
+        }
+
+        await addDocumentNonBlocking(eventRef, newEvent);
+        handleStatusChange(quote.id, 'booked');
+
+        toast({
+            title: "Event Booked!",
+            description: `"${quote.eventName}" has been added to your planner.`,
+        });
+        
+        router.push('/planner');
+    }
+
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Quotes" />
@@ -198,7 +313,7 @@ export default function QuotesPage() {
               <Percent className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{kpiData.conversionRate}%</div>
+              <div className="text-2xl font-bold">{kpiData.conversionRate.toFixed(0)}%</div>
                <p className="text-xs text-muted-foreground">Of sent quotes are accepted</p>
             </CardContent>
           </Card>
@@ -230,33 +345,38 @@ export default function QuotesPage() {
                 <CardDescription>A list of all project proposals you've created.</CardDescription>
             </CardHeader>
             <CardContent>
-                <div className="hidden md:block">
-                    <Table>
-                    <TableHeader>
-                        <TableRow>
-                        <TableHead>Quote #</TableHead>
-                        <TableHead>Client</TableHead>
-                        <TableHead>Event</TableHead>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead className="text-right">Total</TableHead>
-                        <TableHead>
-                            <span className="sr-only">Actions</span>
-                        </TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {quotes.map((quote) => (
-                            <QuoteTableRow key={quote.id} quote={quote} />
-                        ))}
-                    </TableBody>
-                    </Table>
-                </div>
-                 <div className="grid gap-4 md:hidden">
-                    {quotes.map((quote) => (
-                        <QuoteCard key={quote.id} quote={quote} />
-                    ))}
-                 </div>
+                {isLoading && <p>Loading quotes...</p>}
+                {!isLoading && (
+                    <>
+                        <div className="hidden md:block">
+                            <Table>
+                            <TableHeader>
+                                <TableRow>
+                                <TableHead>Quote #</TableHead>
+                                <TableHead>Client</TableHead>
+                                <TableHead>Event</TableHead>
+                                <TableHead>Date</TableHead>
+                                <TableHead>Status</TableHead>
+                                <TableHead className="text-right">Total</TableHead>
+                                <TableHead>
+                                    <span className="sr-only">Actions</span>
+                                </TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {sortedQuotes.map((quote) => (
+                                    <QuoteTableRow key={quote.id} quote={quote} onStatusChange={handleStatusChange} onBookEvent={handleBookEvent}/>
+                                ))}
+                            </TableBody>
+                            </Table>
+                        </div>
+                        <div className="grid gap-4 md:hidden">
+                            {sortedQuotes.map((quote) => (
+                                <QuoteCard key={quote.id} quote={quote} onStatusChange={handleStatusChange} onBookEvent={handleBookEvent} />
+                            ))}
+                        </div>
+                    </>
+                )}
             </CardContent>
         </Card>
       </main>

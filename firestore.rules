@@ -204,11 +204,23 @@ service cloud.firestore {
      * @principle Enforces strict data privacy for a tenant's business information.
      */
     match /tenants/{tenantId}/appointments/{appointmentId} {
-      allow get: if isTenantOwner(tenantId);
-      allow list: if isTenantOwner(tenantId);
-      allow create: if isTenantOwner(tenantId) && newDocTenantIdMatchesPath(tenantId);
-      allow update: if isTenantOwner(tenantId) && resource != null && isTenantIdImmutable();
-      allow delete: if isTenantOwner(tenantId) && resource != null;
+      allow read, write: if isTenantOwner(tenantId);
+    }
+    
+    /**
+     * @description Rules for calendar events for a tenant. This data is private.
+     * @path /tenants/{tenantId}/events/{eventId}
+     */
+    match /tenants/{tenantId}/events/{eventId} {
+      allow read, write: if isTenantOwner(tenantId);
+    }
+    
+    /**
+     * @description Rules for quotes for a tenant. This data is private.
+     * @path /tenants/{tenantId}/quotes/{quoteId}
+     */
+    match /tenants/{tenantId}/quotes/{quoteId} {
+      allow read, write: if isTenantOwner(tenantId);
     }
 
     /**
