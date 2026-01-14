@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, ShieldAlert, Upload, Eye } from 'lucide-react';
+import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban } from 'lucide-react';
 import { clients as initialClients, appointments, services, inventory, type CustomFormula, Client, type Incident } from '@/lib/data';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
@@ -63,6 +63,48 @@ const FormulaCard = ({ formula }: { formula: CustomFormula }) => (
         </AccordionContent>
     </AccordionItem>
 )
+
+const ClientIntelBanner = ({ client }: { client: Client }) => {
+    const hasIntel = client.medicalNotes || client.allergyNotes || client.sensoryNeeds || client.intel?.hasIncidents;
+    if (!hasIntel) return null;
+
+    return (
+        <Card className="bg-muted/50">
+            <CardContent className="p-4 flex flex-wrap gap-x-6 gap-y-3">
+                {client.intel?.hasIncidents && (
+                     <div className="flex items-center gap-2 text-sm font-medium text-purple-600 dark:text-purple-400">
+                        <ShieldAlert className="w-4 h-4" />
+                        <span>Incident History</span>
+                    </div>
+                )}
+                {client.medicalNotes && (
+                    <div className="flex items-center gap-2 text-sm font-medium text-red-600 dark:text-red-400">
+                        <ShieldPlus className="w-4 h-4" />
+                        <span>Medical Alert</span>
+                    </div>
+                )}
+                {client.allergyNotes && (
+                     <div className="flex items-center gap-2 text-sm font-medium text-orange-600 dark:text-orange-400">
+                        <AlertTriangle className="w-4 h-4" />
+                        <span>Allergy Alert</span>
+                    </div>
+                )}
+                {client.sensoryNeeds && (
+                    <div className="flex items-center gap-2 text-sm font-medium text-blue-600 dark:text-blue-400">
+                        <Ear className="w-4 h-4" />
+                        <span>Sensory Needs</span>
+                    </div>
+                )}
+                 {client.intel?.incidents?.some(i => i.type === 'No-Show') && (
+                    <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-400">
+                        <Ban className="w-4 h-4" />
+                        <span>No-Show History</span>
+                    </div>
+                )}
+            </CardContent>
+        </Card>
+    )
+}
 
 export default function ClientDetailPage() {
   const params = useParams<{ id: string }>();
@@ -185,31 +227,41 @@ export default function ClientDetailPage() {
         
         <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
-                <Button variant="outline" size="icon" className="h-8 w-8" asChild>
+                <Button variant="outline" size="sm" asChild>
                     <Link href="/clients">
-                        <ArrowLeft className="h-4 w-4" />
-                        <span className="sr-only">Back</span>
+                        <ArrowLeft className="h-4 w-4 mr-2" />
+                        Back to Clients
                     </Link>
                 </Button>
                  <Button variant="outline" size="sm">
                     <Edit className="h-4 w-4 mr-2" />
-                    Edit
+                    Edit Profile
                 </Button>
             </div>
-            <div className="flex items-center gap-4">
-                <Avatar className="w-16 h-16 text-xl">
-                    <AvatarImage src={client.avatarUrl} alt={client.name} />
-                    <AvatarFallback>{client.name.substring(0, 2)}</AvatarFallback>
-                </Avatar>
-                <div className="space-y-1 min-w-0">
-                    <h1 className="text-2xl font-bold">{client.name}</h1>
-                    <div className="break-all">
-                        <p className="text-muted-foreground">{client.email}</p>
+            <Card>
+                 <CardContent className="p-4 sm:p-6 flex flex-col sm:flex-row items-start gap-4 sm:gap-6">
+                    <Avatar className="w-20 h-20 sm:w-24 sm:h-24 text-xl border">
+                        <AvatarImage src={client.avatarUrl} alt={client.name} />
+                        <AvatarFallback>{client.name.substring(0, 2)}</AvatarFallback>
+                    </Avatar>
+                    <div className="space-y-2 flex-1 min-w-0">
+                        <h1 className="text-2xl sm:text-3xl font-bold">{client.name}</h1>
+                        <div className="text-muted-foreground space-y-1">
+                            <div className="flex items-center gap-2 break-all">
+                                <Mail className="w-4 h-4 flex-shrink-0" />
+                                <span>{client.email}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <Phone className="w-4 h-4 flex-shrink-0" />
+                                <span>{client.phone}</span>
+                            </div>
+                        </div>
                     </div>
-                    <p className="text-muted-foreground">{client.phone}</p>
-                </div>
-            </div>
+                </CardContent>
+            </Card>
         </div>
+
+        <ClientIntelBanner client={client} />
         
         <Tabs defaultValue="overview">
             <ScrollArea className="w-full">
@@ -229,22 +281,18 @@ export default function ClientDetailPage() {
                             <CardHeader>
                                 <CardTitle>Client Details</CardTitle>
                             </CardHeader>
-                            <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div className="space-y-1 break-words">
-                                    <p className="text-sm font-medium text-muted-foreground">Email</p>
-                                    <p className="break-all">{client.email}</p>
-                                </div>
-                                <div className="space-y-1 break-words">
-                                    <p className="text-sm font-medium text-muted-foreground">Phone</p>
-                                    <p>{client.phone}</p>
-                                </div>
-                                 <div className="space-y-1">
+                            <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-6">
+                                <div className="space-y-1">
                                     <p className="text-sm font-medium text-muted-foreground">Birthday</p>
                                     <p>October 26</p>
                                 </div>
                                 <div className="space-y-1">
                                     <p className="text-sm font-medium text-muted-foreground">Referral Source</p>
                                     <p>Client Referral</p>
+                                </div>
+                                 <div className="space-y-1 col-span-1 sm:col-span-2">
+                                    <p className="text-sm font-medium text-muted-foreground">Address</p>
+                                    <p>123 Main St, Anytown, USA 12345</p>
                                 </div>
                             </CardContent>
                         </Card>
@@ -273,18 +321,6 @@ export default function ClientDetailPage() {
                         </Card>
                     </div>
                      <div className="lg:col-span-1 space-y-6">
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Client Intel</CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                                {client.medicalNotes && <div className="flex items-start gap-3 p-3 rounded-md bg-red-500/5"><ShieldPlus className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" /><p className="text-sm">{client.medicalNotes}</p></div>}
-                                {client.allergyNotes && <div className="flex items-start gap-3 p-3 rounded-md bg-orange-500/5"><AlertTriangle className="w-5 h-5 text-orange-500 mt-0.5 flex-shrink-0" /><p className="text-sm">{client.allergyNotes}</p></div>}
-                                {client.sensoryNeeds && <div className="flex items-start gap-3 p-3 rounded-md bg-blue-500/5"><Ear className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" /><p className="text-sm">{client.sensoryNeeds}</p></div>}
-                                {(!client.medicalNotes && !client.allergyNotes && !client.sensoryNeeds) && <p className="text-xs text-muted-foreground text-center">No special intel recorded.</p>}
-                            </CardContent>
-                        </Card>
-
                         <Card>
                             <Tabs defaultValue="formulas" className="w-full">
                                 <CardHeader className="p-4">
