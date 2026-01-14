@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban } from 'lucide-react';
+import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare } from 'lucide-react';
 import { clients as initialClients, appointments, services, inventory, type CustomFormula, Client, type Incident } from '@/lib/data';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
@@ -247,13 +247,21 @@ export default function ClientDetailPage() {
                         <div className="space-y-2 flex-1 min-w-0">
                             <h1 className="text-2xl sm:text-3xl font-bold">{client.name}</h1>
                             <div className="text-muted-foreground space-y-1">
-                                <div className="flex items-center gap-2 break-all">
+                                <a href={`mailto:${client.email}`} className="flex items-center gap-2 break-all hover:text-primary transition-colors">
                                     <Mail className="w-4 h-4 flex-shrink-0" />
                                     <span>{client.email}</span>
-                                </div>
+                                </a>
                                 <div className="flex items-center gap-2">
                                     <Phone className="w-4 h-4 flex-shrink-0" />
                                     <span>{client.phone}</span>
+                                    <div className="ml-auto flex items-center gap-1">
+                                        <a href={`tel:${client.phone}`} className="p-1.5 rounded-md hover:bg-muted">
+                                            <Phone className="w-4 h-4 text-primary" />
+                                        </a>
+                                        <a href={`sms:${client.phone}`} className="p-1.5 rounded-md hover:bg-muted">
+                                            <MessageSquare className="w-4 h-4 text-primary" />
+                                        </a>
+                                    </div>
                                 </div>
                             </div>
                         </div>
