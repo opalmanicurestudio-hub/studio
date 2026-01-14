@@ -37,6 +37,7 @@ import {
 import { LogIncidentDialog } from '@/components/incidents/LogIncidentDialog';
 import { IncidentFormData } from '@/components/incidents/LogIncidentForm';
 import Image from 'next/image';
+import { EditClientDialog } from '@/components/clients/EditClientDialog';
 
 
 type ClientPhoto = {
@@ -113,6 +114,7 @@ export default function ClientDetailPage() {
   const { toast } = useToast();
   const [isAddFormulaOpen, setIsAddFormulaOpen] = useState(false);
   const [isLogIncidentOpen, setIsLogIncidentOpen] = useState(false);
+  const [isEditClientOpen, setIsEditClientOpen] = useState(false);
   const [isClient, setIsClient] = useState(false);
   const [photos, setPhotos] = useState<ClientPhoto[]>([]);
   const [selectedPhoto, setSelectedPhoto] = useState<ClientPhoto | null>(null);
@@ -158,6 +160,19 @@ export default function ClientDetailPage() {
       title: 'Formula Saved!',
       description: `"${newFormula.name}" has been added to ${client.name}'s profile.`,
     });
+  };
+  
+  const handleUpdateClient = (updatedClientData: Partial<Client>) => {
+    setClients(prevClients =>
+      prevClients.map(c =>
+        c.id === client.id ? { ...c, ...updatedClientData } : c
+      )
+    );
+    toast({
+      title: 'Client Updated',
+      description: `${client.name}'s profile has been successfully updated.`,
+    });
+    setIsEditClientOpen(false);
   };
 
   const handleNewPhotoUpload = (url: string) => {
@@ -223,7 +238,7 @@ export default function ClientDetailPage() {
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Client Profile" />
-      <main className="flex-1">
+      <main>
         <div className="container mx-auto max-w-7xl p-4 md:p-8 space-y-6">
             <div className="flex flex-col gap-4">
                 <div className="flex items-center justify-between">
@@ -233,7 +248,7 @@ export default function ClientDetailPage() {
                             Back to Clients
                         </Link>
                     </Button>
-                     <Button variant="outline" size="sm">
+                     <Button variant="outline" size="sm" onClick={() => setIsEditClientOpen(true)}>
                         <Edit className="h-4 w-4 mr-2" />
                         Edit Profile
                     </Button>
@@ -563,6 +578,13 @@ export default function ClientDetailPage() {
             onOpenChange={setIsLogIncidentOpen}
             client={client}
             onIncidentLogged={handleIncidentLogged}
+        />
+        
+        <EditClientDialog
+            open={isEditClientOpen}
+            onOpenChange={setIsEditClientOpen}
+            client={client}
+            onSave={handleUpdateClient}
         />
 
         <Dialog open={!!selectedPhoto} onOpenChange={() => setSelectedPhoto(null)}>
