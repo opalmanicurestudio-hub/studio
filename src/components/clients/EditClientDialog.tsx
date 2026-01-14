@@ -23,7 +23,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useForm, FormProvider, Controller } from 'react-hook-form';
+import { useForm, FormProvider, Controller, useFormContext } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Client } from '@/lib/data';
@@ -358,44 +358,46 @@ export const EditClientDialog = ({
   const formId = `edit-client-form-${client.id}`;
   
   const FormContent = (
-    <FormProvider {...methods}>
       <form id={formId} onSubmit={methods.handleSubmit(handleSave)}>
         <EditClientForm client={client} />
       </form>
-    </FormProvider>
   );
 
   if (isMobile) {
     return (
-      <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95vh] flex flex-col">
-          <SheetHeader className="text-left px-4">
-            <SheetTitle>{title}</SheetTitle>
-            <SheetDescription>{description}</SheetDescription>
-          </SheetHeader>
-          <div className="py-4 flex-1 overflow-y-auto px-4">{FormContent}</div>
-          <SheetFooter className="px-4">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" form={formId} className="w-full">Save Changes</Button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
+      <FormProvider {...methods}>
+        <Sheet open={open} onOpenChange={onOpenChange}>
+          <SheetContent side="bottom" className="h-[95vh] flex flex-col">
+            <SheetHeader className="text-left px-4">
+              <SheetTitle>{title}</SheetTitle>
+              <SheetDescription>{description}</SheetDescription>
+            </SheetHeader>
+            <div className="py-4 flex-1 overflow-y-auto px-4">{FormContent}</div>
+            <SheetFooter className="px-4">
+              <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+              <Button type="submit" form={formId} className="w-full">Save Changes</Button>
+            </SheetFooter>
+          </SheetContent>
+        </Sheet>
+      </FormProvider>
     );
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
-        <div className="py-4">{FormContent}</div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type="submit" form={formId}>Save Changes</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <FormProvider {...methods}>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription>{description}</DialogDescription>
+          </DialogHeader>
+          <div className="py-4">{FormContent}</div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button type="submit" form={formId}>Save Changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </FormProvider>
   );
 };
