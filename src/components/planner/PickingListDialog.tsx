@@ -17,6 +17,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { services } from '@/lib/data';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import Image from 'next/image';
+import { Checkbox } from '../ui/checkbox';
 
 interface PickingListDialogProps {
   open: boolean;
@@ -122,8 +123,9 @@ export const PickingListDialog: React.FC<PickingListDialogProps> = ({
                   <Accordion type="multiple" className="space-y-2">
                     {products.map(item => (
                       <AccordionItem key={item.product.id} value={item.product.id} className="border rounded-md">
-                        <AccordionTrigger className="p-3 hover:no-underline">
+                        <AccordionTrigger className="p-3 hover:no-underline [&[data-state=open]>div>div>svg]:rotate-90">
                            <div className="flex items-center gap-3 w-full">
+                                <Checkbox id={`check-${item.product.id}`} className="h-5 w-5" />
                                 <div className="w-10 h-10 bg-muted rounded-md flex-shrink-0">
                                     <Image src={item.product.imageUrl || `https://picsum.photos/seed/inv${item.product.id}/100/100`} alt={item.product.name} width={40} height={40} className='rounded-md'/>
                                 </div>
@@ -137,7 +139,7 @@ export const PickingListDialog: React.FC<PickingListDialogProps> = ({
                            </div>
                         </AccordionTrigger>
                         <AccordionContent className="px-3 pb-3">
-                           <div className="space-y-1 text-xs text-muted-foreground">
+                           <div className="space-y-1 text-xs text-muted-foreground pl-10">
                              {item.appointments.map((apt, index) => (
                                 <div key={index} className="flex justify-between">
                                     <span>{apt.clientName}</span>

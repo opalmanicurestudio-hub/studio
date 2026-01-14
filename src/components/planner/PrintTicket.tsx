@@ -8,7 +8,8 @@ import { type Service, type Client, type Appointment } from '@/lib/data';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
 import { Card, CardContent } from '../ui/card';
-import { AlertTriangle, FlaskConical, ShieldPlus } from 'lucide-react';
+import { AlertTriangle, FlaskConical, MapPin, ShieldPlus } from 'lucide-react';
+import { useInventory } from '@/context/InventoryContext';
 
 export interface TicketData {
   business: {
@@ -26,6 +27,7 @@ interface PrintTicketProps {
 
 export const PrintTicket: React.FC<PrintTicketProps> = ({ data }) => {
   const { client, service, appointment } = data;
+  const { inventory, locations } = useInventory();
   const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
 
   const handleCheckChange = (itemId: string) => {
@@ -42,7 +44,20 @@ export const PrintTicket: React.FC<PrintTicketProps> = ({ data }) => {
     <div className="p-4 bg-white text-black font-sans text-sm max-w-md mx-auto print:p-0">
       <style>{`
         @media print {
-          body {
+          body * {
+            visibility: hidden;
+          }
+          #ticket-area, #ticket-area * {
+            visibility: visible;
+          }
+          #ticket-area {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: auto;
+          }
+           body {
             background-color: #fff;
           }
           .print-content {
@@ -50,15 +65,9 @@ export const PrintTicket: React.FC<PrintTicketProps> = ({ data }) => {
             border: none !important;
             margin: 0 !important;
             padding: 0 !important;
-            max-w: 100% !important;
+            max-width: 100% !important;
             width: 100% !important;
             border-radius: 0 !important;
-          }
-          .print-content > *:not(#ticket-area) {
-            display: none !important;
-          }
-          #ticket-area {
-            display: block !important;
           }
         }
       `}</style>
@@ -92,20 +101,27 @@ export const PrintTicket: React.FC<PrintTicketProps> = ({ data }) => {
             <h2 className="text-lg font-semibold mb-2 flex items-center gap-2"><FlaskConical className="h-5 w-5 text-gray-600"/> Service Formula</h2>
             <div className="space-y-2 pl-2">
                 {(service.products && service.products.length > 0) ? (
-                    service.products.map((item, index) => (
-                    <div key={index} className="flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 print:hover:bg-transparent">
-                        <Checkbox 
-                            id={`formula-item-${index}`}
-                            checked={checkedItems.has(`formula-${index}`)}
-                            onCheckedChange={() => handleCheckChange(`formula-${index}`)}
-                            className="print:border-gray-400"
-                        />
-                        <Label htmlFor={`formula-item-${index}`} className="flex justify-between w-full cursor-pointer">
-                            <span>{item.name}</span>
-                            <span className="font-mono text-gray-600">{item.quantityUsed}{item.unit}</span>
-                        </Label>
-                    </div>
-                    ))
+                    service.products.map((item, index) => {
+                        const product = inventory.find(p => p.id === item.id);
+                        const location = locations.find(l => l.id === product?.primaryLocationId);
+                        return (
+                            <div key={index} className="flex items-start gap-3 p-2 rounded-md hover:bg-gray-50 print:hover:bg-transparent">
+                                <Checkbox 
+                                    id={`formula-item-${index}`}
+                                    checked={checkedItems.has(`formula-${index}`)}
+                                    onCheckedChange={() => handleCheckChange(`formula-${index}`)}
+                                    className="print:border-gray-400 mt-1"
+                                />
+                                <Label htmlFor={`formula-item-${index}`} className="flex justify-between w-full cursor-pointer">
+                                    <div>
+                                        <span>{item.name}</span>
+                                        {location && <p className="text-xs text-gray-500 flex items-center gap-1"><MapPin className="w-3 h-3" />{location.name}</p>}
+                                    </div>
+                                    <span className="font-mono text-gray-600">{item.quantityUsed}{item.unit}</span>
+                                </Label>
+                            </div>
+                        )
+                    })
                 ) : (
                     <p className="text-gray-500 text-sm pl-4">No products in formula.</p>
                 )}
