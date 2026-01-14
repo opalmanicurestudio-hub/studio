@@ -21,6 +21,7 @@ import {
   Printer,
   FileStack,
   Trash2,
+  BarChart,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -50,6 +51,14 @@ import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking,
 import { collection, doc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
+import { useIsMobile } from '@/hooks/use-mobile';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet';
 
 const statusConfig: {
   [key in QuoteType['status']]: {
@@ -200,11 +209,58 @@ const QuoteCard = ({ quote, onStatusChange, onBookEvent }: { quote: QuoteType, o
     )
 }
 
+const KpiCards = ({ kpiData }: { kpiData: any }) => (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Accepted Value</CardTitle>
+                <FileCheck className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+                <div className="text-2xl font-bold">${kpiData.acceptedValue.toFixed(2)}</div>
+                <p className="text-xs text-muted-foreground">Total from accepted quotes</p>
+            </CardContent>
+        </Card>
+        <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Conversion Rate</CardTitle>
+                <Percent className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+                <div className="text-2xl font-bold">{kpiData.conversionRate.toFixed(0)}%</div>
+                <p className="text-xs text-muted-foreground">Of sent quotes are accepted</p>
+            </CardContent>
+        </Card>
+        <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Avg. Quote Value</CardTitle>
+                <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+                <div className="text-2xl font-bold">${kpiData.avgQuoteValue.toFixed(2)}</div>
+                <p className="text-xs text-muted-foreground">Average of all sent quotes</p>
+            </CardContent>
+        </Card>
+        <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Awaiting Response</CardTitle>
+                <Clock className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+                <div className="text-2xl font-bold">{kpiData.awaitingResponse}</div>
+                <p className="text-xs text-muted-foreground">Quotes waiting for client review</p>
+            </CardContent>
+        </Card>
+    </div>
+);
+
+
 export default function QuotesPage() {
     const { firestore, user } = useFirebase();
     const { toast } = useToast();
     const router = useRouter();
     const tenantId = 'tenant-abc';
+    const isMobile = useIsMobile();
     
     const quotesQuery = useMemoFirebase(() => {
         if (!user || !firestore) return null;
@@ -296,48 +352,25 @@ export default function QuotesPage() {
           </Button>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Accepted Value</CardTitle>
-              <FileCheck className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">${kpiData.acceptedValue.toFixed(2)}</div>
-              <p className="text-xs text-muted-foreground">Total from accepted quotes</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Conversion Rate</CardTitle>
-              <Percent className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{kpiData.conversionRate.toFixed(0)}%</div>
-               <p className="text-xs text-muted-foreground">Of sent quotes are accepted</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Avg. Quote Value</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">${kpiData.avgQuoteValue.toFixed(2)}</div>
-               <p className="text-xs text-muted-foreground">Average of all sent quotes</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Awaiting Response</CardTitle>
-              <Clock className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{kpiData.awaitingResponse}</div>
-              <p className="text-xs text-muted-foreground">Quotes waiting for client review</p>
-            </CardContent>
-          </Card>
-        </div>
+        {isMobile ? (
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button variant="outline" className="w-full">
+                <BarChart className="mr-2 h-4 w-4" /> View KPIs
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="bottom" className="h-[75vh]">
+                <SheetHeader>
+                    <SheetTitle>Quote KPIs</SheetTitle>
+                </SheetHeader>
+                <div className="py-4">
+                     <KpiCards kpiData={kpiData} />
+                </div>
+            </SheetContent>
+          </Sheet>
+        ) : (
+          <KpiCards kpiData={kpiData} />
+        )}
 
         <Card>
             <CardHeader>
