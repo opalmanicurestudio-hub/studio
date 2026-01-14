@@ -61,7 +61,7 @@ import {
   Calculator,
   Info,
   Check,
-  Link,
+  Link as LinkIcon,
   Calendar,
   AlertTriangle
 } from 'lucide-react';
@@ -71,6 +71,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
 const BillItemRow = ({
   bill,
@@ -83,11 +84,37 @@ const BillItemRow = ({
 }) => (
     <div className="flex flex-col p-3 rounded-lg border bg-background hover:bg-muted/50 transition-colors">
       <div className="flex items-center justify-between">
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
               {bill.isCustom && isEditing ? (
                   <Input defaultValue={bill.title} className="font-semibold border-dashed h-9" disabled={!isEditing} />
               ) : (
-                  <Label className="font-medium pt-2 block">{bill.title}</Label>
+                  <div className="flex items-center gap-2">
+                    <Label className="font-medium pt-2 block truncate">{bill.title}</Label>
+                     {!isEditing && (
+                        <TooltipProvider>
+                            <div className="flex items-center gap-1.5 text-muted-foreground pt-1.5">
+                                {bill.dueDay && (
+                                    <Tooltip>
+                                        <TooltipTrigger><Calendar className="w-3.5 h-3.5" /></TooltipTrigger>
+                                        <TooltipContent><p>Due day set</p></TooltipContent>
+                                    </Tooltip>
+                                )}
+                                {bill.lateFee && (
+                                     <Tooltip>
+                                        <TooltipTrigger><AlertTriangle className="w-3.5 h-3.5" /></TooltipTrigger>
+                                        <TooltipContent><p>Late fee set</p></TooltipContent>
+                                    </Tooltip>
+                                )}
+                                {bill.paymentUrl && (
+                                     <Tooltip>
+                                        <TooltipTrigger><LinkIcon className="w-3.5 h-3.5" /></TooltipTrigger>
+                                        <TooltipContent><p>Payment link saved</p></TooltipContent>
+                                    </Tooltip>
+                                )}
+                            </div>
+                        </TooltipProvider>
+                    )}
+                  </div>
               )}
           </div>
           <div className="flex items-center gap-2 w-full sm:w-auto max-w-[150px]">
@@ -107,7 +134,7 @@ const BillItemRow = ({
       {isEditing && (
          <Accordion type="single" collapsible className="w-full mt-2">
             <AccordionItem value="details" className="border-0">
-                <AccordionTrigger className="text-xs justify-start gap-2 p-1 hover:no-underline text-muted-foreground">More Options</AccordionTrigger>
+                <AccordionTrigger className="text-xs justify-start gap-2 p-1 hover:no-underline text-muted-foreground">Set Due Date, Alerts & Links</AccordionTrigger>
                 <AccordionContent className="pt-4 space-y-4">
                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
@@ -117,7 +144,7 @@ const BillItemRow = ({
                         <div className="space-y-2">
                             <Label htmlFor={`paymentUrl-${bill.title}`} className="text-xs">Payment URL</Label>
                              <div className="relative">
-                                <Link className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <LinkIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                 <Input id={`paymentUrl-${bill.title}`} placeholder="https://..." value={bill.paymentUrl || ''} onChange={(e) => onBillChange(bill.title, 'paymentUrl', e.target.value)} className="pl-8" />
                             </div>
                         </div>
