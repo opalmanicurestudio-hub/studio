@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/chart';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { clients, appointments, services, type Appointment, type Transaction } from '@/lib/data';
+import { type Appointment, type Transaction, type Service } from '@/lib/data';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -40,17 +40,8 @@ import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
 import { collection, query, where, Timestamp } from 'firebase/firestore';
-import { startOfDay, endOfDay } from 'date-fns';
-
-const chartData = [
-  { day: 'Sun', profit: 450 },
-  { day: 'Mon', profit: 680 },
-  { day: 'Tue', profit: 820 },
-  { day: 'Wed', profit: 760 },
-  { day: 'Thu', profit: 910 },
-  { day: 'Fri', profit: 1150 },
-  { day: 'Sat', profit: 1300 },
-];
+import { startOfDay, endOfDay, subDays, format as formatDate } from 'date-fns';
+import { useInventory } from '@/context/InventoryContext';
 
 const chartConfig = {
   profit: {
@@ -61,8 +52,8 @@ const chartConfig = {
 
 type Activity = {
   apt: Appointment;
-  client: (typeof clients)[0] | undefined;
-  service: (typeof services)[0] | undefined;
+  client: { name: string; avatarUrl: string; } | undefined;
+  service: { name: string; profit: number; } | undefined;
 };
 
 export default function DashboardPage() {
@@ -72,12 +63,15 @@ export default function DashboardPage() {
   const { toast } = useToast();
   
   const { firestore, user, isUserLoading } = useFirebase();
-  const tenantId = 'tenant-abc'; // Replace with dynamic tenant ID
+  const { inventory, clients, services, appointments: allAppointments } = useInventory();
+  const tenantId = 'tenant-abc';
   
   const todayStart = startOfDay(new Date());
   const todayEnd = endOfDay(new Date());
+  const weekStart = startOfDay(subDays(new Date(), 6));
 
-  const transactionsQuery = useMemoFirebase(() => {
+  // Queries for today's data
+  const todayTransactionsQuery = useMemoFirebase(() => {
     if (!firestore || !user) return null;
     return query(
       collection(firestore, 'tenants', tenantId, 'transactions'),
@@ -86,7 +80,7 @@ export default function DashboardPage() {
     );
   }, [firestore, user, todayStart, todayEnd, tenantId]);
 
-  const appointmentsQuery = useMemoFirebase(() => {
+  const todayAppointmentsQuery = useMemoFirebase(() => {
     if (!firestore || !user) return null;
     return query(
       collection(firestore, 'tenants', tenantId, 'appointments'),
@@ -94,9 +88,21 @@ export default function DashboardPage() {
       where('startTime', '<=', Timestamp.fromDate(todayEnd))
     );
   }, [firestore, user, todayStart, todayEnd, tenantId]);
+  
+  // Query for the last 7 days of transactions for the chart
+  const weeklyTransactionsQuery = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    return query(
+      collection(firestore, 'tenants', tenantId, 'transactions'),
+      where('date', '>=', Timestamp.fromDate(weekStart)),
+      where('date', '<=', Timestamp.fromDate(todayEnd))
+    );
+  }, [firestore, user, weekStart, todayEnd, tenantId]);
 
-  const { data: todayTransactions, isLoading: transactionsLoading } = useCollection<Transaction>(transactionsQuery);
-  const { data: todayAppointments, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
+
+  const { data: todayTransactions, isLoading: transactionsLoading } = useCollection<Transaction>(todayTransactionsQuery);
+  const { data: todayAppointments, isLoading: appointmentsLoading } = useCollection<Appointment>(todayAppointmentsQuery);
+  const { data: weeklyTransactions, isLoading: weeklyTransactionsLoading } = useCollection<Transaction>(weeklyTransactionsQuery);
 
   const { todaysRevenue, todaysExpenses, profitPercentage } = useMemo(() => {
     if (!todayTransactions) return { todaysRevenue: 0, todaysExpenses: 0, profitPercentage: 0 };
@@ -109,39 +115,96 @@ export default function DashboardPage() {
       .filter(t => t.type === 'expense')
       .reduce((acc, t) => acc + t.amount, 0);
 
-    const yesterdayRevenue = 812; // Mock data for percentage change
+    const yesterdayRevenue = 812; // Mock data for percentage change, can be fetched if needed
     const percentage = yesterdayRevenue > 0 ? ((revenue - yesterdayRevenue) / yesterdayRevenue) * 100 : revenue > 0 ? 100 : 0;
 
     return { todaysRevenue: revenue, todaysExpenses: expenses, profitPercentage: percentage };
   }, [todayTransactions]);
   
+  const chartData = useMemo(() => {
+    if (!weeklyTransactions) return [];
+    
+    const dailyData: { [key: string]: { revenue: number, expense: number } } = {};
 
-  const [recentActivities, setRecentActivities] = useState<Activity[]>([]);
-  const [isClient, setIsClient] = useState(false);
+    for (let i = 0; i < 7; i++) {
+        const day = subDays(new Date(), i);
+        const dayKey = formatDate(day, 'yyyy-MM-dd');
+        dailyData[dayKey] = { revenue: 0, expense: 0 };
+    }
 
-  useEffect(() => {
-    // This effect runs only on the client, after hydration
-    setIsClient(true);
-    setRecentActivities(
-      [...appointments]
-        .sort((a, b) => b.startTime.getTime() - a.startTime.getTime())
+    weeklyTransactions.forEach(t => {
+        const dayKey = formatDate(new Date(t.date), 'yyyy-MM-dd');
+        if (dailyData[dayKey]) {
+            if (t.type === 'income') dailyData[dayKey].revenue += t.amount;
+            if (t.type === 'expense') dailyData[dayKey].expense += t.amount;
+        }
+    });
+
+    return Object.entries(dailyData)
+        .map(([date, { revenue, expense }]) => ({
+            day: formatDate(new Date(date), 'EEE'),
+            profit: revenue - expense,
+        }))
+        .reverse();
+
+  }, [weeklyTransactions]);
+  
+   const newClientsThisWeek = useMemo(() => {
+    if (!allAppointments || !clients) return 0;
+
+    const startOfWeekDate = startOfDay(subDays(new Date(), 6));
+    let newClientCount = 0;
+    const clientsWithAppointmentsThisWeek = new Set<string>();
+
+    // Get all clients who had an appointment this week
+    allAppointments
+      .filter(apt => new Date(apt.startTime) >= startOfWeekDate)
+      .forEach(apt => clientsWithAppointmentsThisWeek.add(apt.clientId));
+
+    clientsWithAppointmentsThisWeek.forEach(clientId => {
+      // Find all appointments for this client
+      const clientAppointments = allAppointments.filter(apt => apt.clientId === clientId);
+      
+      // If they only have appointments within this week, they are a new client for this week
+      if (clientAppointments.every(apt => new Date(apt.startTime) >= startOfWeekDate)) {
+        newClientCount++;
+      }
+    });
+
+    return newClientCount;
+  }, [allAppointments, clients]);
+
+
+  const recentActivities = useMemo(() => {
+    if (!allAppointments) return [];
+    return [...allAppointments]
+        .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
         .slice(0, 5)
         .map((apt) => ({
           apt,
           client: clients.find((c) => c.id === apt.clientId),
           service: services.find((s) => s.id === apt.serviceId),
         }))
-    );
-  }, []);
+        .filter(activity => activity.client && activity.service) as Activity[];
+  }, [allAppointments, clients, services]);
 
   const handleGenerateDebrief = async () => {
     setIsGenerating(true);
     setDebriefContent('');
     try {
+      // Dynamically get some inventory levels
+      const inventoryLevels = inventory
+        .filter(item => item.type === 'professional')
+        .slice(0, 5) // Limit for conciseness
+        .reduce((acc, item) => {
+          acc[item.name] = item.totalStock;
+          return acc;
+        }, {} as Record<string, number>);
+
       const result = await endOfDayDebrief({
         dailyRevenue: todaysRevenue,
         dailyExpenses: todaysExpenses,
-        inventoryLevels: { 'Pro Color Tube 5N': 20, 'Retail Shine Serum': 15 }, // This should be dynamic
+        inventoryLevels: inventoryLevels,
         completedAppointments: todayAppointments?.filter(a => a.status === 'completed').length || 0,
       });
       setDebriefContent(result.summary);
@@ -157,7 +220,7 @@ export default function DashboardPage() {
     }
   };
 
-  const isLoading = isUserLoading || transactionsLoading || appointmentsLoading;
+  const isLoading = isUserLoading || transactionsLoading || appointmentsLoading || weeklyTransactionsLoading;
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -187,9 +250,9 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {isLoading ? <Skeleton className="h-8 w-10 inline-block" /> : todayAppointments?.length}
+                {isLoading ? <Skeleton className="h-8 w-10 inline-block" /> : todayAppointments?.length || 0}
               </div>
-               {isLoading ? <Skeleton className="h-4 w-32 mt-1"/> : <p className="text-xs text-muted-foreground">{todayAppointments?.filter(a => a.status === 'completed').length} completed, {todayAppointments?.filter(a => a.status !== 'completed').length} upcoming</p>}
+               {isLoading ? <Skeleton className="h-4 w-32 mt-1"/> : <p className="text-xs text-muted-foreground">{todayAppointments?.filter(a => a.status === 'completed').length || 0} completed, {todayAppointments?.filter(a => a.status !== 'completed').length || 0} upcoming</p>}
             </CardContent>
           </Card>
           <Card>
@@ -198,7 +261,7 @@ export default function DashboardPage() {
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">+3</div>
+              {isLoading ? <Skeleton className="h-8 w-10 inline-block"/> : <div className="text-2xl font-bold">+{newClientsThisWeek}</div>}
               <p className="text-xs text-muted-foreground">this week</p>
             </CardContent>
           </Card>
@@ -230,26 +293,28 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent className="pl-2">
               <ChartContainer config={chartConfig} className="h-[300px] w-full">
-                <BarChart accessibilityLayer data={chartData}>
-                  <CartesianGrid vertical={false} />
-                  <XAxis
-                    dataKey="day"
-                    tickLine={false}
-                    tickMargin={10}
-                    axisLine={false}
-                  />
-                   <YAxis
-                    tickLine={false}
-                    axisLine={false}
-                    tickMargin={10}
-                    tickFormatter={(value) => `$${'${value}'}`}
-                  />
-                  <ChartTooltip
-                    cursor={false}
-                    content={<ChartTooltipContent />}
-                  />
-                  <Bar dataKey="profit" fill="var(--color-profit)" radius={8} />
-                </BarChart>
+                {isLoading ? <Skeleton className="w-full h-full" /> : (
+                    <BarChart accessibilityLayer data={chartData}>
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                        dataKey="day"
+                        tickLine={false}
+                        tickMargin={10}
+                        axisLine={false}
+                    />
+                    <YAxis
+                        tickLine={false}
+                        axisLine={false}
+                        tickMargin={10}
+                        tickFormatter={(value) => `$${value}`}
+                    />
+                    <ChartTooltip
+                        cursor={false}
+                        content={<ChartTooltipContent />}
+                    />
+                    <Bar dataKey="profit" fill="var(--color-profit)" radius={8} />
+                    </BarChart>
+                )}
               </ChartContainer>
             </CardContent>
           </Card>
@@ -261,7 +326,7 @@ export default function DashboardPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-6">
-              {!isClient ? (
+              {isLoading ? (
                 Array.from({ length: 5 }).map((_, index) => (
                   <div key={index} className="flex items-center gap-4">
                     <Skeleton className="h-9 w-9 rounded-full" />
