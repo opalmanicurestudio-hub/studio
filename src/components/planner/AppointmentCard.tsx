@@ -493,4 +493,3 @@ export function AppointmentCard({
     </div>
   );
 }
-

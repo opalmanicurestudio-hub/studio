@@ -35,12 +35,14 @@ import {
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CalendarIcon, PlusCircle, Trash2 } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2, Library, QrCode } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Client, Service, Appointment } from '@/lib/data';
+import { Client, Service, Appointment, InventoryItem } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Card, CardContent } from '../ui/card';
+import { useInventory } from '@/context/InventoryContext';
+import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 
 const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: Date) => void }) => {
     const isMobile = useIsMobile();
@@ -112,6 +114,14 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
     );
 };
 
+type EditableFormulaItem = {
+    id: string; // productId
+    name: string;
+    quantity: number;
+    unit: string;
+};
+
+
 const EditAppointmentForm = ({ 
     appointment,
     clients, 
@@ -125,13 +135,19 @@ const EditAppointmentForm = ({
     appointments: Appointment[];
     onConfirm: (apt: Appointment) => void;
 }) => {
+    const { inventory } = useInventory();
+    const client = clients.find(c => c.id === appointment.clientId);
+
     const [selectedClientId, setSelectedClientId] = useState<string>(appointment.clientId);
     const [selectedServiceId, setSelectedServiceId] = useState<string>(appointment.serviceId);
     const [date, setDate] = useState<Date>(appointment.startTime);
     const [startTime, setStartTime] = useState<string>(format(appointment.startTime, 'HH:mm'));
     const [selectedAddOns, setSelectedAddOns] = useState<Service[]>([]);
     const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
-
+    const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
+    
+    const [editableFormula, setEditableFormula] = useState<EditableFormulaItem[]>([]);
+    
     const selectedService = useMemo(() => services.find(s => s.id === selectedServiceId), [services, selectedServiceId]);
 
     useEffect(() => {
@@ -139,10 +155,21 @@ const EditAppointmentForm = ({
         setSelectedServiceId(appointment.serviceId);
         setDate(appointment.startTime);
         setStartTime(format(appointment.startTime, 'HH:mm'));
+
         const initialAddons = (appointment.addOnIds || [])
             .map(id => services.find(s => s.id === id))
             .filter((s): s is Service => !!s);
         setSelectedAddOns(initialAddons);
+
+        const currentService = services.find(s => s.id === appointment.serviceId);
+        const formula = currentService?.products?.map(p => ({
+            id: p.id,
+            name: p.name,
+            quantity: p.quantityUsed,
+            unit: p.unit || 'uses',
+        })) || [];
+        setEditableFormula(formula);
+
     }, [appointment, services]);
 
     const timeOptions = useMemo(() => {
@@ -208,8 +235,39 @@ const EditAppointmentForm = ({
             endTime: endDateTime,
             addOnIds: selectedAddOns.map(s => s.id),
         };
+        // Here we would also save the edited formula, likely on the appointment object itself
+        // For now, it just updates the appointment time/service
         onConfirm(updatedAppointment);
     }
+    
+    const handleAddProduct = (products: InventoryItem[]) => {
+      const newItems: EditableFormulaItem[] = products.map(p => ({
+        id: p.id,
+        name: p.name,
+        quantity: 1, // Default quantity
+        unit: p.unit || 'unit',
+      }));
+      setEditableFormula(prev => [...prev, ...newItems.filter(newItem => !prev.find(item => item.id === newItem.id))]);
+      setIsProductBrowserOpen(false);
+    };
+
+    const removeProduct = (productId: string) => {
+        setEditableFormula(prev => prev.filter(item => item.id !== productId));
+    };
+
+    const handleApplyClientFormula = (formulaName: string) => {
+        if (!client) return;
+        const formula = client.customFormulas?.find(f => f.name === formulaName);
+        if (!formula) return;
+        const newFormula: EditableFormulaItem[] = formula.items.map(item => ({
+            id: item.productId,
+            name: item.productName,
+            quantity: item.quantityUsed,
+            unit: item.unit,
+        }));
+        setEditableFormula(newFormula);
+    };
+
 
     const removeAddOn = (addOnId: string) => {
         setSelectedAddOns(prev => prev.filter(a => a.id !== addOnId));
@@ -248,7 +306,58 @@ const EditAppointmentForm = ({
                             </div>
                         </div>
 
-                         <div className="space-y-4">
+                        <div className="space-y-4">
+                            <div className="flex justify-between items-center">
+                                <h3 className="text-lg font-medium">Product Formula</h3>
+                                {client?.customFormulas && client.customFormulas.length > 0 && (
+                                    <div className="w-full sm:w-auto sm:min-w-[200px]">
+                                        <Select onValueChange={handleApplyClientFormula}>
+                                            <SelectTrigger className="h-8 text-xs">
+                                                <SelectValue placeholder="Load client formula..." />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {client.customFormulas.map(f => (
+                                                    <SelectItem key={f.name} value={f.name}>{f.name}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                )}
+                            </div>
+                            <Card>
+                                <CardContent className="p-2 space-y-2">
+                                {editableFormula.length > 0 ? (
+                                    editableFormula.map(item => (
+                                    <div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50">
+                                        <span className="text-sm font-medium">{item.name}</span>
+                                        <div className="flex items-center gap-2">
+                                            <Input
+                                                type="number"
+                                                value={item.quantity}
+                                                onChange={(e) => {
+                                                    const newQty = parseFloat(e.target.value) || 0;
+                                                    setEditableFormula(prev => prev.map(p => p.id === item.id ? {...p, quantity: newQty} : p))
+                                                }}
+                                                className="w-16 h-8 text-center"
+                                            />
+                                            <span className="text-xs text-muted-foreground">{item.unit}</span>
+                                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeProduct(item.id)}>
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                    </div>
+                                    ))
+                                ) : (
+                                    <p className="text-center text-sm text-muted-foreground p-3">No products in formula.</p>
+                                )}
+                                </CardContent>
+                            </Card>
+                            <div className='flex gap-2'>
+                                <Button variant="outline" size="sm" type="button" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> Browse Library</Button>
+                            </div>
+                        </div>
+
+                        <div className="space-y-4">
                             <h3 className="text-lg font-medium">Add-on Services</h3>
                                 {selectedAddOns.length > 0 ? (
                                 <Card>
@@ -272,7 +381,6 @@ const EditAppointmentForm = ({
                             )}
                             <Button variant="outline" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button>
                         </div>
-
 
                         <div className="space-y-4">
                             <h3 className="text-lg font-medium">Date & Time</h3>
@@ -304,7 +412,14 @@ const EditAppointmentForm = ({
                     </div>
                 </ScrollArea>
             </form>
-             <SelectAddOnsDialog
+            <BrowseProductsDialog
+                open={isProductBrowserOpen}
+                onOpenChange={setIsProductBrowserOpen}
+                onSelect={handleAddProduct}
+                allProducts={inventory.filter(p => p.type === 'professional')}
+                initialSelected={[]}
+            />
+            <SelectAddOnsDialog
                 open={isAddOnSelectorOpen}
                 onOpenChange={setIsAddOnSelectorOpen}
                 onSelect={setSelectedAddOns}
@@ -326,13 +441,13 @@ export const EditAppointmentDialog = ({ open, onOpenChange, appointment, clients
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95dvh]">
-          <SheetHeader className="text-left">
+        <SheetContent side="bottom" className="h-[95dvh] flex flex-col">
+          <SheetHeader className="text-left px-4">
             <SheetTitle>{title}</SheetTitle>
             <SheetDescription>{description}</SheetDescription>
           </SheetHeader>
-          <div className="py-4">{FormContent}</div>
-          <SheetFooter>
+          <div className="py-4 flex-1 overflow-y-auto px-4">{FormContent}</div>
+          <SheetFooter className="px-4">
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button type="submit" form="edit-appointment-form" className="w-full">Save Changes</Button>
           </SheetFooter>
