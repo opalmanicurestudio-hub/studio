@@ -23,24 +23,92 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useForm, FormProvider } from 'react-hook-form';
+import { useForm, FormProvider, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Client } from '@/lib/data';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { Textarea } from '../ui/textarea';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
+import { ShieldAlert, AlertTriangle, Ear, Upload } from 'lucide-react';
+import { ImageUpload } from '../shared/ImageUpload';
 
 const clientSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
   email: z.string().email('Invalid email address.'),
   phone: z.string().min(1, 'Phone number is required.'),
+  avatarUrl: z.string().optional(),
+  medicalNotes: z.string().optional(),
+  allergyNotes: z.string().optional(),
+  sensoryNeeds: z.string().optional(),
+  notes: z.string().optional(),
 });
 
 type ClientFormData = z.infer<typeof clientSchema>;
 
+const EditClientIntelCategory = ({
+  title,
+  icon,
+  fieldName,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  fieldName: keyof ClientFormData;
+}) => {
+  const { control } = useFormContext<ClientFormData>();
+  return (
+    <AccordionItem value={title.toLowerCase().replace(' ', '-')}>
+      <AccordionTrigger>{title}</AccordionTrigger>
+      <AccordionContent>
+        <Controller
+          name={fieldName}
+          control={control}
+          render={({ field }) => (
+            <Textarea
+              placeholder={`Enter ${title.toLowerCase()} notes...`}
+              {...field}
+            />
+          )}
+        />
+      </AccordionContent>
+    </AccordionItem>
+  );
+};
+
+
 const EditClientForm = ({ client }: { client: Client }) => {
-  const { register, formState: { errors } } = useForm<ClientFormData>();
+  const { register, control, formState: { errors } } = useFormContext<ClientFormData>();
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+        <div className="space-y-2">
+            <Label>Profile Picture</Label>
+            <div className="flex items-center gap-4">
+                 <Controller
+                    name="avatarUrl"
+                    control={control}
+                    render={({ field }) => (
+                         <Avatar className="w-20 h-20">
+                            <AvatarImage src={field.value || undefined} alt={client.name} />
+                            <AvatarFallback>{client.name.substring(0, 2)}</AvatarFallback>
+                        </Avatar>
+                    )}
+                 />
+                 <Controller
+                    name="avatarUrl"
+                    control={control}
+                    render={({ field }) => (
+                        <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} />
+                    )}
+                 />
+            </div>
+        </div>
+
       <div className="space-y-2">
         <Label htmlFor="name">Full Name</Label>
         <Input id="name" {...register('name')} />
@@ -56,6 +124,36 @@ const EditClientForm = ({ client }: { client: Client }) => {
         <Input id="phone" type="tel" {...register('phone')} />
         {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
       </div>
+      
+       <Accordion type="multiple" className="w-full space-y-4">
+          <EditClientIntelCategory
+            title="Medical & Health"
+            icon={<ShieldAlert className="w-5 h-5 text-red-500" />}
+            fieldName="medicalNotes"
+          />
+          <EditClientIntelCategory
+            title="Allergies & Sensitivities"
+            icon={<AlertTriangle className="w-5 h-5 text-amber-500" />}
+            fieldName="allergyNotes"
+          />
+          <EditClientIntelCategory
+            title="Disabilities & Sensory Needs"
+            icon={<Ear className="w-5 h-5 text-blue-500" />}
+            fieldName="sensoryNeeds"
+          />
+        </Accordion>
+        
+        <div className="space-y-2">
+            <Label htmlFor="general-notes">General Notes</Label>
+            <Controller
+              name="notes"
+              control={control}
+              render={({ field }) => (
+                <Textarea id="general-notes" placeholder="General client notes, preferences, etc." {...field} />
+              )}
+            />
+        </div>
+
     </div>
   );
 };
@@ -82,6 +180,11 @@ export const EditClientDialog = ({
         name: client.name,
         email: client.email,
         phone: client.phone,
+        avatarUrl: client.avatarUrl,
+        medicalNotes: client.medicalNotes || '',
+        allergyNotes: client.allergyNotes || '',
+        sensoryNeeds: client.sensoryNeeds || '',
+        notes: client.notes || '',
       });
     }
   }, [client, methods]);
@@ -91,32 +194,30 @@ export const EditClientDialog = ({
   };
   
   const title = `Edit ${client.name}`;
-  const description = "Update the client's contact information.";
+  const description = "Update the client's information.";
 
   const formId = `edit-client-form-${client.id}`;
   
   const FormContent = (
-      <FormProvider {...methods}>
-          <form id={formId} onSubmit={methods.handleSubmit(handleSave)}>
-              <ScrollArea className="h-[70vh]">
-                  <div className="pr-6">
-                      <EditClientForm client={client} />
-                  </div>
-              </ScrollArea>
-          </form>
-      </FormProvider>
-  )
+    <FormProvider {...methods}>
+      <form id={formId} onSubmit={methods.handleSubmit(handleSave)}>
+        <ScrollArea className="h-[70vh] pr-4">
+          <EditClientForm client={client} />
+        </ScrollArea>
+      </form>
+    </FormProvider>
+  );
 
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent side="bottom" className="h-[95vh] flex flex-col">
-          <SheetHeader className="text-left">
+          <SheetHeader className="text-left px-4">
             <SheetTitle>{title}</SheetTitle>
             <SheetDescription>{description}</SheetDescription>
           </SheetHeader>
-          <div className="py-4 flex-1">{FormContent}</div>
-          <SheetFooter>
+          <div className="py-4 flex-1 px-4">{FormContent}</div>
+          <SheetFooter className="px-4">
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button type="submit" form={formId} className="w-full">Save Changes</Button>
           </SheetFooter>
