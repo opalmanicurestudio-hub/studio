@@ -202,17 +202,17 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
-          <SheetHeader className="p-6 text-left">
+        <SheetContent side="bottom" className="h-[95dvh] flex flex-col p-0">
+          <SheetHeader className="p-6 pb-4 text-left">
             <SheetTitle>{dialogTitle}</SheetTitle>
             <SheetDescription>Build your form by adding and configuring fields.</SheetDescription>
           </SheetHeader>
-          <ScrollArea className="flex-1 px-6">
+          <div className="flex-1 overflow-y-auto px-6">
             {FormContent}
-          </ScrollArea>
-          <SheetFooter className="p-6 pt-4 border-t bg-background">
-            <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full sm:w-auto">Cancel</Button>
-            <Button onClick={handleSave} className="w-full sm:w-auto">Save Form</Button>
+          </div>
+          <SheetFooter className="p-4 border-t bg-background grid grid-cols-2 gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full">Cancel</Button>
+            <Button onClick={handleSave} className="w-full">Save Form</Button>
           </SheetFooter>
         </SheetContent>
       </Sheet>
