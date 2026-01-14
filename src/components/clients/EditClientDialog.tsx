@@ -44,6 +44,7 @@ import { format } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Badge } from '../ui/badge';
 import { clients as allClients } from '@/lib/data';
+import { Checkbox } from '../ui/checkbox';
 
 
 const clientSchema = z.object({
@@ -66,49 +67,105 @@ type ClientFormData = z.infer<typeof clientSchema>;
 const ClientIntelCategory = ({
   title,
   icon,
-  fieldName,
+  color,
+  predefinedItems,
 }: {
   title: string;
   icon: React.ReactNode;
-  fieldName: keyof ClientFormData;
+  color: string;
+  predefinedItems: string[];
 }) => {
-    const { control } = useFormContext<ClientFormData>();
+  const [customItems, setCustomItems] = useState<string[]>([]);
+  const [inputValue, setInputValue] = useState('');
+
+  const handleAddItem = () => {
+    if (inputValue.trim() && !customItems.includes(inputValue.trim())) {
+      setCustomItems([...customItems, inputValue.trim()]);
+      setInputValue('');
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAddItem();
+    }
+  };
+
+  const handleRemoveItem = (itemToRemove: string) => {
+    setCustomItems(customItems.filter(item => item !== itemToRemove));
+  };
+  
+  const colorClasses = {
+      red: 'bg-red-500/5',
+      amber: 'bg-amber-500/5',
+      blue: 'bg-blue-500/5',
+  }
 
   return (
-    <AccordionItem value={title.toLowerCase().replace(' ', '-')}>
-      <AccordionTrigger className="text-base font-semibold">{icon}{title}</AccordionTrigger>
-      <AccordionContent>
-        <Controller
-          name={fieldName}
-          control={control}
-          render={({ field }) => (
-            <Textarea
-              placeholder={`Add detailed ${title.toLowerCase()} notes...`}
-              {...field}
-            />
-          )}
-        />
+    <AccordionItem value={title.toLowerCase().replace(' ', '-')} className="border rounded-lg">
+      <AccordionTrigger className={cn("p-4 hover:no-underline rounded-t-lg", colorClasses[color as keyof typeof colorClasses] || 'bg-muted/50')}>
+        <div className="flex items-center gap-3">
+          {icon}
+          <span className="font-semibold text-base">{title}</span>
+        </div>
+      </AccordionTrigger>
+      <AccordionContent className="p-4 space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          {predefinedItems.map(item => (
+            <div key={item} className="flex items-center space-x-2">
+              <Checkbox id={`check-${title}-${item}`} />
+              <Label htmlFor={`check-${title}-${item}`}>{item}</Label>
+            </div>
+          ))}
+        </div>
+        <div className="space-y-2">
+             <Label className="text-xs">Custom Fields</Label>
+             <div className="flex gap-2">
+                <Input 
+                    placeholder="Add custom field..." 
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                />
+                <Button type="button" variant="outline" onClick={handleAddItem}>Add</Button>
+            </div>
+             <div className="flex flex-wrap gap-2 pt-2">
+                {customItems.map(item => (
+                    <Badge key={item} variant="secondary">
+                        {item}
+                        <button type="button" onClick={() => handleRemoveItem(item)} className="ml-1.5 -mr-0.5 rounded-full p-0.5 hover:bg-destructive/20">
+                            <Trash2 className="h-3 w-3" />
+                        </button>
+                    </Badge>
+                ))}
+            </div>
+        </div>
+        <Textarea placeholder={`Add detailed ${title.toLowerCase()} notes...`} />
       </AccordionContent>
     </AccordionItem>
-  );
+  )
 };
 
 const ClientIntelAccordion = () => (
     <Accordion type="multiple" className="w-full space-y-4">
         <ClientIntelCategory
             title="Medical & Health"
-            icon={<ShieldAlert className="w-5 h-5 text-red-500 mr-2" />}
-            fieldName="medicalNotes"
+            icon={<ShieldAlert className="w-5 h-5 text-red-500" />}
+            color="red"
+            predefinedItems={['Pregnant', 'Pacemaker', 'Diabetes', 'High Blood Pressure']}
         />
         <ClientIntelCategory
             title="Allergies & Sensitivities"
-            icon={<AlertTriangle className="w-5 h-5 text-amber-500 mr-2" />}
-            fieldName="allergyNotes"
+            icon={<AlertTriangle className="w-5 h-5 text-amber-500" />}
+            color="amber"
+            predefinedItems={['Latex', 'Fragrance', 'Nuts', 'Aspirin']}
         />
         <ClientIntelCategory
             title="Disabilities & Sensory Needs"
-            icon={<Ear className="w-5 h-5 text-blue-500 mr-2" />}
-            fieldName="sensoryNeeds"
+            icon={<Ear className="w-5 h-5 text-blue-500" />}
+            color="blue"
+            predefinedItems={['Wheelchair Access', 'Prefers Quiet', 'Sensory Sensitivities', 'Service Animal']}
         />
     </Accordion>
 );
@@ -118,33 +175,11 @@ const EditClientForm = ({ client }: { client: Client }) => {
   const { register, control, formState: { errors } } = useFormContext<ClientFormData>();
     const [tags, setTags] = useState<string[]>([]);
     const [tagInput, setTagInput] = useState('');
-    const [referralSource, setReferralSource] = useState<string>('');
-    
-    const handleAddTag = () => {
-        if (tagInput.trim()) {
-            const newTag = tagInput.trim();
-            if (!tags.includes(newTag)) {
-                setTags([...tags, newTag]);
-            }
-            setTagInput('');
-        }
-    };
-
-    const handleTagInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            handleAddTag();
-        }
-    };
-
-    const removeTag = (tagToRemove: string) => {
-        setTags(tags.filter(tag => tag !== tagToRemove));
-    };
+    const [referralSource, setReferralSource] = useState<string>(client.intel?.referralSource || '');
 
   return (
     <ScrollArea className="h-[70vh] pr-6">
       <div className="space-y-8">
-        {/* Section 1: Basic Info */}
         <div className="space-y-4">
             <h3 className="text-lg font-medium">Basic Information</h3>
             <div className="flex flex-col items-center space-y-4">
@@ -218,7 +253,6 @@ const EditClientForm = ({ client }: { client: Client }) => {
             </div>
         </div>
 
-        {/* Section 2: Tags & Referral */}
         <div className="space-y-4">
             <h3 className="text-lg font-medium">Tags & Referral Source</h3>
             <div className="space-y-2">
@@ -229,9 +263,22 @@ const EditClientForm = ({ client }: { client: Client }) => {
                         placeholder="Type a tag and press Enter..." 
                         value={tagInput}
                         onChange={(e) => setTagInput(e.target.value)}
-                        onKeyDown={handleTagInputKeyDown}
+                        onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+                            if (e.key === 'Enter') {
+                                e.preventDefault();
+                                if (tagInput.trim()) {
+                                    setTags(prev => [...prev, tagInput.trim()]);
+                                    setTagInput('');
+                                }
+                            }
+                        }}
                     />
-                    <Button type="button" onClick={handleAddTag}>Add</Button>
+                    <Button type="button" onClick={() => {
+                        if (tagInput.trim()) {
+                            setTags(prev => [...prev, tagInput.trim()]);
+                            setTagInput('');
+                        }
+                    }}>Add</Button>
                 </div>
                 <div className="flex flex-wrap gap-2 pt-2">
                     {tags.map(tag => (
@@ -240,7 +287,7 @@ const EditClientForm = ({ client }: { client: Client }) => {
                             <button
                                 type="button"
                                 className="ml-1.5 -mr-0.5 rounded-full p-0.5 hover:bg-destructive/20"
-                                onClick={() => removeTag(tag)}
+                                onClick={() => setTags(prev => prev.filter(t => t !== tag))}
                             >
                                 <Trash2 className="h-3 w-3" />
                             </button>
@@ -285,18 +332,34 @@ const EditClientForm = ({ client }: { client: Client }) => {
             )}
         </div>
 
-        {/* Section 3: Client Intel */}
         <div className="space-y-4">
             <h3 className="text-lg font-medium">Client Intel</h3>
             <ClientIntelAccordion />
         </div>
 
-        {/* Section 4: Notes */}
         <div className="space-y-4">
-            <h3 className="text-lg font-medium">General Notes</h3>
-            <Accordion type="single" collapsible className="w-full space-y-2">
+            <h3 className="text-lg font-medium">Consultation Notes</h3>
+             <Accordion type="multiple" className="w-full space-y-2">
+                <AccordionItem value="goals" className="border rounded-lg">
+                    <AccordionTrigger className="p-3 text-base font-semibold">Client Goals</AccordionTrigger>
+                    <AccordionContent className="p-4">
+                        <Textarea placeholder="What is the client hoping to achieve today and in the long term?" />
+                    </AccordionContent>
+                </AccordionItem>
+                <AccordionItem value="routine" className="border rounded-lg">
+                    <AccordionTrigger className="p-3 text-base font-semibold">Current Routine & Products</AccordionTrigger>
+                    <AccordionContent className="p-4">
+                        <Textarea placeholder="What products are they currently using? What is their daily maintenance routine?" />
+                    </AccordionContent>
+                </AccordionItem>
+                <AccordionItem value="history" className="border rounded-lg">
+                    <AccordionTrigger className="p-3 text-base font-semibold">Past Service History</AccordionTrigger>
+                    <AccordionContent className="p-4">
+                        <Textarea placeholder="Any good or bad experiences with this type of service in the past? What did they like or dislike?" />
+                    </AccordionContent>
+                </AccordionItem>
                 <AccordionItem value="other" className="border rounded-lg">
-                    <AccordionTrigger className="p-3 text-base font-semibold">Notes</AccordionTrigger>
+                    <AccordionTrigger className="p-3 text-base font-semibold">Other Notes</AccordionTrigger>
                     <AccordionContent className="p-4">
                         <Controller
                             name="notes"
@@ -341,9 +404,6 @@ export const EditClientDialog = ({
         allergyNotes: client.allergyNotes || '',
         sensoryNeeds: client.sensoryNeeds || '',
         notes: client.notes || '',
-        // birthday: client.birthday ? new Date(client.birthday) : undefined, // Add when birthday is on Client type
-        // address: client.address || '',
-        // referralSource: client.referralSource || ''
       });
     }
   }, [client, methods]);
