@@ -80,8 +80,7 @@ export function AppSidebar() {
   const pathname = usePathname();
 
   const isNavItemActive = (href: string) => {
-    // Exact match for dashboard, startsWith for others
-    if (href === '/dashboard' || href === '/inventory' || href === '/planner') {
+    if (href === '/') {
         return pathname === href;
     }
     return pathname.startsWith(href);
@@ -173,7 +172,7 @@ export function AppSidebar() {
       <SidebarFooter>
         <SidebarMenu>
             <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={isNavItemActive('/settings')} tooltip="Settings">
+                <SidebarMenuButton asChild isActive={pathname.startsWith('/settings')} tooltip="Settings">
                   <Link href="/settings">
                     <Settings />
                     <span>Settings</span>
