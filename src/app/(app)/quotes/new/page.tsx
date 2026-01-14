@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -26,7 +27,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-import { ArrowLeft, Save, PlusCircle, Trash2, Calculator, Info, DollarSign, Calendar as CalendarIcon, UserPlus } from 'lucide-react';
+import { ArrowLeft, Save, PlusCircle, Trash2, Calculator, Info, DollarSign, Calendar as CalendarIcon, UserPlus, Car, Briefcase, Landlord, Utensils, Plane, Hotel, Loader } from 'lucide-react';
 import Link from 'next/link';
 import { clients as initialClients, services as initialServices, type Client, type Service, inventory as allInventory } from '@/lib/data';
 import { Textarea } from '@/components/ui/textarea';
@@ -146,12 +147,24 @@ export default function QuoteGeneratorPage() {
     const [eventEndTime, setEventEndTime] = useState('17:00');
     const [isMultiDay, setIsMultiDay] = useState(false);
     const [totalHours, setTotalHours] = useState(0);
+    const [eventLocation, setEventLocation] = useState({ street: '', city: '', state: '', zip: '', country: '' });
+
 
     // Line Items
     const [lineItems, setLineItems] = useState<LineItem[]>([]);
-
+    
     // Travel & Expenses
-    const [travelExpenses, setTravelExpenses] = useState(0);
+    const [roundTripDistance, setRoundTripDistance] = useState(0);
+    const [travelTime, setTravelTime] = useState(0);
+    const [costPerMile, setCostPerMile] = useState(0.67); // 2024 IRS rate
+    const [isCalculatingTravel, setIsCalculatingTravel] = useState(false);
+    const [flightsCost, setFlightsCost] = useState(0);
+    const [lodgingNights, setLodgingNights] = useState(0);
+    const [lodgingRatePerNight, setLodgingRatePerNight] = useState(0);
+    const [numberOfDays, setNumberOfDays] = useState(0);
+    const [ratePerDay, setRatePerDay] = useState(0);
+    const [equipmentRentalCost, setEquipmentRentalCost] = useState(0);
+
 
     // Fees & Payment
     const [projectFee, setProjectFee] = useState(0);
@@ -167,6 +180,27 @@ export default function QuoteGeneratorPage() {
         }
     }, []);
     
+    const travelAndExpenses = useMemo(() => {
+        const mileageCost = roundTripDistance * costPerMile;
+        const lodgingCost = lodgingNights * lodgingRatePerNight;
+        const perDiemCost = numberOfDays * ratePerDay;
+        return mileageCost + flightsCost + lodgingCost + perDiemCost + equipmentRentalCost;
+    }, [roundTripDistance, costPerMile, flightsCost, lodgingNights, lodgingRatePerNight, numberOfDays, ratePerDay, equipmentRentalCost]);
+    
+    const handleCalculateTravel = () => {
+        setIsCalculatingTravel(true);
+        // This would be a server action in a real app
+        setTimeout(() => {
+            setRoundTripDistance(124); // Mock data
+            setTravelTime(150); // Mock data
+            setIsCalculatingTravel(false);
+            toast({
+                title: "Travel Calculated",
+                description: "Round trip distance and time have been estimated.",
+            })
+        }, 1500);
+    };
+
     const handleSaveQuote = async () => {
         if (!clientId || !eventName || !firestore || !user) {
             toast({
@@ -181,6 +215,7 @@ export default function QuoteGeneratorPage() {
             clientId,
             eventName,
             eventDate: eventStartDate?.toISOString(),
+            eventLocation: eventLocation,
             lineItems: lineItems,
             travelExpenses,
             projectFee,
@@ -292,6 +327,20 @@ export default function QuoteGeneratorPage() {
                           <Input id="event-name" value={eventName} onChange={e => setEventName(e.target.value)} placeholder="e.g., Carla & Mark's Wedding" />
                         </div>
                         <div className="space-y-2">
+                            <Label>Event Location</Label>
+                             <div className="space-y-2 p-4 border rounded-lg">
+                                <Input value={eventLocation.street} onChange={(e) => setEventLocation(prev => ({ ...prev, street: e.target.value }))} placeholder="Street Address" />
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    <Input value={eventLocation.city} onChange={(e) => setEventLocation(prev => ({ ...prev, city: e.target.value }))} placeholder="City" />
+                                    <Input value={eventLocation.state} onChange={(e) => setEventLocation(prev => ({ ...prev, state: e.target.value }))} placeholder="State / Province" />
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    <Input value={eventLocation.zip} onChange={(e) => setEventLocation(prev => ({ ...prev, zip: e.target.value }))} placeholder="ZIP / Postal Code" />
+                                    <Input value={eventLocation.country} onChange={(e) => setEventLocation(prev => ({ ...prev, country: e.target.value }))} placeholder="Country" />
+                                </div>
+                            </div>
+                        </div>
+                        <div className="space-y-2">
                             <div className="flex items-center justify-between">
                                 <Label>Event Date(s)</Label>
                                 <div className="flex items-center gap-2">
@@ -380,17 +429,84 @@ export default function QuoteGeneratorPage() {
                 </AccordionItem>
 
                  <AccordionItem value="travel-expenses">
-                  <AccordionTrigger className='text-lg font-semibold'>Travel & Expenses</AccordionTrigger>
+                  <AccordionTrigger className='text-lg font-semibold'>Travel & Other Expenses</AccordionTrigger>
                   <AccordionContent className='pt-4'>
                     <Card>
-                      <CardContent className="p-6 grid gap-6">
-                        <div className="space-y-2">
-                            <Label htmlFor="travel-expenses">Flat Travel & Expenses</Label>
-                             <div className="relative">
-                                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                <Input id="travel-expenses" type="number" value={travelExpenses || ''} onChange={e => setTravelExpenses(Number(e.target.value))} className="pl-9" />
+                      <CardHeader>
+                        <CardTitle>Mileage Calculator</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                          <div className="space-y-2">
+                                <Label>Start Location</Label>
+                                <div className="space-y-2 p-3 border rounded-lg">
+                                    <Input placeholder="Street Address" />
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <Input placeholder="City" />
+                                      <Input placeholder="State" />
+                                    </div>
+                                </div>
+                                <Button variant="link" size="sm" className="p-0 h-auto">Use Business Address</Button>
                             </div>
-                        </div>
+                           <div className="space-y-2">
+                                <Label>End Location</Label>
+                                <div className="space-y-2 p-3 border rounded-lg">
+                                    <Input placeholder="Street Address" />
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <Input placeholder="City" />
+                                      <Input placeholder="State" />
+                                    </div>
+                                </div>
+                            </div>
+                            <Button onClick={handleCalculateTravel} disabled={isCalculatingTravel} className="w-full">
+                                {isCalculatingTravel ? <Loader className="animate-spin mr-2"/> : <Car className="mr-2"/>}
+                                Calculate Travel
+                            </Button>
+                             <div className="grid grid-cols-2 gap-4 pt-4">
+                                <div className="p-3 bg-muted/50 rounded-lg">
+                                    <Label className="text-xs text-muted-foreground">Round Trip</Label>
+                                    <p className="font-semibold text-lg">{roundTripDistance} miles</p>
+                                </div>
+                                 <div className="p-3 bg-muted/50 rounded-lg">
+                                    <Label className="text-xs text-muted-foreground">Est. Travel Time</Label>
+                                    <p className="font-semibold text-lg">{travelTime} min</p>
+                                </div>
+                            </div>
+                             <div className="space-y-2">
+                                <Label htmlFor="cost-per-mile">Cost per Mile</Label>
+                                 <div className="relative">
+                                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                    <Input id="cost-per-mile" type="number" value={costPerMile} onChange={e => setCostPerMile(Number(e.target.value))} className="pl-9" />
+                                </div>
+                            </div>
+                      </CardContent>
+                      <CardHeader>
+                          <CardTitle>Other Expenses</CardTitle>
+                      </CardHeader>
+                      <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-2">
+                                <Label htmlFor="flights-cost" className="flex items-center gap-2"><Plane/>Flights</Label>
+                                <Input id="flights-cost" type="number" value={flightsCost || ''} onChange={e => setFlightsCost(Number(e.target.value))} placeholder="0.00" />
+                            </div>
+                             <div className="space-y-2">
+                                <Label htmlFor="equipment-rental-cost" className="flex items-center gap-2"><Briefcase />Equipment Rentals</Label>
+                                <Input id="equipment-rental-cost" type="number" value={equipmentRentalCost || ''} onChange={e => setEquipmentRentalCost(Number(e.target.value))} placeholder="0.00" />
+                            </div>
+                            <div className="space-y-2">
+                                <Label className="flex items-center gap-2"><Hotel/>Lodging</Label>
+                                <div className="flex items-center gap-2">
+                                    <Input type="number" value={lodgingNights || ''} onChange={e => setLodgingNights(Number(e.target.value))} placeholder="# nights"/>
+                                    <span className="text-muted-foreground">x</span>
+                                    <Input type="number" value={lodgingRatePerNight || ''} onChange={e => setLodgingRatePerNight(Number(e.target.value))} placeholder="rate/night"/>
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <Label className="flex items-center gap-2"><Utensils/>Per Diem</Label>
+                                <div className="flex items-center gap-2">
+                                    <Input type="number" value={numberOfDays || ''} onChange={e => setNumberOfDays(Number(e.target.value))} placeholder="# days"/>
+                                    <span className="text-muted-foreground">x</span>
+                                    <Input type="number" value={ratePerDay || ''} onChange={e => setRatePerDay(Number(e.target.value))} placeholder="rate/day"/>
+                                </div>
+                            </div>
                       </CardContent>
                     </Card>
                   </AccordionContent>
@@ -418,7 +534,7 @@ export default function QuoteGeneratorPage() {
             <div className="lg:col-span-1">
               <ProfitAnalysisCard 
                 lineItems={lineItems}
-                travelAndExpenses={travelExpenses}
+                travelAndExpenses={travelAndExpenses}
                 projectFeePercent={projectFee}
                 tmhr={tmhr}
                 totalHours={totalHours}
