@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState } from 'react';
@@ -41,33 +42,24 @@ export const PrintTicket: React.FC<PrintTicketProps> = ({ data }) => {
   };
 
   return (
-    <div className="p-4 bg-white text-black font-sans text-sm max-w-md mx-auto print:p-0">
-      <style>{`
+    <div className="p-4 bg-white text-black font-sans text-sm max-w-md mx-auto print:p-0" id="ticket-area-content">
+       <style>{`
         @media print {
+          body {
+            background-color: white !important;
+            -webkit-print-color-adjust: exact;
+          }
           body * {
             visibility: hidden;
           }
-          #ticket-area, #ticket-area * {
+          #print-ticket-area, #print-ticket-area * {
             visibility: visible;
           }
-          #ticket-area {
+          #print-ticket-area {
             position: absolute;
             left: 0;
             top: 0;
             width: 100%;
-            height: auto;
-          }
-           body {
-            background-color: #fff;
-          }
-          .print-content {
-            box-shadow: none !important;
-            border: none !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            max-width: 100% !important;
-            width: 100% !important;
-            border-radius: 0 !important;
           }
         }
       `}</style>
