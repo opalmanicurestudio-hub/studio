@@ -182,33 +182,33 @@ export default function ClientDetailPage() {
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Client Profile" />
       <main className="flex-1 p-4 md:p-8 space-y-6">
-        <div className="flex flex-col gap-6">
-            <div className="flex items-start justify-between gap-4">
-                <div className="flex items-start gap-4">
-                    <Button variant="outline" size="icon" className="h-8 w-8 flex-shrink-0" asChild>
-                        <Link href="/clients">
-                            <ArrowLeft className="h-4 w-4" />
-                            <span className="sr-only">Back</span>
-                        </Link>
-                    </Button>
-                    <Avatar className="w-16 h-16 md:w-24 md:h-24 text-2xl">
+        
+        {/* New Mobile-First Header */}
+        <div className="flex flex-col gap-4">
+            <div className="flex items-center gap-4">
+                <Button variant="outline" size="icon" className="h-8 w-8 flex-shrink-0" asChild>
+                    <Link href="/clients">
+                        <ArrowLeft className="h-4 w-4" />
+                        <span className="sr-only">Back</span>
+                    </Link>
+                </Button>
+                <h1 className="text-2xl font-bold">{client.name}</h1>
+            </div>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                 <div className="flex items-center gap-4">
+                     <Avatar className="w-16 h-16 text-xl">
                         <AvatarImage src={client.avatarUrl} alt={client.name} />
                         <AvatarFallback>{client.name.substring(0, 2)}</AvatarFallback>
                     </Avatar>
-                    <div className="space-y-1">
-                        <h1 className="text-2xl font-bold">{client.name}</h1>
-                        <div className="text-muted-foreground text-sm space-y-0.5 break-all">
-                            <p>{client.email}</p>
-                            <p>{client.phone}</p>
-                        </div>
+                     <div className="space-y-1 break-all">
+                        <p className="text-muted-foreground">{client.email}</p>
+                        <p className="text-muted-foreground">{client.phone}</p>
                     </div>
                 </div>
-                 <div className="flex-shrink-0">
-                    <Button variant="outline">
-                        <Edit className="h-4 w-4 md:mr-2" />
-                        <span className="hidden md:inline">Edit Profile</span>
-                    </Button>
-                </div>
+                 <Button variant="outline" className="w-full sm:w-auto">
+                    <Edit className="h-4 w-4 mr-2" />
+                    Edit Profile
+                </Button>
             </div>
         </div>
         
@@ -224,7 +224,7 @@ export default function ClientDetailPage() {
               <ScrollBar orientation="horizontal" />
             </ScrollArea>
             <TabsContent value="overview" className="mt-6">
-                <div className="grid gap-6 lg:grid-cols-3">
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                     <div className="lg:col-span-2 space-y-6">
                         <Card>
                             <CardHeader>
