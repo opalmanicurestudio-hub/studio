@@ -23,7 +23,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useForm, FormProvider, Controller, useFormContext } from 'react-hook-form';
+import { useForm, FormProvider, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Client } from '@/lib/data';
@@ -35,7 +35,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-import { ShieldAlert, AlertTriangle, Ear, Upload } from 'lucide-react';
+import { ShieldAlert, AlertTriangle, Ear } from 'lucide-react';
 import { ImageUpload } from '../shared/ImageUpload';
 import { Popover, PopoverTrigger, PopoverContent } from '../ui/popover';
 import { CalendarIcon } from 'lucide-react';
@@ -68,7 +68,7 @@ const EditClientIntelCategory = ({
   icon: React.ReactNode;
   fieldName: keyof ClientFormData;
 }) => {
-  const { control } = useFormContext<ClientFormData>();
+  const { control } = useForm<ClientFormData>();
   return (
     <AccordionItem value={title.toLowerCase().replace(/ & /g, '-').replace(/ /g, '-')}>
         <AccordionTrigger className="text-base font-semibold">{icon}{title}</AccordionTrigger>
@@ -90,7 +90,7 @@ const EditClientIntelCategory = ({
 
 
 const EditClientForm = ({ client }: { client: Client }) => {
-  const { register, control, formState: { errors } } = useFormContext<ClientFormData>();
+  const { register, control, formState: { errors } } = useForm<ClientFormData>();
 
   return (
     <div className="space-y-6">
