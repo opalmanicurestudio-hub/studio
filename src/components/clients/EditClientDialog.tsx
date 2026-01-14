@@ -23,7 +23,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useForm, FormProvider, Controller } from 'react-hook-form';
+import { useForm, FormProvider, Controller, useFormContext } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Client } from '@/lib/data';
@@ -37,6 +37,11 @@ import {
 } from '@/components/ui/accordion';
 import { ShieldAlert, AlertTriangle, Ear, Upload } from 'lucide-react';
 import { ImageUpload } from '../shared/ImageUpload';
+import { Popover, PopoverTrigger, PopoverContent } from '../ui/popover';
+import { CalendarIcon } from 'lucide-react';
+import { Calendar } from '../ui/calendar';
+import { cn } from '@/lib/utils';
+import { format } from 'date-fns';
 
 const clientSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
@@ -47,6 +52,9 @@ const clientSchema = z.object({
   allergyNotes: z.string().optional(),
   sensoryNeeds: z.string().optional(),
   notes: z.string().optional(),
+  birthday: z.date().optional(),
+  address: z.string().optional(),
+  referralSource: z.string().optional(),
 });
 
 type ClientFormData = z.infer<typeof clientSchema>;
@@ -62,20 +70,20 @@ const EditClientIntelCategory = ({
 }) => {
   const { control } = useFormContext<ClientFormData>();
   return (
-    <AccordionItem value={title.toLowerCase().replace(' ', '-')}>
-      <AccordionTrigger>{title}</AccordionTrigger>
-      <AccordionContent>
-        <Controller
-          name={fieldName}
-          control={control}
-          render={({ field }) => (
-            <Textarea
-              placeholder={`Enter ${title.toLowerCase()} notes...`}
-              {...field}
+    <AccordionItem value={title.toLowerCase().replace(/ & /g, '-').replace(/ /g, '-')}>
+        <AccordionTrigger className="text-base font-semibold">{icon}{title}</AccordionTrigger>
+        <AccordionContent>
+            <Controller
+            name={fieldName}
+            control={control}
+            render={({ field }) => (
+                <Textarea
+                placeholder={`Enter ${title.toLowerCase()} notes...`}
+                {...field}
+                />
+            )}
             />
-          )}
-        />
-      </AccordionContent>
+        </AccordionContent>
     </AccordionItem>
   );
 };
@@ -124,21 +132,64 @@ const EditClientForm = ({ client }: { client: Client }) => {
         <Input id="phone" type="tel" {...register('phone')} />
         {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
       </div>
+
+       <div className="space-y-2">
+        <Label htmlFor="address">Address</Label>
+        <Input id="address" {...register('address')} />
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+            <Label htmlFor="birthday">Birthday</Label>
+            <Controller
+                name="birthday"
+                control={control}
+                render={({ field }) => (
+                     <Popover>
+                        <PopoverTrigger asChild>
+                        <Button
+                            variant={"outline"}
+                            className={cn(
+                            "w-full justify-start text-left font-normal",
+                            !field.value && "text-muted-foreground"
+                            )}
+                        >
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
+                        </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0">
+                        <Calendar
+                            mode="single"
+                            selected={field.value}
+                            onSelect={field.onChange}
+                            initialFocus
+                        />
+                        </PopoverContent>
+                    </Popover>
+                )}
+            />
+        </div>
+        <div className="space-y-2">
+            <Label htmlFor="referralSource">Referral Source</Label>
+            <Input id="referralSource" {...register('referralSource')} />
+        </div>
+      </div>
       
        <Accordion type="multiple" className="w-full space-y-4">
           <EditClientIntelCategory
             title="Medical & Health"
-            icon={<ShieldAlert className="w-5 h-5 text-red-500" />}
+            icon={<ShieldAlert className="w-5 h-5 text-red-500 mr-2" />}
             fieldName="medicalNotes"
           />
           <EditClientIntelCategory
             title="Allergies & Sensitivities"
-            icon={<AlertTriangle className="w-5 h-5 text-amber-500" />}
+            icon={<AlertTriangle className="w-5 h-5 text-amber-500 mr-2" />}
             fieldName="allergyNotes"
           />
           <EditClientIntelCategory
             title="Disabilities & Sensory Needs"
-            icon={<Ear className="w-5 h-5 text-blue-500" />}
+            icon={<Ear className="w-5 h-5 text-blue-500 mr-2" />}
             fieldName="sensoryNeeds"
           />
         </Accordion>
@@ -185,6 +236,10 @@ export const EditClientDialog = ({
         allergyNotes: client.allergyNotes || '',
         sensoryNeeds: client.sensoryNeeds || '',
         notes: client.notes || '',
+        // These fields are not in the Client type yet
+        // birthday: client.birthday ? new Date(client.birthday) : undefined,
+        // address: client.address || '',
+        // referralSource: client.referralSource || ''
       });
     }
   }, [client, methods]);
@@ -216,7 +271,7 @@ export const EditClientDialog = ({
             <SheetTitle>{title}</SheetTitle>
             <SheetDescription>{description}</SheetDescription>
           </SheetHeader>
-          <div className="py-4 flex-1 px-4">{FormContent}</div>
+          <div className="py-4 flex-1 overflow-y-auto px-4">{FormContent}</div>
           <SheetFooter className="px-4">
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button type="submit" form={formId} className="w-full">Save Changes</Button>
