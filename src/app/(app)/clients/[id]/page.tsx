@@ -183,7 +183,6 @@ export default function ClientDetailPage() {
       <AppHeader title="Client Profile" />
       <main className="flex-1 p-4 md:p-8 space-y-6">
         
-        {/* New Mobile-First Header */}
         <div className="flex flex-col gap-4">
             <div className="flex items-center gap-4">
                 <Button variant="outline" size="icon" className="h-8 w-8 flex-shrink-0" asChild>
@@ -194,21 +193,23 @@ export default function ClientDetailPage() {
                 </Button>
                 <h1 className="text-2xl font-bold">{client.name}</h1>
             </div>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                  <div className="flex items-center gap-4">
                      <Avatar className="w-16 h-16 text-xl">
                         <AvatarImage src={client.avatarUrl} alt={client.name} />
                         <AvatarFallback>{client.name.substring(0, 2)}</AvatarFallback>
                     </Avatar>
-                     <div className="space-y-1 break-all">
+                     <div className="space-y-1 break-all flex-1 min-w-0">
                         <p className="text-muted-foreground">{client.email}</p>
                         <p className="text-muted-foreground">{client.phone}</p>
                     </div>
                 </div>
-                 <Button variant="outline" className="w-full sm:w-auto">
-                    <Edit className="h-4 w-4 mr-2" />
-                    Edit Profile
-                </Button>
+                <div className="w-full sm:w-auto sm:ml-auto">
+                    <Button variant="outline" className="w-full">
+                        <Edit className="h-4 w-4 mr-2" />
+                        Edit Profile
+                    </Button>
+                </div>
             </div>
         </div>
         
@@ -536,3 +537,5 @@ export default function ClientDetailPage() {
     </div>
   );
 }
+
+    
