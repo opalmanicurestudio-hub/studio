@@ -39,7 +39,7 @@ export const PickingListDialog: React.FC<PickingListDialogProps> = ({
   onOpenChange,
   appointments,
 }) => {
-  const { inventory, locations } = useInventory();
+  const { inventory, locations, clients } = useInventory();
 
   const pickingListByLocation = useMemo(() => {
     const productMap = new Map<string, AggregatedProduct>();
@@ -51,6 +51,9 @@ export const PickingListDialog: React.FC<PickingListDialogProps> = ({
     activeAppointments.forEach(apt => {
       const service = services.find(s => s.id === apt.serviceId);
       if (!service) return;
+
+      const client = clients.find(c => c.id === apt.clientId);
+      if (!client) return;
 
       const allServicesInAppointment = [service];
       if (apt.addOnIds) {
@@ -78,7 +81,7 @@ export const PickingListDialog: React.FC<PickingListDialogProps> = ({
           const entry = productMap.get(key)!;
           entry.totalQuantity += formulaItem.quantityUsed;
           entry.appointments.push({
-            clientName: 'Client Name', // This should be fetched from client data
+            clientName: client.name,
             quantity: formulaItem.quantityUsed,
           });
         });
@@ -96,10 +99,10 @@ export const PickingListDialog: React.FC<PickingListDialogProps> = ({
     });
 
     return Array.from(byLocation.entries()).map(([locationId, products]) => ({
-      location: locations.find(l => l.id === locationId) || { id: 'unassigned', name: 'Unassigned' },
+      location: locations.find(l => l.id === locationId) || { id: 'unassigned', name: 'Unassigned', locationTypeId: '' },
       products,
     }));
-  }, [appointments, inventory, locations]);
+  }, [appointments, inventory, locations, clients]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
