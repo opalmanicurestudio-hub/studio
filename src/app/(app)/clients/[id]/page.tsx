@@ -184,31 +184,29 @@ export default function ClientDetailPage() {
       <main className="flex-1 p-4 md:p-8 space-y-6">
         
         <div className="flex flex-col gap-4">
-            <div className="flex items-center">
-                <Button variant="outline" size="icon" className="h-8 w-8 flex-shrink-0" asChild>
+            <div className="flex items-center justify-between">
+                <Button variant="outline" size="icon" className="h-8 w-8" asChild>
                     <Link href="/clients">
                         <ArrowLeft className="h-4 w-4" />
                         <span className="sr-only">Back</span>
                     </Link>
                 </Button>
+                 <Button variant="outline" size="sm">
+                    <Edit className="h-4 w-4 mr-2" />
+                    Edit
+                </Button>
             </div>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div className="flex items-center gap-4">
-                    <Avatar className="w-16 h-16 text-xl">
-                        <AvatarImage src={client.avatarUrl} alt={client.name} />
-                        <AvatarFallback>{client.name.substring(0, 2)}</AvatarFallback>
-                    </Avatar>
-                    <div className="space-y-1 min-w-0">
-                        <h1 className="text-2xl font-bold">{client.name}</h1>
-                        <p className="text-muted-foreground break-all">{client.email}</p>
-                        <p className="text-muted-foreground">{client.phone}</p>
+            <div className="flex items-center gap-4">
+                <Avatar className="w-16 h-16 text-xl">
+                    <AvatarImage src={client.avatarUrl} alt={client.name} />
+                    <AvatarFallback>{client.name.substring(0, 2)}</AvatarFallback>
+                </Avatar>
+                <div className="space-y-1 min-w-0">
+                    <h1 className="text-2xl font-bold">{client.name}</h1>
+                    <div className="break-all">
+                        <p className="text-muted-foreground">{client.email}</p>
                     </div>
-                </div>
-                 <div className="w-full sm:w-auto">
-                    <Button variant="outline" className="w-full">
-                        <Edit className="h-4 w-4 mr-2" />
-                        Edit Profile
-                    </Button>
+                    <p className="text-muted-foreground">{client.phone}</p>
                 </div>
             </div>
         </div>
@@ -225,7 +223,7 @@ export default function ClientDetailPage() {
               <ScrollBar orientation="horizontal" />
             </ScrollArea>
             <TabsContent value="overview" className="mt-6">
-                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                <div className="grid gap-6 grid-cols-1 lg:grid-cols-3">
                     <div className="lg:col-span-2 space-y-6">
                         <Card>
                             <CardHeader>
@@ -427,7 +425,7 @@ export default function ClientDetailPage() {
                     </CardHeader>
                     <CardContent>
                         {photos.length > 0 ? (
-                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                 {photos.map((photo, index) => (
                                     <div key={index} className="group relative aspect-square" onClick={() => setSelectedPhoto(photo)}>
                                         <Image
@@ -501,7 +499,7 @@ export default function ClientDetailPage() {
                        <div className="border-2 border-dashed rounded-lg p-12 text-center">
                             <FileText className="w-10 h-10 text-muted-foreground mx-auto mb-4" />
                             <h3 className="font-semibold text-lg">No Forms on File</h3>
-                             <p className="text-sm text-muted-foreground">The ability to send and track forms is coming soon.</p>
+                             <p className="text-sm text-muted-foreground">This client has not signed any forms yet.</p>
                        </div>
                     </CardContent>
                 </Card>
@@ -537,7 +535,3 @@ export default function ClientDetailPage() {
     </div>
   );
 }
-
-    
-
-    
