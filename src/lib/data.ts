@@ -1,5 +1,4 @@
 
-
 import { BillDefinition, billDefinitions, billInstances } from './financial-data';
 import { addDays, subDays, setHours, setMinutes, startOfDay } from 'date-fns';
 import { nanoid } from 'nanoid';
@@ -536,7 +535,7 @@ export const events: Event[] = [
         startTime: setMinutes(setHours(startOfDay(addDays(today, 2)), 9), 0),
         endTime: setMinutes(setHours(startOfDay(addDays(today, 2)), 13), 0),
         location: "The Grand Ballroom",
-        notes: "Full bridal party hair and makeup.",
+        notes: "Booked from Quote #q-2. \n\nFull bridal party hair and makeup.",
         quoteId: 'q-2',
         lineItems: [
             { id: 'svc-12', name: 'Updo / Styling', price: 90, cost: 8 },
@@ -557,3 +556,6 @@ export const stockCorrections: StockCorrection[] = [
 ];
 
 export { nanoid };
+
+
+    
