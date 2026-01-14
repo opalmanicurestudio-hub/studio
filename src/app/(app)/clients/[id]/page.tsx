@@ -115,12 +115,10 @@ export default function ClientDetailPage() {
   const [isAddFormulaOpen, setIsAddFormulaOpen] = useState(false);
   const [isLogIncidentOpen, setIsLogIncidentOpen] = useState(false);
   const [isEditClientOpen, setIsEditClientOpen] = useState(false);
-  const [isClient, setIsClient] = useState(false);
   const [photos, setPhotos] = useState<ClientPhoto[]>([]);
   const [selectedPhoto, setSelectedPhoto] = useState<ClientPhoto | null>(null);
 
   useEffect(() => {
-    setIsClient(true);
     if (client) {
         const collectedPhotos: ClientPhoto[] = [];
         if (client.inspirationPhotoUrl) {
@@ -137,6 +135,8 @@ export default function ClientDetailPage() {
   }, [client]);
 
   if (!client) {
+    // In a real app with data fetching, you'd show a skeleton or loading state here
+    // and then call notFound() if the fetch returns no client.
     notFound();
   }
 
@@ -213,27 +213,6 @@ export default function ClientDetailPage() {
       description: `A new incident has been recorded for ${client.name}.`,
     });
   };
-
-  if (!isClient) {
-    return (
-        <div className="flex min-h-screen w-full flex-col">
-            <AppHeader title="Client Profile" />
-            <main className="flex-1 p-4 md:p-8 space-y-6">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                    <Skeleton className="h-7 w-7" />
-                    <Skeleton className="w-12 h-12 rounded-full" />
-                    <div className='flex-1 space-y-2'>
-                        <Skeleton className="h-5 w-48" />
-                        <Skeleton className="h-4 w-64" />
-                    </div>
-                    <Skeleton className="h-10 w-28" />
-                </div>
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-96 w-full" />
-            </main>
-        </div>
-    );
-  }
 
   return (
     <div className="flex min-h-screen w-full flex-col">

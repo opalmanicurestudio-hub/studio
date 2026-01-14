@@ -27,7 +27,6 @@ import { formatDistanceToNow, subDays, format } from 'date-fns';
 import { Input } from '@/components/ui/input';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { MergeClientsDialog } from '@/components/clients/MergeClientsDialog';
-import { ClientOnly } from '@/components/shared/ClientOnly';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { useInventory } from '@/context/InventoryContext';
 
@@ -40,7 +39,6 @@ const ClientCard = ({ client }: { client: Client }) => {
     }, [client.lastAppointment]);
 
     return (
-      <ClientOnly>
         <Card className="transition-all hover:shadow-lg hover:-translate-y-1">
             <CardContent className="p-4 space-y-4">
                 <div className="flex items-start gap-4">
@@ -50,7 +48,7 @@ const ClientCard = ({ client }: { client: Client }) => {
                     </Avatar>
                     <div className="flex-1 min-w-0">
                         <Link href={`/clients/${client.id}`} className="group">
-                            <p className="font-semibold text-lg group-hover:underline">{client.name}</p>
+                            <p className="font-semibold text-lg group-hover:underline truncate">{client.name}</p>
                         </Link>
                         {lastAppointment && (
                             <p className="text-sm text-muted-foreground">Last seen: {formatDistanceToNow(lastAppointment, { addSuffix: true })}</p>
@@ -115,7 +113,6 @@ const ClientCard = ({ client }: { client: Client }) => {
                 </div>
             </CardContent>
         </Card>
-        </ClientOnly>
     )
 }
 
@@ -393,3 +390,4 @@ export default function ClientsPage() {
     
 
     
+
