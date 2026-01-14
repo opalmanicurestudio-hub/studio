@@ -48,6 +48,8 @@ import { Separator } from '@/components/ui/separator';
 import { ManageSpoilageDialog, type SpoilageItem } from '@/components/inventory/ManageSpoilageDialog';
 import { Tooltip, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { InventorySidebar } from '@/components/inventory/InventorySidebar';
+import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 
 const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff, onLogUse }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (itemId: string) => void, onLogUse: (item: InventoryItem) => void }) => {
@@ -571,11 +573,32 @@ export default function InventoryPage() {
       <main className="flex-1 p-4 md:p-8">
         
         <div className="grid lg:grid-cols-4 gap-8">
-            <div className="lg:col-span-1">
+            <div className="hidden lg:block lg:col-span-1">
                 <InventorySidebar onSpoilageConfirm={handleSpoilageConfirm} onLogOverheadUse={handleLogOverheadConsumption} />
             </div>
 
             <div className="lg:col-span-3">
+                 <div className="lg:hidden mb-6">
+                    <Sheet>
+                        <SheetTrigger asChild>
+                            <Button variant="outline" className="w-full">
+                                <SlidersHorizontal className="mr-2 h-4 w-4" />
+                                View Stats & Actions
+                            </Button>
+                        </SheetTrigger>
+                        <SheetContent side="bottom" className="h-[80vh] flex flex-col p-0">
+                             <SheetHeader className="p-4 border-b">
+                                <SheetTitle>Inventory Overview</SheetTitle>
+                                <SheetDescription>Key metrics and actions for your inventory.</SheetDescription>
+                            </SheetHeader>
+                            <ScrollArea className="flex-1">
+                                <div className="p-4">
+                                     <InventorySidebar onSpoilageConfirm={handleSpoilageConfirm} onLogOverheadUse={handleLogOverheadConsumption} />
+                                </div>
+                            </ScrollArea>
+                        </SheetContent>
+                    </Sheet>
+                </div>
                 <Tabs value={activeView} onValueChange={setActiveView} className="w-full">
                 <TabsList className="grid w-full grid-cols-2">
                     <TabsTrigger value="products">Products</TabsTrigger>
@@ -694,7 +717,6 @@ export default function InventoryPage() {
             onOpenChange={setIsWriteOffOpen}
             product={selectedProduct}
             onConfirm={handleWriteOffConfirm}
-            allProducts={inventory}
         />
       )}
       
@@ -790,6 +812,7 @@ export default function InventoryPage() {
   );
 
     
+
 
 
 
