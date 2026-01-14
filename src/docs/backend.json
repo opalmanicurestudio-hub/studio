@@ -326,6 +326,46 @@
         "reason": { "type": "string", "description": "The reason for the correction (e.g., 'Appointment #123', 'Manual Count', 'Spoilage')." }
       },
       "required": ["id", "productId", "date", "change", "unit", "reason"]
+    },
+    "Quote": {
+      "title": "Quote",
+      "type": "object",
+      "description": "Represents a quote or proposal for a client event.",
+      "properties": {
+        "id": { "type": "string" },
+        "clientId": { "type": "string" },
+        "eventName": { "type": "string" },
+        "eventDate": { "type": "string", "format": "date" },
+        "eventLocation": { "type": "string" },
+        "lineItems": {
+          "type": "array",
+          "items": { "type": "object" }
+        },
+        "travelExpenses": { "type": "number" },
+        "projectFee": { "type": "number" },
+        "notes": { "type": "string" },
+        "totalHours": { "type": "number" },
+        "status": { "type": "string", "enum": ["draft", "sent", "accepted", "declined", "booked"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "userId": { "type": "string" }
+      },
+      "required": ["id", "clientId", "eventName", "status", "createdAt", "userId"]
+    },
+     "Event": {
+      "title": "Event",
+      "type": "object",
+      "description": "Represents a calendar event, which could be a booked quote.",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "startTime": { "type": "string", "format": "date-time" },
+        "endTime": { "type": "string", "format": "date-time" },
+        "type": { "type": "string" },
+        "location": { "type": "string" },
+        "notes": { "type": "string" },
+        "quoteId": { "type": "string", "description": "The ID of the quote this event was booked from." }
+      },
+      "required": ["id", "title", "startTime", "endTime"]
     }
   },
   "auth": {
@@ -369,6 +409,18 @@
         "$ref": "#/entities/Appointment"
       },
       "description": "Appointments for a specific tenant."
+    },
+    "/tenants/{tenantId}/events/{eventId}": {
+      "schema": {
+        "$ref": "#/entities/Event"
+      },
+      "description": "Calendar events for a tenant, including booked quotes."
+    },
+    "/tenants/{tenantId}/quotes/{quoteId}": {
+      "schema": {
+        "$ref": "#/entities/Quote"
+      },
+      "description": "Quotes or proposals for a specific tenant."
     },
     "/tenants/{tenantId}/bills/{billId}": {
       "schema": {

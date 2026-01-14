@@ -206,7 +206,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
                             <Label htmlFor="phone">Phone Number</Label>
-                            <Input id="phone" type="tel" placeholder="(123) 456-7890" />
+                            <Input id="phone" type="tel" placeholder="e.g., +1 202-555-0198" />
                         </div>
                          <div className="space-y-2">
                             <Label htmlFor="birthday">Birthday</Label>
@@ -242,25 +242,13 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                         <Label htmlFor="street">Street Address</Label>
                         <Input id="street" placeholder="123 Main St" />
                     </div>
-                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <div className="space-y-2 sm:col-span-2">
-                            <Label htmlFor="city">City</Label>
-                            <Input id="city" placeholder="Anytown" />
-                        </div>
-                         <div className="space-y-2">
-                            <Label htmlFor="state">State</Label>
-                            <Input id="state" placeholder="CA" />
-                        </div>
+                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <Input placeholder="City" />
+                        <Input placeholder="State / Province" />
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                         <div className="space-y-2">
-                            <Label htmlFor="zip">ZIP Code</Label>
-                            <Input id="zip" placeholder="12345" />
-                        </div>
-                        <div className="space-y-2 sm:col-span-2">
-                            <Label htmlFor="country">Country</Label>
-                            <Input id="country" placeholder="USA" />
-                        </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                         <Input placeholder="ZIP / Postal Code" />
+                        <Input placeholder="Country" />
                     </div>
                 </div>
 
@@ -273,7 +261,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="emergency-phone">Contact Phone</Label>
-                            <Input id="emergency-phone" type="tel" placeholder="(123) 456-7890" />
+                            <Input id="emergency-phone" type="tel" placeholder="e.g., +1 310-555-0187" />
                         </div>
                     </div>
                      <div className="space-y-2">

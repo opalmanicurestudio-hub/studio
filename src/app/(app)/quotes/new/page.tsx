@@ -131,7 +131,13 @@ export default function QuoteGeneratorPage() {
     const [clientId, setClientId] = useState('');
     const [eventName, setEventName] = useState('');
     const [eventDate, setEventDate] = useState('');
-    const [eventLocation, setEventLocation] = useState('');
+    
+    const [street, setStreet] = useState('');
+    const [city, setCity] = useState('');
+    const [state, setState] = useState('');
+    const [zip, setZip] = useState('');
+    const [country, setCountry] = useState('');
+
     const [lineItems, setLineItems] = useState<LineItem[]>([]);
     const [travelExpenses, setTravelExpenses] = useState(0);
     const [projectFee, setProjectFee] = useState(0);
@@ -176,7 +182,7 @@ export default function QuoteGeneratorPage() {
             clientId,
             eventName,
             eventDate,
-            eventLocation,
+            eventLocation: { street, city, state, zip, country },
             lineItems,
             travelExpenses,
             projectFee,
@@ -248,17 +254,23 @@ export default function QuoteGeneratorPage() {
                           <Label htmlFor="event-name">Event Name</Label>
                           <Input id="event-name" value={eventName} onChange={e => setEventName(e.target.value)} placeholder="e.g., Carla & Mark's Wedding" />
                         </div>
-                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="event-date">Event Date</Label>
-                                <Input id="event-date" type="date" value={eventDate} onChange={e => setEventDate(e.target.value)} />
+                        <div className="space-y-2">
+                            <Label htmlFor="event-date">Event Date</Label>
+                            <Input id="event-date" type="date" value={eventDate} onChange={e => setEventDate(e.target.value)} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="event-location-street">Event Location</Label>
+                            <Input id="event-location-street" value={street} onChange={e => setStreet(e.target.value)} placeholder="Street Address" />
+                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <Input value={city} onChange={e => setCity(e.target.value)} placeholder="City" />
+                                <Input value={state} onChange={e => setState(e.target.value)} placeholder="State / Province" />
                             </div>
-                             <div className="space-y-2">
-                                <Label htmlFor="event-location">Event Location</Label>
-                                <Input id="event-location" value={eventLocation} onChange={e => setEventLocation(e.target.value)} placeholder="e.g., The Grand Ballroom" />
+                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <Input value={zip} onChange={e => setZip(e.target.value)} placeholder="ZIP / Postal Code" />
+                                <Input value={country} onChange={e => setCountry(e.target.value)} placeholder="Country" />
                             </div>
-                         </div>
-                          <div className="space-y-2">
+                        </div>
+                        <div className="space-y-2">
                             <Label htmlFor="total-hours">Total Billable Hours</Label>
                             <Input id="total-hours" type="number" value={totalHours} onChange={e => setTotalHours(Number(e.target.value))} placeholder="e.g., 8" />
                         </div>

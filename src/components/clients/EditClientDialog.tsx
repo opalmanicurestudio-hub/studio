@@ -270,25 +270,13 @@ const EditClientForm = ({ client }: { client: Client }) => {
                 <Label htmlFor="street">Street Address</Label>
                 <Input id="street" {...register('address.street')} />
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="space-y-2 sm:col-span-2">
-                    <Label htmlFor="city">City</Label>
-                    <Input id="city" {...register('address.city')} />
-                </div>
-                <div className="space-y-2">
-                    <Label htmlFor="state">State</Label>
-                    <Input id="state" {...register('address.state')} />
-                </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Input placeholder="City" {...register('address.city')} />
+                <Input placeholder="State / Province" {...register('address.state')} />
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="space-y-2">
-                    <Label htmlFor="zip">ZIP Code</Label>
-                    <Input id="zip" {...register('address.zip')} />
-                </div>
-                <div className="space-y-2 sm:col-span-2">
-                    <Label htmlFor="country">Country</Label>
-                    <Input id="country" {...register('address.country')} />
-                </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Input placeholder="ZIP / Postal Code" {...register('address.zip')} />
+                <Input placeholder="Country" {...register('address.country')} />
             </div>
         </div>
 
