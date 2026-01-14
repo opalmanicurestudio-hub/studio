@@ -4,7 +4,7 @@
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem, type StockCorrection } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual } from 'date-fns';
@@ -43,6 +43,7 @@ import {
 } from '@/components/ui/sheet';
 import { AppointmentCard } from '@/components/planner/AppointmentCard';
 import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
+import { PrintTicket, type TicketData } from '@/components/planner/PrintTicket';
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
 import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, Timestamp, doc } from 'firebase/firestore';
@@ -101,6 +102,7 @@ const DayTimeline = ({
     onUpdateStatus, 
     onDeleteAppointment, 
     onPrintReceipt, 
+    onPrintTicket,
     onEditAppointment,
     onEditEvent,
     onChecklistItemToggle,
@@ -118,6 +120,7 @@ const DayTimeline = ({
     onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void; 
     onDeleteAppointment: (appointmentId: string) => void; 
     onPrintReceipt: (data: ReceiptData) => void; 
+    onPrintTicket: (data: TicketData) => void;
     onEditAppointment: (appointment: Appointment) => void; 
     onEditEvent: (event: Event) => void;
     onChecklistItemToggle: (eventId: string, checklistItemId: string, completed: boolean) => void;
@@ -224,6 +227,7 @@ const DayTimeline = ({
                         onDelete={onDeleteAppointment}
                         onCompleteClick={onCompleteClick}
                         onPrintReceipt={onPrintReceipt}
+                        onPrintTicket={onPrintTicket}
                         onEdit={onEditAppointment}
                         onReschedule={onReschedule}
                     />
@@ -449,6 +453,7 @@ export default function PlannerPage() {
   const { toast } = useToast();
     
   const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
+  const [ticketToPrint, setTicketToPrint] = useState<TicketData | null>(null);
   
   // --- Data Fetching ---
   const billDefinitionsQuery = useMemoFirebase(() => {
@@ -791,6 +796,13 @@ export default function PlannerPage() {
     });
   };
 
+  const handlePrintTicket = (ticketData: Omit<TicketData, 'business'>) => {
+    setTicketToPrint({
+        business: { name: 'ClarityFlow Salon', phone: '555-123-4567' },
+        ...ticketData
+    });
+  }
+
   const appointmentsForDay = appointments
       .filter(apt => format(apt.startTime, 'yyyy-MM-dd') === format(currentDate, 'yyyy-MM-dd'))
       .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
@@ -875,7 +887,8 @@ export default function PlannerPage() {
               onCompleteClick={handleCompleteClick} 
               onUpdateStatus={handleUpdateStatus} 
               onDeleteAppointment={handleDeleteAppointment} 
-              onPrintReceipt={handlePrintReceipt} 
+              onPrintReceipt={handlePrintReceipt}
+              onPrintTicket={handlePrintTicket}
               onEditAppointment={handleEditClick}
               onEditEvent={handleEditEventClick}
               onChecklistItemToggle={handleChecklistItemToggle}
@@ -976,8 +989,27 @@ export default function PlannerPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      
+      <Dialog open={!!ticketToPrint} onOpenChange={(open) => !open && setTicketToPrint(null)}>
+        <DialogContent className="max-w-md print-content">
+          <DialogHeader>
+            <DialogTitle>Appointment Ticket</DialogTitle>
+          </DialogHeader>
+          <div id="ticket-area">
+            {ticketToPrint && <PrintTicket data={ticketToPrint} />}
+          </div>
+          <DialogFooter className="print:hidden">
+            <Button variant="outline" onClick={() => setTicketToPrint(null)}>Close</Button>
+            <Button onClick={() => window.print()}>
+              <Printer className="mr-2 h-4 w-4" />
+              Print Ticket
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
+
 
 

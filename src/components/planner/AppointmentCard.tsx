@@ -34,6 +34,7 @@ import {
   User as UserIcon,
   Book,
   Calendar,
+  FileText as TicketIcon,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -70,6 +71,8 @@ import { ScrollArea } from '../ui/scroll-area';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast';
+import { type ReceiptData } from './PrintReceipt';
+import { type TicketData } from './PrintTicket';
 
 interface AppointmentCardProps {
   appointment: Appointment;
@@ -80,7 +83,8 @@ interface AppointmentCardProps {
   onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void;
   onDelete: (appointmentId: string) => void;
   onCompleteClick: (appointment: Appointment) => void;
-  onPrintReceipt: (appointment: Appointment) => void;
+  onPrintReceipt: (data: Omit<ReceiptData, 'business'>) => void;
+  onPrintTicket: (data: Omit<TicketData, 'business'>) => void;
   onEdit: (appointment: Appointment) => void;
   onReschedule: (appointment: Appointment) => void;
 }
@@ -269,6 +273,7 @@ export function AppointmentCard({
   onDelete,
   onCompleteClick,
   onPrintReceipt,
+  onPrintTicket,
   onEdit,
   onReschedule,
 }: AppointmentCardProps) {
@@ -394,6 +399,9 @@ export function AppointmentCard({
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onEdit(appointment)}>
                     <Edit className="mr-2" /> Edit Appointment
+                </DropdownMenuItem>
+                 <DropdownMenuItem onClick={() => onPrintTicket({ appointment, client, service })}>
+                    <TicketIcon className="mr-2" /> Print Ticket
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onReschedule(appointment)}>
                     <Calendar className="mr-2" /> Reschedule
