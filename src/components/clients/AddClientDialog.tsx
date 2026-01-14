@@ -42,7 +42,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { ShieldAlert, AlertTriangle, Ear, Upload, CalendarIcon, PlusCircle, Trash2 } from 'lucide-react';
+import { ShieldAlert, AlertTriangle, Ear, Upload, CalendarIcon, PlusCircle, Trash2, User, Home } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Client } from '@/lib/data';
 
@@ -234,6 +234,52 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                                 </PopoverContent>
                             </Popover>
                         </div>
+                    </div>
+                </div>
+
+                <div className="space-y-4">
+                    <h3 className="text-lg font-medium flex items-center gap-2"><Home className="w-5 h-5"/>Address</h3>
+                    <div className="space-y-2">
+                        <Label htmlFor="street">Street Address</Label>
+                        <Input id="street" placeholder="123 Main St" />
+                    </div>
+                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="space-y-2 sm:col-span-2">
+                            <Label htmlFor="city">City</Label>
+                            <Input id="city" placeholder="Anytown" />
+                        </div>
+                         <div className="space-y-2">
+                            <Label htmlFor="state">State</Label>
+                            <Input id="state" placeholder="CA" />
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                         <div className="space-y-2">
+                            <Label htmlFor="zip">ZIP Code</Label>
+                            <Input id="zip" placeholder="12345" />
+                        </div>
+                        <div className="space-y-2 sm:col-span-2">
+                            <Label htmlFor="country">Country</Label>
+                            <Input id="country" placeholder="USA" />
+                        </div>
+                    </div>
+                </div>
+
+                <div className="space-y-4">
+                    <h3 className="text-lg font-medium flex items-center gap-2"><User className="w-5 h-5"/>Emergency Contact</h3>
+                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                         <div className="space-y-2">
+                            <Label htmlFor="emergency-name">Contact Name</Label>
+                            <Input id="emergency-name" placeholder="e.g., John Smith" />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="emergency-phone">Contact Phone</Label>
+                            <Input id="emergency-phone" type="tel" placeholder="(123) 456-7890" />
+                        </div>
+                    </div>
+                     <div className="space-y-2">
+                        <Label htmlFor="emergency-relationship">Relationship</Label>
+                        <Input id="emergency-relationship" placeholder="e.g., Spouse, Parent, Sibling" />
                     </div>
                 </div>
 

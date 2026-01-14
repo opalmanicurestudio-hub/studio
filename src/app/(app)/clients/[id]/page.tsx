@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon } from 'lucide-react';
 import { clients as initialClients, appointments, services, inventory, type CustomFormula, Client, type Incident } from '@/lib/data';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
@@ -286,16 +286,24 @@ export default function ClientDetailPage() {
                                 <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-6">
                                     <div className="space-y-1">
                                         <p className="text-sm font-medium text-muted-foreground">Birthday</p>
-                                        <p>October 26</p>
+                                        <p>{client.birthday ? format(new Date(client.birthday), 'MMMM d') : 'N/A'}</p>
                                     </div>
                                     <div className="space-y-1">
                                         <p className="text-sm font-medium text-muted-foreground">Referral Source</p>
-                                        <p>Client Referral</p>
+                                        <p>{client.intel?.referralSource || 'N/A'}</p>
                                     </div>
-                                     <div className="space-y-1 col-span-1 sm:col-span-2">
-                                        <p className="text-sm font-medium text-muted-foreground">Address</p>
-                                        <p>123 Main St, Anytown, USA 12345</p>
+                                    {client.address && (
+                                    <div className="space-y-1 col-span-1 sm:col-span-2">
+                                        <p className="text-sm font-medium text-muted-foreground flex items-center gap-2"><Home className="w-4 h-4"/>Address</p>
+                                        <p>{client.address.street}<br/>{client.address.city}, {client.address.state} {client.address.zip}</p>
                                     </div>
+                                    )}
+                                     {client.emergencyContact && (
+                                    <div className="space-y-1 col-span-1 sm:col-span-2">
+                                        <p className="text-sm font-medium text-muted-foreground flex items-center gap-2"><UserIcon className="w-4 h-4"/>Emergency Contact</p>
+                                        <p>{client.emergencyContact.name} ({client.emergencyContact.relationship})<br/>{client.emergencyContact.phone}</p>
+                                    </div>
+                                    )}
                                 </CardContent>
                             </Card>
                             <Card>

@@ -129,6 +129,24 @@
         },
         "phone": {
           "type": "string"
+        },
+        "address": {
+            "type": "object",
+            "properties": {
+                "street": { "type": "string" },
+                "city": { "type": "string" },
+                "state": { "type": "string" },
+                "zip": { "type": "string" },
+                "country": { "type": "string" }
+            }
+        },
+        "emergencyContact": {
+            "type": "object",
+            "properties": {
+                "name": { "type": "string" },
+                "relationship": { "type": "string" },
+                "phone": { "type": "string" }
+            }
         }
       },
       "required": [
@@ -185,11 +203,6 @@
         "dueDay": {
           "type": "number"
         },
-        "startDate": {
-          "type": "string",
-          "format": "date",
-          "description": "The first date from which instances of this bill should be generated."
-        },
         "billingCycle": {
           "type": "string",
           "enum": ["monthly", "annually", "quarterly", "weekly"]
@@ -202,21 +215,7 @@
           "type": "string"
         }
       },
-      "required": ["id", "name", "amount", "dueDay", "startDate", "billingCycle", "context", "category"]
-    },
-     "BillInstance": {
-      "title": "Bill Instance",
-      "type": "object",
-      "description": "A specific, concrete instance of a recurring bill, with its own due date and status.",
-      "properties": {
-        "id": { "type": "string" },
-        "billDefinitionId": { "type": "string", "description": "The ID of the parent BillDefinition." },
-        "dueDate": { "type": "string", "format": "date-time" },
-        "status": { "type": "string", "enum": ["unpaid", "partially-paid", "paid", "overdue"] },
-        "amountDue": { "type": "number" },
-        "amountPaid": { "type": "number" }
-      },
-      "required": ["id", "billDefinitionId", "dueDate", "status", "amountDue"]
+      "required": ["id", "name", "amount", "dueDay", "billingCycle", "context", "category"]
     },
     "LifestyleProfile": {
       "title": "Lifestyle Profile",
@@ -310,19 +309,6 @@
         },
         "hasReceipt": {
           "type": "boolean"
-        },
-        "receiptUrl": {
-          "type": "string",
-          "format": "uri",
-          "description": "A URL to the uploaded receipt image."
-        },
-        "relatedEventId": {
-          "type": "string",
-          "description": "The ID of an event this transaction is related to, if any."
-        },
-        "relatedBillInstanceId": {
-          "type": "string",
-          "description": "The ID of a bill instance this transaction is related to, if any."
         }
       },
       "required": ["id", "date", "description", "type", "context", "category", "amount", "paymentMethod"]
@@ -388,13 +374,7 @@
       "schema": {
         "$ref": "#/entities/Bill"
       },
-      "description": "Recurring bill definitions for a specific tenant."
-    },
-    "/tenants/{tenantId}/billInstances/{instanceId}": {
-      "schema": {
-        "$ref": "#/entities/BillInstance"
-      },
-      "description": "Specific instances of recurring bills for a tenant."
+      "description": "Recurring bills and expenses for a specific tenant."
     },
      "/tenants/{tenantId}/lifestyleProfiles/{profileId}": {
       "schema": {

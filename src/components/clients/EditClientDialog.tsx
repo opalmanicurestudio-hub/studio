@@ -35,7 +35,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-import { ShieldAlert, AlertTriangle, Ear, Upload, CalendarIcon, PlusCircle, Trash2 } from 'lucide-react';
+import { ShieldAlert, AlertTriangle, Ear, Upload, CalendarIcon, PlusCircle, Trash2, User, Home } from 'lucide-react';
 import { ImageUpload } from '../shared/ImageUpload';
 import { Popover, PopoverTrigger, PopoverContent } from '../ui/popover';
 import { Calendar } from '../ui/calendar';
@@ -57,7 +57,18 @@ const clientSchema = z.object({
   sensoryNeeds: z.string().optional(),
   notes: z.string().optional(),
   birthday: z.date().optional(),
-  address: z.string().optional(),
+  address: z.object({
+    street: z.string().optional(),
+    city: z.string().optional(),
+    state: z.string().optional(),
+    zip: z.string().optional(),
+    country: z.string().optional(),
+  }).optional(),
+  emergencyContact: z.object({
+      name: z.string().optional(),
+      relationship: z.string().optional(),
+      phone: z.string().optional(),
+  }).optional(),
   referralSource: z.string().optional(),
 });
 
@@ -254,6 +265,52 @@ const EditClientForm = ({ client }: { client: Client }) => {
         </div>
 
         <div className="space-y-4">
+            <h3 className="text-lg font-medium flex items-center gap-2"><Home className="w-5 h-5"/>Address</h3>
+            <div className="space-y-2">
+                <Label htmlFor="street">Street Address</Label>
+                <Input id="street" {...register('address.street')} />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="space-y-2 sm:col-span-2">
+                    <Label htmlFor="city">City</Label>
+                    <Input id="city" {...register('address.city')} />
+                </div>
+                <div className="space-y-2">
+                    <Label htmlFor="state">State</Label>
+                    <Input id="state" {...register('address.state')} />
+                </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                    <Label htmlFor="zip">ZIP Code</Label>
+                    <Input id="zip" {...register('address.zip')} />
+                </div>
+                <div className="space-y-2 sm:col-span-2">
+                    <Label htmlFor="country">Country</Label>
+                    <Input id="country" {...register('address.country')} />
+                </div>
+            </div>
+        </div>
+
+        <div className="space-y-4">
+            <h3 className="text-lg font-medium flex items-center gap-2"><User className="w-5 h-5"/>Emergency Contact</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                    <Label htmlFor="emergency-name">Contact Name</Label>
+                    <Input id="emergency-name" {...register('emergencyContact.name')} />
+                </div>
+                <div className="space-y-2">
+                    <Label htmlFor="emergency-phone">Contact Phone</Label>
+                    <Input id="emergency-phone" type="tel" {...register('emergencyContact.phone')} />
+                </div>
+            </div>
+            <div className="space-y-2">
+                <Label htmlFor="emergency-relationship">Relationship</Label>
+                <Input id="emergency-relationship" {...register('emergencyContact.relationship')} />
+            </div>
+        </div>
+
+        <div className="space-y-4">
             <h3 className="text-lg font-medium">Tags & Referral Source</h3>
             <div className="space-y-2">
                 <Label htmlFor="custom-tags">Custom Tags</Label>
@@ -404,6 +461,8 @@ export const EditClientDialog = ({
         allergyNotes: client.allergyNotes || '',
         sensoryNeeds: client.sensoryNeeds || '',
         notes: client.notes || '',
+        address: client.address || {},
+        emergencyContact: client.emergencyContact || {},
       });
     }
   }, [client, methods]);
@@ -418,9 +477,7 @@ export const EditClientDialog = ({
   const formId = `edit-client-form-${client.id}`;
   
   const FormContent = (
-      <form id={formId} onSubmit={methods.handleSubmit(handleSave)}>
-        <EditClientForm client={client} />
-      </form>
+      <EditClientForm client={client} />
   );
 
   if (isMobile) {
@@ -432,7 +489,9 @@ export const EditClientDialog = ({
               <SheetTitle>{title}</SheetTitle>
               <SheetDescription>{description}</SheetDescription>
             </SheetHeader>
-            <div className="py-4 flex-1 overflow-y-auto px-4">{FormContent}</div>
+            <form id={formId} onSubmit={methods.handleSubmit(handleSave)} className="py-4 flex-1 overflow-y-auto px-4">
+                {FormContent}
+            </form>
             <SheetFooter className="px-4">
               <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
               <Button type="submit" form={formId} className="w-full">Save Changes</Button>
@@ -451,7 +510,9 @@ export const EditClientDialog = ({
             <DialogTitle>{title}</DialogTitle>
             <DialogDescription>{description}</DialogDescription>
           </DialogHeader>
-          <div className="py-4">{FormContent}</div>
+          <form id={formId} onSubmit={methods.handleSubmit(handleSave)}>
+            <div className="py-4">{FormContent}</div>
+          </form>
           <DialogFooter>
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button type="submit" form={formId}>Save Changes</Button>
