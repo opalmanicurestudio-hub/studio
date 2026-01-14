@@ -23,7 +23,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useForm, FormProvider, Controller } from 'react-hook-form';
+import { useForm, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Client } from '@/lib/data';
@@ -37,7 +37,7 @@ const clientSchema = z.object({
 type ClientFormData = z.infer<typeof clientSchema>;
 
 const EditClientForm = ({ client }: { client: Client }) => {
-  const { register, formState: { errors } } = useFormContext<ClientFormData>();
+  const { register, formState: { errors } } = useForm<ClientFormData>();
 
   return (
     <div className="space-y-4">
