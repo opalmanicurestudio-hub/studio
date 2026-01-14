@@ -101,7 +101,7 @@ const QuoteTableRow = ({ quote }: { quote: Quote }) => {
             </DropdownMenuItem>
             <DropdownMenuItem>
               <FileStack />
-              <span>Create Invoice & Book</span>
+              <span>Book</span>
             </DropdownMenuItem>
             <DropdownMenuItem className="text-destructive">
               <Trash2 />
@@ -144,7 +144,7 @@ const QuoteCard = ({ quote }: { quote: Quote }) => {
                             </DropdownMenuItem>
                             <DropdownMenuItem>
                               <FileStack className="mr-2 h-4 w-4"/>
-                              <span>Create Invoice & Book</span>
+                              <span>Book</span>
                             </DropdownMenuItem>
                             <DropdownMenuItem className="text-destructive">
                               <Trash2 className="mr-2 h-4 w-4"/>
