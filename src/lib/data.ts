@@ -1,4 +1,5 @@
 
+
 import { BillDefinition, billDefinitions, billInstances } from './financial-data';
 import { addDays, subDays, setHours, setMinutes, startOfDay } from 'date-fns';
 import { nanoid } from 'nanoid';
@@ -46,6 +47,21 @@ export type Client = {
   inspirationPhotoUrl?: string;
   isMember?: boolean;
   intel?: ClientIntel;
+  referralCode?: string;
+  referredBy?: string;
+  successfulReferrals?: string[];
+  walletCredit?: number;
+  address?: {
+    street: string;
+    city: string;
+    state: string;
+    zip: string;
+  };
+  emergencyContact?: {
+    name: string;
+    relationship: string;
+    phone: string;
+  }
 };
 
 export type LocationType = {
@@ -171,16 +187,27 @@ export type Event = {
   cost?: number;
   isWriteOff?: boolean;
   checklist?: EventChecklistItem[];
+  quoteId?: string;
+  clientId?: string;
+  lineItems?: any[];
+  travelExpenses?: number;
+  projectFee?: number;
 };
 
 export type Quote = {
   id: string;
-  quoteNumber: string;
+  quoteNumber?: string;
   clientId: string;
   eventName: string;
-  date: string;
+  eventDate: string;
   status: 'draft' | 'sent' | 'accepted' | 'declined' | 'booked';
-  total: number;
+  lineItems: any[];
+  travelExpenses: number;
+  projectFee: number;
+  notes?: string;
+  totalHours?: number;
+  createdAt: string;
+  userId: string;
 };
 
 export type StockCorrection = {
@@ -225,11 +252,14 @@ export const clients: Client[] = [
     ],
     medicalNotes: 'Pregnant',
     inspirationPhotoUrl: 'https://images.unsplash.com/photo-1596796242339-3c368369b139?w=400',
+    referralCode: 'ELEANOR10',
+    successfulReferrals: ['Leo Gallagher'],
+    walletCredit: 10,
   },
-  { id: 'cli-2', name: 'Marcus Holloway', email: 'marcus@example.com', phone: '310-555-0187', avatarUrl: 'https://picsum.photos/seed/102/100/100', lifetimeValue: 1890.00, lastAppointment: '2024-05-20T14:30:00.000Z', allergyNotes: 'Latex' },
-  { id: 'cli-3', name: 'Anya Sharma', email: 'anya@example.com', phone: '773-555-0123', avatarUrl: 'https://picsum.photos/seed/103/100/100', lifetimeValue: 3200.50, lastAppointment: '2024-05-01T11:00:00.000Z' },
-  { id: 'cli-4', name: 'Leo Gallagher', email: 'leo@example.com', phone: '415-555-0142', avatarUrl: 'https://picsum.photos/seed/104/100/100', lifetimeValue: 950.00, lastAppointment: '2024-04-22T16:00:00.000Z' },
-  { id: 'cli-5', name: 'Sofia Chen', email: 'sofia@example.com', phone: '212-555-0165', avatarUrl: 'https://picsum.photos/seed/105/100/100', lifetimeValue: 4500.00, lastAppointment: '2024-05-18T09:30:00.000Z', sensoryNeeds: 'Prefers quiet', isMember: true },
+  { id: 'cli-2', name: 'Marcus Holloway', email: 'marcus@example.com', phone: '310-555-0187', avatarUrl: 'https://picsum.photos/seed/102/100/100', lifetimeValue: 1890.00, lastAppointment: '2024-05-20T14:30:00.000Z', allergyNotes: 'Latex', referralCode: 'MARCUS15' },
+  { id: 'cli-3', name: 'Anya Sharma', email: 'anya@example.com', phone: '773-555-0123', avatarUrl: 'https://picsum.photos/seed/103/100/100', lifetimeValue: 3200.50, lastAppointment: '2024-05-01T11:00:00.000Z', referralCode: 'ANYA20' },
+  { id: 'cli-4', name: 'Leo Gallagher', email: 'leo@example.com', phone: '415-555-0142', avatarUrl: 'https://picsum.photos/seed/104/100/100', lifetimeValue: 950.00, lastAppointment: '2024-04-22T16:00:00.000Z', referredBy: 'Eleanor Vance', referralCode: 'LEO5' },
+  { id: 'cli-5', name: 'Sofia Chen', email: 'sofia@example.com', phone: '212-555-0165', avatarUrl: 'https://picsum.photos/seed/105/100/100', lifetimeValue: 4500.00, lastAppointment: '2024-05-18T09:30:00.000Z', sensoryNeeds: 'Prefers quiet', isMember: true, referralCode: 'SOFIA25' },
 ];
 
 export const inventory: InventoryItem[] = [
@@ -498,13 +528,24 @@ export const events: Event[] = [
     { id: 'evt-4', title: 'Dentist', type: 'personal', startTime: setMinutes(setHours(startOfDay(addDays(today, 2)), 15), 0), endTime: setMinutes(setHours(startOfDay(addDays(today, 2)), 16), 0)},
     { id: 'evt-5', title: 'Yoga Class', type: 'personal', startTime: setMinutes(setHours(startOfDay(today), 18), 0), endTime: setMinutes(setHours(startOfDay(today), 19), 0)},
     { id: 'evt-6', title: 'Unavailable', type: 'blocked', startTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 14), 0), endTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 16), 0)},
-];
-
-export const quotes: Quote[] = [
-  { id: 'q-1', quoteNumber: 'Q-001', clientId: 'cli-4', eventName: 'Summer Gala', date: '2024-06-01', status: 'sent', total: 1500.00 },
-  { id: 'q-2', quoteNumber: 'Q-002', clientId: 'cli-5', eventName: 'Wedding Prep', date: '2024-06-05', status: 'accepted', total: 2150.00 },
-  { id: 'q-3', quoteNumber: 'Q-003', clientId: 'cli-1', eventName: 'Corporate Headshots', date: '2024-06-10', status: 'declined', total: 800.00 },
-  { id: 'q-4', quoteNumber: 'Q-004', clientId: 'cli-2', eventName: 'Music Video Shoot', date: '2024-06-12', status: 'draft', total: 2600.00 },
+    { 
+        id: 'evt-7', 
+        title: "Sofia's Wedding Prep",
+        type: 'business',
+        clientId: 'cli-5',
+        startTime: setMinutes(setHours(startOfDay(addDays(today, 2)), 9), 0),
+        endTime: setMinutes(setHours(startOfDay(addDays(today, 2)), 13), 0),
+        location: "The Grand Ballroom",
+        notes: "Full bridal party hair and makeup.",
+        quoteId: 'q-2',
+        lineItems: [
+            { id: 'svc-12', name: 'Updo / Styling', price: 90, cost: 8 },
+            { id: 'svc-12', name: 'Updo / Styling', price: 90, cost: 8 },
+            { id: 'svc-12', name: 'Updo / Styling', price: 90, cost: 8 },
+        ],
+        travelExpenses: 150,
+        projectFee: 20,
+    }
 ];
 
 export const stockCorrections: StockCorrection[] = [
