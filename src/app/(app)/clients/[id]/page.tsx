@@ -264,13 +264,13 @@ export default function ClientDetailPage() {
             <ClientIntelBanner client={client} />
             
             <Tabs defaultValue="overview">
-                <ScrollArea className="w-full">
-                  <TabsList className="inline-grid w-max grid-cols-5">
-                    <TabsTrigger value="overview">Overview</TabsTrigger>
-                    <TabsTrigger value="history">History</TabsTrigger>
-                    <TabsTrigger value="photos">Photos</TabsTrigger>
-                    <TabsTrigger value="incidents">Incidents</TabsTrigger>
-                    <TabsTrigger value="consents">Consents</TabsTrigger>
+                <ScrollArea className="w-full whitespace-nowrap border-b">
+                  <TabsList className="inline-flex h-auto p-0 bg-transparent gap-1">
+                    <TabsTrigger value="overview" className="h-10">Overview</TabsTrigger>
+                    <TabsTrigger value="history" className="h-10">History</TabsTrigger>
+                    <TabsTrigger value="photos" className="h-10">Photos</TabsTrigger>
+                    <TabsTrigger value="incidents" className="h-10">Incidents</TabsTrigger>
+                    <TabsTrigger value="consents" className="h-10">Consents</TabsTrigger>
                   </TabsList>
                   <ScrollBar orientation="horizontal" />
                 </ScrollArea>
