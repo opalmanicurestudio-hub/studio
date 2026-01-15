@@ -220,7 +220,7 @@ const TransactionFilters = ({
   );
 };
 
-const TransactionRow = ({ transaction, onDeleteClick, onRevertClick }: { transaction: Transaction, onDeleteClick: (transaction: Transaction) => void, onRevertClick: (transaction: Transaction) => void }) => {
+const TransactionRow = ({ transaction, onRevertClick }: { transaction: Transaction, onRevertClick: (transaction: Transaction) => void }) => {
   return (
     <TableRow>
       <TableCell>
@@ -273,11 +273,7 @@ const TransactionRow = ({ transaction, onDeleteClick, onRevertClick }: { transac
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem>Edit</DropdownMenuItem>
             <DropdownMenuItem onClick={() => onRevertClick(transaction)}>Revert</DropdownMenuItem>
-            <DropdownMenuItem className="text-destructive" onClick={() => onDeleteClick(transaction)}>
-                <Trash2 className="h-4 w-4 mr-2" /> Delete
-            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </TableCell>
@@ -285,7 +281,7 @@ const TransactionRow = ({ transaction, onDeleteClick, onRevertClick }: { transac
   );
 };
 
-const TransactionCard = ({ transaction, onDeleteClick, onRevertClick }: { transaction: Transaction, onDeleteClick: (transaction: Transaction) => void, onRevertClick: (transaction: Transaction) => void }) => {
+const TransactionCard = ({ transaction, onRevertClick }: { transaction: Transaction, onRevertClick: (transaction: Transaction) => void }) => {
     return (
         <Card>
             <CardContent className="p-4 space-y-4">
@@ -329,11 +325,7 @@ const TransactionCard = ({ transaction, onDeleteClick, onRevertClick }: { transa
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                            <DropdownMenuItem>Edit</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => onRevertClick(transaction)}>Revert</DropdownMenuItem>
-                            <DropdownMenuItem className="text-destructive" onClick={() => onDeleteClick(transaction)}>
-                                <Trash2 className="h-4 w-4 mr-2" /> Delete
-                            </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
                 </div>
@@ -358,7 +350,6 @@ export default function LedgerPage() {
   const [contextFilter, setContextFilter] = useState<'all' | 'Business' | 'Personal'>('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [isAddTxnOpen, setIsAddTxnOpen] = useState(false);
-  const [txnToDelete, setTxnToDelete] = useState<Transaction | null>(null);
 
   const transactionsQuery = useMemoFirebase(() => {
     if (isUserLoading || !user || !firestore) {
@@ -415,23 +406,6 @@ export default function LedgerPage() {
   const handleAddTransaction = (data: Omit<Transaction, 'id'>) => {
     addTransaction(data);
     setIsAddTxnOpen(false);
-  }
-  
-  const handleDeleteClick = (transaction: Transaction) => {
-    setTxnToDelete(transaction);
-  }
-
-  const handleConfirmDelete = () => {
-    if (!txnToDelete || !firestore) return;
-
-    const docRef = doc(firestore, 'tenants', tenantId, 'transactions', txnToDelete.id);
-    deleteDocumentNonBlocking(docRef);
-    
-    toast({
-        title: "Transaction Deleted",
-        description: `The transaction for $${txnToDelete.amount.toFixed(2)} has been deleted.`
-    })
-    setTxnToDelete(null);
   }
   
   const handleRevertTransaction = (transaction: Transaction) => {
@@ -502,7 +476,7 @@ export default function LedgerPage() {
                         </TableRow>
                     )}
                     {!isLoading && filteredTransactions.map((transaction) => (
-                      <TransactionRow key={transaction.id} transaction={transaction} onDeleteClick={handleDeleteClick} onRevertClick={handleRevertTransaction} />
+                      <TransactionRow key={transaction.id} transaction={transaction} onRevertClick={handleRevertTransaction} />
                     ))}
                      {!isLoading && filteredTransactions.length === 0 && (
                         <TableRow>
@@ -516,7 +490,7 @@ export default function LedgerPage() {
             <div className="md:hidden space-y-4">
                  {isLoading && <p className="text-center text-muted-foreground">{isUserLoading ? 'Authenticating user...' : 'Loading transactions...'}</p>}
                  {!isLoading && filteredTransactions.length > 0 ? filteredTransactions.map((transaction) => (
-                    <TransactionCard key={transaction.id} transaction={transaction} onDeleteClick={handleDeleteClick} onRevertClick={handleRevertTransaction} />
+                    <TransactionCard key={transaction.id} transaction={transaction} onRevertClick={handleRevertTransaction} />
                  )) : !isLoading && <p className="text-center text-muted-foreground py-10">No transactions found matching your filters.</p>}
             </div>
           </div>
@@ -529,22 +503,8 @@ export default function LedgerPage() {
         onOpenChange={setIsAddTxnOpen}
         onConfirm={handleAddTransaction}
     />
-
-    <AlertDialog open={!!txnToDelete} onOpenChange={() => setTxnToDelete(null)}>
-        <AlertDialogContent>
-            <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-            <AlertDialogDescription>
-                This action cannot be undone. This will permanently delete the transaction
-                for <span className="font-bold">&quot;{txnToDelete?.description}&quot;</span>. It is recommended to use the &apos;Revert&apos; action for better bookkeeping.
-            </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmDelete} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
-            </AlertDialogFooter>
-        </AlertDialogContent>
-    </AlertDialog>
     </>
   );
 }
+
+    
