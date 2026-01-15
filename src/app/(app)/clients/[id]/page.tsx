@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -318,21 +319,6 @@ export default function ClientDetailPage() {
                                     )}
                                 </CardContent>
                             </Card>
-                            <Card>
-                                 <CardHeader>
-                                    <CardTitle>Client Wallet</CardTitle>
-                                </CardHeader>
-                                <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    <div className="p-4 rounded-lg bg-muted/50">
-                                        <div className="text-sm text-muted-foreground">Store Credit</div>
-                                        <div className="text-2xl font-bold">${(client.walletCredit || 0).toFixed(2)}</div>
-                                    </div>
-                                    <div className="p-4 rounded-lg bg-muted/50">
-                                        <div className="text-sm text-muted-foreground">Gift Card Balance</div>
-                                        <div className="text-2xl font-bold">$50.00</div>
-                                    </div>
-                                </CardContent>
-                            </Card>
                              <Card>
                                  <CardHeader>
                                     <CardTitle>Active Offers</CardTitle>
@@ -376,6 +362,21 @@ export default function ClientDetailPage() {
                                         </CardContent>
                                     </TabsContent>
                                 </Tabs>
+                            </Card>
+                             <Card>
+                                 <CardHeader>
+                                    <CardTitle>Client Wallet</CardTitle>
+                                </CardHeader>
+                                <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div className="p-4 rounded-lg bg-muted/50">
+                                        <div className="text-sm text-muted-foreground">Store Credit</div>
+                                        <div className="text-2xl font-bold">${(client.walletCredit || 0).toFixed(2)}</div>
+                                    </div>
+                                    <div className="p-4 rounded-lg bg-muted/50">
+                                        <div className="text-sm text-muted-foreground">Gift Card Balance</div>
+                                        <div className="text-2xl font-bold">$50.00</div>
+                                    </div>
+                                </CardContent>
                             </Card>
                          </div>
                     </div>

@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { usePathname } from 'next/navigation';
@@ -31,6 +32,7 @@ import {
   DollarSign,
   FileSignature,
   ShoppingCart,
+  Gift,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -62,6 +64,7 @@ const setupNavItems = [
   { href: '/services', icon: List, label: 'Services' },
   { href: '/inventory', icon: Box, label: 'Inventory' },
   { href: '/clients', icon: Users, label: 'Clients' },
+  { href: '/memberships', icon: Gift, label: 'Memberships' },
   { href: '/consents', icon: FileSignature, label: 'Consents' },
 ];
 
