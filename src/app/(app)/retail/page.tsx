@@ -28,6 +28,8 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { cn } from '@/lib/utils';
+
 
 type CartItem = {
   id: string;
@@ -248,7 +250,7 @@ export default function RetailPage() {
                 <div className='pt-4'>
                     <Label>Client</Label>
                     <div className='flex gap-2 mt-2'>
-                        <Select value={selectedClientId || ''} onValueChange={(value) => {
+                        <Select value={selectedClientId || 'walk-in'} onValueChange={(value) => {
                             if (value === 'walk-in') {
                                 setSelectedClientId(null);
                             } else {
@@ -316,9 +318,12 @@ export default function RetailPage() {
                         <span className="text-muted-foreground">Tax (7%)</span>
                         <span>${tax.toFixed(2)}</span>
                     </div>
-                     <div className="flex justify-between text-sm">
+                     <div className="flex justify-between text-sm items-center">
                         <span className="text-muted-foreground">Tip</span>
-                         <Input type="number" value={tipAmount || ''} onChange={e => setTipAmount(parseFloat(e.target.value) || 0)} className="w-20 h-7 text-right" placeholder="0.00" />
+                        <div className="relative w-24">
+                           <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                           <Input type="number" value={tipAmount || ''} onChange={e => setTipAmount(parseFloat(e.target.value) || 0)} className="h-8 text-right pr-2 pl-7" placeholder="0.00" />
+                        </div>
                     </div>
                     <Separator className="my-2" />
                     <div className="flex justify-between font-bold text-lg">
