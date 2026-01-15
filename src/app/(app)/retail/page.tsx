@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
@@ -16,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle, User, UserPlus } from 'lucide-react';
+import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle, User, UserPlus, Coins } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { type InventoryItem, type StockCorrection, type Transaction, type Client } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
@@ -126,6 +125,8 @@ export default function RetailPage() {
   const subtotal = useMemo(() => cart.reduce((acc, item) => acc + item.price * item.quantity, 0), [cart]);
   const tax = subtotal * 0.07; // Mock tax
   const total = subtotal + tax + tipAmount;
+  const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
+
 
   const handleCheckout = () => {
     if (cart.length === 0) {
@@ -200,6 +201,23 @@ export default function RetailPage() {
         }
     }
   }, [isScannerOpen, toast]);
+
+    const denominations = [100, 50, 20, 10, 5, 1, 0.25, 0.10, 0.05, 0.01];
+
+    const handleDenominationClick = (amount: number) => {
+        setAmountTendered(prev => prev + amount);
+    };
+
+    const handleKeepTheChange = () => {
+        if (changeDue > 0) {
+            setTipAmount(prevTip => prevTip + changeDue);
+            setAmountTendered(total + changeDue); // Effectively makes change 0 by setting tendered to new total
+            toast({
+                title: "Tip Added!",
+                description: `$${changeDue.toFixed(2)} has been added as a tip.`
+            });
+        }
+    };
 
 
   return (
@@ -337,6 +355,35 @@ export default function RetailPage() {
                         <TabsTrigger value="cash"><Banknote className="w-4 h-4 mr-2"/>Cash</TabsTrigger>
                         <TabsTrigger value="other"><Gift className="w-4 h-4 mr-2"/>Other</TabsTrigger>
                     </TabsList>
+                      <TabsContent value="cash" className="pt-4 space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label>Amount Tendered</Label>
+                                <div className='p-4 text-2xl font-bold text-center bg-background rounded-md border'>
+                                    ${amountTendered.toFixed(2)}
+                                </div>
+                            </div>
+                                <div className="space-y-2">
+                                <Label>Change Due</Label>
+                                    <div className={`p-4 text-2xl font-bold text-center rounded-md ${changeDue >= 0 ? 'bg-green-500/10 text-green-600' : 'bg-red-500/10 text-red-600'}`}>
+                                    ${Math.abs(changeDue).toFixed(2)}
+                                </div>
+                            </div>
+                        </div>
+                            {changeDue > 0 && (
+                            <Button variant="secondary" className="w-full" onClick={handleKeepTheChange}>
+                                <Coins className="w-4 h-4 mr-2" /> Keep the Change as Tip
+                            </Button>
+                            )}
+                        <div className="grid grid-cols-5 gap-2">
+                            {denominations.map(amount => (
+                                <Button key={amount} variant="outline" onClick={() => handleDenominationClick(amount)}>
+                                    {amount >= 1 ? `$${amount}` : `${amount * 100}¢`}
+                                </Button>
+                            ))}
+                        </div>
+                            <Button variant="secondary" className="w-full" onClick={() => setAmountTendered(0)}>Clear</Button>
+                    </TabsContent>
                 </Tabs>
                 <div className="p-4 w-full border-t bg-background">
                      <Button size="lg" className="w-full text-lg h-14" onClick={handleCheckout}>
@@ -383,3 +430,5 @@ export default function RetailPage() {
     </>
   );
 }
+
+    
