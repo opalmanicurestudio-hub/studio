@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
@@ -247,12 +248,18 @@ export default function RetailPage() {
                 <div className='pt-4'>
                     <Label>Client</Label>
                     <div className='flex gap-2 mt-2'>
-                        <Select value={selectedClientId || ''} onValueChange={(value) => setSelectedClientId(value)}>
+                        <Select value={selectedClientId || ''} onValueChange={(value) => {
+                            if (value === 'walk-in') {
+                                setSelectedClientId(null);
+                            } else {
+                                setSelectedClientId(value);
+                            }
+                        }}>
                             <SelectTrigger>
                                 <SelectValue placeholder="Walk-in Customer" />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="">Walk-in Customer</SelectItem>
+                                <SelectItem value="walk-in">Walk-in Customer</SelectItem>
                                 {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
                             </SelectContent>
                         </Select>
