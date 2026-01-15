@@ -82,38 +82,46 @@ export default function DashboardPage() {
   const { inventory, clients, services, appointments: allAppointments, transactions: allTransactions } = useInventory();
   const tenantId = 'tenant-abc';
   
-  const todayStart = useMemo(() => startOfDay(new Date()), []);
-  const todayEnd = useMemo(() => endOfDay(new Date()), []);
-  const weekStart = useMemo(() => startOfWeek(new Date(), { weekStartsOn: 0 }), []);
+  const [dateRange, setDateRange] = useState<{todayStart: Date, todayEnd: Date, weekStart: Date} | null>(null);
+
+  useEffect(() => {
+    // This code now runs only on the client, after the initial render.
+    const now = new Date();
+    setDateRange({
+        todayStart: startOfDay(now),
+        todayEnd: endOfDay(now),
+        weekStart: startOfWeek(now, { weekStartsOn: 0 }),
+    });
+  }, []);
 
   // Queries for today's data
   const todayTransactionsQuery = useMemoFirebase(() => {
-    if (!firestore || !user) return null;
+    if (!firestore || !user || !dateRange) return null;
     return query(
       collection(firestore, 'tenants', tenantId, 'transactions'),
-      where('date', '>=', Timestamp.fromDate(todayStart)),
-      where('date', '<=', Timestamp.fromDate(todayEnd))
+      where('date', '>=', Timestamp.fromDate(dateRange.todayStart)),
+      where('date', '<=', Timestamp.fromDate(dateRange.todayEnd))
     );
-  }, [firestore, user, todayStart, todayEnd, tenantId]);
+  }, [firestore, user, dateRange, tenantId]);
 
   const todayAppointmentsQuery = useMemoFirebase(() => {
-    if (!firestore || !user) return null;
+    if (!firestore || !user || !dateRange) return null;
     return query(
       collection(firestore, 'tenants', tenantId, 'appointments'),
-      where('startTime', '>=', Timestamp.fromDate(todayStart)),
-      where('startTime', '<=', Timestamp.fromDate(todayEnd))
+      where('startTime', '>=', Timestamp.fromDate(dateRange.todayStart)),
+      where('startTime', '<=', Timestamp.fromDate(dateRange.todayEnd))
     );
-  }, [firestore, user, todayStart, todayEnd, tenantId]);
+  }, [firestore, user, dateRange, tenantId]);
   
   // Query for the last 7 days of transactions for the chart
   const weeklyTransactionsQuery = useMemoFirebase(() => {
-    if (!firestore || !user) return null;
+    if (!firestore || !user || !dateRange) return null;
     return query(
       collection(firestore, 'tenants', tenantId, 'transactions'),
-      where('date', '>=', Timestamp.fromDate(weekStart)),
-      where('date', '<=', Timestamp.fromDate(todayEnd))
+      where('date', '>=', Timestamp.fromDate(dateRange.weekStart)),
+      where('date', '<=', Timestamp.fromDate(dateRange.todayEnd))
     );
-  }, [firestore, user, weekStart, todayEnd, tenantId]);
+  }, [firestore, user, dateRange, tenantId]);
 
 
   const { data: todayTransactions, isLoading: transactionsLoading } = useCollection<Transaction>(todayTransactionsQuery);
@@ -141,9 +149,9 @@ export default function DashboardPage() {
     if (!weeklyTransactions) return [];
     
     const dailyData: { [key: string]: { revenue: number, expense: number } } = {};
-
+    const now = new Date();
     for (let i = 0; i < 7; i++) {
-        const day = subDays(new Date(), i);
+        const day = subDays(now, i);
         const dayKey = formatDate(day, 'yyyy-MM-dd');
         dailyData[dayKey] = { revenue: 0, expense: 0 };
     }
@@ -166,9 +174,9 @@ export default function DashboardPage() {
   }, [weeklyTransactions]);
   
    const newClientsThisWeek = useMemo(() => {
-    if (!allAppointments || !clients) return 0;
+    if (!allAppointments || !clients || !dateRange) return 0;
 
-    const startOfWeekDate = startOfWeek(new Date(), { weekStartsOn: 0 });
+    const startOfWeekDate = dateRange.weekStart;
     let newClientCount = 0;
     const clientsWithAppointmentsThisWeek = new Set<string>();
 
@@ -189,7 +197,7 @@ export default function DashboardPage() {
     });
 
     return newClientCount;
-  }, [allAppointments, clients]);
+  }, [allAppointments, clients, dateRange]);
   
    const clientRetentionRate = useMemo(() => {
     if (!clients || clients.length === 0 || !allAppointments) return 0;
@@ -262,7 +270,7 @@ export default function DashboardPage() {
     }
   };
 
-  const isLoading = isUserLoading || transactionsLoading || appointmentsLoading || weeklyTransactionsLoading;
+  const isLoading = isUserLoading || transactionsLoading || appointmentsLoading || weeklyTransactionsLoading || !dateRange;
 
   return (
     <div className="flex min-h-screen w-full flex-col">
