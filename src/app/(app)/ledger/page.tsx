@@ -40,7 +40,7 @@ import {
 } from '@/components/ui/table';
 import { type Transaction } from '@/lib/financial-data';
 import { Badge } from '@/components/ui/badge';
-import { format } from 'date-fns';
+import { format, startOfDay, endOfDay } from 'date-fns';
 import { Input } from '@/components/ui/input';
 import {
   Accordion,
@@ -61,8 +61,10 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { DateRange } from 'react-day-picker';
 import { cn } from '@/lib/utils';
-import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
+import { useCollection, useFirebase, useMemoFirebase, addDocumentNonBlocking } from '@/firebase';
 import { collection } from 'firebase/firestore';
+import { AddTransactionDialog } from '@/components/ledger/AddTransactionDialog';
+import { useToast } from '@/hooks/use-toast';
 
 const TransactionIcon = ({ type }: { type: Transaction['type'] }) => {
   const iconClass = "h-5 w-5";
@@ -80,11 +82,29 @@ const TransactionIcon = ({ type }: { type: Transaction['type'] }) => {
   }
 };
 
-const TransactionFilters = ({ transactions }: { transactions: Transaction[] }) => {
-    const [date, setDate] = React.useState<DateRange | undefined>({
-        from: new Date(2024, 0, 20),
-        to: new Date(),
-    });
+const TransactionFilters = ({ 
+    transactions,
+    date, 
+    setDate,
+    searchTerm,
+    setSearchTerm,
+    contextFilter,
+    setContextFilter,
+    categoryFilter,
+    setCategoryFilter,
+    financialSummary,
+}: { 
+    transactions: Transaction[];
+    date: DateRange | undefined;
+    setDate: (date: DateRange | undefined) => void;
+    searchTerm: string;
+    setSearchTerm: (term: string) => void;
+    contextFilter: 'all' | 'Business' | 'Personal';
+    setContextFilter: (context: 'all' | 'Business' | 'Personal') => void;
+    categoryFilter: string;
+    setCategoryFilter: (category: string) => void;
+    financialSummary: { revenue: number, expenses: number, net: number };
+ }) => {
     
     const categories = useMemo(() => {
         if (!transactions) return [];
@@ -139,14 +159,14 @@ const TransactionFilters = ({ transactions }: { transactions: Transaction[] }) =
             </Popover>
         </div>
 
-        <Accordion type="single" collapsible>
+        <Accordion type="single" collapsible defaultValue="summary">
             <AccordionItem value="summary" className='border-0'>
                 <AccordionTrigger className='p-3 text-sm font-medium hover:no-underline rounded-md bg-muted/50'>Financial Summary</AccordionTrigger>
                 <AccordionContent className='p-4 text-sm'>
                     <div className='space-y-2'>
-                        <div className='flex justify-between'><span>Total Revenue:</span><span className='font-medium text-green-500'>$5,890.00</span></div>
-                        <div className='flex justify-between'><span>Operating Expenses:</span><span className='font-medium text-red-500'>$1,234.50</span></div>
-                        <div className='flex justify-between'><span>Net Income:</span><span className='font-bold text-primary'>$4,655.50</span></div>
+                        <div className='flex justify-between'><span>Total Revenue:</span><span className='font-medium text-green-500'>${financialSummary.revenue.toFixed(2)}</span></div>
+                        <div className='flex justify-between'><span>Operating Expenses:</span><span className='font-medium text-red-500'>${financialSummary.expenses.toFixed(2)}</span></div>
+                        <div className='flex justify-between'><span>Net Income:</span><span className='font-bold text-primary'>${financialSummary.net.toFixed(2)}</span></div>
                     </div>
                 </AccordionContent>
             </AccordionItem>
@@ -155,33 +175,32 @@ const TransactionFilters = ({ transactions }: { transactions: Transaction[] }) =
         <div className="space-y-4">
             <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input placeholder="Search description..." className="pl-9" />
+                <Input placeholder="Search description..." className="pl-9" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
             </div>
-            <RadioGroup defaultValue="all" className="grid grid-cols-3 gap-2">
+            <RadioGroup value={contextFilter} onValueChange={(v: any) => setContextFilter(v)} className="grid grid-cols-3 gap-2">
                 <div>
                     <RadioGroupItem value="all" id="all" className="peer sr-only" />
                     <Label htmlFor="all" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">All</Label>
                 </div>
                 <div>
-                    <RadioGroupItem value="business" id="business" className="peer sr-only" />
+                    <RadioGroupItem value="Business" id="business" className="peer sr-only" />
                     <Label htmlFor="business" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Business</Label>
                 </div>
                 <div>
-                    <RadioGroupItem value="personal" id="personal" className="peer sr-only" />
+                    <RadioGroupItem value="Personal" id="personal" className="peer sr-only" />
                     <Label htmlFor="personal" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Personal</Label>
                 </div>
             </RadioGroup>
-            <Select>
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
                 <SelectTrigger>
                     <SelectValue placeholder="Filter by category" />
                 </SelectTrigger>
                 <SelectContent>
+                    <SelectItem value="all">All Categories</SelectItem>
                     {categories.map(cat => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}
                 </SelectContent>
             </Select>
         </div>
-
-        <Button className='w-full'>Apply Filters</Button>
       </CardContent>
     </Card>
   );
@@ -309,6 +328,16 @@ const TransactionCard = ({ transaction }: { transaction: Transaction }) => {
 export default function LedgerPage() {
   const { firestore, user, isUserLoading } = useFirebase();
   const tenantId = 'tenant-abc';
+  const { toast } = useToast();
+
+  const [date, setDate] = React.useState<DateRange | undefined>({
+      from: new Date(new Date().getFullYear(), 0, 1),
+      to: new Date(),
+  });
+  const [searchTerm, setSearchTerm] = useState('');
+  const [contextFilter, setContextFilter] = useState<'all' | 'Business' | 'Personal'>('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [isAddTxnOpen, setIsAddTxnOpen] = useState(false);
 
   const transactionsQuery = useMemoFirebase(() => {
     if (isUserLoading || !user || !firestore) {
@@ -319,24 +348,72 @@ export default function LedgerPage() {
 
   const { data: transactions, isLoading: areTransactionsLoading } = useCollection<Transaction>(transactionsQuery);
 
-  const sortedTransactions = useMemo(() => {
+  const filteredTransactions = useMemo(() => {
     if (!transactions) return [];
-    return [...transactions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [transactions]);
+
+    return transactions
+        .filter(t => {
+            const transactionDate = new Date(t.date);
+            const from = date?.from ? startOfDay(date.from) : null;
+            const to = date?.to ? endOfDay(date.to) : null;
+
+            if (from && transactionDate < from) return false;
+            if (to && transactionDate > to) return false;
+            if (searchTerm && !(t.description.toLowerCase().includes(searchTerm.toLowerCase()) || t.clientOrVendor.toLowerCase().includes(searchTerm.toLowerCase()))) return false;
+            if (contextFilter !== 'all' && t.context !== contextFilter) return false;
+            if (categoryFilter !== 'all' && t.category !== categoryFilter) return false;
+
+            return true;
+        })
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [transactions, date, searchTerm, contextFilter, categoryFilter]);
+  
+  const financialSummary = useMemo(() => {
+    const revenue = filteredTransactions
+      .filter(t => t.type === 'income')
+      .reduce((acc, t) => acc + t.amount, 0);
+    const expenses = filteredTransactions
+      .filter(t => t.type === 'expense' || t.type === 'payment')
+      .reduce((acc, t) => acc + t.amount, 0);
+    return { revenue, expenses, net: revenue - expenses };
+  }, [filteredTransactions]);
+
+  const handleAddTransaction = (data: Omit<Transaction, 'id'>) => {
+    if (!firestore) return;
+    const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+    addDocumentNonBlocking(transactionsRef, data);
+    toast({
+        title: 'Transaction Added',
+        description: `Your transaction for $${data.amount.toFixed(2)} has been successfully logged.`
+    })
+    setIsAddTxnOpen(false);
+  }
   
   const isLoading = isUserLoading || areTransactionsLoading;
 
   return (
+    <>
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Ledger" />
       <main className="flex-1 p-4 md:p-8">
         <div className="grid md:grid-cols-3 lg:grid-cols-4 gap-8">
           <div className="md:col-span-1 lg:col-span-1">
-            <TransactionFilters transactions={sortedTransactions} />
+            <TransactionFilters 
+                transactions={transactions || []}
+                date={date}
+                setDate={setDate}
+                searchTerm={searchTerm}
+                setSearchTerm={setSearchTerm}
+                contextFilter={contextFilter}
+                setContextFilter={setContextFilter}
+                categoryFilter={categoryFilter}
+                setCategoryFilter={setCategoryFilter}
+                financialSummary={financialSummary}
+            />
           </div>
           <div className="md:col-span-2 lg:col-span-3 space-y-4">
             <div className="flex items-center justify-end">
-                <Button><PlusCircle className='mr-2' /> Add Transaction</Button>
+                <Button onClick={() => setIsAddTxnOpen(true)}><PlusCircle className='mr-2' /> Add Transaction</Button>
             </div>
             <Card className="hidden md:block">
               <CardContent className='p-0'>
@@ -358,12 +435,12 @@ export default function LedgerPage() {
                             <TableCell colSpan={7} className="h-24 text-center">{isUserLoading ? 'Authenticating user...' : 'Loading transactions...'}</TableCell>
                         </TableRow>
                     )}
-                    {!isLoading && sortedTransactions.map((transaction) => (
+                    {!isLoading && filteredTransactions.map((transaction) => (
                       <TransactionRow key={transaction.id} transaction={transaction} />
                     ))}
-                     {!isLoading && sortedTransactions.length === 0 && (
+                     {!isLoading && filteredTransactions.length === 0 && (
                         <TableRow>
-                            <TableCell colSpan={7} className="h-24 text-center">No transactions found.</TableCell>
+                            <TableCell colSpan={7} className="h-24 text-center">No transactions found matching your filters.</TableCell>
                         </TableRow>
                     )}
                   </TableBody>
@@ -372,13 +449,21 @@ export default function LedgerPage() {
             </Card>
             <div className="md:hidden space-y-4">
                  {isLoading && <p className="text-center text-muted-foreground">{isUserLoading ? 'Authenticating user...' : 'Loading transactions...'}</p>}
-                 {!isLoading && sortedTransactions.length > 0 ? sortedTransactions.map((transaction) => (
+                 {!isLoading && filteredTransactions.length > 0 ? filteredTransactions.map((transaction) => (
                     <TransactionCard key={transaction.id} transaction={transaction} />
-                 )) : !isLoading && <p className="text-center text-muted-foreground py-10">No transactions found.</p>}
+                 )) : !isLoading && <p className="text-center text-muted-foreground py-10">No transactions found matching your filters.</p>}
             </div>
           </div>
         </div>
       </main>
     </div>
+
+    <AddTransactionDialog 
+        open={isAddTxnOpen}
+        onOpenChange={setIsAddTxnOpen}
+        onConfirm={handleAddTransaction}
+    />
+    </>
   );
 }
+
