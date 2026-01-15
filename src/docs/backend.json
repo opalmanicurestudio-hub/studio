@@ -326,6 +326,10 @@
         },
         "hasReceipt": {
           "type": "boolean"
+        },
+        "reversalOf": {
+          "type": "string",
+          "description": "The ID of the transaction this entry is reversing."
         }
       },
       "required": ["id", "date", "description", "type", "context", "category", "amount", "paymentMethod"]

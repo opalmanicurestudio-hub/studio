@@ -273,7 +273,7 @@ const TransactionRow = ({ transaction, onRevertClick }: { transaction: Transacti
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => onRevertClick(transaction)}>Revert</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onRevertClick(transaction)} disabled={transaction.type === 'reversal'}>Revert</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </TableCell>
@@ -325,7 +325,7 @@ const TransactionCard = ({ transaction, onRevertClick }: { transaction: Transact
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => onRevertClick(transaction)}>Revert</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => onRevertClick(transaction)} disabled={transaction.type === 'reversal'}>Revert</DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
                 </div>
@@ -409,13 +409,8 @@ export default function LedgerPage() {
   }
   
   const handleRevertTransaction = (transaction: Transaction) => {
-    let newType: Transaction['type'];
-    if (transaction.type === 'income') {
-        newType = 'expense';
-    } else if (transaction.type === 'expense' || transaction.type === 'payment') {
-        newType = 'income';
-    } else {
-        toast({ variant: 'destructive', title: "Cannot revert this transaction type."});
+    if (transaction.type === 'reversal' || transaction.reversalOf) {
+        toast({ variant: 'destructive', title: "Cannot revert a reversal."});
         return;
     }
 
@@ -423,7 +418,9 @@ export default function LedgerPage() {
       ...transaction,
       date: new Date().toISOString(),
       description: `Reversal of: ${transaction.description}`,
-      type: newType,
+      type: 'reversal',
+      amount: -transaction.amount,
+      reversalOf: transaction.id,
     };
     addTransaction(reversalTransaction);
     toast({ title: 'Transaction Reverted', description: 'A reversal transaction has been created.' });
@@ -506,5 +503,3 @@ export default function LedgerPage() {
     </>
   );
 }
-
-    
