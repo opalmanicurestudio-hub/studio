@@ -68,7 +68,8 @@ const CartContent = ({
     handleDenominationClick,
     setAmountTendered,
     handleCheckout,
-    clients
+    clients,
+    updateQuantity
 }: any) => {
     
   const selectedClient = useMemo(() => {
@@ -126,11 +127,11 @@ const CartContent = ({
                                 <p className="text-xs text-muted-foreground">${item.price.toFixed(2)}</p>
                             </div>
                             <div className="flex items-center gap-1">
-                                <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => cart.updateQuantity(item.id, item.quantity - 1)}><Minus className="h-3 w-3" /></Button>
-                                <Input type="number" value={item.quantity} onChange={(e) => cart.updateQuantity(item.id, parseInt(e.target.value) || 0)} className="w-12 h-8 text-center" />
-                                <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => cart.updateQuantity(item.id, item.quantity + 1)}><Plus className="h-3 w-3" /></Button>
+                                <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => updateQuantity(item.id, item.quantity - 1)}><Minus className="h-3 w-3" /></Button>
+                                <Input type="number" value={item.quantity} onChange={(e) => updateQuantity(item.id, parseInt(e.target.value) || 0)} className="w-12 h-8 text-center" />
+                                <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => updateQuantity(item.id, item.quantity + 1)}><Plus className="h-3 w-3" /></Button>
                             </div>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => cart.updateQuantity(item.id, 0)}><X className="h-4 w-4" /></Button>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => updateQuantity(item.id, 0)}><X className="h-4 w-4" /></Button>
                         </div>
                     ))}
                 </div>
@@ -221,6 +222,7 @@ export default function RetailPage() {
   const [paymentTab, setPaymentTab] = useState('card');
   const [amountTendered, setAmountTendered] = useState<number>(0);
   const [tipAmount, setTipAmount] = useState<number>(0);
+  const [discount, setDiscount] = useState(0);
   
   const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
 
@@ -297,7 +299,6 @@ export default function RetailPage() {
   const tax = subtotal * 0.07; // Mock tax
   const total = subtotal - discount + tax + tipAmount;
   const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
-  const [discount, setDiscount] = useState(0);
 
 
   const handleCheckout = () => {
@@ -548,7 +549,7 @@ export default function RetailPage() {
                     <AlertTriangle className="h-4 w-4" />
                     <AlertTitle>Camera Access Required</AlertTitle>
                     <AlertDescription>
-                        Please enable camera permissions in your browser settings to use this feature.
+                        Please enable camera permissions in your browser settings to use this app.
                     </AlertDescription>
                 </Alert>
             )}
