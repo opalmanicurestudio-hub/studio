@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle, User, UserPlus, Coins, Printer, ChevronUp } from 'lucide-react';
+import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle, UserPlus, Coins, Printer, Wallet } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { type InventoryItem, type StockCorrection, type Transaction, type Client } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
@@ -69,12 +69,25 @@ const CartContent = ({
     setAmountTendered,
     handleCheckout,
     clients,
-    updateQuantity
+    updateQuantity,
+    discount,
+    setDiscount,
+    promoCode,
+    setPromoCode,
+    handleApplyPromo,
+    appliedStoreCredit,
+    setAppliedStoreCredit,
 }: any) => {
     
   const selectedClient = useMemo(() => {
     return clients.find((c: Client) => c.id === selectedClientId);
   }, [selectedClientId, clients]);
+
+  const maxCreditToApply = Math.min(selectedClient?.walletCredit || 0, total);
+
+  const handleApplyCredit = () => {
+    setAppliedStoreCredit(maxCreditToApply);
+  }
 
   return (
     <>
@@ -108,7 +121,15 @@ const CartContent = ({
                             <AvatarImage src={selectedClient.avatarUrl} alt={selectedClient.name} />
                             <AvatarFallback>{selectedClient.name.charAt(0)}</AvatarFallback>
                         </Avatar>
-                        <span className="font-medium text-sm">{selectedClient.name}</span>
+                        <div className="flex-1">
+                          <span className="font-medium text-sm">{selectedClient.name}</span>
+                           {(selectedClient.walletCredit || 0) > 0 && (
+                            <p className="text-xs text-primary font-medium flex items-center gap-1">
+                              <Wallet className="h-3 w-3" /> 
+                              ${selectedClient.walletCredit?.toFixed(2)} in credit
+                            </p>
+                          )}
+                        </div>
                         <Button variant="ghost" size="icon" className="h-7 w-7 ml-auto" onClick={() => setSelectedClientId(null)}>
                             <X className="h-4 w-4" />
                         </Button>
@@ -143,21 +164,40 @@ const CartContent = ({
         </ScrollArea>
         <CardFooter className="flex-col !p-0">
             <div className="p-6 w-full space-y-2">
+                 <div className="space-y-2">
+                    <Label htmlFor="promo-code">Promo Code</Label>
+                    <div className="flex gap-2">
+                        <Input id="promo-code" value={promoCode} onChange={e => setPromoCode(e.target.value)} placeholder="e.g., NEWCLIENT15" />
+                        <Button variant="outline" onClick={handleApplyPromo}>Apply</Button>
+                    </div>
+                </div>
                 <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Subtotal</span>
                     <span>${subtotal.toFixed(2)}</span>
                 </div>
+                 {discount > 0 && (
+                  <div className='flex justify-between text-sm text-primary font-medium'>
+                    <span>Discount:</span>
+                    <span>-${discount.toFixed(2)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Tax (7%)</span>
                     <span>${tax.toFixed(2)}</span>
                 </div>
-                    <div className="flex justify-between text-sm items-center">
+                <div className="flex justify-between text-sm items-center">
                     <span className="text-muted-foreground">Tip</span>
                     <div className="relative w-24">
                         <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input type="number" value={tipAmount || ''} onChange={e => setTipAmount(parseFloat(e.target.value) || 0)} className="h-8 text-right pr-2 pl-7" placeholder="0.00" />
                     </div>
                 </div>
+                 {appliedStoreCredit > 0 && (
+                  <div className="flex justify-between text-sm font-medium text-primary">
+                    <span>Store Credit Used</span>
+                    <span>-${appliedStoreCredit.toFixed(2)}</span>
+                  </div>
+                )}
                 <Separator className="my-2" />
                 <div className="flex justify-between font-bold text-lg">
                     <span>Total</span>
@@ -199,11 +239,29 @@ const CartContent = ({
                     </div>
                         <Button variant="secondary" className="w-full" onClick={() => setAmountTendered(0)}>Clear</Button>
                 </TabsContent>
+                 <TabsContent value="other" className="pt-4 space-y-4">
+                      {selectedClient && (selectedClient.walletCredit || 0) > 0 ? (
+                        <div className="p-4 rounded-lg bg-muted/50 text-center space-y-3">
+                          <p className="text-sm">
+                            Client has <span className="font-bold text-primary">${(selectedClient.walletCredit || 0).toFixed(2)}</span> in store credit.
+                          </p>
+                          <Button 
+                            variant="secondary" 
+                            onClick={handleApplyCredit}
+                            disabled={appliedStoreCredit > 0 || total <= 0}
+                          >
+                            Apply ${maxCreditToApply.toFixed(2)} to this sale
+                          </Button>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-center text-muted-foreground p-4">No store credit available.</p>
+                      )}
+                    </TabsContent>
             </Tabs>
             <div className="p-4 w-full border-t bg-background">
-                    <Button size="lg" className="w-full text-lg h-14" onClick={handleCheckout}>
+                    <Button size="lg" className="w-full text-lg h-14" onClick={handleCheckout} disabled={total < 0}>
                     <DollarSign className="mr-2 h-6 w-6" />
-                    Charge ${total.toFixed(2)}
+                    Charge ${total > 0 ? total.toFixed(2) : '0.00'}
                 </Button>
             </div>
         </CardFooter>
@@ -212,7 +270,7 @@ const CartContent = ({
 }
 
 export default function RetailPage() {
-  const { inventory, addStockCorrection, setTransactions, clients } = useInventory();
+  const { inventory, addStockCorrection, setTransactions, clients, setClients } = useInventory();
   const [searchTerm, setSearchTerm] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const { toast } = useToast();
@@ -223,6 +281,7 @@ export default function RetailPage() {
   const [amountTendered, setAmountTendered] = useState<number>(0);
   const [tipAmount, setTipAmount] = useState<number>(0);
   const [discount, setDiscount] = useState(0);
+  const [promoCode, setPromoCode] = useState('');
   
   const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
 
@@ -232,7 +291,8 @@ export default function RetailPage() {
 
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [isAddClientOpen, setIsAddClientOpen] = useState(false);
-
+  
+  const [appliedStoreCredit, setAppliedStoreCredit] = useState(0);
 
   const retailProducts = useMemo(() => {
     return inventory.filter(
@@ -296,9 +356,26 @@ export default function RetailPage() {
   };
 
   const subtotal = useMemo(() => cart.reduce((acc, item) => acc + item.price * item.quantity, 0), [cart]);
-  const tax = subtotal * 0.07; // Mock tax
-  const total = subtotal - discount + tax + tipAmount;
+  const tax = (subtotal - discount) * 0.07; // Mock tax
+  const total = subtotal - discount - appliedStoreCredit + tax + tipAmount;
   const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
+
+  const handleApplyPromo = () => {
+    const selectedClient = clients.find(c => c.id === selectedClientId);
+    if (promoCode === 'NEWCLIENT15' && selectedClient && selectedClient.lifetimeValue === 0) {
+        setDiscount(15);
+        toast({
+            title: "Discount Applied!",
+            description: "$15.00 new client discount has been applied.",
+        })
+    } else {
+        toast({
+            variant: "destructive",
+            title: "Invalid Code",
+            description: "This promo code is not valid for this client or appointment.",
+        })
+    }
+  }
 
 
   const handleCheckout = () => {
@@ -336,6 +413,15 @@ export default function RetailPage() {
     };
     setTransactions(prev => [...prev, { ...newTransaction, id: `txn-${Date.now()}` }]);
     
+    // 3. Update Client Wallet if credit was used
+    if (selectedClient && appliedStoreCredit > 0) {
+        const updatedClient: Client = {
+            ...selectedClient,
+            walletCredit: (selectedClient.walletCredit || 0) - appliedStoreCredit,
+        };
+        setClients(prevClients => prevClients.map(c => c.id === updatedClient.id ? updatedClient : c));
+    }
+
      const receiptData: Omit<ReceiptData, 'business'> = {
         clientName: selectedClient?.name || 'In-Store Customer',
         date: new Date(),
@@ -365,12 +451,15 @@ export default function RetailPage() {
         description: `Successfully processed a sale of $${total.toFixed(2)}. Inventory has been updated.`
     });
 
-    // 3. Reset State
+    // 4. Reset State
     setCart([]);
     setAmountTendered(0);
     setTipAmount(0);
     setSelectedClientId(null);
     setIsCartSheetOpen(false);
+    setDiscount(0);
+    setPromoCode('');
+    setAppliedStoreCredit(0);
   };
   
   useEffect(() => {
@@ -388,8 +477,9 @@ export default function RetailPage() {
           toast({
             variant: 'destructive',
             title: 'Camera Access Denied',
-            description: 'Please enable camera permissions in your browser settings to use this app.',
+            description: 'Please enable camera permissions in your browser settings to use the scanner.',
           });
+          setIsScannerOpen(false);
         }
       };
       getCameraPermission();
@@ -485,6 +575,13 @@ export default function RetailPage() {
                     handleCheckout={handleCheckout}
                     clients={clients}
                     updateQuantity={updateQuantity}
+                    discount={discount}
+                    setDiscount={setDiscount}
+                    promoCode={promoCode}
+                    setPromoCode={setPromoCode}
+                    handleApplyPromo={handleApplyPromo}
+                    appliedStoreCredit={appliedStoreCredit}
+                    setAppliedStoreCredit={setAppliedStoreCredit}
                 />
             </Card>
           </div>
@@ -525,6 +622,13 @@ export default function RetailPage() {
                             handleCheckout={handleCheckout}
                             clients={clients}
                             updateQuantity={updateQuantity}
+                            discount={discount}
+                            setDiscount={setDiscount}
+                            promoCode={promoCode}
+                            setPromoCode={setPromoCode}
+                            handleApplyPromo={handleApplyPromo}
+                            appliedStoreCredit={appliedStoreCredit}
+                            setAppliedStoreCredit={setAppliedStoreCredit}
                         />
                     </SheetContent>
                 </Sheet>
@@ -549,7 +653,7 @@ export default function RetailPage() {
                     <AlertTriangle className="h-4 w-4" />
                     <AlertTitle>Camera Access Required</AlertTitle>
                     <AlertDescription>
-                        Please enable camera permissions in your browser settings to use this app.
+                        Please allow camera access to use this feature.
                     </AlertDescription>
                 </Alert>
             )}
@@ -582,5 +686,3 @@ export default function RetailPage() {
     </>
   );
 }
-
-    
