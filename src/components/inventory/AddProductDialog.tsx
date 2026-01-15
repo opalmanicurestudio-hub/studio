@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState } from 'react';
@@ -80,7 +81,7 @@ const Step1_BasicDetails = ({
         </div>
          <div>
           <RadioGroupItem value="both" id="both" className="peer sr-only" />
-          <Label htmlFor="both" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Both</Label>
+          <Label htmlFor="both" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Both</Label>
         </div>
       </RadioGroup>
     </div>

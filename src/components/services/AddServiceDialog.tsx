@@ -139,7 +139,9 @@ const Step1_Basics = ({
             )}
           />
          
-          <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"><PlusCircle className="h-4 w-4" /></Button>
+          <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button">
+            <PlusCircle className="h-4 w-4" />
+          </Button>
         </div>
       )}
        {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
@@ -548,6 +550,7 @@ export const AddServiceDialog = ({
   const handleOpenChange = (isOpen: boolean) => {
     onOpenChange(isOpen);
     if (!isOpen) {
+        // Reset state when dialog closes
         setTimeout(() => {
             setStep(1);
             methods.reset();
