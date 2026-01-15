@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle, User, UserPlus, Coins } from 'lucide-react';
+import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle, User, UserPlus, Coins, Printer } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { type InventoryItem, type StockCorrection, type Transaction, type Client } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
@@ -28,6 +28,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
+import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
 
 
 type CartItem = {
@@ -48,6 +49,8 @@ export default function RetailPage() {
   const [paymentTab, setPaymentTab] = useState('card');
   const [amountTendered, setAmountTendered] = useState<number>(0);
   const [tipAmount, setTipAmount] = useState<number>(0);
+  
+  const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
@@ -157,9 +160,33 @@ export default function RetailPage() {
         category: 'Retail',
         amount: total,
         paymentMethod: paymentTab,
-        hasReceipt: false,
+        hasReceipt: true, // Will generate a receipt
     };
     setTransactions(prev => [...prev, { ...newTransaction, id: `txn-${Date.now()}` }]);
+    
+     const receiptData: Omit<ReceiptData, 'business'> = {
+        clientName: selectedClient?.name || 'In-Store Customer',
+        date: new Date(),
+        items: cart.map(item => ({
+            name: item.name,
+            quantity: item.quantity,
+            price: item.price,
+        })),
+        subtotal: subtotal,
+        tax: tax,
+        tip: tipAmount,
+        total: total,
+        payment: {
+            method: paymentTab,
+            amountTendered: paymentTab === 'cash' ? amountTendered : total,
+            changeDue: changeDue > 0 ? changeDue : 0,
+        }
+    };
+    
+    setReceiptToPrint({
+      business: { name: 'ClarityFlow Salon', phone: '555-123-4567' },
+      ...receiptData
+    });
 
     toast({
         title: 'Sale Complete!',
@@ -427,8 +454,24 @@ export default function RetailPage() {
       </Dialog>
     </div>
     <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients} />
+
+    <Dialog open={!!receiptToPrint} onOpenChange={(open) => !open && setReceiptToPrint(null)}>
+        <DialogContent className="max-w-sm print-content">
+          <DialogHeader className="print:hidden">
+            <DialogTitle>Receipt</DialogTitle>
+          </DialogHeader>
+          <div id="receipt-area">
+            {receiptToPrint && <PrintReceipt data={receiptToPrint} />}
+          </div>
+          <DialogFooter className="print:hidden">
+            <Button variant="outline" onClick={() => setReceiptToPrint(null)}>Close</Button>
+            <Button onClick={() => window.print()}>
+              <Printer className="mr-2 h-4 w-4" />
+              Print
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
-
-    
