@@ -15,15 +15,18 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle } from 'lucide-react';
+import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle, User, UserPlus } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
-import { type InventoryItem, type StockCorrection, type Transaction } from '@/lib/data';
+import { type InventoryItem, type StockCorrection, type Transaction, type Client } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import Image from 'next/image';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { AddClientDialog } from '@/components/clients/AddClientDialog';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 type CartItem = {
   id: string;
@@ -35,7 +38,7 @@ type CartItem = {
 };
 
 export default function RetailPage() {
-  const { inventory, addStockCorrection, setTransactions } = useInventory();
+  const { inventory, addStockCorrection, setTransactions, clients } = useInventory();
   const [searchTerm, setSearchTerm] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const { toast } = useToast();
@@ -47,6 +50,13 @@ export default function RetailPage() {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [isAddClientOpen, setIsAddClientOpen] = useState(false);
+
+  const selectedClient = useMemo(() => {
+    return clients.find(c => c.id === selectedClientId);
+  }, [selectedClientId, clients]);
 
 
   const retailProducts = useMemo(() => {
@@ -137,7 +147,7 @@ export default function RetailPage() {
     const newTransaction: Omit<Transaction, 'id'> = {
         date: new Date().toISOString(),
         description: `Retail Sale (${cart.length} items)`,
-        clientOrVendor: 'In-Store Customer',
+        clientOrVendor: selectedClient?.name || 'In-Store Customer',
         type: 'income',
         context: 'Business',
         category: 'Retail',
@@ -156,6 +166,7 @@ export default function RetailPage() {
     setCart([]);
     setAmountTendered(0);
     setTipAmount(0);
+    setSelectedClientId(null);
   };
   
   useEffect(() => {
@@ -189,6 +200,7 @@ export default function RetailPage() {
 
 
   return (
+    <>
     <div className="flex h-screen w-full flex-col">
       <AppHeader title="Retail POS" />
       <main className="flex-1 overflow-hidden">
@@ -232,6 +244,35 @@ export default function RetailPage() {
             <Card className="flex-1 flex flex-col shadow-none border-0 rounded-none">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2"><ShoppingCart className="h-5 w-5"/> Current Sale</CardTitle>
+                <div className='pt-4'>
+                    <Label>Client</Label>
+                    <div className='flex gap-2 mt-2'>
+                        <Select value={selectedClientId || ''} onValueChange={(value) => setSelectedClientId(value)}>
+                            <SelectTrigger>
+                                <SelectValue placeholder="Walk-in Customer" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="">Walk-in Customer</SelectItem>
+                                {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                            </SelectContent>
+                        </Select>
+                        <Button variant="outline" size="icon" onClick={() => setIsAddClientOpen(true)}>
+                            <UserPlus className="h-4 w-4" />
+                        </Button>
+                    </div>
+                     {selectedClient && (
+                        <div className="mt-4 flex items-center gap-3 p-2 bg-background rounded-md">
+                            <Avatar className="h-9 w-9">
+                                <AvatarImage src={selectedClient.avatarUrl} alt={selectedClient.name} />
+                                <AvatarFallback>{selectedClient.name.charAt(0)}</AvatarFallback>
+                            </Avatar>
+                            <span className="font-medium text-sm">{selectedClient.name}</span>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 ml-auto" onClick={() => setSelectedClientId(null)}>
+                                <X className="h-4 w-4" />
+                            </Button>
+                        </div>
+                    )}
+                </div>
               </CardHeader>
               <ScrollArea className="flex-1 px-6">
                 {cart.length > 0 ? (
@@ -325,7 +366,8 @@ export default function RetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
     </div>
+    <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients} />
+    </>
   );
 }
