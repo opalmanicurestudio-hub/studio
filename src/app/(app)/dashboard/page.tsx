@@ -82,9 +82,9 @@ export default function DashboardPage() {
   const { inventory, clients, services, appointments: allAppointments, transactions: allTransactions } = useInventory();
   const tenantId = 'tenant-abc';
   
-  const todayStart = startOfDay(new Date());
-  const todayEnd = endOfDay(new Date());
-  const weekStart = startOfWeek(new Date(), { weekStartsOn: 0 });
+  const todayStart = useMemo(() => startOfDay(new Date()), []);
+  const todayEnd = useMemo(() => endOfDay(new Date()), []);
+  const weekStart = useMemo(() => startOfWeek(new Date(), { weekStartsOn: 0 }), []);
 
   // Queries for today's data
   const todayTransactionsQuery = useMemoFirebase(() => {
