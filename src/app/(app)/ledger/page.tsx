@@ -350,6 +350,7 @@ export default function LedgerPage() {
   const [contextFilter, setContextFilter] = useState<'all' | 'Business' | 'Personal'>('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [isAddTxnOpen, setIsAddTxnOpen] = useState(false);
+  const [transactionToRevert, setTransactionToRevert] = useState<Transaction | null>(null);
 
   const transactionsQuery = useMemoFirebase(() => {
     if (isUserLoading || !user || !firestore) {
@@ -408,22 +409,25 @@ export default function LedgerPage() {
     setIsAddTxnOpen(false);
   }
   
-  const handleRevertTransaction = (transaction: Transaction) => {
-    if (transaction.type === 'reversal' || transaction.reversalOf) {
+  const handleRevertTransaction = () => {
+    if (!transactionToRevert) return;
+    
+    if (transactionToRevert.type === 'reversal' || transactionToRevert.reversalOf) {
         toast({ variant: 'destructive', title: "Cannot revert a reversal."});
+        setTransactionToRevert(null);
         return;
     }
 
     const reversalTransaction: Omit<Transaction, 'id'> = {
-      ...transaction,
+      ...transactionToRevert,
       date: new Date().toISOString(),
-      description: `Reversal of: ${transaction.description}`,
+      description: `Reversal of: ${transactionToRevert.description}`,
       type: 'reversal',
-      amount: -transaction.amount,
-      reversalOf: transaction.id,
+      reversalOf: transactionToRevert.id,
     };
     addTransaction(reversalTransaction);
     toast({ title: 'Transaction Reverted', description: 'A reversal transaction has been created.' });
+    setTransactionToRevert(null);
   }
   
   const isLoading = areTransactionsLoading;
@@ -473,7 +477,7 @@ export default function LedgerPage() {
                         </TableRow>
                     )}
                     {!isLoading && filteredTransactions.map((transaction) => (
-                      <TransactionRow key={transaction.id} transaction={transaction} onRevertClick={handleRevertTransaction} />
+                      <TransactionRow key={transaction.id} transaction={transaction} onRevertClick={() => setTransactionToRevert(transaction)} />
                     ))}
                      {!isLoading && filteredTransactions.length === 0 && (
                         <TableRow>
@@ -487,7 +491,7 @@ export default function LedgerPage() {
             <div className="md:hidden space-y-4">
                  {isLoading && <p className="text-center text-muted-foreground">{isUserLoading ? 'Authenticating user...' : 'Loading transactions...'}</p>}
                  {!isLoading && filteredTransactions.length > 0 ? filteredTransactions.map((transaction) => (
-                    <TransactionCard key={transaction.id} transaction={transaction} onRevertClick={handleRevertTransaction} />
+                    <TransactionCard key={transaction.id} transaction={transaction} onRevertClick={() => setTransactionToRevert(transaction)} />
                  )) : !isLoading && <p className="text-center text-muted-foreground py-10">No transactions found matching your filters.</p>}
             </div>
           </div>
@@ -500,6 +504,21 @@ export default function LedgerPage() {
         onOpenChange={setIsAddTxnOpen}
         onConfirm={handleAddTransaction}
     />
+    
+    <AlertDialog open={!!transactionToRevert} onOpenChange={() => setTransactionToRevert(null)}>
+        <AlertDialogContent>
+            <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure you want to revert this transaction?</AlertDialogTitle>
+            <AlertDialogDescription>
+                This will create a new, opposite transaction to cancel out the selected one. This action cannot be undone.
+            </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setTransactionToRevert(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleRevertTransaction}>Revert Transaction</AlertDialogAction>
+            </AlertDialogFooter>
+        </AlertDialogContent>
+    </AlertDialog>
     </>
   );
 }
