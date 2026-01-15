@@ -220,7 +220,7 @@ const TransactionFilters = ({
   );
 };
 
-const TransactionRow = ({ transaction, onDeleteClick }: { transaction: Transaction, onDeleteClick: (transaction: Transaction) => void }) => {
+const TransactionRow = ({ transaction, onDeleteClick, onRevertClick }: { transaction: Transaction, onDeleteClick: (transaction: Transaction) => void, onRevertClick: (transaction: Transaction) => void }) => {
   return (
     <TableRow>
       <TableCell>
@@ -258,8 +258,9 @@ const TransactionRow = ({ transaction, onDeleteClick }: { transaction: Transacti
                 'text-green-600 dark:text-green-400': transaction.type === 'income',
                 'text-red-600 dark:text-red-400': transaction.type === 'expense',
                  'text-blue-600 dark:text-blue-400': transaction.type === 'payment',
+                 'text-gray-500 dark:text-gray-400': transaction.type === 'reversal',
             })}>
-                {transaction.type === 'expense' || transaction.type === 'payment' ? '-' : ''}${transaction.amount.toFixed(2)}
+                {transaction.type === 'expense' || transaction.type === 'payment' ? '-' : transaction.type === 'reversal' ? '' : '+'}${transaction.amount.toFixed(2)}
             </span>
         </div>
       </TableCell>
@@ -273,7 +274,7 @@ const TransactionRow = ({ transaction, onDeleteClick }: { transaction: Transacti
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem>Edit</DropdownMenuItem>
-            <DropdownMenuItem>Revert</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onRevertClick(transaction)}>Revert</DropdownMenuItem>
             <DropdownMenuItem className="text-destructive" onClick={() => onDeleteClick(transaction)}>
                 <Trash2 className="h-4 w-4 mr-2" /> Delete
             </DropdownMenuItem>
@@ -284,7 +285,7 @@ const TransactionRow = ({ transaction, onDeleteClick }: { transaction: Transacti
   );
 };
 
-const TransactionCard = ({ transaction, onDeleteClick }: { transaction: Transaction, onDeleteClick: (transaction: Transaction) => void }) => {
+const TransactionCard = ({ transaction, onDeleteClick, onRevertClick }: { transaction: Transaction, onDeleteClick: (transaction: Transaction) => void, onRevertClick: (transaction: Transaction) => void }) => {
     return (
         <Card>
             <CardContent className="p-4 space-y-4">
@@ -301,8 +302,9 @@ const TransactionCard = ({ transaction, onDeleteClick }: { transaction: Transact
                             'text-green-600 dark:text-green-400': transaction.type === 'income',
                             'text-red-600 dark:text-red-400': transaction.type === 'expense',
                             'text-blue-600 dark:text-blue-400': transaction.type === 'payment',
+                            'text-gray-500 dark:text-gray-400': transaction.type === 'reversal',
                         })}>
-                           {transaction.type === 'expense' || transaction.type === 'payment' ? '-' : ''}${transaction.amount.toFixed(2)}
+                           {transaction.type === 'expense' || transaction.type === 'payment' ? '-' : transaction.type === 'reversal' ? '' : '+'}${transaction.amount.toFixed(2)}
                         </p>
                         {transaction.hasReceipt && <Paperclip className="h-4 w-4 text-muted-foreground inline-block" />}
                     </div>
@@ -328,7 +330,7 @@ const TransactionCard = ({ transaction, onDeleteClick }: { transaction: Transact
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                             <DropdownMenuItem>Edit</DropdownMenuItem>
-                            <DropdownMenuItem>Revert</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => onRevertClick(transaction)}>Revert</DropdownMenuItem>
                             <DropdownMenuItem className="text-destructive" onClick={() => onDeleteClick(transaction)}>
                                 <Trash2 className="h-4 w-4 mr-2" /> Delete
                             </DropdownMenuItem>
@@ -400,14 +402,18 @@ export default function LedgerPage() {
     return { revenue, expenses, net: revenue - expenses };
   }, [filteredTransactions]);
 
-  const handleAddTransaction = (data: Omit<Transaction, 'id'>) => {
+  const addTransaction = (data: Omit<Transaction, 'id'>) => {
     if (!firestore) return;
     const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
     addDocumentNonBlocking(transactionsRef, data);
     toast({
-        title: 'Transaction Added',
-        description: `Your transaction for $${data.amount.toFixed(2)} has been successfully logged.`
+        title: 'Transaction Logged',
+        description: `Your transaction for $${data.amount.toFixed(2)} has been recorded.`
     })
+  }
+  
+  const handleAddTransaction = (data: Omit<Transaction, 'id'>) => {
+    addTransaction(data);
     setIsAddTxnOpen(false);
   }
   
@@ -418,20 +424,6 @@ export default function LedgerPage() {
   const handleConfirmDelete = () => {
     if (!txnToDelete || !firestore) return;
 
-    // If using mock data, filter it out from state
-    if (transactions === mockTransactions) {
-      // This part of logic would need a state setter from a context or prop
-      // For now, we'll just log it. A real implementation would call a state update function.
-      console.log("Deleting from mock data is not implemented in this context.");
-      toast({
-        title: "Mock Data",
-        description: "Deletion from mock data is for demonstration.",
-      });
-      setTxnToDelete(null);
-      return;
-    }
-    
-    // If using Firestore data, proceed with deletion
     const docRef = doc(firestore, 'tenants', tenantId, 'transactions', txnToDelete.id);
     deleteDocumentNonBlocking(docRef);
     
@@ -440,6 +432,27 @@ export default function LedgerPage() {
         description: `The transaction for $${txnToDelete.amount.toFixed(2)} has been deleted.`
     })
     setTxnToDelete(null);
+  }
+  
+  const handleRevertTransaction = (transaction: Transaction) => {
+    let newType: Transaction['type'];
+    if (transaction.type === 'income') {
+        newType = 'expense';
+    } else if (transaction.type === 'expense' || transaction.type === 'payment') {
+        newType = 'income';
+    } else {
+        toast({ variant: 'destructive', title: "Cannot revert this transaction type."});
+        return;
+    }
+
+    const reversalTransaction: Omit<Transaction, 'id'> = {
+      ...transaction,
+      date: new Date().toISOString(),
+      description: `Reversal of: ${transaction.description}`,
+      type: newType,
+    };
+    addTransaction(reversalTransaction);
+    toast({ title: 'Transaction Reverted', description: 'A reversal transaction has been created.' });
   }
   
   const isLoading = areTransactionsLoading;
@@ -489,7 +502,7 @@ export default function LedgerPage() {
                         </TableRow>
                     )}
                     {!isLoading && filteredTransactions.map((transaction) => (
-                      <TransactionRow key={transaction.id} transaction={transaction} onDeleteClick={handleDeleteClick} />
+                      <TransactionRow key={transaction.id} transaction={transaction} onDeleteClick={handleDeleteClick} onRevertClick={handleRevertTransaction} />
                     ))}
                      {!isLoading && filteredTransactions.length === 0 && (
                         <TableRow>
@@ -503,7 +516,7 @@ export default function LedgerPage() {
             <div className="md:hidden space-y-4">
                  {isLoading && <p className="text-center text-muted-foreground">{isUserLoading ? 'Authenticating user...' : 'Loading transactions...'}</p>}
                  {!isLoading && filteredTransactions.length > 0 ? filteredTransactions.map((transaction) => (
-                    <TransactionCard key={transaction.id} transaction={transaction} onDeleteClick={handleDeleteClick} />
+                    <TransactionCard key={transaction.id} transaction={transaction} onDeleteClick={handleDeleteClick} onRevertClick={handleRevertTransaction} />
                  )) : !isLoading && <p className="text-center text-muted-foreground py-10">No transactions found matching your filters.</p>}
             </div>
           </div>
@@ -523,7 +536,7 @@ export default function LedgerPage() {
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
                 This action cannot be undone. This will permanently delete the transaction
-                for <span className="font-bold">&quot;{txnToDelete?.description}&quot;</span>.
+                for <span className="font-bold">&quot;{txnToDelete?.description}&quot;</span>. It is recommended to use the &apos;Revert&apos; action for better bookkeeping.
             </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
