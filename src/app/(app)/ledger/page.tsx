@@ -23,6 +23,7 @@ import {
   Calendar as CalendarIcon,
   BookOpen,
   CreditCard,
+  Trash2,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -30,6 +31,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
   Table,
   TableBody,
@@ -61,8 +72,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { DateRange } from 'react-day-picker';
 import { cn } from '@/lib/utils';
-import { useCollection, useFirebase, useMemoFirebase, addDocumentNonBlocking } from '@/firebase';
-import { collection } from 'firebase/firestore';
+import { useCollection, useFirebase, useMemoFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
+import { collection, doc } from 'firebase/firestore';
 import { AddTransactionDialog } from '@/components/ledger/AddTransactionDialog';
 import { useToast } from '@/hooks/use-toast';
 
@@ -206,7 +217,7 @@ const TransactionFilters = ({
   );
 };
 
-const TransactionRow = ({ transaction }: { transaction: Transaction }) => {
+const TransactionRow = ({ transaction, onDeleteClick }: { transaction: Transaction, onDeleteClick: (transaction: Transaction) => void }) => {
   return (
     <TableRow>
       <TableCell>
@@ -260,7 +271,9 @@ const TransactionRow = ({ transaction }: { transaction: Transaction }) => {
           <DropdownMenuContent align="end">
             <DropdownMenuItem>Edit</DropdownMenuItem>
             <DropdownMenuItem>Revert</DropdownMenuItem>
-            <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
+            <DropdownMenuItem className="text-destructive" onClick={() => onDeleteClick(transaction)}>
+                <Trash2 className="h-4 w-4 mr-2" /> Delete
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </TableCell>
@@ -268,7 +281,7 @@ const TransactionRow = ({ transaction }: { transaction: Transaction }) => {
   );
 };
 
-const TransactionCard = ({ transaction }: { transaction: Transaction }) => {
+const TransactionCard = ({ transaction, onDeleteClick }: { transaction: Transaction, onDeleteClick: (transaction: Transaction) => void }) => {
     return (
         <Card>
             <CardContent className="p-4 space-y-4">
@@ -313,7 +326,9 @@ const TransactionCard = ({ transaction }: { transaction: Transaction }) => {
                         <DropdownMenuContent align="end">
                             <DropdownMenuItem>Edit</DropdownMenuItem>
                             <DropdownMenuItem>Revert</DropdownMenuItem>
-                            <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
+                            <DropdownMenuItem className="text-destructive" onClick={() => onDeleteClick(transaction)}>
+                                <Trash2 className="h-4 w-4 mr-2" /> Delete
+                            </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
                 </div>
@@ -338,6 +353,7 @@ export default function LedgerPage() {
   const [contextFilter, setContextFilter] = useState<'all' | 'Business' | 'Personal'>('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [isAddTxnOpen, setIsAddTxnOpen] = useState(false);
+  const [txnToDelete, setTxnToDelete] = useState<Transaction | null>(null);
 
   const transactionsQuery = useMemoFirebase(() => {
     if (isUserLoading || !user || !firestore) {
@@ -389,6 +405,23 @@ export default function LedgerPage() {
     setIsAddTxnOpen(false);
   }
   
+  const handleDeleteClick = (transaction: Transaction) => {
+    setTxnToDelete(transaction);
+  }
+
+  const handleConfirmDelete = () => {
+    if (!txnToDelete || !firestore) return;
+
+    const docRef = doc(firestore, 'tenants', tenantId, 'transactions', txnToDelete.id);
+    deleteDocumentNonBlocking(docRef);
+    
+    toast({
+        title: "Transaction Deleted",
+        description: `The transaction for $${txnToDelete.amount.toFixed(2)} has been deleted.`
+    })
+    setTxnToDelete(null);
+  }
+  
   const isLoading = isUserLoading || areTransactionsLoading;
 
   return (
@@ -436,7 +469,7 @@ export default function LedgerPage() {
                         </TableRow>
                     )}
                     {!isLoading && filteredTransactions.map((transaction) => (
-                      <TransactionRow key={transaction.id} transaction={transaction} />
+                      <TransactionRow key={transaction.id} transaction={transaction} onDeleteClick={handleDeleteClick} />
                     ))}
                      {!isLoading && filteredTransactions.length === 0 && (
                         <TableRow>
@@ -450,7 +483,7 @@ export default function LedgerPage() {
             <div className="md:hidden space-y-4">
                  {isLoading && <p className="text-center text-muted-foreground">{isUserLoading ? 'Authenticating user...' : 'Loading transactions...'}</p>}
                  {!isLoading && filteredTransactions.length > 0 ? filteredTransactions.map((transaction) => (
-                    <TransactionCard key={transaction.id} transaction={transaction} />
+                    <TransactionCard key={transaction.id} transaction={transaction} onDeleteClick={handleDeleteClick} />
                  )) : !isLoading && <p className="text-center text-muted-foreground py-10">No transactions found matching your filters.</p>}
             </div>
           </div>
@@ -463,7 +496,22 @@ export default function LedgerPage() {
         onOpenChange={setIsAddTxnOpen}
         onConfirm={handleAddTransaction}
     />
+
+    <AlertDialog open={!!txnToDelete} onOpenChange={() => setTxnToDelete(null)}>
+        <AlertDialogContent>
+            <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+                This action cannot be undone. This will permanently delete the transaction
+                for <span className="font-bold">&quot;{txnToDelete?.description}&quot;</span>.
+            </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmDelete} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
+            </AlertDialogFooter>
+        </AlertDialogContent>
+    </AlertDialog>
     </>
   );
 }
-
