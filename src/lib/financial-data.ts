@@ -1,5 +1,6 @@
 
 
+import { startOfDay, subDays } from "date-fns";
 
 export type BillDefinition = {
   id: string;
@@ -86,10 +87,21 @@ export const billInstances: BillInstance[] = [
 
 
 export const transactions: Transaction[] = [
-  // This is now mock data. The Ledger page fetches from Firestore.
-  // You can use this to seed the database if needed.
   {
     id: 'txn-1',
+    date: new Date().toISOString(),
+    description: 'Service: Classic Manicure',
+    clientOrVendor: 'Eleanor Vance',
+    type: 'income',
+    context: 'Business',
+    category: 'Service Revenue',
+    amount: 45.00,
+    paymentMethod: 'Credit Card',
+    paymentMethodIdentifier: 'Visa **** 4242',
+    hasReceipt: true,
+  },
+  {
+    id: 'txn-2',
     date: new Date().toISOString(),
     description: 'Parking for supply run',
     clientOrVendor: 'City Parking',
@@ -101,9 +113,58 @@ export const transactions: Transaction[] = [
     hasReceipt: false,
     relatedEventId: 'evt-3',
   },
+    {
+    id: 'txn-3',
+    date: subDays(new Date(), 1).toISOString(),
+    description: 'Retail: Retail Shine Serum',
+    clientOrVendor: 'Marcus Holloway',
+    type: 'income',
+    context: 'Business',
+    category: 'Retail',
+    amount: 25.00,
+    paymentMethod: 'Cash',
+    hasReceipt: true,
+  },
   {
-    id: 'txn-2',
-    date: '2024-07-01T00:00:00.000Z',
+    id: 'txn-4',
+    date: subDays(new Date(), 2).toISOString(),
+    description: 'Lunch Meeting',
+    clientOrVendor: 'The Corner Cafe',
+    type: 'expense',
+    context: 'Business',
+    category: 'Meals & Entertainment',
+    amount: 32.75,
+    paymentMethod: 'Business Credit Card',
+    hasReceipt: true,
+    receiptUrl: 'https://picsum.photos/seed/receipt2/400/600',
+  },
+  {
+    id: 'txn-5',
+    date: subDays(new Date(), 5).toISOString(),
+    description: 'Service: Balayage',
+    clientOrVendor: 'Sofia Chen',
+    type: 'income',
+    context: 'Business',
+    category: 'Service Revenue',
+    amount: 350.00,
+    paymentMethod: 'Credit Card',
+    hasReceipt: true,
+  },
+  {
+    id: 'txn-6',
+    date: subDays(new Date(), 7).toISOString(),
+    description: 'Groceries',
+    clientOrVendor: 'Trader Joe\'s',
+    type: 'expense',
+    context: 'Personal',
+    category: 'Food',
+    amount: 112.45,
+    paymentMethod: 'Personal Debit',
+    hasReceipt: false,
+  },
+  {
+    id: 'txn-7',
+    date: subDays(new Date(), 10).toISOString(),
     description: 'Payment for Studio Rent - July',
     clientOrVendor: 'Landlord',
     type: 'payment',
@@ -115,18 +176,15 @@ export const transactions: Transaction[] = [
     relatedBillInstanceId: 'bi-july-rent',
   },
    {
-    id: 'txn-event-expense',
-    date: new Date().toISOString(),
-    description: 'Expense for: Pick up supplies',
-    clientOrVendor: 'ProNailSupply',
-    type: 'expense' as const,
+    id: 'txn-8',
+    date: subDays(new Date(), 12).toISOString(),
+    description: 'New Equipment: UV Gel Lamp',
+    clientOrVendor: 'EquipPro',
+    type: 'expense',
     context: 'Business',
-    category: 'Supplies',
-    amount: 75.50,
+    category: 'Capital Equipment',
+    amount: 150.00,
     paymentMethod: 'Business Credit Card',
-    paymentMethodIdentifier: '**** 4567',
     hasReceipt: true,
-    receiptUrl: 'https://picsum.photos/seed/receipt1/400/600',
-    relatedEventId: 'evt-3'
   },
 ];

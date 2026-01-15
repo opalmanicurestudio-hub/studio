@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useCallback } from 'react';
@@ -76,6 +77,8 @@ import { useCollection, useFirebase, useMemoFirebase, addDocumentNonBlocking, de
 import { collection, doc } from 'firebase/firestore';
 import { AddTransactionDialog } from '@/components/ledger/AddTransactionDialog';
 import { useToast } from '@/hooks/use-toast';
+import { transactions as mockTransactions } from '@/lib/financial-data';
+
 
 const TransactionIcon = ({ type }: { type: Transaction['type'] }) => {
   const iconClass = "h-5 w-5";
@@ -362,7 +365,10 @@ export default function LedgerPage() {
     return collection(firestore, 'tenants', tenantId, 'transactions');
   }, [firestore, user, isUserLoading, tenantId]);
 
-  const { data: transactions, isLoading: areTransactionsLoading } = useCollection<Transaction>(transactionsQuery);
+  const { data: fetchedTransactions, isLoading: areTransactionsLoading } = useCollection<Transaction>(transactionsQuery);
+
+  const transactions = useMemo(() => (fetchedTransactions && fetchedTransactions.length > 0) ? fetchedTransactions : mockTransactions, [fetchedTransactions]);
+
 
   const filteredTransactions = useMemo(() => {
     if (!transactions) return [];
@@ -412,6 +418,20 @@ export default function LedgerPage() {
   const handleConfirmDelete = () => {
     if (!txnToDelete || !firestore) return;
 
+    // If using mock data, filter it out from state
+    if (transactions === mockTransactions) {
+      // This part of logic would need a state setter from a context or prop
+      // For now, we'll just log it. A real implementation would call a state update function.
+      console.log("Deleting from mock data is not implemented in this context.");
+      toast({
+        title: "Mock Data",
+        description: "Deletion from mock data is for demonstration.",
+      });
+      setTxnToDelete(null);
+      return;
+    }
+    
+    // If using Firestore data, proceed with deletion
     const docRef = doc(firestore, 'tenants', tenantId, 'transactions', txnToDelete.id);
     deleteDocumentNonBlocking(docRef);
     
@@ -422,7 +442,7 @@ export default function LedgerPage() {
     setTxnToDelete(null);
   }
   
-  const isLoading = isUserLoading || areTransactionsLoading;
+  const isLoading = areTransactionsLoading;
 
   return (
     <>
