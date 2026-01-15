@@ -29,7 +29,8 @@ import {
   BookOpen,
   Landmark,
   DollarSign,
-  FileSignature
+  FileSignature,
+  ShoppingCart,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -67,6 +68,7 @@ const setupNavItems = [
 const operationsNavItems = [
     { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { href: '/planner', icon: Calendar, label: 'Planner' },
+    { href: '/retail', icon: ShoppingCart, label: 'Retail' },
     { href: '/quotes', icon: FileText, label: 'Quotes' },
 ];
 
