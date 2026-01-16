@@ -159,8 +159,7 @@ const CartContent = ({
           )}
         </div>
       </CardHeader>
-      <ScrollArea className="flex-1 min-h-0">
-        <div className="px-6 py-4 space-y-6">
+      <CardContent className="flex-1 overflow-y-auto space-y-6 px-6 py-4">
           {cart.length > 0 ? (
             <div className="space-y-4">
               {cart.map((item: CartItem) => (
@@ -374,8 +373,8 @@ const CartContent = ({
               )}
             </TabsContent>
           </Tabs>
-        </div>
-      </ScrollArea>
+        
+      </CardContent>
       <CardFooter className="flex-col !p-0">
         <div className="p-4 w-full border-t bg-background">
           <Button
@@ -777,7 +776,7 @@ export default function RetailPage() {
                     <AlertTriangle className="h-4 w-4" />
                     <AlertTitle>Camera Access Required</AlertTitle>
                     <AlertDescription>
-                        Please enable camera access to use this feature.
+                        Please enable camera access to use the scanner.
                     </AlertDescription>
                 </Alert>
             )}
