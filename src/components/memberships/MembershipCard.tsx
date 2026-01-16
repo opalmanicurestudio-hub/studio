@@ -59,7 +59,7 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, onEd
         </div>
       </CardHeader>
       <CardContent className="flex-1 space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="p-3 bg-muted/50 rounded-lg">
                 <div className="text-sm font-medium text-muted-foreground flex items-center gap-2"><Users className="w-4 h-4" /> Active Members</div>
                 <div className="text-2xl font-bold">{activeMembers}</div>
