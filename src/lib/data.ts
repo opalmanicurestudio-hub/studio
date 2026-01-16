@@ -218,6 +218,30 @@ export type StockCorrection = {
   reason: string; // e.g., 'Appointment #123', 'Manual Count', 'Spoilage'
 };
 
+export type Membership = {
+  id: string;
+  name: string;
+  description?: string;
+  price: number;
+  interval: 'monthly' | 'yearly';
+  isPrivate: boolean;
+  includedServices?: Service[];
+  retailDiscount?: number;
+  forfeitOnLateCancel: boolean;
+  forfeitOnNoShow: boolean;
+  allowRollover: boolean;
+};
+
+export type Package = {
+  id: string;
+  name: string;
+  serviceId: string;
+  sessions: number;
+  price: number;
+  expiresInMonths: number;
+  isPrivate: boolean;
+};
+
 
 export type Bill = BillDefinition;
 export const bills: Bill[] = billDefinitions;
@@ -555,7 +579,56 @@ export const stockCorrections: StockCorrection[] = [
     { id: 'sc-5', productId: 'inv-5', date: '2024-07-17T15:30:00Z', change: -1, unit: 'use', reason: 'Internal Use/Test' },
 ];
 
-export { nanoid };
+export const memberships: Membership[] = [
+    {
+      id: 'mem-1',
+      name: 'VIP Glow Club',
+      description: 'Exclusive monthly perks for our most loyal clients.',
+      price: 99,
+      interval: 'monthly',
+      isPrivate: false,
+      includedServices: [services.find(s => s.id === 'svc-4')!], // Deep Cleansing Facial
+      retailDiscount: 10,
+      forfeitOnLateCancel: true,
+      forfeitOnNoShow: true,
+      allowRollover: false,
+    },
+      {
+      id: 'mem-2',
+      name: 'The Colorist',
+      description: 'Keep your color fresh and vibrant.',
+      price: 150,
+      interval: 'monthly',
+      isPrivate: true,
+      includedServices: [services.find(s => s.id === 'svc-9')!, services.find(s => s.id === 'svc-10')!], // Root Touch-up + Toner
+      retailDiscount: 15,
+      forfeitOnLateCancel: true,
+      forfeitOnNoShow: true,
+      allowRollover: true,
+    },
+];
+  
+export const packages: Package[] = [
+    {
+      id: 'pkg-1',
+      name: 'Package of 5 Blowouts',
+      serviceId: 'svc-11',
+      sessions: 5,
+      price: 250, // 5 * 60 = 300, so a $50 discount
+      expiresInMonths: 6,
+      isPrivate: false,
+    },
+    {
+      id: 'pkg-2',
+      name: 'Gel-X Loyalty Pack',
+      serviceId: 'svc-7',
+      sessions: 3,
+      price: 255, // 3 * 95 = 285, so a $30 discount
+      expiresInMonths: 4,
+      isPrivate: false,
+    }
+];
 
+export { nanoid };
 
     
