@@ -2,7 +2,7 @@
 
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -25,6 +25,7 @@ import {
   BookOpen,
   CreditCard,
   Trash2,
+  Printer,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -78,6 +79,7 @@ import { collection, doc } from 'firebase/firestore';
 import { AddTransactionDialog } from '@/components/ledger/AddTransactionDialog';
 import { useToast } from '@/hooks/use-toast';
 import { transactions as mockTransactions } from '@/lib/financial-data';
+import { PrintableReport } from '@/components/ledger/PrintableReport';
 
 
 const TransactionIcon = ({ type }: { type: Transaction['type'] }) => {
@@ -117,7 +119,7 @@ const TransactionFilters = ({
     setContextFilter: (context: 'all' | 'Business' | 'Personal') => void;
     categoryFilter: string;
     setCategoryFilter: (category: string) => void;
-    financialSummary: { revenue: number, expenses: number, net: number };
+    financialSummary: { revenue: number, cogs: number, grossProfit: number, operatingExpenses: number, net: number };
  }) => {
     
     const categories = useMemo(() => {
@@ -127,7 +129,7 @@ const TransactionFilters = ({
     }, [transactions]);
 
   return (
-    <Card className="h-fit sticky top-20">
+    <Card className="h-fit sticky top-20 print:hidden">
       <CardHeader>
         <CardTitle>Ledger</CardTitle>
         <CardDescription>The ledger for every dollar in and out.</CardDescription>
@@ -179,8 +181,15 @@ const TransactionFilters = ({
                 <AccordionContent className='p-4 text-sm'>
                     <div className='space-y-2'>
                         <div className='flex justify-between'><span>Total Revenue:</span><span className='font-medium text-green-500'>${financialSummary.revenue.toFixed(2)}</span></div>
-                        <div className='flex justify-between'><span>Operating Expenses:</span><span className='font-medium text-red-500'>${financialSummary.expenses.toFixed(2)}</span></div>
-                        <div className='flex justify-between'><span>Net Income:</span><span className='font-bold text-primary'>${financialSummary.net.toFixed(2)}</span></div>
+                        <div className='flex justify-between text-xs'><span> - COGS:</span><span className='font-medium text-red-500'>${financialSummary.cogs.toFixed(2)}</span></div>
+                        <div className='flex justify-between'><span>Gross Profit:</span><span className='font-medium'>${financialSummary.grossProfit.toFixed(2)}</span></div>
+                        <div className='flex justify-between'><span>Operating Expenses:</span><span className='font-medium text-red-500'>${financialSummary.operatingExpenses.toFixed(2)}</span></div>
+                        <div className='flex justify-between border-t mt-2 pt-2'>
+                            <span className="font-bold">Net Income:</span>
+                            <span className={cn('font-bold', financialSummary.net >= 0 ? 'text-primary' : 'text-destructive')}>
+                                ${financialSummary.net.toFixed(2)}
+                            </span>
+                        </div>
                     </div>
                 </AccordionContent>
             </AccordionItem>
@@ -341,6 +350,7 @@ export default function LedgerPage() {
   const { firestore, user, isUserLoading } = useFirebase();
   const tenantId = 'tenant-abc';
   const { toast } = useToast();
+  const reportRef = useRef<HTMLDivElement>(null);
 
   const [date, setDate] = React.useState<DateRange | undefined>({
       from: new Date(new Date().getFullYear(), 0, 1),
@@ -385,13 +395,24 @@ export default function LedgerPage() {
   }, [transactions, date, searchTerm, contextFilter, categoryFilter]);
   
   const financialSummary = useMemo(() => {
+    const cogsCategories = ['spoilage', 'supplies', 'Cost of Goods Sold'];
+    
     const revenue = filteredTransactions
       .filter(t => t.type === 'income')
       .reduce((acc, t) => acc + t.amount, 0);
-    const expenses = filteredTransactions
-      .filter(t => t.type === 'expense' || t.type === 'payment')
+
+    const cogs = filteredTransactions
+      .filter(t => t.type === 'expense' && cogsCategories.includes(t.category))
       .reduce((acc, t) => acc + t.amount, 0);
-    return { revenue, expenses, net: revenue - expenses };
+
+    const operatingExpenses = filteredTransactions
+      .filter(t => t.type === 'expense' && !cogsCategories.includes(t.category))
+      .reduce((acc, t) => acc + t.amount, 0);
+
+    const grossProfit = revenue - cogs;
+    const net = grossProfit - operatingExpenses;
+
+    return { revenue, cogs, grossProfit, operatingExpenses, net };
   }, [filteredTransactions]);
 
   const addTransaction = (data: Omit<Transaction, 'id'>) => {
@@ -430,11 +451,15 @@ export default function LedgerPage() {
     setTransactionToRevert(null);
   }
   
+  const handlePrint = () => {
+    window.print();
+  };
+  
   const isLoading = areTransactionsLoading;
 
   return (
     <>
-    <div className="flex min-h-screen w-full flex-col">
+    <div className="flex min-h-screen w-full flex-col print:hidden">
       <AppHeader title="Ledger" />
       <main className="flex-1 p-4 md:p-8">
         <div className="grid md:grid-cols-3 lg:grid-cols-4 gap-8">
@@ -453,7 +478,8 @@ export default function LedgerPage() {
             />
           </div>
           <div className="md:col-span-2 lg:col-span-3 space-y-4">
-            <div className="flex items-center justify-end">
+            <div className="flex items-center justify-end gap-2">
+                <Button variant="outline" onClick={handlePrint}><Printer className='mr-2 h-4 w-4' /> Print Report</Button>
                 <Button onClick={() => setIsAddTxnOpen(true)}><PlusCircle className='mr-2' /> Add Transaction</Button>
             </div>
             <Card className="hidden md:block">
@@ -497,6 +523,15 @@ export default function LedgerPage() {
           </div>
         </div>
       </main>
+    </div>
+
+    <div className="hidden print:block">
+        <PrintableReport 
+            ref={reportRef} 
+            transactions={filteredTransactions} 
+            financialSummary={financialSummary} 
+            dateRange={date} 
+        />
     </div>
 
     <AddTransactionDialog 
