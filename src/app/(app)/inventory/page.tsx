@@ -247,7 +247,7 @@ export default function InventoryPage() {
   };
 
 
-  const handleOpenAddLocation = () => setAddLocationDialogOpen(true);
+  const handleOpenAddLocation = () => setIsAddLocationDialogOpen(true);
   const handleOpenEditLocation = (location: Location) => {
     setSelectedLocation(location);
     setIsEditLocationDialogOpen(true);
@@ -311,8 +311,9 @@ export default function InventoryPage() {
                 product.partialContainerUses -= quantity;
             } else {
                 // Not enough partial uses, need to open new containers
-                let usesNeeded = quantity;
-                while (usesNeeded > currentUses) {
+                let usesNeeded = quantity - currentUses;
+                
+                while (usesNeeded > 0) {
                     if (product.totalStock > 0) {
                         product.totalStock -= 1;
                         const oldestBatch = product.batches.filter((b: Batch) => b.stock > 0).sort((a: Batch, b: Batch) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime())[0];
@@ -320,12 +321,18 @@ export default function InventoryPage() {
                             oldestBatch.stock -= 1;
                         }
                         currentUses += product.estimatedUses || 0;
+                        if(currentUses >= usesNeeded) {
+                            product.partialContainerUses = currentUses - usesNeeded;
+                            usesNeeded = 0;
+                        } else {
+                             usesNeeded -= currentUses;
+                             currentUses = 0;
+                        }
                     } else {
                         message = `Insufficient stock for ${product.name}. Cannot log use.`;
                         return prev; // abort update
                     }
                 }
-                product.partialContainerUses = currentUses - usesNeeded;
             }
         } else if (product.costingMethod === 'size') {
             unit = product.unit || 'units';
@@ -334,8 +341,9 @@ export default function InventoryPage() {
             if (currentSize >= quantity) {
                 product.partialContainerSize -= quantity;
             } else {
-                let sizeNeeded = quantity;
-                while (sizeNeeded > currentSize) {
+                let sizeNeeded = quantity - currentSize;
+                
+                while (sizeNeeded > 0) {
                     if (product.totalStock > 0) {
                         product.totalStock -= 1;
                         const oldestBatch = product.batches.filter((b: Batch) => b.stock > 0).sort((a: Batch, b: Batch) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime())[0];
@@ -343,12 +351,19 @@ export default function InventoryPage() {
                             oldestBatch.stock -= 1;
                         }
                         currentSize += product.size || 0;
+                        if(currentSize >= sizeNeeded) {
+                            product.partialContainerSize = currentSize - sizeNeeded;
+                            sizeNeeded = 0;
+                        } else {
+                             sizeNeeded -= currentSize;
+                             currentSize = 0;
+                        }
+
                     } else {
                         message = `Insufficient stock for ${product.name}. Cannot log use.`;
                         return prev; // abort update
                     }
                 }
-                product.partialContainerSize = currentSize - sizeNeeded;
             }
         } else {
             // Default behavior for items without a costing method (e.g., overhead)
@@ -857,7 +872,7 @@ export default function InventoryPage() {
             locationTypes={locationTypes}
             onAddNewLocationType={handleAddNewLocationType}
             isAddLocationDialogOpen={isAddLocationDialogOpen}
-            onAddLocationDialogOpenChange={setAddLocationDialogOpen}
+            onAddLocationDialogOpenChange={setIsAddLocationDialogOpen}
             onAddNewLocation={handleSaveLocation}
             categories={productCategories}
             onNewCategory={handleNewCategory}
@@ -870,7 +885,7 @@ export default function InventoryPage() {
             locations={locations}
             locationTypes={locationTypes}
             isAddLocationDialogOpen={isAddLocationDialogOpen}
-            onAddLocationDialogOpenChange={setAddLocationDialogOpen}
+            onAddLocationDialogOpenChange={setIsAddLocationDialogOpen}
             onAddNewLocation={handleSaveLocation}
             onAddNewLocationType={handleAddNewLocationType}
             onEquipmentAdded={() => {}}
@@ -916,6 +931,7 @@ export default function InventoryPage() {
   );
 
     
+
 
 
 
