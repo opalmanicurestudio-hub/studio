@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette, QrCode, AlertTriangle, ListFilter, ChevronDown, ShoppingCart, Briefcase, DollarSign, Activity, Eye, CircleHelp, Warehouse, Beaker, Recycle, TrendingUp } from 'lucide-react';
-import { type InventoryItem, type StockCorrection, type Transaction } from '@/lib/data';
+import { type InventoryItem, type StockCorrection, type Transaction, type Batch } from '@/lib/data';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -253,24 +253,72 @@ export default function InventoryPage() {
 
         if (product.isExperimentActive) {
             product.experimentUses = (product.experimentUses || 0) + quantity;
-            success = true;
-            message = `Logged ${quantity} use(s) for ${product.name} experiment.`;
-            return newInventory;
+            // Don't set success message here, let it fall through to create a stock correction
+        } else if (product.costingMethod === 'uses') {
+            unit = product.useUnit || 'uses';
+            let currentUses = product.partialContainerUses || 0;
+            
+            if (currentUses >= quantity) {
+                product.partialContainerUses -= quantity;
+            } else {
+                // Not enough partial uses, need to open new containers
+                let usesNeeded = quantity;
+                while (usesNeeded > currentUses) {
+                    if (product.totalStock > 0) {
+                        product.totalStock -= 1;
+                        const oldestBatch = product.batches.filter((b: Batch) => b.stock > 0).sort((a: Batch, b: Batch) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime())[0];
+                        if (oldestBatch) {
+                            oldestBatch.stock -= 1;
+                        }
+                        currentUses += product.estimatedUses || 0;
+                    } else {
+                        message = `Insufficient stock for ${product.name}. Cannot log use.`;
+                        return prev; // abort update
+                    }
+                }
+                product.partialContainerUses = currentUses - usesNeeded;
+            }
+        } else if (product.costingMethod === 'size') {
+            unit = product.unit || 'units';
+            let currentSize = product.partialContainerSize || 0;
+
+            if (currentSize >= quantity) {
+                product.partialContainerSize -= quantity;
+            } else {
+                let sizeNeeded = quantity;
+                while (sizeNeeded > currentSize) {
+                    if (product.totalStock > 0) {
+                        product.totalStock -= 1;
+                        const oldestBatch = product.batches.filter((b: Batch) => b.stock > 0).sort((a: Batch, b: Batch) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime())[0];
+                        if (oldestBatch) {
+                            oldestBatch.stock -= 1;
+                        }
+                        currentSize += product.size || 0;
+                    } else {
+                        message = `Insufficient stock for ${product.name}. Cannot log use.`;
+                        return prev; // abort update
+                    }
+                }
+                product.partialContainerSize = currentSize - sizeNeeded;
+            }
+        } else {
+            // Default behavior for items without a costing method (e.g., overhead)
+            if (product.totalStock >= quantity) {
+                product.totalStock -= quantity;
+                // Simple deduction from oldest batch for consistency
+                let remainingToDeduct = quantity;
+                const sortedBatches = product.batches.filter((b: Batch) => b.stock > 0).sort((a: Batch, b: Batch) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime());
+                for (const batch of sortedBatches) {
+                    if (remainingToDeduct === 0) break;
+                    const canDeduct = Math.min(batch.stock, remainingToDeduct);
+                    batch.stock -= canDeduct;
+                    remainingToDeduct -= canDeduct;
+                }
+            } else {
+                 message = `Insufficient stock for ${product.name}. Only ${product.totalStock} units available.`;
+                 return prev;
+            }
         }
-
-        // Find the oldest batch with stock
-        const sortedBatches = [...product.batches].sort((a, b) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime());
-        const batchToUpdate = sortedBatches.find(b => b.stock > 0);
-
-        if (!batchToUpdate || batchToUpdate.stock < quantity) {
-            message = 'Insufficient stock to log this use.';
-            return prev;
-        }
-
-        batchToUpdate.stock -= quantity;
-
-        // Recalculate total stock from all batches
-        product.totalStock = product.batches.reduce((acc: number, b: any) => acc + b.stock, 0);
 
         const newCorrection: StockCorrection = {
             id: `sc-${Date.now()}`,
@@ -278,12 +326,19 @@ export default function InventoryPage() {
             date: new Date().toISOString(),
             change: -quantity,
             unit: unit,
-            reason: notes || 'Manual Use',
+            reason: notes || (product.isExperimentActive ? 'Experiment Use' : 'Manual Use'),
         };
         addStockCorrection(newCorrection);
         
         success = true;
-        message = `${quantity} ${unit} of ${product.name} logged.`;
+        if (!message) {
+             if (product.isExperimentActive) {
+                message = `Logged ${quantity} experimental use(s) for ${product.name}.`;
+             } else {
+                message = `${quantity} ${unit} of ${product.name} logged.`;
+             }
+        }
+
         return newInventory;
     });
 
@@ -812,6 +867,7 @@ export default function InventoryPage() {
   );
 
     
+
 
 
 
