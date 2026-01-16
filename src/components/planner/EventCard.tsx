@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -173,9 +171,6 @@ export function EventCard({
                     <Icon className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
                     <p className="font-semibold text-sm truncate flex-1">{event.title}</p>
                 </div>
-                <div className="text-right flex-shrink-0">
-                     <p className="text-xs text-muted-foreground">{format(event.startTime, 'h:mm a')} - {format(event.endTime, 'h:mm a')}</p>
-                </div>
             </div>
             
             <div className='flex-grow mt-2 overflow-y-auto space-y-2'>
@@ -184,16 +179,19 @@ export function EventCard({
                 )}
             </div>
 
-            {event.type !== 'blocked' && (
-                <div className="mt-auto pt-2 space-y-2">
-                    {totalCost > 0 && (
-                        <div className="flex items-center justify-end gap-1 text-xs font-semibold text-destructive">
-                            <DollarSign className="w-3 h-3" />
-                            <span>{totalCost.toFixed(2)}</span>
-                        </div>
-                    )}
-                </div>
-            )}
+            <div className="mt-auto pt-2 flex items-end justify-between">
+                <p className="text-xs text-muted-foreground">{format(event.startTime, 'h:mm a')} - {format(event.endTime, 'h:mm a')}</p>
+                {event.type !== 'blocked' && (
+                    <div className="space-y-2">
+                        {totalCost > 0 && (
+                            <div className="flex items-center justify-end gap-1 text-xs font-semibold text-destructive">
+                                <DollarSign className="w-3 h-3" />
+                                <span>{totalCost.toFixed(2)}</span>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
         </div>
     );
     
