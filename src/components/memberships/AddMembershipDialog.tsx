@@ -46,11 +46,12 @@ interface AddMembershipDialogProps {
   membershipToEdit: Membership | null;
 }
 
-const ProfitabilityAnalysis = ({ perks, price }: { perks: { services: Service[], products: InventoryItem[] }, price: number }) => {
+const ProfitabilityAnalysis = ({ perks, price }: { perks: { services: Service[], addOns: Service[], products: InventoryItem[] }, price: number }) => {
     const totalCostOfPerks = useMemo(() => {
         const servicesCost = perks.services.reduce((acc, s) => acc + s.cost, 0);
+        const addOnsCost = perks.addOns.reduce((acc, s) => acc + s.cost, 0);
         const productsCost = perks.products.reduce((acc, p) => acc + (p.costPerUnit || 0), 0);
-        return servicesCost + productsCost;
+        return servicesCost + addOnsCost + productsCost;
     }, [perks]);
 
     const netProfit = price - totalCostOfPerks;
@@ -119,6 +120,8 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
       setInterval(membershipToEdit.interval);
       setIsPrivate(membershipToEdit.isPrivate);
       setIncludedServices(membershipToEdit.includedServices || []);
+      setIncludedAddOns(membershipToEdit.includedAddOns || []);
+      setIncludedProducts(membershipToEdit.includedProducts || []);
       setRetailDiscount(membershipToEdit.retailDiscount || 0);
       setForfeitOnLateCancel(membershipToEdit.forfeitOnLateCancel);
       setForfeitOnNoShow(membershipToEdit.forfeitOnNoShow);
@@ -131,6 +134,8 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
       setInterval('monthly');
       setIsPrivate(false);
       setIncludedServices([]);
+      setIncludedAddOns([]);
+      setIncludedProducts([]);
       setRetailDiscount(0);
       setForfeitOnLateCancel(true);
       setForfeitOnNoShow(true);
@@ -147,6 +152,8 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
       interval,
       isPrivate,
       includedServices,
+      includedAddOns,
+      includedProducts,
       retailDiscount,
       forfeitOnLateCancel,
       forfeitOnNoShow,
@@ -217,10 +224,30 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
               </div>
                <div className="space-y-2">
                 <Label>Included Add-ons</Label>
+                 {includedAddOns.length > 0 && (
+                    <div className="space-y-2">
+                    {includedAddOns.map(s => (
+                        <div key={s.id} className="flex justify-between items-center bg-muted/50 p-2 rounded-md">
+                            <span className="text-sm">{s.name}</span>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeItem('addon', s.id)}><Trash2 className="h-4 w-4" /></Button>
+                        </div>
+                    ))}
+                    </div>
+                )}
                  <Button variant="outline" className="w-full" onClick={() => setIsAddOnSelectorOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Select Add-ons</Button>
               </div>
               <div className="space-y-2">
                 <Label>Included Products</Label>
+                 {includedProducts.length > 0 && (
+                    <div className="space-y-2">
+                    {includedProducts.map(p => (
+                        <div key={p.id} className="flex justify-between items-center bg-muted/50 p-2 rounded-md">
+                            <span className="text-sm">{p.name}</span>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeItem('product', p.id)}><Trash2 className="h-4 w-4" /></Button>
+                        </div>
+                    ))}
+                    </div>
+                )}
                  <Button variant="outline" className="w-full" onClick={() => setIsProductSelectorOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Select Products</Button>
               </div>
               <div className="space-y-2">
@@ -251,7 +278,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({
           </CardContent>
       </Card>
 
-       <ProfitabilityAnalysis perks={{ services: includedServices, products: includedProducts }} price={price} />
+       <ProfitabilityAnalysis perks={{ services: includedServices, addOns: includedAddOns, products: includedProducts }} price={price} />
     </div>
   );
 

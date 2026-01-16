@@ -1,4 +1,5 @@
 
+
 import { BillDefinition, billDefinitions, billInstances } from './financial-data';
 import { addDays, subDays, setHours, setMinutes, startOfDay } from 'date-fns';
 import { nanoid } from 'nanoid';
@@ -226,6 +227,8 @@ export type Membership = {
   interval: 'monthly' | 'yearly';
   isPrivate: boolean;
   includedServices?: Service[];
+  includedAddOns?: Service[];
+  includedProducts?: InventoryItem[];
   retailDiscount?: number;
   forfeitOnLateCancel: boolean;
   forfeitOnNoShow: boolean;
@@ -588,6 +591,8 @@ export const memberships: Membership[] = [
       interval: 'monthly',
       isPrivate: false,
       includedServices: [services.find(s => s.id === 'svc-4')!], // Deep Cleansing Facial
+      includedAddOns: [services.find(s => s.id === 'svc-addon-3')!],
+      includedProducts: [inventory.find(i => i.id === 'inv-9')!],
       retailDiscount: 10,
       forfeitOnLateCancel: true,
       forfeitOnNoShow: true,
@@ -601,6 +606,8 @@ export const memberships: Membership[] = [
       interval: 'monthly',
       isPrivate: true,
       includedServices: [services.find(s => s.id === 'svc-9')!, services.find(s => s.id === 'svc-10')!], // Root Touch-up + Toner
+      includedAddOns: [services.find(s => s.id === 'svc-addon-2')!],
+      includedProducts: [],
       retailDiscount: 15,
       forfeitOnLateCancel: true,
       forfeitOnNoShow: true,
