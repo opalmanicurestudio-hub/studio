@@ -1,10 +1,11 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
 import { type Event, type EventChecklistItem } from '@/lib/data';
 import { cn } from '@/lib/utils';
 import { Briefcase, User, Lock, MapPin, CheckSquare, DollarSign, Edit, Link, FilePlus, Receipt, FileText, ListChecks } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, differenceInMinutes } from 'date-fns';
 import { Checkbox } from '../ui/checkbox';
 import { Separator } from '../ui/separator';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -129,6 +130,8 @@ export function EventCard({
     const [isSheetOpen, setIsSheetOpen] = useState(false);
     const [isAddTransactionOpen, setIsAddTransactionOpen] = useState(false);
     const isMobile = useIsMobile();
+    
+    const duration = differenceInMinutes(event.endTime, event.startTime);
 
     const typeStyles = {
         personal: 'bg-blue-500/10 border-blue-500/30 text-blue-800 dark:text-blue-300',
@@ -180,7 +183,9 @@ export function EventCard({
             </div>
 
             <div className="mt-auto pt-2 flex items-end justify-between">
-                <p className="text-xs text-muted-foreground">{format(event.startTime, 'h:mm a')} - {format(event.endTime, 'h:mm a')}</p>
+                {duration >= 30 ? (
+                    <p className="text-[10px] text-muted-foreground">{format(event.startTime, 'h:mm a')} - {format(event.endTime, 'h:mm a')}</p>
+                ) : <div />}
                 {event.type !== 'blocked' && (
                     <div className="space-y-2">
                         {totalCost > 0 && (
