@@ -159,222 +159,225 @@ const CartContent = ({
           )}
         </div>
       </CardHeader>
-      <CardContent className="flex-1 overflow-y-auto space-y-6 px-6 py-4">
-          {cart.length > 0 ? (
-            <div className="space-y-4">
-              {cart.map((item: CartItem) => (
-                <div key={item.id} className="flex items-center gap-4">
-                  <Image
-                    src={
-                      item.imageUrl ||
-                      `https://picsum.photos/seed/inv${item.id}/100/100`
-                    }
-                    alt={item.name}
-                    width={48}
-                    height={48}
-                    className="rounded-md"
-                  />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium truncate">{item.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      ${item.price.toFixed(2)}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="h-6 w-6"
-                      onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                    >
-                      <Minus className="h-3 w-3" />
-                    </Button>
-                    <Input
-                      type="number"
-                      value={item.quantity}
-                      onChange={(e) =>
-                        updateQuantity(item.id, parseInt(e.target.value) || 0)
-                      }
-                      className="w-12 h-8 text-center"
+      <div className="flex-1 relative">
+        <div className="absolute inset-0 overflow-y-auto">
+            <CardContent className="space-y-6 px-6 py-4">
+            {cart.length > 0 ? (
+                <div className="space-y-4">
+                {cart.map((item: CartItem) => (
+                    <div key={item.id} className="flex items-center gap-4">
+                    <Image
+                        src={
+                        item.imageUrl ||
+                        `https://picsum.photos/seed/inv${item.id}/100/100`
+                        }
+                        alt={item.name}
+                        width={48}
+                        height={48}
+                        className="rounded-md"
                     />
+                    <div className="flex-1">
+                        <p className="text-sm font-medium truncate">{item.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                        ${item.price.toFixed(2)}
+                        </p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                        <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                        >
+                        <Minus className="h-3 w-3" />
+                        </Button>
+                        <Input
+                        type="number"
+                        value={item.quantity}
+                        onChange={(e) =>
+                            updateQuantity(item.id, parseInt(e.target.value) || 0)
+                        }
+                        className="w-12 h-8 text-center"
+                        />
+                        <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                        >
+                        <Plus className="h-3 w-3" />
+                        </Button>
+                    </div>
                     <Button
-                      variant="outline"
-                      size="icon"
-                      className="h-6 w-6"
-                      onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground"
+                        onClick={() => updateQuantity(item.id, 0)}
                     >
-                      <Plus className="h-3 w-3" />
+                        <X className="h-4 w-4" />
                     </Button>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-muted-foreground"
-                    onClick={() => updateQuantity(item.id, 0)}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center text-muted-foreground py-16">
-              <p>No items in cart.</p>
-            </div>
-          )}
-
-          <div className="w-full space-y-2 pt-6 border-t">
-            <div className="space-y-2">
-              <Label htmlFor="promo-code">Promo Code</Label>
-              <div className="flex gap-2">
-                <Input
-                  id="promo-code"
-                  value={promoCode}
-                  onChange={(e) => setPromoCode(e.target.value)}
-                  placeholder="e.g., NEWCLIENT15"
-                />
-                <Button variant="outline" onClick={handleApplyPromo}>
-                  Apply
-                </Button>
-              </div>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Subtotal</span>
-              <span>${subtotal.toFixed(2)}</span>
-            </div>
-            {discount > 0 && (
-              <div className="flex justify-between text-sm text-primary font-medium">
-                <span>Discount:</span>
-                <span>-${discount.toFixed(2)}</span>
-              </div>
-            )}
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Tax (7%)</span>
-              <span>${tax.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between text-sm items-center">
-              <span className="text-muted-foreground">Tip</span>
-              <div className="relative w-24">
-                <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  type="number"
-                  value={tipAmount || ''}
-                  onChange={(e) =>
-                    setTipAmount(parseFloat(e.target.value) || 0)
-                  }
-                  className="h-8 text-right pr-2 pl-7"
-                  placeholder="0.00"
-                />
-              </div>
-            </div>
-            {appliedStoreCredit > 0 && (
-              <div className="flex justify-between text-sm font-medium text-primary">
-                <span>Store Credit Used</span>
-                <span>-${appliedStoreCredit.toFixed(2)}</span>
-              </div>
-            )}
-            <Separator className="my-2" />
-            <div className="flex justify-between font-bold text-lg">
-              <span>Total</span>
-              <span>${total.toFixed(2)}</span>
-            </div>
-          </div>
-
-          <Tabs
-            value={paymentTab}
-            onValueChange={setPaymentTab}
-            className="w-full"
-          >
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="card">
-                <CreditCard className="w-4 h-4 mr-2" />
-                Card
-              </TabsTrigger>
-              <TabsTrigger value="cash">
-                <Banknote className="w-4 h-4 mr-2" />
-                Cash
-              </TabsTrigger>
-              <TabsTrigger value="other">
-                <Gift className="w-4 h-4 mr-2" />
-                Other
-              </TabsTrigger>
-            </TabsList>
-            <TabsContent value="cash" className="pt-4 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Amount Tendered</Label>
-                  <div className="p-4 text-2xl font-bold text-center bg-background rounded-md border">
-                    ${amountTendered.toFixed(2)}
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Change Due</Label>
-                  <div
-                    className={`p-4 text-2xl font-bold text-center rounded-md ${
-                      changeDue >= 0
-                        ? 'bg-green-500/10 text-green-600'
-                        : 'bg-red-500/10 text-red-600'
-                    }`}
-                  >
-                    ${Math.abs(changeDue).toFixed(2)}
-                  </div>
-                </div>
-              </div>
-              {changeDue > 0 && (
-                <Button
-                  variant="secondary"
-                  className="w-full"
-                  onClick={handleKeepTheChange}
-                >
-                  <Coins className="w-4 h-4 mr-2" /> Keep the Change as Tip
-                </Button>
-              )}
-              <div className="grid grid-cols-5 gap-2">
-                {denominations.map((amount: number) => (
-                  <Button
-                    key={amount}
-                    variant="outline"
-                    onClick={() => handleDenominationClick(amount)}
-                  >
-                    {amount >= 1 ? `$${amount}` : `${amount * 100}¢`}
-                  </Button>
+                    </div>
                 ))}
-              </div>
-              <Button
-                variant="secondary"
-                className="w-full"
-                onClick={() => setAmountTendered(0)}
-              >
-                Clear
-              </Button>
-            </TabsContent>
-            <TabsContent value="other" className="pt-4 space-y-4">
-              {selectedClient && (selectedClient.walletCredit || 0) > 0 ? (
-                <div className="p-4 rounded-lg bg-muted/50 text-center space-y-3">
-                  <p className="text-sm">
-                    Client has{' '}
-                    <span className="font-bold text-primary">
-                      ${(selectedClient.walletCredit || 0).toFixed(2)}
-                    </span>{' '}
-                    in store credit.
-                  </p>
-                  <Button
-                    variant="secondary"
-                    onClick={handleApplyCredit}
-                    disabled={appliedStoreCredit > 0 || total <= 0}
-                  >
-                    Apply ${maxCreditToApply.toFixed(2)} to this sale
-                  </Button>
                 </div>
-              ) : (
-                <p className="text-sm text-center text-muted-foreground p-4">
-                  No store credit available.
-                </p>
-              )}
-            </TabsContent>
-          </Tabs>
-        
-      </CardContent>
+            ) : (
+                <div className="text-center text-muted-foreground py-16">
+                <p>No items in cart.</p>
+                </div>
+            )}
+
+            <div className="w-full space-y-2 pt-6 border-t">
+                <div className="space-y-2">
+                <Label htmlFor="promo-code">Promo Code</Label>
+                <div className="flex gap-2">
+                    <Input
+                    id="promo-code"
+                    value={promoCode}
+                    onChange={(e) => setPromoCode(e.target.value)}
+                    placeholder="e.g., NEWCLIENT15"
+                    />
+                    <Button variant="outline" onClick={handleApplyPromo}>
+                    Apply
+                    </Button>
+                </div>
+                </div>
+                <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Subtotal</span>
+                <span>${subtotal.toFixed(2)}</span>
+                </div>
+                {discount > 0 && (
+                <div className="flex justify-between text-sm text-primary font-medium">
+                    <span>Discount:</span>
+                    <span>-${discount.toFixed(2)}</span>
+                </div>
+                )}
+                <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Tax (7%)</span>
+                <span>${tax.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-sm items-center">
+                <span className="text-muted-foreground">Tip</span>
+                <div className="relative w-24">
+                    <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                    type="number"
+                    value={tipAmount || ''}
+                    onChange={(e) =>
+                        setTipAmount(parseFloat(e.target.value) || 0)
+                    }
+                    className="h-8 text-right pr-2 pl-7"
+                    placeholder="0.00"
+                    />
+                </div>
+                </div>
+                {appliedStoreCredit > 0 && (
+                <div className="flex justify-between text-sm font-medium text-primary">
+                    <span>Store Credit Used</span>
+                    <span>-${appliedStoreCredit.toFixed(2)}</span>
+                </div>
+                )}
+                <Separator className="my-2" />
+                <div className="flex justify-between font-bold text-lg">
+                <span>Total</span>
+                <span>${total.toFixed(2)}</span>
+                </div>
+            </div>
+
+            <Tabs
+                value={paymentTab}
+                onValueChange={setPaymentTab}
+                className="w-full"
+            >
+                <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="card">
+                    <CreditCard className="w-4 h-4 mr-2" />
+                    Card
+                </TabsTrigger>
+                <TabsTrigger value="cash">
+                    <Banknote className="w-4 h-4 mr-2" />
+                    Cash
+                </TabsTrigger>
+                <TabsTrigger value="other">
+                    <Gift className="w-4 h-4 mr-2" />
+                    Other
+                </TabsTrigger>
+                </TabsList>
+                <TabsContent value="cash" className="pt-4 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                    <Label>Amount Tendered</Label>
+                    <div className="p-4 text-2xl font-bold text-center bg-background rounded-md border">
+                        ${amountTendered.toFixed(2)}
+                    </div>
+                    </div>
+                    <div className="space-y-2">
+                    <Label>Change Due</Label>
+                    <div
+                        className={`p-4 text-2xl font-bold text-center rounded-md ${
+                        changeDue >= 0
+                            ? 'bg-green-500/10 text-green-600'
+                            : 'bg-red-500/10 text-red-600'
+                        }`}
+                    >
+                        ${Math.abs(changeDue).toFixed(2)}
+                    </div>
+                    </div>
+                </div>
+                {changeDue > 0 && (
+                    <Button
+                    variant="secondary"
+                    className="w-full"
+                    onClick={handleKeepTheChange}
+                    >
+                    <Coins className="w-4 h-4 mr-2" /> Keep the Change as Tip
+                    </Button>
+                )}
+                <div className="grid grid-cols-5 gap-2">
+                    {denominations.map((amount: number) => (
+                    <Button
+                        key={amount}
+                        variant="outline"
+                        onClick={() => handleDenominationClick(amount)}
+                    >
+                        {amount >= 1 ? `$${amount}` : `${amount * 100}¢`}
+                    </Button>
+                    ))}
+                </div>
+                <Button
+                    variant="secondary"
+                    className="w-full"
+                    onClick={() => setAmountTendered(0)}
+                >
+                    Clear
+                </Button>
+                </TabsContent>
+                <TabsContent value="other" className="pt-4 space-y-4">
+                {selectedClient && (selectedClient.walletCredit || 0) > 0 ? (
+                    <div className="p-4 rounded-lg bg-muted/50 text-center space-y-3">
+                    <p className="text-sm">
+                        Client has{' '}
+                        <span className="font-bold text-primary">
+                        ${(selectedClient.walletCredit || 0).toFixed(2)}
+                        </span>{' '}
+                        in store credit.
+                    </p>
+                    <Button
+                        variant="secondary"
+                        onClick={handleApplyCredit}
+                        disabled={appliedStoreCredit > 0 || total <= 0}
+                    >
+                        Apply ${maxCreditToApply.toFixed(2)} to this sale
+                    </Button>
+                    </div>
+                ) : (
+                    <p className="text-sm text-center text-muted-foreground p-4">
+                    No store credit available.
+                    </p>
+                )}
+                </TabsContent>
+            </Tabs>
+            </CardContent>
+        </div>
+      </div>
       <CardFooter className="flex-col !p-0">
         <div className="p-4 w-full border-t bg-background">
           <Button
