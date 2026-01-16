@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -177,11 +175,10 @@ const AddAppointmentForm = ({
             const service = services.find(s => s.id === apt.serviceId);
             const padBefore = service?.padBefore || 0;
             const padAfter = service?.padAfter || 0;
-            const aptInterval = { 
+            return areIntervalsOverlapping(newInterval, { 
                 start: addMinutes(apt.startTime, -padBefore), 
                 end: addMinutes(apt.endTime, padAfter) 
-            };
-            return areIntervalsOverlapping(newInterval, aptInterval, { inclusive: false });
+            }, { inclusive: false });
         });
 
         setIsOverlapping(hasOverlap);
@@ -225,7 +222,7 @@ const AddAppointmentForm = ({
     return (
         <>
             <form id="add-appointment-form" onSubmit={(e) => { e.preventDefault(); handleSaveAttempt(); }}>
-                <ScrollArea className="h-[70vh] pr-6">
+                <ScrollArea className="pr-6">
                     <div className="space-y-6">
                         <div className="space-y-4">
                             <h3 className="text-lg font-medium">Client & Service</h3>
@@ -356,13 +353,13 @@ export const AddAppointmentDialog = ({ open, onOpenChange, clients, services, ap
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95dvh]">
-          <SheetHeader className="text-left">
+        <SheetContent side="bottom" className="h-[95dvh] flex flex-col">
+          <SheetHeader className="text-left px-4">
             <SheetTitle>{title}</SheetTitle>
             <SheetDescription>{description}</SheetDescription>
           </SheetHeader>
-          <div className="py-4">{FormContent}</div>
-          <SheetFooter>
+          <div className="py-4 flex-1 overflow-y-auto px-4">{FormContent}</div>
+          <SheetFooter className="px-4">
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button type="submit" form="add-appointment-form" className="w-full">Book Appointment</Button>
           </SheetFooter>
