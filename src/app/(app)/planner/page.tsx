@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem, type StockCorrection } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
-import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual } from 'date-fns';
+import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping } from 'date-fns';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
@@ -176,9 +176,67 @@ const DayTimeline = ({
         };
     }, [appointments, dailyTransactions]);
 
-    const allItems = useMemo(() => {
-        return [...appointments.map(a => ({...a, itemType: 'appointment'})), ...events.map(e => ({...e, itemType: 'event'}))]
+    const positionedItems = useMemo(() => {
+        const items = [...appointments.map(a => ({...a, itemType: 'appointment'})), ...events.map(e => ({...e, itemType: 'event'}))]
             .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
+        
+        if (items.length === 0) return [];
+
+        let layoutInfo = items.map(item => ({
+            ...item,
+            layout: { cols: 0, col: 0 }
+        }));
+        
+        // This function positions a cluster of overlapping events.
+        function positionCluster(cluster: any[]) {
+            const columns: any[][] = [];
+            cluster.sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
+
+            for(const item of cluster) {
+                let placed = false;
+                for (let i = 0; i < columns.length; i++) {
+                    const col = columns[i];
+                    if (col[col.length-1].endTime <= item.startTime) {
+                        col.push(item);
+                        item.layout.col = i;
+                        placed = true;
+                        break;
+                    }
+                }
+                if (!placed) {
+                    columns.push([item]);
+                    item.layout.col = columns.length - 1;
+                }
+            }
+
+            for (const item of cluster) {
+                item.layout.cols = columns.length;
+            }
+        }
+        
+        // Group items into clusters
+        let lastEventEnd: Date | null = null;
+        let currentCluster: any[] = [];
+        for (const item of layoutInfo) {
+            if (lastEventEnd !== null && item.startTime >= lastEventEnd) {
+                positionCluster(currentCluster);
+                currentCluster = [];
+            }
+            currentCluster.push(item);
+            lastEventEnd = new Date(Math.max(lastEventEnd?.getTime() || 0, item.endTime.getTime()));
+        }
+
+        if (currentCluster.length > 0) {
+            positionCluster(currentCluster);
+        }
+        
+        return layoutInfo.map(item => ({
+            ...item,
+            layout: {
+                width: `${100 / item.layout.cols}%`,
+                left: `${(100 / item.layout.cols) * item.layout.col}%`,
+            }
+        }));
     }, [appointments, events]);
 
     const hours = Array.from({ length: 24 - START_HOUR }, (_, i) => i + START_HOUR);
@@ -200,25 +258,19 @@ const DayTimeline = ({
             let appointment;
 
             if (item.itemType === 'event') {
-                // This is a booked quote, adapt its data to look like an appointment
                 const quoteClient = clients.find(c => c.id === item.clientId);
                 if (!quoteClient) return null;
                 
                 const quoteTotal = (item.lineItems || []).reduce((acc: number, li: any) => acc + li.price, 0) + (item.travelExpenses || 0) + ((item.lineItems || []).reduce((acc: number, li: any) => acc + li.price, 0) * ((item.projectFee || 0) / 100));
 
                 client = quoteClient;
-                service = { // Create a mock service object from the event/quote data
+                service = { 
                     id: item.id,
                     name: item.title,
                     duration: differenceInMinutes(item.endTime, item.startTime),
                     price: quoteTotal,
-                    cost: 0, // Placeholder
-                    profit: 0, // Placeholder
-                    margin: 0, // Placeholder
-                    type: 'service',
-                    category: 'Event',
                 };
-                appointment = { // Create a mock appointment object
+                appointment = { 
                     ...item,
                     clientId: item.clientId,
                     serviceId: item.id,
@@ -240,14 +292,14 @@ const DayTimeline = ({
             const actualStartTime = subMinutes(item.startTime, padBefore);
             const minutesFromStart = differenceInMinutes(actualStartTime, dayStart);
             
-            if (minutesFromStart < 0) return null; // Don't render items before the start hour
+            if (minutesFromStart < 0) return null;
 
             const top = minutesFromStart * (160/60);
             const height = totalDuration * (160/60);
-            const style = { top: `${top}px`, height: `${height}px` };
+            const style = { top: `${top}px`, height: `${height}px`, width: item.layout.width, left: item.layout.left };
            
             return (
-                <div key={item.id} className="absolute w-full pr-2" style={style}>
+                <div key={item.id} className="absolute pr-2" style={style}>
                     <AppointmentCard
                         appointment={appointment}
                         client={client}
@@ -270,11 +322,11 @@ const DayTimeline = ({
 
              const top = minutesFromStart * (160/60);
              const height = differenceInMinutes(item.endTime, item.startTime) * (160/60);
-             const style = { top: `${top}px`, height: `${height}px` };
+             const style = { top: `${top}px`, height: `${height}px`, width: item.layout.width, left: item.layout.left };
 
              const eventTransactions = dailyTransactions?.filter(t => t.relatedEventId === item.id) || [];
              return (
-                 <div key={item.id} className="absolute w-full pr-2" style={style}>
+                 <div key={item.id} className="absolute pr-2" style={style}>
                     <EventCard 
                         event={item}
                         transactions={eventTransactions}
@@ -339,7 +391,7 @@ const DayTimeline = ({
 
                         {isToday(date) && <TimeIndicator />}
 
-                        {allItems.map(renderItem)}
+                        {positionedItems.map(renderItem)}
                     </div>
                 </div>
             </ScrollArea>
@@ -1053,6 +1105,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
