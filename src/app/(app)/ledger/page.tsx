@@ -129,7 +129,7 @@ const TransactionFilters = ({
     }, [transactions]);
 
   return (
-    <Card className="h-fit sticky top-20 print:hidden">
+    <Card className="h-fit sticky top-20">
       <CardHeader>
         <CardTitle>Ledger</CardTitle>
         <CardDescription>The ledger for every dollar in and out.</CardDescription>
@@ -459,7 +459,7 @@ export default function LedgerPage() {
 
   return (
     <>
-    <div className="flex min-h-screen w-full flex-col print:hidden">
+    <div className="no-print flex min-h-screen w-full flex-col">
       <AppHeader title="Ledger" />
       <main className="flex-1 p-4 md:p-8">
         <div className="grid md:grid-cols-3 lg:grid-cols-4 gap-8">
@@ -525,7 +525,7 @@ export default function LedgerPage() {
       </main>
     </div>
 
-    <div className="hidden print:block">
+    <div className="print-only">
         <PrintableReport 
             ref={reportRef} 
             transactions={filteredTransactions} 
@@ -533,6 +533,20 @@ export default function LedgerPage() {
             dateRange={date} 
         />
     </div>
+
+     <style jsx global>{`
+      .print-only {
+        display: none;
+      }
+      @media print {
+        .no-print {
+          display: none;
+        }
+        .print-only {
+          display: block;
+        }
+      }
+    `}</style>
 
     <AddTransactionDialog 
         open={isAddTxnOpen}
