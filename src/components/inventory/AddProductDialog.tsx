@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -23,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { PlusCircle, Info, Trash2, Check } from 'lucide-react';
+import { PlusCircle, Info, Trash2, Check, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { AddLocationDialog, type Location, type LocationType } from './AddLocationDialog';
@@ -31,6 +31,7 @@ import { AddLocationDialog, type Location, type LocationType } from './AddLocati
 import { useForm, FormProvider, useFormContext, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { ImageUpload } from '../shared/ImageUpload';
 
 export type ProductType = 'professional' | 'retail' | 'both';
 
@@ -164,7 +165,13 @@ const Step1_BasicDetails = ({
     </div>
      <div className="space-y-2">
         <Label>Image</Label>
-        <Button variant="outline" className="w-full">Upload Image</Button>
+         <Controller
+            name="imageUrl"
+            control={control}
+            render={({ field }) => (
+                <ImageUpload onImageUploaded={field.onChange} />
+            )}
+          />
     </div>
     <div className="space-y-2">
       <Label htmlFor="internal-notes">Internal Notes</Label>

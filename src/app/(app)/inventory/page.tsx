@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette, QrCode, AlertTriangle, ListFilter, ChevronDown, ShoppingCart, Briefcase, DollarSign, Activity, Eye, CircleHelp, Warehouse, Beaker, Recycle, TrendingUp } from 'lucide-react';
-import { type InventoryItem, type StockCorrection, type Transaction, type Batch } from '@/lib/data';
+import { type InventoryItem, type StockCorrection, type Transaction, type Batch, inventory as initialInventory } from '@/lib/data';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -46,7 +46,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { ManageSpoilageDialog, type SpoilageItem } from '@/components/inventory/ManageSpoilageDialog';
-import { Tooltip, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { InventorySidebar } from '@/components/inventory/InventorySidebar';
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -179,7 +179,7 @@ export default function InventoryPage() {
   const [activeFilter, setActiveFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   
-  const [isAddLocationDialogOpen, setAddLocationDialogOpen] = useState(false);
+  const [isAddLocationDialogOpen, setIsAddLocationDialogOpen] = useState(false);
   const [isEditLocationDialogOpen, setIsEditLocationDialogOpen] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
 
@@ -197,6 +197,55 @@ export default function InventoryPage() {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  const [productCategories, setProductCategories] = useState(() => {
+    const allCategories = initialInventory.map(i => i.category).filter((c): c is string => !!c);
+    return [...new Set(allCategories)];
+  });
+
+  const handleNewCategory = (newCategory: string) => {
+    if (!productCategories.includes(newCategory)) {
+        setProductCategories(prev => [...prev, newCategory]);
+    }
+  };
+
+  const handleAddProduct = (newProductData: any) => {
+    const landedCost = newProductData.totalCostOfGoods && newProductData.numberOfUnits 
+      ? (newProductData.totalCostOfGoods + (newProductData.shipping || 0) + (newProductData.taxes || 0)) / newProductData.numberOfUnits 
+      : 0;
+
+    const newProduct: InventoryItem = {
+        id: `inv-${Date.now()}`,
+        name: newProductData.name,
+        type: newProductData.type,
+        category: newProductData.category,
+        totalStock: newProductData.initialQuantity || 0,
+        supplier: newProductData.vendor || 'N/A',
+        costPerUnit: landedCost,
+        reorderPoint: newProductData.reorderPoint,
+        primaryLocationId: newProductData.primaryLocationId,
+        imageUrl: newProductData.imageUrl,
+        description: newProductData.description,
+        batches: newProductData.initialQuantity > 0 ? [{
+            id: `batch-${Date.now()}`,
+            stock: newProductData.initialQuantity,
+            costPerUnit: landedCost,
+            receivedDate: new Date().toISOString(),
+            expirationDate: newProductData.expirationDate || undefined,
+        }] : [],
+        costingMethod: newProductData.costingMethod,
+        size: newProductData.containerSize,
+        unit: newProductData.unit,
+        estimatedUses: newProductData.estimatedUses,
+        useUnit: newProductData.useUnit === 'other' ? newProductData.customUseUnit : newProductData.useUnit,
+        isExperimentActive: newProductData.isExperimentActive,
+    };
+    setInventory(prev => [...prev, newProduct]);
+    if (newProduct.category && !productCategories.includes(newProduct.category)) {
+        handleNewCategory(newProduct.category);
+    }
+  };
+
 
   const handleOpenAddLocation = () => setAddLocationDialogOpen(true);
   const handleOpenEditLocation = (location: Location) => {
@@ -785,7 +834,7 @@ export default function InventoryPage() {
        )}
         <AddLocationDialog 
             open={isAddLocationDialogOpen} 
-            onOpenChange={setAddLocationDialogOpen}
+            onOpenChange={setIsAddLocationDialogOpen}
             onSave={handleSaveLocation}
             locationTypes={locationTypes}
             onAddNewLocationType={handleAddNewLocationType}
@@ -810,9 +859,9 @@ export default function InventoryPage() {
             isAddLocationDialogOpen={isAddLocationDialogOpen}
             onAddLocationDialogOpenChange={setAddLocationDialogOpen}
             onAddNewLocation={handleSaveLocation}
-            categories={[]}
-            onNewCategory={() => {}}
-            onProductAdded={() => {}}
+            categories={productCategories}
+            onNewCategory={handleNewCategory}
+            onProductAdded={handleAddProduct}
         />
 
         <AddEquipmentDialog 
@@ -867,6 +916,7 @@ export default function InventoryPage() {
   );
 
     
+
 
 
 
