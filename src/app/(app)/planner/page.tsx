@@ -1033,6 +1033,8 @@ export default function PlannerPage() {
         open={isAddEventOpen}
         onOpenChange={setIsAddEventOpen}
         onConfirm={handleAddEvent}
+        appointments={appointments}
+        events={events}
       />
        {selectedEvent && (
         <EditEventDialog
@@ -1105,11 +1107,4 @@ export default function PlannerPage() {
     </div>
   );
 }
-
-
-
-
-
-
-
 

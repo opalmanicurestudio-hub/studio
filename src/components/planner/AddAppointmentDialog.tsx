@@ -1,7 +1,8 @@
 
+
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
@@ -21,6 +22,17 @@ import {
   SheetFooter,
   SheetTrigger,
 } from '@/components/ui/sheet';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -35,7 +47,7 @@ import {
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CalendarIcon, PlusCircle, Trash2 } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Client, Service, Appointment } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes } from 'date-fns';
@@ -130,50 +142,52 @@ const AddAppointmentForm = ({
     const [selectedAddOns, setSelectedAddOns] = useState<Service[]>([]);
     const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
 
+    const [isOverlapping, setIsOverlapping] = useState(false);
+    const [showConfirmation, setShowConfirmation] = useState(false);
 
     const selectedService = useMemo(() => services.find(s => s.id === selectedServiceId), [services, selectedServiceId]);
 
     const timeOptions = useMemo(() => {
         const options = [];
-        if (!selectedService || !date) return [];
+        if (!date) return [];
+        const dayStart = startOfDay(date);
+        for (let i = 0; i < 24 * 4; i++) { // 24 hours * 4 slots per hour (15 min)
+            const minutes = i * 15;
+            const time = addMinutes(dayStart, minutes);
+            options.push(format(time, 'HH:mm'));
+        }
+        return options;
+    }, [date]);
 
-        const dayStart = setHours(startOfDay(date), 0);
-        const dayEnd = setHours(startOfDay(date), 24);
+    useEffect(() => {
+        if (!selectedService || !date || !startTime) {
+            setIsOverlapping(false);
+            return;
+        }
+
+        const [hours, minutes] = startTime.split(':').map(Number);
+        const startDateTime = setMinutes(setHours(startOfDay(date), hours), minutes);
         
-        const existingAppointmentsOnDate = appointments.filter(
-            apt => format(apt.startTime, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd')
-        ).map(apt => {
+        const totalDuration = selectedService.duration + (selectedService.padBefore || 0) + (selectedService.padAfter || 0);
+        const endDateTime = addMinutes(startDateTime, totalDuration);
+
+        const newInterval = { start: startDateTime, end: endDateTime };
+
+        const hasOverlap = appointments.some(apt => {
             const service = services.find(s => s.id === apt.serviceId);
             const padBefore = service?.padBefore || 0;
             const padAfter = service?.padAfter || 0;
-            return {
-                start: addMinutes(apt.startTime, -padBefore),
-                end: addMinutes(apt.endTime, padAfter)
-            }
+            const aptInterval = { 
+                start: addMinutes(apt.startTime, -padBefore), 
+                end: addMinutes(apt.endTime, padAfter) 
+            };
+            return areIntervalsOverlapping(newInterval, aptInterval, { inclusive: false });
         });
 
-        for (let i = dayStart.getTime(); i < dayEnd.getTime(); i += 15 * 60000) {
-            const potentialStartTime = new Date(i);
-            
-            const totalDuration = selectedService.duration + (selectedService.padBefore || 0) + (selectedService.padAfter || 0);
-            const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
+        setIsOverlapping(hasOverlap);
+    }, [date, startTime, selectedService, appointments, services]);
 
-            const isOverlapping = existingAppointmentsOnDate.some(apt =>
-                areIntervalsOverlapping(
-                    { start: potentialStartTime, end: potentialEndTime },
-                    { start: apt.start, end: apt.end },
-                    { inclusive: false }
-                )
-            );
-
-            if (!isOverlapping) {
-                options.push(format(potentialStartTime, 'HH:mm'));
-            }
-        }
-        return options;
-    }, [date, selectedService, appointments, services]);
-
-    const handleSubmit = () => {
+    const confirmAndSubmit = () => {
         if (!selectedClientId || !selectedService || !date || !startTime) return;
 
         const [hours, minutes] = startTime.split(':').map(Number);
@@ -191,6 +205,18 @@ const AddAppointmentForm = ({
         };
         onConfirm(newAppointment);
     }
+    
+    const handleSaveAttempt = () => {
+        if (!selectedClientId || !selectedServiceId || !startTime) {
+            // Basic validation, could be improved with toasts
+            return;
+        }
+        if (isOverlapping) {
+            setShowConfirmation(true);
+        } else {
+            confirmAndSubmit();
+        }
+    };
 
     const removeAddOn = (addOnId: string) => {
         setSelectedAddOns(prev => prev.filter(a => a.id !== addOnId));
@@ -198,7 +224,7 @@ const AddAppointmentForm = ({
     
     return (
         <>
-            <form id="add-appointment-form" onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
+            <form id="add-appointment-form" onSubmit={(e) => { e.preventDefault(); handleSaveAttempt(); }}>
                 <ScrollArea className="h-[70vh] pr-6">
                     <div className="space-y-6">
                         <div className="space-y-4">
@@ -276,6 +302,15 @@ const AddAppointmentForm = ({
                                     </Select>
                                 </div>
                             </div>
+                             {isOverlapping && (
+                                <Alert variant="destructive" className="mt-2">
+                                    <AlertTriangle className="h-4 w-4" />
+                                    <AlertTitle>Potential Double Booking</AlertTitle>
+                                    <AlertDescription>
+                                        This time slot overlaps with an existing appointment.
+                                    </AlertDescription>
+                                </Alert>
+                            )}
                         </div>
 
                         <div className="space-y-4">
@@ -292,6 +327,20 @@ const AddAppointmentForm = ({
                 allAddOns={services.filter(s => s.type === 'addon')}
                 initialSelected={selectedAddOns}
             />
+             <AlertDialog open={showConfirmation} onOpenChange={setShowConfirmation}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                    <AlertDialogTitle>Confirm Double Booking</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        You are about to schedule an appointment that overlaps with an existing one. Are you sure you want to proceed?
+                    </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={confirmAndSubmit}>Book Anyway</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </>
     )
 }
