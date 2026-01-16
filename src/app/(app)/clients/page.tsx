@@ -107,7 +107,7 @@ const ClientCard = ({ client }: { client: Client }) => {
                     </TooltipProvider>
 
                     <div className="flex-1 flex flex-wrap gap-1 justify-end">
-                        {client.isMember && <Badge variant="secondary" className="bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300">Member</Badge>}
+                        {!!client.activeMembershipId && <Badge variant="secondary" className="bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300">Member</Badge>}
                         <Badge variant="secondary">VIP</Badge>
                     </div>
                 </div>
@@ -390,4 +390,3 @@ export default function ClientsPage() {
     
 
     
-

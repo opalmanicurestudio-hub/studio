@@ -18,6 +18,7 @@ export type Incident = {
 export type ClientIntel = {
     hasIncidents?: boolean;
     incidents?: Incident[];
+    referralSource?: string;
 };
 
 export type CustomFormula = {
@@ -45,8 +46,12 @@ export type Client = {
   allergyNotes?: string;
   sensoryNeeds?: string;
   inspirationPhotoUrl?: string;
-  isMember?: boolean;
   intel?: ClientIntel;
+  activeMembershipId?: string;
+  activePackages?: {
+    packageId: string;
+    sessionsRemaining: number;
+  }[];
   referralCode?: string;
   referredBy?: string;
   successfulReferrals?: string[];
@@ -282,10 +287,32 @@ export const clients: Client[] = [
     successfulReferrals: ['Leo Gallagher'],
     walletCredit: 10,
   },
-  { id: 'cli-2', name: 'Marcus Holloway', email: 'marcus@example.com', phone: '310-555-0187', avatarUrl: 'https://picsum.photos/seed/102/100/100', lifetimeValue: 1890.00, lastAppointment: '2024-05-20T14:30:00.000Z', allergyNotes: 'Latex', referralCode: 'MARCUS15' },
+  { 
+    id: 'cli-2', 
+    name: 'Marcus Holloway', 
+    email: 'marcus@example.com', 
+    phone: '310-555-0187', 
+    avatarUrl: 'https://picsum.photos/seed/102/100/100', 
+    lifetimeValue: 1890.00, 
+    lastAppointment: '2024-05-20T14:30:00.000Z', 
+    allergyNotes: 'Latex', 
+    referralCode: 'MARCUS15',
+    activePackages: [{ packageId: 'pkg-2', sessionsRemaining: 2 }],
+  },
   { id: 'cli-3', name: 'Anya Sharma', email: 'anya@example.com', phone: '773-555-0123', avatarUrl: 'https://picsum.photos/seed/103/100/100', lifetimeValue: 3200.50, lastAppointment: '2024-05-01T11:00:00.000Z', referralCode: 'ANYA20' },
   { id: 'cli-4', name: 'Leo Gallagher', email: 'leo@example.com', phone: '415-555-0142', avatarUrl: 'https://picsum.photos/seed/104/100/100', lifetimeValue: 950.00, lastAppointment: '2024-04-22T16:00:00.000Z', referredBy: 'Eleanor Vance', referralCode: 'LEO5' },
-  { id: 'cli-5', name: 'Sofia Chen', email: 'sofia@example.com', phone: '212-555-0165', avatarUrl: 'https://picsum.photos/seed/105/100/100', lifetimeValue: 4500.00, lastAppointment: '2024-05-18T09:30:00.000Z', sensoryNeeds: 'Prefers quiet', isMember: true, referralCode: 'SOFIA25' },
+  { 
+    id: 'cli-5', 
+    name: 'Sofia Chen', 
+    email: 'sofia@example.com', 
+    phone: '212-555-0165', 
+    avatarUrl: 'https://picsum.photos/seed/105/100/100', 
+    lifetimeValue: 4500.00, 
+    lastAppointment: '2024-05-18T09:30:00.000Z', 
+    sensoryNeeds: 'Prefers quiet', 
+    activeMembershipId: 'mem-1',
+    referralCode: 'SOFIA25' 
+  },
 ];
 
 export const inventory: InventoryItem[] = [
@@ -534,10 +561,10 @@ export const appointments: Appointment[] = [
     // Today's appointments
   { id: 'apt-0', clientId: 'cli-4', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 8), 0), endTime: setMinutes(setHours(startOfDay(today), 8), 50), status: 'completed', absorbedCost: 0 },
   { id: 'apt-1', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today,1)), 9), 30), endTime: setMinutes(setHours(startOfDay(subDays(today,1)), 10), 20), status: 'confirmed', inspirationPhotoUrl: 'https://images.unsplash.com/photo-1596796242339-3c368369b139?w=400', absorbedCost: 0 },
-  { id: 'apt-2', clientId: 'cli-2', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 11), 0), endTime: setMinutes(setHours(startOfDay(today), 11), 50), status: 'completed', addOnIds: ['svc-addon-1'], absorbedCost: 0 },
-  { id: 'apt-6', clientId: 'cli-2', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 14), 0), endTime: setMinutes(setHours(startOfDay(today), 14), 50), status: 'deposit_pending', absorbedCost: 0 },
+  { id: 'apt-2', clientId: 'cli-2', serviceId: 'svc-7', startTime: setMinutes(setHours(startOfDay(today), 11), 0), endTime: setMinutes(setHours(startOfDay(today), 12), 30), status: 'completed', addOnIds: ['svc-addon-1'], absorbedCost: 0 },
+  { id: 'apt-6', clientId: 'cli-2', serviceId: 'svc-7', startTime: setMinutes(setHours(startOfDay(today), 14), 0), endTime: setMinutes(setHours(startOfDay(today), 15), 30), status: 'deposit_pending', absorbedCost: 0 },
   { id: 'apt-3', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 15), 0), endTime: setMinutes(setHours(startOfDay(today), 15), 50), status: 'confirmed', absorbedCost: 0 },
-  { id: 'apt-5', clientId: 'cli-5', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 16), 0), endTime: setMinutes(setHours(startOfDay(today), 16), 50), status: 'cancelled', absorbedCost: 0 },
+  { id: 'apt-5', clientId: 'cli-5', serviceId: 'svc-4', startTime: setMinutes(setHours(startOfDay(today), 16), 0), endTime: setMinutes(setHours(startOfDay(today), 17), 15), status: 'cancelled', absorbedCost: 0 },
 
   // Past appointments
   { id: 'apt-4', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today, 2)), 10), 0), endTime: setMinutes(setHours(startOfDay(subDays(today,2)), 10), 50), status: 'completed', absorbedCost: 0 },
