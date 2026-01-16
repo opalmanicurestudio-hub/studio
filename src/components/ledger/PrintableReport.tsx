@@ -1,7 +1,6 @@
-
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { type Transaction } from '@/lib/financial-data';
 import { format } from 'date-fns';
 import { DateRange } from 'react-day-picker';
@@ -22,7 +21,12 @@ interface PrintableReportProps {
 }
 
 export const PrintableReport = React.forwardRef<HTMLDivElement, PrintableReportProps>(({ transactions, financialSummary, dateRange }, ref) => {
-    const generationDate = new Date();
+    const [generationDate, setGenerationDate] = useState<Date | null>(null);
+
+    useEffect(() => {
+        setGenerationDate(new Date());
+    }, []);
+
     const transactionsWithReceipts = transactions
       .filter(t => t.hasReceipt && t.receiptUrl)
       .map((t, index) => ({ ...t, receiptIndex: index + 1 }));
@@ -57,7 +61,7 @@ export const PrintableReport = React.forwardRef<HTMLDivElement, PrintableReportP
                     </div>
                     <div className="text-right text-sm text-gray-500">
                         <p>Generated On:</p>
-                        <p>{format(generationDate, 'LLL d, yyyy h:mm a')}</p>
+                        {generationDate && <p>{format(generationDate, 'LLL d, yyyy h:mm a')}</p>}
                     </div>
                 </div>
             </header>
