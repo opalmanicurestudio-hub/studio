@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
@@ -556,7 +557,7 @@ export default function RetailPage() {
 
           {/* Cart & Checkout */}
           <div className="hidden lg:flex lg:col-span-1 border-l flex-col h-full bg-muted/20">
-            <Card className="flex-1 flex flex-col shadow-none border-0 rounded-none">
+            <Card className="flex-1 flex flex-col shadow-none border-0 rounded-none min-h-0">
                 <CartContent 
                     cart={cart}
                     selectedClientId={selectedClientId}
@@ -692,3 +693,4 @@ export default function RetailPage() {
 }
 
     
+
