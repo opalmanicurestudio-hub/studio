@@ -429,15 +429,13 @@ const BillsDueSheet = ({ open, onOpenChange, billInstances, isMobile, onLogPayme
                     <SheetTitle>Bills Due Today</SheetTitle>
                     <SheetDescription>A list of all recurring expenses due on this date.</SheetDescription>
                 </SheetHeader>
-                <div className="flex-1 p-6 overflow-hidden">
+                <div className={cn("p-6", isMobile ? "flex-1 overflow-y-auto" : "max-h-[70vh] overflow-y-auto")}>
                     {billInstances.length > 0 ? (
-                        <ScrollArea className="h-full -mr-6 pr-6">
-                             <div className="space-y-4">
-                                {billInstances.map(instance => (
-                                    <BillDueDateCard key={instance.id} instance={instance} onLogPaymentClick={onLogPaymentClick} />
-                                ))}
-                            </div>
-                        </ScrollArea>
+                        <div className="space-y-4">
+                            {billInstances.map(instance => (
+                                <BillDueDateCard key={instance.id} instance={instance} onLogPaymentClick={onLogPaymentClick} />
+                            ))}
+                        </div>
                     ) : (
                         <div className="text-center text-muted-foreground h-full flex flex-col items-center justify-center">
                             No bills are due today.
@@ -1055,6 +1053,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
