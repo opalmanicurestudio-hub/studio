@@ -40,6 +40,7 @@ import { IncidentFormData } from '@/components/incidents/LogIncidentForm';
 import Image from 'next/image';
 import { EditClientDialog } from '@/components/clients/EditClientDialog';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 
 type ClientPhoto = {
