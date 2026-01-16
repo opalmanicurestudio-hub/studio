@@ -50,6 +50,7 @@ import { cn } from '@/lib/utils';
 import { type Event, type EventChecklistItem, type Appointment } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping } from 'date-fns';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Checkbox } from '../ui/checkbox';
 
 const AddEventForm = ({
     onConfirm,
@@ -163,7 +164,7 @@ const AddEventForm = ({
     return (
         <>
             <form id="add-event-form" onSubmit={(e) => { e.preventDefault(); handleSaveAttempt(); }}>
-                <ScrollArea className="h-[70vh] pr-6">
+                <ScrollArea className="pr-6">
                     <div className="space-y-6">
                         <div className="space-y-4">
                             <h3 className="text-lg font-medium">Event Details</h3>
@@ -250,7 +251,7 @@ const AddEventForm = ({
                                     <AlertTriangle className="h-4 w-4" />
                                     <AlertTitle>Potential Double Booking</AlertTitle>
                                     <AlertDescription>
-                                        This time slot overlaps with an existing appointment or event.
+                                        This event overlaps with an existing item on your calendar.
                                     </AlertDescription>
                                 </Alert>
                             )}
@@ -319,13 +320,13 @@ export const AddEventDialog = ({ open, onOpenChange, onConfirm, appointments, ev
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95dvh]">
-          <SheetHeader className="text-left">
+        <SheetContent side="bottom" className="h-[95vh] flex flex-col">
+          <SheetHeader className="text-left px-4">
             <SheetTitle>{title}</SheetTitle>
             <SheetDescription>{description}</SheetDescription>
           </SheetHeader>
-          <div className="py-4">{FormContent}</div>
-          <SheetFooter>
+          <div className="py-4 flex-1 overflow-y-auto px-4">{FormContent}</div>
+          <SheetFooter className="px-4">
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button type="submit" form="add-event-form" className="w-full">Save Event</Button>
           </SheetFooter>
