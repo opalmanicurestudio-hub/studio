@@ -63,26 +63,19 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
 
     const detailHref = `/inventory/${item.id}`;
 
-    const stockDisplay = useMemo(() => {
-      const showPartialSize = item.costingMethod === 'size' && typeof item.partialContainerSize === 'number';
-      const showPartialUses = item.costingMethod === 'uses' && typeof item.partialContainerUses === 'number';
-      
-      const shouldShowPartial = (item.totalStock > 0 || (item.totalStock === 0 && (showPartialSize || showPartialUses)));
-
-      return (
-        <div className="text-right">
-            <p className="font-mono font-semibold text-lg">{item.totalStock} <span className="text-sm text-muted-foreground">full</span></p>
-            {shouldShowPartial && showPartialSize && <p className="text-xs text-muted-foreground">{item.partialContainerSize!.toFixed(0)}{item.unit} left</p>}
-            {shouldShowPartial && showPartialUses && <p className="text-xs text-muted-foreground">{item.partialContainerUses} {item.useUnit || 'uses'} left</p>}
-             {item.isExperimentActive && (
-                <Badge variant="secondary" className="mt-1 flex items-center gap-1.5 bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 w-fit ml-auto">
-                    <FlaskConical className="h-3 w-3" />
-                    {item.experimentUses || 0} uses logged
-                </Badge>
-            )}
-        </div>
-      )
-    }, [item]);
+    const stockDisplay = (
+      <div className="text-right">
+          <p className="font-mono font-semibold text-lg">{item.totalStock} <span className="text-sm text-muted-foreground">full</span></p>
+          {typeof item.partialContainerSize === 'number' && <p className="text-xs text-muted-foreground">{item.partialContainerSize.toFixed(0)}{item.unit} left</p>}
+          {typeof item.partialContainerUses === 'number' && <p className="text-xs text-muted-foreground">{item.partialContainerUses} {item.useUnit || 'uses'} left</p>}
+           {item.isExperimentActive && (
+              <Badge variant="secondary" className="mt-1 flex items-center gap-1.5 bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 w-fit ml-auto">
+                  <FlaskConical className="h-3 w-3" />
+                  {item.experimentUses || 0} uses logged
+              </Badge>
+          )}
+      </div>
+    );
     
     return (
         <Card className={cn(
@@ -294,7 +287,6 @@ export default function InventoryPage() {
 
         if (product.isExperimentActive) {
             product.experimentUses = (product.experimentUses || 0) + quantity;
-            // Don't set success message here, let it fall through to create a stock correction
         } else if (product.costingMethod === 'uses') {
             unit = product.useUnit || 'uses';
             let currentUses = product.partialContainerUses || 0;
@@ -303,7 +295,7 @@ export default function InventoryPage() {
                 product.partialContainerUses -= quantity;
             } else {
                 let usesNeeded = quantity - currentUses;
-                product.partialContainerUses = 0; // Use up partial first
+                product.partialContainerUses = 0;
                 
                 const usesPerContainer = product.estimatedUses || 1;
                 
@@ -315,7 +307,7 @@ export default function InventoryPage() {
                     product.partialContainerUses = remainingUses;
                 } else {
                     message = `Insufficient stock for ${product.name}. Cannot log use.`;
-                    return prev; // abort update
+                    return prev;
                 }
             }
         } else if (product.costingMethod === 'size') {
@@ -326,7 +318,7 @@ export default function InventoryPage() {
                 product.partialContainerSize -= quantity;
             } else {
                 let sizeNeeded = quantity - currentSize;
-                product.partialContainerSize = 0; // Use up partial first
+                product.partialContainerSize = 0;
 
                 const sizePerContainer = product.size || 1;
                 const containersToOpen = Math.ceil(sizeNeeded / sizePerContainer);
@@ -337,14 +329,12 @@ export default function InventoryPage() {
                     product.partialContainerSize = remainingSize;
                 } else {
                     message = `Insufficient stock for ${product.name}. Cannot log use.`;
-                    return prev; // abort update
+                    return prev;
                 }
             }
         } else {
-            // Default behavior for items without a costing method (e.g., overhead)
             if (product.totalStock >= quantity) {
                 product.totalStock -= quantity;
-                // Simple deduction from oldest batch for consistency
                 let remainingToDeduct = quantity;
                 const sortedBatches = product.batches.filter((b: Batch) => b.stock > 0).sort((a: Batch, b: Batch) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime());
                 for (const batch of sortedBatches) {
@@ -415,10 +405,8 @@ export default function InventoryPage() {
       batch.stock -= quantity;
       product.batches[batchIndex] = batch;
   
-      // Recalculate total stock for the product
       product.totalStock = product.batches.reduce((acc, b) => acc + b.stock, 0);
   
-      // If total stock is now zero, also zero out partials
       if (product.totalStock === 0) {
         product.partialContainerSize = 0;
         product.partialContainerUses = 0;
@@ -431,12 +419,11 @@ export default function InventoryPage() {
         productId: productId,
         date: new Date().toISOString(),
         change: -quantity,
-        unit: 'units', // Assuming write-offs are per-unit for simplicity
+        unit: 'units',
         reason: reason,
       };
       addStockCorrection(newCorrection);
 
-      // Create financial transaction
       const newTransaction: Omit<Transaction, 'id'> = {
           date: new Date().toISOString(),
           description: `Inventory Write-off: ${product.name} (${reason})`,
@@ -474,7 +461,6 @@ export default function InventoryPage() {
       const product = newInventory[productIndex];
       consumedProduct = product;
 
-      // Find the oldest batch with stock (FIFO)
       const sortedBatches = product.batches.sort((a: Batch, b: Batch) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime());
       const batchToUpdate = sortedBatches.find((b: Batch) => b.stock > 0);
   
@@ -531,13 +517,11 @@ export default function InventoryPage() {
             const stockChange = batch.stock;
             totalLoss += stockChange * batch.costPerUnit;
 
-            batch.stock = 0; // Write off the entire batch stock
+            batch.stock = 0;
             product.batches[batchIndex] = batch;
 
-            // Recalculate total stock
             product.totalStock = product.batches.reduce((acc, b) => acc + b.stock, 0);
             
-            // If total stock is now zero, also zero out partials
             if (product.totalStock === 0) {
               product.partialContainerSize = 0;
               product.partialContainerUses = 0;
@@ -545,7 +529,6 @@ export default function InventoryPage() {
 
             newInventory[productIndex] = product;
 
-            // Create a stock correction record
             addStockCorrection({
               id: `sc-${Date.now()}-${item.productId}`,
               productId: item.productId,
@@ -598,7 +581,7 @@ export default function InventoryPage() {
     setIsEndExperimentOpen(true);
   };
   
-  const handleEndExperimentConfirmed = (results: any) => { // Using 'any' for now since LifespanTestResult is also on product. Adjust as needed.
+  const handleEndExperimentConfirmed = (results: any) => {
     if (!selectedProduct) return;
     
     setInventory(prev => prev.map(p => 
@@ -765,7 +748,7 @@ export default function InventoryPage() {
                             {inventory.length > 0 ? (
                                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                                     {filteredInventory.length > 0 ? filteredInventory.map(item => (
-                                       <ClientOnly key={item.id + item.totalStock + item.partialContainerUses}>
+                                       <ClientOnly key={`${item.id}-${item.totalStock}-${item.partialContainerUses}-${item.partialContainerSize}`}>
                                             <ProductCard 
                                                 item={item} 
                                                 onEdit={() => {}} 
@@ -845,12 +828,8 @@ export default function InventoryPage() {
             onOpenChange={setIsAddProductOpen}
             locations={locations}
             locationTypes={locationTypes}
-            onAddNewLocationType={handleAddNewLocationType}
-            isAddLocationDialogOpen={isAddLocationDialogOpen}
-            onAddLocationDialogOpenChange={setIsAddLocationDialogOpen}
-            onAddNewLocation={handleSaveLocation}
-            initialCategories={inventoryCategories}
             onProductAdded={handleAddProduct}
+            initialCategories={inventoryCategories}
         />
 
         <AddEquipmentDialog 

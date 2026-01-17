@@ -486,8 +486,6 @@ export const AddProductDialog = ({
     locationTypes,
     onProductAdded,
     initialCategories,
-    onAddNewLocation,
-    onAddNewLocationType,
 }: { 
     open: boolean, 
     onOpenChange: (open: boolean) => void, 
@@ -495,8 +493,6 @@ export const AddProductDialog = ({
     locationTypes: LocationType[],
     onProductAdded: (product: any) => void;
     initialCategories: string[];
-    onAddNewLocation: (newLocation: Omit<Location, 'id'>) => void;
-    onAddNewLocationType: (name: string, icon: string) => LocationType,
 }) => {
   const [step, setStep] = useState(1);
   const totalSteps = 3;
@@ -600,12 +596,10 @@ export const AddProductDialog = ({
       <AddLocationDialog 
           open={isAddLocationDialogOpen} 
           onOpenChange={setIsAddLocationDialogOpen}
-          onSave={onAddNewLocation}
+          onSave={() => {}}
           locationTypes={locationTypes}
-          onAddNewLocationType={onAddNewLocationType}
+          onAddNewLocationType={() => ({ id: '', name: '', icon: '' })}
       />
     </>
   );
 };
-
-    
