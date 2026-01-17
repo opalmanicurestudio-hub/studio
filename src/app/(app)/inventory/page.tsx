@@ -63,6 +63,7 @@ import { ClientOnly } from '@/components/shared/ClientOnly';
 import { AddProductDialog } from '@/components/inventory/AddProductDialog';
 import { AddEquipmentDialog } from '@/components/inventory/AddEquipmentDialog';
 import { AddOverheadDialog } from '@/components/inventory/AddOverheadDialog';
+import { useInventory } from '@/context/InventoryContext';
 
 const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff, onLogUse }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (itemId: string) => void, onLogUse: (item: InventoryItem) => void }) => {
     
