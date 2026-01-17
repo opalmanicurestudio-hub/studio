@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
@@ -242,7 +241,7 @@ export default function InventoryPage() {
     setLocations(prev => [...prev, newLocWithId]);
   };
   const handleUpdateLocation = (updatedLocation: Location) => {
-    setLocations(prev => prev.map(loc => loc.id === updatedLocation.id ? updatedLocation : loc));
+    setLocations(prev => prev.map(loc => loc.id === updatedLocation.id ? updatedLocation : c));
   };
    const handleAddNewLocationType = (name: string, icon: string): LocationType => {
     const newType = { id: `lt-${Date.now()}`, name, icon };
@@ -885,3 +884,6 @@ export default function InventoryPage() {
 
     
 
+
+
+    

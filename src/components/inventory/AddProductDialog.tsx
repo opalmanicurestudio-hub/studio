@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -498,20 +497,13 @@ export const AddProductDialog = ({
   const [step, setStep] = useState(1);
   const totalSteps = 3;
   const [isAddLocationDialogOpen, setIsAddLocationDialogOpen] = useState(false);
-
-  const [categories, setCategories] = useState(initialCategories);
+  const [categories, setCategories] = useState<string[]>(initialCategories);
 
   useEffect(() => {
     if (open) {
-        setCategories(initialCategories);
+      setCategories(initialCategories);
     }
   }, [initialCategories, open]);
-
-  const handleNewCategory = (newCategory: string) => {
-    if (!categories.includes(newCategory)) {
-        setCategories(prev => [...prev, newCategory]);
-    }
-  };
 
   const methods = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
@@ -557,6 +549,12 @@ export const AddProductDialog = ({
       setStep(step - 1);
     }
   };
+
+  const handleNewCategory = (newCategory: string) => {
+    if (!categories.includes(newCategory)) {
+        setCategories(prev => [...prev, newCategory]);
+    }
+  }
 
   return (
     <>
@@ -604,3 +602,5 @@ export const AddProductDialog = ({
     </>
   );
 };
+
+    
