@@ -504,7 +504,6 @@ export const AddProductDialog = ({
 }) => {
   const [step, setStep] = useState(1);
   const [categories, setCategories] = useState<string[]>(initialCategories);
-  const totalSteps = 3;
   const [isAddLocationDialogOpen, setIsAddLocationDialogOpen] = useState(false);
   
   useEffect(() => {
@@ -523,7 +522,8 @@ export const AddProductDialog = ({
   });
 
   const productType = methods.watch('type');
-
+  const totalSteps = 3;
+  
   const handleOpenChange = (isOpen: boolean) => {
     onOpenChange(isOpen);
     if (!isOpen) {
@@ -534,7 +534,7 @@ export const AddProductDialog = ({
     }
   }
   
-  const handleNewCategory = (newCategory: string) => {
+  const onNewCategory = (newCategory: string) => {
     setCategories(prev => [...new Set([...prev, newCategory])]);
   };
 
@@ -576,7 +576,7 @@ export const AddProductDialog = ({
                 <div className="py-4 space-y-4">
                     <Progress value={(step / totalSteps) * 100} />
                     <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
-                        {step === 1 && <Step1_Basics categories={categories} onNewCategory={handleNewCategory} />}
+                        {step === 1 && <Step1_Basics categories={categories} onNewCategory={onNewCategory} />}
                         {step === 2 && <Step2_CostingPricing productType={productType} />}
                         {step === 3 && <Step3_InventorySupplier onAddLocationClick={() => setIsAddLocationDialogOpen(true)} locations={locations}/>}
                     </div>
