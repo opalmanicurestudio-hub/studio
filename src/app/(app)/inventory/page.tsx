@@ -63,19 +63,30 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
 
     const detailHref = `/inventory/${item.id}`;
 
-    const stockDisplay = (
-      <div className="text-right">
-          <p className="font-mono font-semibold text-lg">{item.totalStock} <span className="text-sm text-muted-foreground">full</span></p>
-          {typeof item.partialContainerSize === 'number' && <p className="text-xs text-muted-foreground">{item.partialContainerSize.toFixed(0)}{item.unit} left</p>}
-          {typeof item.partialContainerUses === 'number' && <p className="text-xs text-muted-foreground">{item.partialContainerUses} {item.useUnit || 'uses'} left</p>}
-           {item.isExperimentActive && (
-              <Badge variant="secondary" className="mt-1 flex items-center gap-1.5 bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 w-fit ml-auto">
-                  <FlaskConical className="h-3 w-3" />
-                  {item.experimentUses || 0} uses logged
-              </Badge>
-          )}
-      </div>
-    );
+    let stockDisplay;
+
+    if (item.costingMethod === 'size' && typeof item.partialContainerSize === 'number') {
+        stockDisplay = (
+            <div className="text-right">
+                <p className="font-mono font-semibold text-lg">{item.totalStock} <span className="text-sm text-muted-foreground">full</span></p>
+                <p className="text-xs text-muted-foreground">{item.partialContainerSize.toFixed(0)}{item.unit} left</p>
+            </div>
+        );
+    } else if (item.costingMethod === 'uses' && typeof item.partialContainerUses === 'number') {
+         stockDisplay = (
+            <div className="text-right">
+                <p className="font-mono font-semibold text-lg">{item.totalStock} <span className="text-sm text-muted-foreground">full</span></p>
+                <p className="text-xs text-muted-foreground">{item.partialContainerUses} {item.useUnit || 'uses'} left</p>
+            </div>
+        );
+    } else {
+        stockDisplay = (
+             <div className="text-right">
+                <p className="font-mono font-semibold text-lg">{item.totalStock}</p>
+                <p className="text-xs text-muted-foreground">{item.unit || 'units'}</p>
+            </div>
+        );
+    }
     
     return (
         <Card className={cn(
@@ -244,7 +255,7 @@ export default function InventoryPage() {
     setLocations(prev => [...prev, newLocWithId]);
   };
   const handleUpdateLocation = (updatedLocation: Location) => {
-    setLocations(prev => prev.map(loc => loc.id === updatedLocation.id ? updatedLocation : loc));
+    setLocations(prev => prev.map(loc => loc.id === updatedLocation.id ? updatedLocation : c));
   };
    const handleAddNewLocationType = (name: string, icon: string): LocationType => {
     const newType = { id: `lt-${Date.now()}`, name, icon };

@@ -32,6 +32,8 @@ import { useForm, FormProvider, useFormContext, Controller } from 'react-hook-fo
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { ImageUpload } from '../shared/ImageUpload';
+import { QrCode } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
 
 export type ProductType = 'professional' | 'retail' | 'both';
 
@@ -70,6 +72,18 @@ const productSchema = z.object({
 
 type ProductFormData = z.infer<typeof productSchema>;
 
+const DialogStateContext = React.createContext<{
+  categories: string[];
+  setCategories: React.Dispatch<React.SetStateAction<string[]>>;
+} | null>(null);
+
+const useDialogState = () => {
+  const context = React.useContext(DialogStateContext);
+  if (!context) {
+    throw new Error("useDialogState must be used within a DialogStateProvider");
+  }
+  return context;
+};
 
 const Step1_Basics = () => {
     const { register, control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
@@ -473,19 +487,6 @@ const Step3_InventorySupplier = ({ onAddLocationClick, locations }: { onAddLocat
     )
 };
 
-const DialogStateContext = React.createContext<{
-    categories: string[];
-    setCategories: React.Dispatch<React.SetStateAction<string[]>>;
-} | null>(null);
-
-const useDialogState = () => {
-    const context = React.useContext(DialogStateContext);
-    if (!context) {
-        throw new Error("useDialogState must be used within a DialogStateProvider");
-    }
-    return context;
-};
-
 export const AddProductDialog = ({ 
     open, 
     onOpenChange, 
@@ -505,12 +506,6 @@ export const AddProductDialog = ({
   const totalSteps = 3;
   const [isAddLocationDialogOpen, setIsAddLocationDialogOpen] = useState(false);
   const [categories, setCategories] = useState<string[]>(initialCategories);
-
-  useEffect(() => {
-    if (open) {
-      setCategories(initialCategories);
-    }
-  }, [initialCategories, open]);
 
   const methods = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
