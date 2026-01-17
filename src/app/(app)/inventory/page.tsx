@@ -14,18 +14,19 @@ import {
 import { Button } from '@/components/ui/button';
 import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette, QrCode, AlertTriangle, ListFilter, ChevronDown, ShoppingCart, Briefcase, DollarSign, Activity, Eye, CircleHelp, Warehouse, Beaker, Recycle, TrendingUp } from 'lucide-react';
 import {
-  inventory as initialInventory,
-  stockCorrections as initialStockCorrections,
-  type InventoryItem, 
-  type StockCorrection,
-  type Transaction,
-  type Batch
+    inventory as initialInventoryData,
+    stockCorrections as initialStockCorrectionsData,
+    type InventoryItem, 
+    type StockCorrection,
+    type Client,
+    clients as initialClientsData,
+    type Transaction,
 } from '@/lib/data';
 import { 
   type Location,
   type LocationType,
-  initialLocations,
-  initialLocationTypes,
+  initialLocations as initialLocationsData,
+  initialLocationTypes as initialLocationTypesData,
 } from '@/context/InventoryContext';
 import {
   DropdownMenu,
@@ -60,6 +61,7 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/comp
 import { InventorySidebar } from '@/components/inventory/InventorySidebar';
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { type Batch } from '@/lib/data';
 
 
 const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff, onLogUse }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (itemId: string) => void, onLogUse: (item: InventoryItem) => void }) => {
@@ -186,11 +188,12 @@ const EmptyState = ({ onActionClick }: { onActionClick: () => void }) => (
 );
 
 export default function InventoryPage() {
-  const [inventory, setInventory] = useState<InventoryItem[]>(initialInventory);
-  const [stockCorrections, setStockCorrections] = useState<StockCorrection[]>(initialStockCorrections);
-  const [locations, setLocations] = useState<Location[]>(initialLocations);
-  const [locationTypes, setLocationTypes] = useState<LocationType[]>(initialLocationTypes);
+  const [inventory, setInventory] = useState<InventoryItem[]>(initialInventoryData);
+  const [stockCorrections, setStockCorrections] = useState<StockCorrection[]>(initialStockCorrectionsData);
+  const [locations, setLocations] = useState<Location[]>(initialLocationsData);
+  const [locationTypes, setLocationTypes] = useState<LocationType[]>(initialLocationTypesData);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [clients, setClients] = useState<Client[]>(initialClientsData);
   const { toast } = useToast();
   
   const [activeView, setActiveView] = useState('products');
@@ -272,7 +275,7 @@ export default function InventoryPage() {
     setLocations(prev => [...prev, newLocWithId]);
   };
   const handleUpdateLocation = (updatedLocation: Location) => {
-    setLocations(prev => prev.map(loc => loc.id === updatedLocation.id ? updatedLocation : c));
+    setLocations(prev => prev.map(loc => loc.id === updatedLocation.id ? updatedLocation : loc));
   };
    const handleAddNewLocationType = (name: string, icon: string): LocationType => {
     const newType = { id: `lt-${Date.now()}`, name, icon };
@@ -813,9 +816,9 @@ export default function InventoryPage() {
                             locations={locations}
                             locationTypes={locationTypes}
                             inventory={inventory}
+                            setLocations={setLocations}
                             onAddLocation={handleOpenAddLocation}
                             onEditLocation={handleOpenEditLocation}
-                            setLocations={setLocations}
                         />
                 </TabsContent>
                 </Tabs>

@@ -6,7 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { MoreHorizontal, PlusCircle, Box, Building, Store, ClipboardList, LucideIcon, X } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { type Location, type LocationType, type InventoryItem } from '@/lib/data';
+import { type InventoryItem } from '@/lib/data';
+import { type Location, type LocationType } from '@/context/InventoryContext';
 import { Badge } from '../ui/badge';
 import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';

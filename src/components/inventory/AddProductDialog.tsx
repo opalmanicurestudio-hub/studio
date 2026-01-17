@@ -28,7 +28,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { inventory as initialInventory, services as allServices, type Service, type InventoryItem } from '@/lib/data';
+import { type Service, type InventoryItem } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectEquipmentDialog } from './SelectEquipmentDialog';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
@@ -38,7 +38,8 @@ import { useForm, FormProvider, useFormContext, Controller, type Control } from 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { QrCode } from 'lucide-react';
-import { AddLocationDialog, type Location, type LocationType } from './AddLocationDialog';
+import { AddLocationDialog } from './AddLocationDialog';
+import { type Location, type LocationType } from '@/context/InventoryContext';
 
 
 export type ProductType = 'professional' | 'retail' | 'both';
@@ -92,9 +93,7 @@ const Step1_Basics = ({
     const handleAddNewCategory = () => {
         if (newCategoryName.trim()) {
             const newCategory = newCategoryName.trim();
-            if (!categories.includes(newCategory)) {
-                onNewCategory(newCategory);
-            }
+            onNewCategory(newCategory);
             setValue('category', newCategory, { shouldValidate: true });
             setNewCategoryName('');
             setIsAddingCategory(false);
