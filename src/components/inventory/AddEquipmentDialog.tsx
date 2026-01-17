@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { PlusCircle, Upload, Calendar as CalendarIcon, DollarSign } from 'lucide-react';
-import { useForm, Controller, FormProvider } from 'react-hook-form';
+import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { type InventoryItem, type Location } from '@/lib/data';
@@ -50,7 +50,7 @@ const equipmentSchema = z.object({
 type EquipmentFormData = z.infer<typeof equipmentSchema>;
 
 const EquipmentFormContent = ({ categories, onNewCategory, locations }: { categories: string[], onNewCategory: (cat: string) => void, locations: Location[]}) => {
-  const { control, setValue, formState: { errors } } = useForm<EquipmentFormData>();
+  const { control, setValue, formState: { errors } } = useFormContext<EquipmentFormData>();
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
 
@@ -253,13 +253,14 @@ export const AddEquipmentDialog = ({
   }
   
   const FormContent = <EquipmentFormContent categories={categories} onNewCategory={onNewCategory} locations={locations} />;
+  const formId = "add-equipment-form";
 
   if (isMobile) {
       return (
         <Sheet open={open} onOpenChange={handleClose}>
             <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
                 <FormProvider {...methods}>
-                    <form onSubmit={handleSubmit(handleSave)} className="flex flex-col flex-1 min-h-0">
+                    <form id={formId} onSubmit={handleSubmit(handleSave)} className="flex flex-col flex-1 min-h-0">
                         <SheetHeader className="p-4 border-b text-left">
                             <SheetTitle>Add New Equipment</SheetTitle>
                             <SheetDescription>
@@ -288,7 +289,7 @@ export const AddEquipmentDialog = ({
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-md">
         <FormProvider {...methods}>
-          <form onSubmit={handleSubmit(handleSave)}>
+          <form id={formId} onSubmit={handleSubmit(handleSave)}>
             <DialogHeader>
               <DialogTitle>Add New Equipment</DialogTitle>
               <DialogDescription>

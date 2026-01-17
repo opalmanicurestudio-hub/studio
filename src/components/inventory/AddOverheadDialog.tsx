@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { PlusCircle, Calendar as CalendarIcon, DollarSign } from 'lucide-react';
-import { useForm, Controller, FormProvider } from 'react-hook-form';
+import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { type InventoryItem, type Location } from '@/lib/data';
@@ -52,7 +52,7 @@ const overheadSchema = z.object({
 type OverheadFormData = z.infer<typeof overheadSchema>;
 
 const OverheadFormContent = ({ categories, onNewCategory, locations, costingMethod }: { categories: string[], onNewCategory: (cat: string) => void, locations: Location[], costingMethod: 'size' | 'uses'}) => {
-    const { control, setValue, formState: { errors } } = useForm<OverheadFormData>();
+    const { control, setValue, formState: { errors } } = useFormContext<OverheadFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
 
@@ -171,13 +171,14 @@ export const AddOverheadDialog = ({
   }
 
   const FormContent = <OverheadFormContent categories={categories} onNewCategory={onNewCategory} locations={locations} costingMethod={costingMethod} />;
+  const formId = "add-overhead-form";
 
   if (isMobile) {
     return (
          <Sheet open={open} onOpenChange={handleClose}>
             <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
                  <FormProvider {...methods}>
-                    <form onSubmit={handleSubmit(handleSave)} className="flex flex-col flex-1 min-h-0">
+                    <form id={formId} onSubmit={handleSubmit(handleSave)} className="flex flex-col flex-1 min-h-0">
                         <SheetHeader className="p-4 border-b text-left">
                             <SheetTitle>Add Overhead Supply</SheetTitle>
                             <SheetDescription>
@@ -206,7 +207,7 @@ export const AddOverheadDialog = ({
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-md">
         <FormProvider {...methods}>
-          <form onSubmit={handleSubmit(handleSave)}>
+          <form id={formId} onSubmit={handleSubmit(handleSave)}>
             <DialogHeader>
               <DialogTitle>Add Overhead Supply</DialogTitle>
               <DialogDescription>

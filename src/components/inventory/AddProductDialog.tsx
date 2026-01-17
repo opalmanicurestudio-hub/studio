@@ -185,7 +185,7 @@ const Step2_CostingAndPricing = () => {
                     <div className="p-3 bg-muted rounded-md flex items-center justify-between"><span className="font-medium">Landed Cost Per Item:</span><span className="text-lg font-bold text-primary">$0.00</span></div>
                 </CardContent>
             </Card>
-            {(productType === 'professional' || productType === 'both') && (
+            {(productType === 'professional') && (
                 <Card>
                     <CardHeader><CardTitle>Professional Costing</CardTitle><CardDescription>How much does it cost to use this once?</CardDescription></CardHeader>
                     <CardContent className="space-y-4">
@@ -196,7 +196,7 @@ const Step2_CostingAndPricing = () => {
                     </CardContent>
                 </Card>
             )}
-            {(productType === 'retail' || productType === 'both') && (
+            {(productType === 'retail') && (
                 <Card>
                     <CardHeader><CardTitle>Retail Pricing</CardTitle><CardDescription>How much will clients pay?</CardDescription></CardHeader>
                     <CardContent className="space-y-4">
@@ -344,19 +344,14 @@ export const AddProductDialog = ({
       }
   }
 
-  const FormContent = (
-    <div className="py-4 space-y-4">
-        <Progress value={(step / totalSteps) * 100} />
-        {getStepContent()}
-    </div>
-  );
+  const formId = `add-product-form-${initialType}`;
 
   if (isMobile) {
     return (
         <Sheet open={open} onOpenChange={handleOpenChange}>
             <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
                 <FormProvider {...methods}>
-                    <form onSubmit={methods.handleSubmit(handleSave)} className="flex flex-col flex-1 min-h-0">
+                    <form id={formId} onSubmit={methods.handleSubmit(handleSave)} className="flex flex-col flex-1 min-h-0">
                         <SheetHeader className="p-4 border-b text-left">
                             <SheetTitle>Add New Product</SheetTitle>
                             <SheetDescription>
@@ -365,9 +360,12 @@ export const AddProductDialog = ({
                         </SheetHeader>
 
                         <div className="flex-1 min-h-0">
-                            <ScrollArea className="h-full px-4">
-                                {FormContent}
-                            </ScrollArea>
+                          <ScrollArea className="h-full px-4">
+                              <div className="py-4 space-y-4">
+                                  <Progress value={(step / totalSteps) * 100} />
+                                  {getStepContent()}
+                              </div>
+                          </ScrollArea>
                         </div>
                         
                         <SheetFooter className="p-4 border-t">
@@ -394,7 +392,7 @@ export const AddProductDialog = ({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-xl">
         <FormProvider {...methods}>
-          <form onSubmit={methods.handleSubmit(handleSave)}>
+          <form id={formId} onSubmit={methods.handleSubmit(handleSave)}>
             <DialogHeader>
               <DialogTitle>Add New Product</DialogTitle>
               <DialogDescription>
@@ -402,13 +400,14 @@ export const AddProductDialog = ({
               </DialogDescription>
             </DialogHeader>
 
-            <ScrollArea className="max-h-[60vh] -mr-4 pr-4">
-                <div className="pl-1">
-                    {FormContent}
+            <ScrollArea className="max-h-[60vh] -mr-6 pr-6">
+                 <div className="py-4 space-y-4 px-6">
+                    <Progress value={(step / totalSteps) * 100} />
+                    {getStepContent()}
                 </div>
             </ScrollArea>
 
-            <DialogFooter className="pt-4 border-t mt-4">
+            <DialogFooter className="pt-4 border-t mt-4 pr-6">
               <div className='flex justify-between w-full'>
                 <div>
                     {step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}
