@@ -15,6 +15,8 @@ import {
     type Appointment,
     services as initialServices,
     type Service,
+    initialLocations,
+    initialLocationTypes
 } from '@/lib/data';
 import {
     billDefinitions as initialBillDefinitions,
@@ -24,20 +26,6 @@ import {
     type BillInstance,
     type Transaction,
 } from '@/lib/financial-data';
-
-
-// Define initial locations and location types
-export const initialLocationTypes: LocType[] = [
-  { id: 'lt-1', name: 'General Storage', icon: 'Box' },
-  { id: 'lt-2', name: 'Retail Display', icon: 'Store' },
-  { id: 'lt-3', name: 'Workstation', icon: 'ClipboardList' },
-];
-
-export const initialLocations: LocationType[] = [
-  { id: 'loc-1', name: 'Back Room - Shelf A', locationTypeId: 'lt-1', description: 'Main storage for backstock color and developers.' },
-  { id: 'loc-2', name: 'Retail Display - Front', locationTypeId: 'lt-2', description: 'Client-facing retail shelves.' },
-  { id: 'loc-3', name: 'Styling Station 1', locationTypeId: 'lt-3' },
-];
 
 
 interface InventoryContextType {
