@@ -64,8 +64,8 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
     const detailHref = `/inventory/${item.id}`;
 
     const stockDisplay = useMemo(() => {
-      const showPartialSize = item.costingMethod === 'size' && item.partialContainerSize !== undefined && item.partialContainerSize > 0;
-      const showPartialUses = item.costingMethod === 'uses' && item.partialContainerUses !== undefined && item.partialContainerUses > 0;
+      const showPartialSize = item.costingMethod === 'size' && typeof item.partialContainerSize === 'number';
+      const showPartialUses = item.costingMethod === 'uses' && typeof item.partialContainerUses === 'number';
       
       const shouldShowPartial = (item.totalStock > 0 || (item.totalStock === 0 && (showPartialSize || showPartialUses)));
 
@@ -73,7 +73,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
         <div className="text-right">
             <p className="font-mono font-semibold text-lg">{item.totalStock} <span className="text-sm text-muted-foreground">full</span></p>
             {shouldShowPartial && showPartialSize && <p className="text-xs text-muted-foreground">{item.partialContainerSize!.toFixed(0)}{item.unit} left</p>}
-            {shouldShowPartial && showPartialUses && <p className="text-xs text-muted-foreground">{item.partialContainerUses} uses left</p>}
+            {shouldShowPartial && showPartialUses && <p className="text-xs text-muted-foreground">{item.partialContainerUses} {item.useUnit || 'uses'} left</p>}
              {item.isExperimentActive && (
                 <Badge variant="secondary" className="mt-1 flex items-center gap-1.5 bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 w-fit ml-auto">
                     <FlaskConical className="h-3 w-3" />
@@ -232,6 +232,8 @@ export default function InventoryPage() {
         estimatedUses: newProductData.estimatedUses,
         useUnit: newProductData.useUnit === 'other' ? newProductData.customUseUnit : newProductData.useUnit,
         isExperimentActive: newProductData.isExperimentActive,
+        partialContainerSize: newProductData.costingMethod === 'size' ? 0 : undefined,
+        partialContainerUses: newProductData.costingMethod === 'uses' ? 0 : undefined,
     };
     setInventory(prev => [...prev, newProduct]);
   };
@@ -301,26 +303,19 @@ export default function InventoryPage() {
                 product.partialContainerUses -= quantity;
             } else {
                 let usesNeeded = quantity - currentUses;
+                product.partialContainerUses = 0; // Use up partial first
                 
-                while (usesNeeded > 0) {
-                    if (product.totalStock > 0) {
-                        product.totalStock -= 1;
-                        const oldestBatch = product.batches.filter((b: Batch) => b.stock > 0).sort((a: Batch, b: Batch) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime())[0];
-                        if (oldestBatch) {
-                            oldestBatch.stock -= 1;
-                        }
-                        currentUses += product.estimatedUses || 0;
-                        if(currentUses >= usesNeeded) {
-                            product.partialContainerUses = currentUses - usesNeeded;
-                            usesNeeded = 0;
-                        } else {
-                             usesNeeded -= currentUses;
-                             currentUses = 0;
-                        }
-                    } else {
-                        message = `Insufficient stock for ${product.name}. Cannot log use.`;
-                        return prev; // abort update
-                    }
+                const usesPerContainer = product.estimatedUses || 1;
+                
+                const containersToOpen = Math.ceil(usesNeeded / usesPerContainer);
+
+                if (product.totalStock >= containersToOpen) {
+                    product.totalStock -= containersToOpen;
+                    const remainingUses = (containersToOpen * usesPerContainer) - usesNeeded;
+                    product.partialContainerUses = remainingUses;
+                } else {
+                    message = `Insufficient stock for ${product.name}. Cannot log use.`;
+                    return prev; // abort update
                 }
             }
         } else if (product.costingMethod === 'size') {
@@ -331,27 +326,18 @@ export default function InventoryPage() {
                 product.partialContainerSize -= quantity;
             } else {
                 let sizeNeeded = quantity - currentSize;
-                
-                while (sizeNeeded > 0) {
-                    if (product.totalStock > 0) {
-                        product.totalStock -= 1;
-                        const oldestBatch = product.batches.filter((b: Batch) => b.stock > 0).sort((a: Batch, b: Batch) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime())[0];
-                        if (oldestBatch) {
-                            oldestBatch.stock -= 1;
-                        }
-                        currentSize += product.size || 0;
-                        if(currentSize >= sizeNeeded) {
-                            product.partialContainerSize = currentSize - sizeNeeded;
-                            sizeNeeded = 0;
-                        } else {
-                             sizeNeeded -= currentSize;
-                             currentSize = 0;
-                        }
+                product.partialContainerSize = 0; // Use up partial first
 
-                    } else {
-                        message = `Insufficient stock for ${product.name}. Cannot log use.`;
-                        return prev; // abort update
-                    }
+                const sizePerContainer = product.size || 1;
+                const containersToOpen = Math.ceil(sizeNeeded / sizePerContainer);
+
+                 if (product.totalStock >= containersToOpen) {
+                    product.totalStock -= containersToOpen;
+                    const remainingSize = (containersToOpen * sizePerContainer) - sizeNeeded;
+                    product.partialContainerSize = remainingSize;
+                } else {
+                    message = `Insufficient stock for ${product.name}. Cannot log use.`;
+                    return prev; // abort update
                 }
             }
         } else {
@@ -779,7 +765,7 @@ export default function InventoryPage() {
                             {inventory.length > 0 ? (
                                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                                     {filteredInventory.length > 0 ? filteredInventory.map(item => (
-                                       <ClientOnly key={item.id}>
+                                       <ClientOnly key={item.id + item.totalStock + item.partialContainerUses}>
                                             <ProductCard 
                                                 item={item} 
                                                 onEdit={() => {}} 
@@ -917,20 +903,5 @@ export default function InventoryPage() {
       </Dialog>
     </div>
   );
-
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     

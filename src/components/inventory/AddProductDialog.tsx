@@ -486,10 +486,8 @@ export const AddProductDialog = ({
     locationTypes,
     onProductAdded,
     initialCategories,
-    onAddNewLocationType,
-    isAddLocationDialogOpen, 
-    onAddLocationDialogOpenChange,
     onAddNewLocation,
+    onAddNewLocationType,
 }: { 
     open: boolean, 
     onOpenChange: (open: boolean) => void, 
@@ -497,27 +495,18 @@ export const AddProductDialog = ({
     locationTypes: LocationType[],
     onProductAdded: (product: any) => void;
     initialCategories: string[];
+    onAddNewLocation: (newLocation: Omit<Location, 'id'>) => void;
     onAddNewLocationType: (name: string, icon: string) => LocationType,
-    isAddLocationDialogOpen: boolean, 
-    onAddLocationDialogOpenChange: (open: boolean) => void,
-    onAddNewLocation: (newLocation: Omit<Location, 'id'>) => void,
 }) => {
   const [step, setStep] = useState(1);
   const totalSteps = 3;
+  const [isAddLocationDialogOpen, setIsAddLocationDialogOpen] = useState(false);
+
   const [categories, setCategories] = useState(initialCategories);
 
-  const methods = useForm<ProductFormData>({
-    resolver: zodResolver(productSchema),
-    defaultValues: {
-        type: 'professional',
-        costingMethod: 'by-size',
-        isExperimentActive: false,
-    }
-  });
-  
   useEffect(() => {
     if (open) {
-      setCategories(initialCategories);
+        setCategories(initialCategories);
     }
   }, [initialCategories, open]);
 
@@ -527,6 +516,14 @@ export const AddProductDialog = ({
     }
   };
 
+  const methods = useForm<ProductFormData>({
+    resolver: zodResolver(productSchema),
+    defaultValues: {
+        type: 'professional',
+        costingMethod: 'by-size',
+        isExperimentActive: false,
+    }
+  });
 
   const productType = methods.watch('type');
 
@@ -580,7 +577,7 @@ export const AddProductDialog = ({
                   <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
                       {step === 1 && <Step1_BasicDetails categories={categories} onNewCategory={handleNewCategory} />}
                       {step === 2 && <Step2_CostingPricing productType={productType} />}
-                      {step === 3 && <Step3_InventorySupplier onAddLocationClick={() => onAddLocationDialogOpenChange(true)} locations={locations}/>}
+                      {step === 3 && <Step3_InventorySupplier onAddLocationClick={() => setIsAddLocationDialogOpen(true)} locations={locations}/>}
                   </div>
               </div>
 
@@ -602,7 +599,7 @@ export const AddProductDialog = ({
       </Dialog>
       <AddLocationDialog 
           open={isAddLocationDialogOpen} 
-          onOpenChange={onAddLocationDialogOpenChange}
+          onOpenChange={setIsAddLocationDialogOpen}
           onSave={onAddNewLocation}
           locationTypes={locationTypes}
           onAddNewLocationType={onAddNewLocationType}
@@ -610,3 +607,5 @@ export const AddProductDialog = ({
     </>
   );
 };
+
+    
