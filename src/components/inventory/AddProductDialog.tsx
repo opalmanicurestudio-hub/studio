@@ -26,14 +26,20 @@ import {
 import { PlusCircle, Info, Trash2, Check, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
-import { AddLocationDialog, type Location, type LocationType } from './AddLocationDialog';
-
-import { useForm, FormProvider, useFormContext, Controller } from 'react-hook-form';
+import { Slider } from '@/components/ui/slider';
+import { ImageUpload } from '@/components/shared/ImageUpload';
+import { inventory, services as allServices, type Service, type InventoryItem } from '@/lib/data';
+import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
+import { SelectEquipmentDialog } from './SelectEquipmentDialog';
+import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
+import { useToast } from '@/hooks/use-toast';
+import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
+import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { ImageUpload } from '../shared/ImageUpload';
 import { QrCode } from 'lucide-react';
-import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
+import { AddLocationDialog, type Location, type LocationType } from './AddLocationDialog';
+
 
 export type ProductType = 'professional' | 'retail' | 'both';
 
@@ -72,29 +78,22 @@ const productSchema = z.object({
 
 type ProductFormData = z.infer<typeof productSchema>;
 
-const DialogStateContext = React.createContext<{
-  categories: string[];
-  setCategories: React.Dispatch<React.SetStateAction<string[]>>;
-} | null>(null);
 
-const useDialogState = () => {
-  const context = React.useContext(DialogStateContext);
-  if (!context) {
-    throw new Error("useDialogState must be used within a DialogStateProvider");
-  }
-  return context;
-};
-
-const Step1_Basics = () => {
+const Step1_Basics = ({ 
+    categories, 
+    onNewCategory 
+}: { 
+    categories: string[];
+    onNewCategory: (category: string) => void;
+}) => {
     const { register, control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
-    const { categories, setCategories } = useDialogState();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
     
     const handleAddNewCategory = () => {
-        if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
+        if (newCategoryName.trim()) {
             const newCategory = newCategoryName.trim();
-            setCategories(prev => [...prev, newCategory]);
+            onNewCategory(newCategory);
             setValue('category', newCategory, { shouldValidate: true });
             setNewCategoryName('');
             setIsAddingCategory(false);
@@ -507,6 +506,10 @@ export const AddProductDialog = ({
   const [isAddLocationDialogOpen, setIsAddLocationDialogOpen] = useState(false);
   const [categories, setCategories] = useState<string[]>(initialCategories);
 
+  useEffect(() => {
+    setCategories(initialCategories);
+  }, [initialCategories]);
+
   const methods = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
     defaultValues: {
@@ -524,9 +527,16 @@ export const AddProductDialog = ({
         setTimeout(() => {
             setStep(1);
             methods.reset();
+            setCategories(initialCategories); // Reset categories on close
         }, 300);
     }
   }
+
+  const handleNewCategory = (newCategory: string) => {
+    if (!categories.includes(newCategory)) {
+        setCategories(prev => [...prev, newCategory]);
+    }
+  };
   
   const onSubmit = (data: ProductFormData) => {
     onProductAdded(data);
@@ -556,38 +566,36 @@ export const AddProductDialog = ({
     <>
     <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-lg">
-            <DialogStateContext.Provider value={{ categories, setCategories }}>
-                <FormProvider {...methods}>
-                    <form onSubmit={methods.handleSubmit(onSubmit)}>
-                    <DialogHeader>
-                        <DialogTitle>Add New Product</DialogTitle>
-                        <DialogDescription>Create a new professional or retail product for your inventory.</DialogDescription>
-                    </DialogHeader>
+            <FormProvider {...methods}>
+                <form onSubmit={methods.handleSubmit(onSubmit)}>
+                <DialogHeader>
+                    <DialogTitle>Add New Product</DialogTitle>
+                    <DialogDescription>Create a new professional or retail product for your inventory.</DialogDescription>
+                </DialogHeader>
 
-                    <div className="py-4 space-y-4">
-                        <Progress value={(step / totalSteps) * 100} />
-                        <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
-                            {step === 1 && <Step1_Basics />}
-                            {step === 2 && <Step2_CostingPricing productType={productType} />}
-                            {step === 3 && <Step3_InventorySupplier onAddLocationClick={() => setIsAddLocationDialogOpen(true)} locations={locations}/>}
+                <div className="py-4 space-y-4">
+                    <Progress value={(step / totalSteps) * 100} />
+                    <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
+                        {step === 1 && <Step1_Basics categories={categories} onNewCategory={handleNewCategory} />}
+                        {step === 2 && <Step2_CostingPricing productType={productType} />}
+                        {step === 3 && <Step3_InventorySupplier onAddLocationClick={() => setIsAddLocationDialogOpen(true)} locations={locations}/>}
+                    </div>
+                </div>
+
+                <DialogFooter>
+                    <div className='flex justify-between w-full'>
+                        <div>
+                        {step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}
+                        </div>
+                        <div className="flex gap-2">
+                        <Button variant="outline" onClick={() => handleOpenChange(false)} type="button">Cancel</Button>
+                        {step < totalSteps && <Button onClick={handleNext} type="button">Next</Button>}
+                        {step === totalSteps && <Button type="submit">Save Product</Button>}
                         </div>
                     </div>
-
-                    <DialogFooter>
-                        <div className='flex justify-between w-full'>
-                            <div>
-                            {step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}
-                            </div>
-                            <div className="flex gap-2">
-                            <Button variant="outline" onClick={() => handleOpenChange(false)} type="button">Cancel</Button>
-                            {step < totalSteps && <Button onClick={handleNext} type="button">Next</Button>}
-                            {step === totalSteps && <Button type="submit">Save Product</Button>}
-                            </div>
-                        </div>
-                    </DialogFooter>
-                    </form>
-                </FormProvider>
-            </DialogStateContext.Provider>
+                </DialogFooter>
+                </form>
+            </FormProvider>
         </DialogContent>
       </Dialog>
       <AddLocationDialog 
@@ -600,5 +608,3 @@ export const AddProductDialog = ({
     </>
   );
 };
-
-    
