@@ -32,7 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { type InventoryItem, type Location } from '@/lib/data';
@@ -41,7 +41,8 @@ import { useForm, FormProvider, useFormContext, Controller } from 'react-hook-fo
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { ScrollArea } from '../ui/scroll-area';
-import { Check, PlusCircle } from 'lucide-react';
+import { Check, PlusCircle, DollarSign } from 'lucide-react';
+import { useInventory } from '@/context/InventoryContext';
 
 const productSchema = z.object({
   name: z.string().min(1, 'Product name is required'),
@@ -99,7 +100,7 @@ const Step1_BasicDetails = ({
     };
     
     return (
-  <div className="space-y-6">
+  <div className="grid gap-6 py-4">
     <div className="space-y-2">
       <Label htmlFor="product-name">Product Name</Label>
       <Input id="product-name" placeholder="e.g., Hydrating Shampoo" {...register('name')} />
@@ -219,8 +220,6 @@ export const AddProductDialog = ({
   open,
   onOpenChange,
   initialType,
-  categories,
-  onNewCategory,
   onProductAdded,
   locations,
   onAddLocationClick,
@@ -228,15 +227,15 @@ export const AddProductDialog = ({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialType: 'professional' | 'retail';
-  categories: string[];
-  onNewCategory: (category: string) => void;
   onProductAdded: (product: InventoryItem) => void;
   locations: Location[],
   onAddLocationClick: () => void;
 }) => {
+  const { inventory } = useInventory();
   const [step, setStep] = useState(1);
   const totalSteps = 3;
   const isMobile = useIsMobile();
+  const [productCategories, setProductCategories] = useState<string[]>([]);
   
   const methods = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
@@ -246,13 +245,24 @@ export const AddProductDialog = ({
   });
 
   useEffect(() => {
+    if (inventory) {
+        const allCategories = inventory.map(p => p.category).filter((c): c is string => !!c);
+        setProductCategories([...new Set(allCategories)]);
+    }
+  }, [inventory]);
+
+  const onNewCategory = useCallback((newCategory: string) => {
+    setProductCategories(prev => [...new Set([...prev, newCategory])]);
+  }, []);
+
+  useEffect(() => {
     if (open) {
       methods.reset({ type: initialType });
       setStep(1);
     }
   }, [open, initialType, methods]);
 
-  const handleSave = (data: ProductFormData) => {
+  const onSubmit = (data: ProductFormData) => {
     const costPerUnit = (data.totalPurchaseCost || 0) / (data.numUnits || 1);
     const newProduct: InventoryItem = {
         id: `prod-${Date.now()}`,
@@ -279,15 +289,16 @@ export const AddProductDialog = ({
         }]
     };
     onProductAdded(newProduct);
+    onOpenChange(false);
   };
 
   const handleNext = async () => {
-    let isValid = false;
+    const fieldsToValidate: (keyof ProductFormData)[] = [];
     if (step === 1) {
-      isValid = await methods.trigger(['name', 'category']);
-    } else {
-      isValid = true;
+      fieldsToValidate.push('name', 'category');
     }
+    
+    const isValid = fieldsToValidate.length > 0 ? await methods.trigger(fieldsToValidate) : true;
     
     if (isValid && step < totalSteps) {
       setStep(step + 1);
@@ -298,7 +309,7 @@ export const AddProductDialog = ({
 
   const getStepContent = () => {
       switch(step) {
-          case 1: return <Step1_BasicDetails categories={categories} onNewCategory={onNewCategory} />;
+          case 1: return <Step1_BasicDetails categories={productCategories} onNewCategory={onNewCategory} />;
           case 2: return <Step2_CostingPricing />;
           case 3: return <Step3_InventorySupplier onAddLocationClick={onAddLocationClick} locations={locations} />;
           default: return null;
@@ -318,27 +329,25 @@ export const AddProductDialog = ({
               <SheetTitle>{title}</SheetTitle>
               <SheetDescription>{description}</SheetDescription>
             </SheetHeader>
-            <form id={formId} onSubmit={methods.handleSubmit(handleSave)} className="flex flex-col flex-1 min-h-0">
-              <div className="p-4"><Progress value={(step / totalSteps) * 100} /></div>
-              <div className="flex-1 min-h-0">
-                <ScrollArea className="h-full px-4">
-                  {getStepContent()}
-                </ScrollArea>
-              </div>
-              <SheetFooter className="p-4 border-t">
-                <div className='flex justify-between w-full'>
-                  <div>{step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}</div>
-                  <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
-                    {step < totalSteps ? (
-                      <Button onClick={handleNext} type="button">Next</Button>
-                    ) : (
-                      <Button type="submit">Save Product</Button>
-                    )}
-                  </div>
-                </div>
-              </SheetFooter>
+            <div className="p-4"><Progress value={(step / totalSteps) * 100} /></div>
+            <form id={formId} className="flex-1 min-h-0">
+              <ScrollArea className="h-full px-4">
+                {getStepContent()}
+              </ScrollArea>
             </form>
+            <SheetFooter className="p-4 border-t">
+              <div className='flex justify-between w-full'>
+                <div>{step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}</div>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
+                  {step < totalSteps ? (
+                    <Button onClick={handleNext} type="button">Next</Button>
+                  ) : (
+                    <Button onClick={methods.handleSubmit(onSubmit)} type="button">Save Product</Button>
+                  )}
+                </div>
+              </div>
+            </SheetFooter>
           </SheetContent>
         </Sheet>
       </FormProvider>
@@ -347,19 +356,20 @@ export const AddProductDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl flex flex-col max-h-[90vh]">
+      <DialogContent className="sm:max-w-4xl">
         <FormProvider {...methods}>
-          <DialogHeader>
-            <DialogTitle>{title}</DialogTitle>
-            <DialogDescription>{description}</DialogDescription>
-          </DialogHeader>
-          <form id={formId} onSubmit={methods.handleSubmit(handleSave)}>
-            <div className="py-4 space-y-4">
-              <Progress value={(step / totalSteps) * 100} />
-              <div className="max-h-[60vh] overflow-y-auto pr-4 -mr-4">
-                {getStepContent()}
+            <DialogHeader>
+              <DialogTitle>{title}</DialogTitle>
+              <DialogDescription>{description}</DialogDescription>
+            </DialogHeader>
+            <form id={formId} onSubmit={methods.handleSubmit(onSubmit)}>
+              <div className="py-4 space-y-4">
+                <Progress value={(step / totalSteps) * 100} />
+                <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
+                    {getStepContent()}
+                </div>
               </div>
-            </div>
+            </form>
             <DialogFooter>
               <div className='flex justify-between w-full'>
                 <div>
@@ -370,12 +380,11 @@ export const AddProductDialog = ({
                   {step < totalSteps ? (
                     <Button onClick={handleNext} type="button">Next</Button>
                   ) : (
-                    <Button type="submit">Save Product</Button>
+                    <Button onClick={methods.handleSubmit(onSubmit)} type="button">Save Product</Button>
                   )}
                 </div>
               </div>
             </DialogFooter>
-          </form>
         </FormProvider>
       </DialogContent>
     </Dialog>
