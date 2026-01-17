@@ -1,7 +1,8 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
   DialogContent,
@@ -10,6 +11,15 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from '@/components/ui/sheet';
+import { PlusCircle, Calendar as CalendarIcon, DollarSign } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -20,7 +30,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { PlusCircle, Calendar as CalendarIcon, DollarSign } from 'lucide-react';
 import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -29,10 +38,7 @@ import { Calendar } from '../ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
-import { useToast } from '@/hooks/use-toast';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
-import { useIsMobile } from '@/hooks/use-mobile';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from '../ui/sheet';
 import { ScrollArea } from '../ui/scroll-area';
 
 const overheadSchema = z.object({
@@ -112,7 +118,6 @@ const OverheadFormContent = ({ categories, onNewCategory, locations, costingMeth
     );
 };
 
-
 export const AddOverheadDialog = ({
   open,
   onOpenChange,
@@ -128,7 +133,6 @@ export const AddOverheadDialog = ({
   onOverheadAdded: (overhead: InventoryItem) => void;
   locations: Location[];
 }) => {
-  const { toast } = useToast();
   const isMobile = useIsMobile();
   const methods = useForm<OverheadFormData>({
     resolver: zodResolver(overheadSchema),
@@ -162,70 +166,65 @@ export const AddOverheadDialog = ({
       }],
     };
     onOverheadAdded(newOverhead);
-    handleClose();
+    onOpenChange(false);
   };
   
-  const handleClose = () => {
-    reset();
-    onOpenChange(false);
-  }
-
-  const FormContent = <OverheadFormContent categories={categories} onNewCategory={onNewCategory} locations={locations} costingMethod={costingMethod} />;
+  const handleOpenChange = (isOpen: boolean) => {
+    onOpenChange(isOpen);
+    if (!isOpen) {
+      reset();
+    }
+  };
+  
   const formId = "add-overhead-form";
+  const title = "Add Overhead Supply";
+  const description = "Log consumable supplies not directly tied to services.";
+
+  const formContent = <OverheadFormContent categories={categories} onNewCategory={onNewCategory} locations={locations} costingMethod={costingMethod} />;
 
   if (isMobile) {
     return (
-         <Sheet open={open} onOpenChange={handleClose}>
-            <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
-                 <FormProvider {...methods}>
-                    <form id={formId} onSubmit={handleSubmit(handleSave)} className="flex flex-col flex-1 min-h-0">
-                        <SheetHeader className="p-4 border-b text-left">
-                            <SheetTitle>Add Overhead Supply</SheetTitle>
-                            <SheetDescription>
-                                Log consumable supplies not directly tied to services.
-                            </SheetDescription>
-                        </SheetHeader>
-
-                        <div className="flex-1 min-h-0">
-                            <ScrollArea className="h-full px-4">
-                                {FormContent}
-                            </ScrollArea>
-                        </div>
-                        
-                        <SheetFooter className="p-4 border-t">
-                            <Button variant="outline" onClick={handleClose} type="button">Cancel</Button>
-                            <Button type="submit">Save Item</Button>
-                        </SheetFooter>
-                    </form>
-                </FormProvider>
-            </SheetContent>
+      <FormProvider {...methods}>
+        <Sheet open={open} onOpenChange={handleOpenChange}>
+          <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
+            <SheetHeader className="p-4 border-b text-left">
+              <SheetTitle>{title}</SheetTitle>
+              <SheetDescription>{description}</SheetDescription>
+            </SheetHeader>
+            <form id={formId} onSubmit={handleSubmit(handleSave)} className="flex flex-col flex-1 min-h-0">
+              <ScrollArea className="flex-1">
+                <div className="px-4 py-6">{formContent}</div>
+              </ScrollArea>
+              <SheetFooter className="p-4 border-t">
+                <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>Cancel</Button>
+                <Button type="submit">Save Item</Button>
+              </SheetFooter>
+            </form>
+          </SheetContent>
         </Sheet>
+      </FormProvider>
     );
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-md">
-        <FormProvider {...methods}>
+    <FormProvider {...methods}>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription>{description}</DialogDescription>
+          </DialogHeader>
           <form id={formId} onSubmit={handleSubmit(handleSave)}>
-            <DialogHeader>
-              <DialogTitle>Add Overhead Supply</DialogTitle>
-              <DialogDescription>
-                Log consumable supplies not directly tied to services.
-              </DialogDescription>
-            </DialogHeader>
-             <ScrollArea className="max-h-[70vh] -mr-6 pr-6">
-                <div className="px-6">
-                    {FormContent}
-                </div>
+            <ScrollArea className="max-h-[70vh] -mr-6 pr-6">
+              <div className="px-6 py-4">{formContent}</div>
             </ScrollArea>
-            <DialogFooter className="pt-4 mt-4 border-t pr-6">
-              <Button variant="outline" onClick={handleClose} type="button">Cancel</Button>
+            <DialogFooter className="pt-6 border-t pr-6">
+              <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>Cancel</Button>
               <Button type="submit">Save Item</Button>
             </DialogFooter>
           </form>
-        </FormProvider>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
+    </FormProvider>
   );
 };

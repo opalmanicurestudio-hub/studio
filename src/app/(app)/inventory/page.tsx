@@ -60,6 +60,9 @@ import { type Batch } from '@/lib/data';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { transactions as initialTransactionsData, type Transaction } from '@/lib/financial-data';
 import { ClientOnly } from '@/components/shared/ClientOnly';
+import { AddProductDialog } from '@/components/inventory/AddProductDialog';
+import { AddEquipmentDialog } from '@/components/inventory/AddEquipmentDialog';
+import { AddOverheadDialog } from '@/components/inventory/AddOverheadDialog';
 
 const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff, onLogUse }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (itemId: string) => void, onLogUse: (item: InventoryItem) => void }) => {
     
@@ -151,7 +154,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
     )
 }
 
-const EmptyState = () => (
+const EmptyState = ({ onAddFirstItem }: { onAddFirstItem: () => void }) => (
     <div className="text-center py-20 px-6 col-span-full border-2 border-dashed rounded-lg">
         <div className='flex justify-center mb-6'>
             <div className='w-20 h-20 bg-muted rounded-full flex items-center justify-center'>
@@ -162,21 +165,21 @@ const EmptyState = () => (
         <p className="text-muted-foreground max-w-sm mx-auto mb-6">
             Get started by adding your first product, piece of equipment, or overhead supply.
         </p>
-         <Button asChild>
-            <Link href="/inventory/new-product?type=professional">
-                <PlusCircle className="mr-2 h-4 w-4" /> Add First Item
-            </Link>
+         <Button onClick={onAddFirstItem}>
+            <PlusCircle className="mr-2 h-4 w-4" /> Add First Item
         </Button>
     </div>
 );
 
 
 export default function InventoryPage() {
-  const [inventory, setInventory] = useState<InventoryItem[]>(initialInventoryData);
-  const [stockCorrections, setStockCorrections] = useState<StockCorrection[]>(initialStockCorrectionsData);
-  const [locations, setLocations] = useState<Location[]>(initialLocationsData);
-  const [locationTypes, setLocationTypes] = useState<LocationType[]>(initialLocationTypesData);
-  const [transactions, setTransactions] = useState<Transaction[]>(initialTransactionsData);
+  const { 
+    inventory, setInventory, 
+    stockCorrections, addStockCorrection,
+    locations, setLocations, 
+    locationTypes, setLocationTypes,
+    setTransactions 
+  } = useInventory();
   
   const { toast } = useToast();
   
@@ -184,6 +187,10 @@ export default function InventoryPage() {
   const [activeFilter, setActiveFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   
+  const [isAddProductDialogOpen, setIsAddProductDialogOpen] = useState(false);
+  const [addProductDialogType, setAddProductDialogType] = useState<'professional' | 'retail'>('professional');
+  const [isAddEquipmentDialogOpen, setIsAddEquipmentDialogOpen] = useState(false);
+  const [isAddOverheadDialogOpen, setIsAddOverheadDialogOpen] = useState(false);
   const [isAddLocationDialogOpen, setIsAddLocationDialogOpen] = useState(false);
   const [isEditLocationDialogOpen, setIsEditLocationDialogOpen] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
@@ -198,8 +205,25 @@ export default function InventoryPage() {
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
   const videoRef = useRef<HTMLVideoElement>(null);
   
-  const addStockCorrection = (correction: StockCorrection) => {
-    setStockCorrections(prev => [...prev, correction]);
+  const handleOpenAddProductDialog = (type: 'professional' | 'retail') => {
+    setAddProductDialogType(type);
+    setIsAddProductDialogOpen(true);
+  };
+  
+  const handleProductAdded = (newProduct: InventoryItem) => {
+    setInventory(prev => [...prev, newProduct]);
+    toast({
+      title: `New ${newProduct.type} product created`,
+      description: `${newProduct.name} has been added to your inventory.`
+    });
+  };
+
+  const handleEquipmentAdded = (newEquipment: InventoryItem) => {
+    setInventory(prev => [...prev, newEquipment]);
+  };
+  
+  const handleOverheadAdded = (newOverhead: InventoryItem) => {
+    setInventory(prev => [...prev, newOverhead]);
   };
 
   const handleOpenAddLocation = () => setIsAddLocationDialogOpen(true);
@@ -523,6 +547,16 @@ export default function InventoryPage() {
   
   const hasInventory = inventory.length > 0;
 
+  const productCategories = useMemo(() => {
+    const allCategories = inventory.map(p => p.category).filter((c): c is string => !!c);
+    return [...new Set(allCategories)];
+  }, [inventory]);
+
+  const onNewCategory = useCallback((newCategory: string) => {
+    // This logic would ideally be in the context, but for now, it's local
+    // to demonstrate the dialog functionality.
+  }, []);
+
   return (
     <ClientOnly>
     <div className="flex h-screen w-full flex-col">
@@ -580,10 +614,10 @@ export default function InventoryPage() {
                                     <CardDescription>A complete list of your professional, retail, and equipment stock.</CardDescription>
                                 </div>
                                 <div className="flex flex-wrap items-center gap-2">
-                                     <Button size="sm" asChild><Link href="/inventory/new-product?type=professional"><Package className="mr-2" /> Product</Link></Button>
-                                    <Button size="sm" asChild><Link href="/inventory/new-product?type=retail"><Store className="mr-2" /> Retail</Link></Button>
-                                    <Button size="sm" asChild><Link href="/inventory/new-equipment"><Hammer className="mr-2" /> Equipment</Link></Button>
-                                    <Button size="sm" asChild><Link href="/inventory/new-overhead"><Recycle className="mr-2" /> Overhead</Link></Button>
+                                     <Button size="sm" onClick={() => handleOpenAddProductDialog('professional')}><Package className="mr-2" /> Product</Button>
+                                    <Button size="sm" onClick={() => handleOpenAddProductDialog('retail')}><Store className="mr-2" /> Retail</Button>
+                                    <Button size="sm" onClick={() => setIsAddEquipmentDialogOpen(true)}><Hammer className="mr-2" /> Equipment</Button>
+                                    <Button size="sm" onClick={() => setIsAddOverheadDialogOpen(true)}><Recycle className="mr-2" /> Overhead</Button>
                                 </div>
                             </div>
                         </CardHeader>
@@ -621,7 +655,7 @@ export default function InventoryPage() {
                                 </div>
                             </div>
                             {!hasInventory ? (
-                                <EmptyState />
+                                <EmptyState onAddFirstItem={() => handleOpenAddProductDialog('professional')} />
                             ) : (
                                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                                     {filteredInventory.length > 0 ? filteredInventory.map(item => (
@@ -657,6 +691,35 @@ export default function InventoryPage() {
         </div>
       </main>
       
+      <AddProductDialog
+        open={isAddProductDialogOpen}
+        onOpenChange={setIsAddProductDialogOpen}
+        initialType={addProductDialogType}
+        categories={productCategories}
+        onNewCategory={onNewCategory}
+        onProductAdded={handleProductAdded}
+        locations={locations}
+        onAddLocationClick={handleOpenAddLocation}
+      />
+      
+       <AddEquipmentDialog
+        open={isAddEquipmentDialogOpen}
+        onOpenChange={setIsAddEquipmentDialogOpen}
+        onEquipmentAdded={handleEquipmentAdded}
+        equipmentCategories={productCategories.filter(c => c === 'Tools')}
+        onNewCategory={onNewCategory}
+        locations={locations}
+      />
+      
+      <AddOverheadDialog
+        open={isAddOverheadDialogOpen}
+        onOpenChange={setIsAddOverheadDialogOpen}
+        onOverheadAdded={handleOverheadAdded}
+        categories={productCategories.filter(c => c === 'Cleaning')}
+        onNewCategory={onNewCategory}
+        locations={locations}
+      />
+
       <LogUseDialog
         open={isLogUseOpen}
         onOpenChange={setIsLogUseOpen}
@@ -710,7 +773,7 @@ export default function InventoryPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="p-4 relative">
-             <video ref={videoRef} className="w-full aspect-video rounded-md" autoPlay muted playsInline />
+             <video ref={videoRef} className="w-full aspect-video rounded-md bg-muted" autoPlay muted playsInline />
              <div className="absolute inset-4 flex items-center justify-center pointer-events-none">
                 <div className="w-2/3 h-1/2 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
             </div>

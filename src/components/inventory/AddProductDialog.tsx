@@ -1,7 +1,8 @@
 
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
   DialogContent,
@@ -10,6 +11,14 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -22,25 +31,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { PlusCircle, Package, Hammer, Trash2, QrCode, Check, AlertTriangle, Info, DollarSign } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Slider } from '@/components/ui/slider';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { inventory, services as allServices, type Service, type InventoryItem, type Location } from '@/lib/data';
-import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
-import { SelectEquipmentDialog } from '../services/SelectEquipmentDialog';
-import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
+import { type InventoryItem, type Location } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
+import { useForm, FormProvider, useFormContext, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useIsMobile } from '@/hooks/use-mobile';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from '../ui/sheet';
 import { ScrollArea } from '../ui/scroll-area';
-import { cn } from '@/lib/utils';
+import { Check, PlusCircle } from 'lucide-react';
 
 const productSchema = z.object({
   name: z.string().min(1, 'Product name is required'),
@@ -49,7 +49,6 @@ const productSchema = z.object({
   imageUrl: z.string().optional(),
   internalNotes: z.string().optional(),
   
-  // Costing
   totalPurchaseCost: z.number().optional(),
   numUnits: z.number().optional(),
   shippingCost: z.number().optional(),
@@ -62,11 +61,9 @@ const productSchema = z.object({
   usesPerContainer: z.number().optional(),
   restockingMarkup: z.number().optional(),
 
-  // Pricing
   msrp: z.number().optional(),
   markdownPrice: z.number().optional(),
 
-  // Inventory
   supplier: z.string().optional(),
   sku: z.string().optional(),
   purchaseLink: z.string().url().optional().or(z.literal('')),
@@ -85,10 +82,9 @@ const Step1_BasicDetails = ({
     categories: string[];
     onNewCategory: (category: string) => void;
 }) => {
-    const { register, control, setValue, watch, formState: { errors } } = useFormContext<ProductFormData>();
+    const { register, control, setValue, formState: { errors } } = useFormContext<ProductFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
-    const category = watch('category');
 
     const handleAddNewCategory = () => {
         if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
@@ -101,19 +97,13 @@ const Step1_BasicDetails = ({
     };
     
     return (
-  <div className="grid gap-6 py-4">
+  <div className="space-y-6">
     <div className="space-y-2">
       <Label htmlFor="product-name">Product Name</Label>
       <Input id="product-name" placeholder="e.g., Hydrating Shampoo" {...register('name')} />
        {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
     </div>
-    <Controller
-      name="type"
-      control={control}
-      render={({ field }) => (
-        <input type="hidden" {...field} />
-      )}
-    />
+    <Controller name="type" control={control} render={({ field }) => ( <input type="hidden" {...field} /> )}/>
     <div className="space-y-2">
       <Label htmlFor="category">Category</Label>
       {isAddingCategory ? (
@@ -128,39 +118,20 @@ const Step1_BasicDetails = ({
         </div>
       ) : (
         <div className="flex gap-2">
-          <Controller
-            name="category"
-            control={control}
-            render={({ field }) => (
+          <Controller name="category" control={control} render={({ field }) => (
                <Select onValueChange={field.onChange} value={field.value}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.map(cat => (
-                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                  ))}
-                </SelectContent>
+                <SelectTrigger> <SelectValue placeholder="Select a category" /> </SelectTrigger>
+                <SelectContent> {categories.map(cat => ( <SelectItem key={cat} value={cat}>{cat}</SelectItem> ))} </SelectContent>
               </Select>
-            )}
-          />
-         
-          <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button">
-            <PlusCircle className="h-4 w-4" />
-          </Button>
+          )}/>
+          <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"> <PlusCircle className="h-4 w-4" /> </Button>
         </div>
       )}
        {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
     </div>
     <div className="space-y-2">
       <Label>Product Image</Label>
-       <Controller
-        name="imageUrl"
-        control={control}
-        render={({ field }) => (
-          <ImageUpload onImageUploaded={field.onChange} />
-        )}
-      />
+       <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/>
     </div>
     <div className="space-y-2">
       <Label htmlFor="internal-notes">Internal Notes</Label>
@@ -170,12 +141,12 @@ const Step1_BasicDetails = ({
     );
 };
 
-const Step2_CostingAndPricing = () => {
+const Step2_CostingPricing = () => {
     const { control, watch } = useFormContext<ProductFormData>();
     const productType = watch('type');
     const costingMethod = watch('costingMethod');
     return (
-        <div className="grid gap-6 py-4">
+        <div className="space-y-6">
              <Card>
                 <CardHeader><CardTitle>Landed Cost Calculator</CardTitle><CardDescription>Calculate the true cost per item.</CardDescription></CardHeader>
                 <CardContent className="space-y-4">
@@ -212,7 +183,7 @@ const Step2_CostingAndPricing = () => {
 const Step3_InventorySupplier = ({ onAddLocationClick, locations }: { onAddLocationClick: () => void, locations: Location[] }) => {
      const { control, register } = useFormContext<ProductFormData>();
     return (
-        <div className="grid gap-6 py-4">
+        <div className="space-y-6">
             <Card>
                 <CardHeader><CardTitle>Supplier Info</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
@@ -240,6 +211,7 @@ const Step3_InventorySupplier = ({ onAddLocationClick, locations }: { onAddLocat
         </div>
     )
 };
+
 
 export const AddProductDialog = ({
   open,
@@ -273,9 +245,7 @@ export const AddProductDialog = ({
 
   useEffect(() => {
     if (open) {
-      methods.reset({
-        type: initialType,
-      });
+      methods.reset({ type: initialType });
       setStep(1);
     }
   }, [open, initialType, methods]);
@@ -307,7 +277,6 @@ export const AddProductDialog = ({
         }]
     };
     onProductAdded(newProduct);
-    onOpenChange(false);
   };
 
   const handleNext = async () => {
@@ -325,107 +294,86 @@ export const AddProductDialog = ({
 
   const handleBack = () => step > 1 && setStep(step - 1);
 
-  const handleOpenChange = (isOpen: boolean) => {
-    onOpenChange(isOpen);
-    if (!isOpen) {
-        setTimeout(() => {
-            setStep(1);
-            methods.reset();
-        }, 300);
-    }
-  };
-  
   const getStepContent = () => {
       switch(step) {
           case 1: return <Step1_BasicDetails categories={categories} onNewCategory={onNewCategory} />;
-          case 2: return <Step2_CostingAndPricing />;
+          case 2: return <Step2_CostingPricing />;
           case 3: return <Step3_InventorySupplier onAddLocationClick={onAddLocationClick} locations={locations} />;
           default: return null;
       }
   }
-
+  
   const formId = `add-product-form-${initialType}`;
+  const title = `Add New ${initialType === 'retail' ? 'Retail Product' : 'Professional Product'}`;
+  const description = "Use this wizard to add a new item to your inventory.";
 
   if (isMobile) {
     return (
-        <Sheet open={open} onOpenChange={handleOpenChange}>
-            <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
-                <FormProvider {...methods}>
-                    <form id={formId} onSubmit={methods.handleSubmit(handleSave)} className="flex flex-col flex-1 min-h-0">
-                        <SheetHeader className="p-4 border-b text-left">
-                            <SheetTitle>Add New Product</SheetTitle>
-                            <SheetDescription>
-                                Use this wizard to add a new professional or retail product.
-                            </SheetDescription>
-                        </SheetHeader>
-                        <div className="p-4">
-                            <Progress value={(step / totalSteps) * 100} />
-                        </div>
-                        <div className="flex-1 min-h-0">
-                          <ScrollArea className="h-full px-4">
-                              <div className="pb-4 space-y-4">
-                                  {getStepContent()}
-                              </div>
-                          </ScrollArea>
-                        </div>
-                        
-                        <SheetFooter className="p-4 border-t">
-                             <div className='flex justify-between w-full'>
-                                <div>{step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}</div>
-                                <div className="flex gap-2">
-                                    <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
-                                    {step < totalSteps ? (
-                                        <Button onClick={handleNext} type="button">Next</Button>
-                                    ) : (
-                                        <Button type="submit">Save Product</Button>
-                                    )}
-                                </div>
-                            </div>
-                        </SheetFooter>
-                    </form>
-                </FormProvider>
-            </SheetContent>
+      <FormProvider {...methods}>
+        <Sheet open={open} onOpenChange={onOpenChange}>
+          <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
+            <SheetHeader className="p-4 border-b text-left">
+              <SheetTitle>{title}</SheetTitle>
+              <SheetDescription>{description}</SheetDescription>
+            </SheetHeader>
+            <form id={formId} onSubmit={methods.handleSubmit(handleSave)} className="flex flex-col flex-1 min-h-0">
+              <div className="p-4"><Progress value={(step / totalSteps) * 100} /></div>
+              <div className="flex-1 min-h-0">
+                <ScrollArea className="h-full px-4">
+                  {getStepContent()}
+                </ScrollArea>
+              </div>
+              <SheetFooter className="p-4 border-t">
+                <div className='flex justify-between w-full'>
+                  <div>{step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}</div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
+                    {step < totalSteps ? (
+                      <Button onClick={handleNext} type="button">Next</Button>
+                    ) : (
+                      <Button type="submit">Save Product</Button>
+                    )}
+                  </div>
+                </div>
+              </SheetFooter>
+            </form>
+          </SheetContent>
         </Sheet>
+      </FormProvider>
     );
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-xl">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl flex flex-col max-h-[90vh]">
         <FormProvider {...methods}>
           <DialogHeader>
-            <DialogTitle>Add New Product</DialogTitle>
-            <DialogDescription>
-              Use this wizard to add a new professional or retail product to your inventory.
-            </DialogDescription>
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription>{description}</DialogDescription>
           </DialogHeader>
-
           <form id={formId} onSubmit={methods.handleSubmit(handleSave)}>
             <div className="py-4 space-y-4">
               <Progress value={(step / totalSteps) * 100} />
               <ScrollArea className="max-h-[60vh] -mr-6 pr-6">
-                <div className="pl-1 pr-1">
-                  {getStepContent()}
-                </div>
+                <div className="pl-1 pr-1">{getStepContent()}</div>
               </ScrollArea>
             </div>
+            <DialogFooter>
+              <div className='flex justify-between w-full'>
+                <div>
+                  {step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
+                  {step < totalSteps ? (
+                    <Button onClick={handleNext} type="button">Next</Button>
+                  ) : (
+                    <Button type="submit">Save Product</Button>
+                  )}
+                </div>
+              </div>
+            </DialogFooter>
           </form>
-
-          <DialogFooter>
-            <div className='flex justify-between w-full'>
-              <div>
-                {step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}
-              </div>
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={() => handleOpenChange(false)} type="button">Cancel</Button>
-                {step < totalSteps ? (
-                  <Button onClick={handleNext} type="button">Next</Button>
-                ) : (
-                  <Button type="submit" form={formId}>Save Product</Button>
-                )}
-              </div>
-            </div>
-          </DialogFooter>
         </FormProvider>
       </DialogContent>
     </Dialog>
