@@ -64,6 +64,7 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/comp
 import { InventorySidebar } from '@/components/inventory/InventorySidebar';
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { type Batch } from '@/lib/data';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 
 const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff, onLogUse }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (itemId: string) => void, onLogUse: (item: InventoryItem) => void }) => {
@@ -195,6 +196,12 @@ export default function InventoryPage() {
   const [locations, setLocations] = useState<Location[]>(initialLocationsData);
   const [locationTypes, setLocationTypes] = useState<LocationType[]>(initialLocationTypes);
   const [transactions, setTransactions] = useState<Transaction[]>(initialTransactionsData);
+  const [clients, setClients] = useState<Client[]>(initialClientsData);
+  const [appointments, setAppointments] = useState<Appointment[]>(initialAppointmentsData);
+  const [services, setServices] = useState<Service[]>(initialServicesData);
+  const [billDefinitions, setBillDefinitions] = useState<Bill[]>(initialBillDefinitionsData);
+  const [billInstances, setBillInstances] = useState<BillInstance[]>(initialBillInstancesData);
+  
   const { toast } = useToast();
   
   const [activeView, setActiveView] = useState('products');
@@ -224,10 +231,16 @@ export default function InventoryPage() {
     setStockCorrections(prev => [...prev, correction]);
   }, []);
 
-  const inventoryCategories = useMemo(() => {
-    const allCategories = inventory.map(i => i.category).filter((c): c is string => !!c);
+  const [inventoryCategories, setInventoryCategories] = useState(() => {
+    const allCategories = initialInventoryData.map(i => i.category).filter((c): c is string => !!c);
     return [...new Set(allCategories)];
-  }, [inventory]);
+  });
+
+  const handleNewCategory = useCallback((newCategory: string) => {
+    if (!inventoryCategories.includes(newCategory)) {
+        setInventoryCategories(prev => [...prev, newCategory]);
+    }
+  }, [inventoryCategories]);
   
   const handleAddProduct = useCallback((newProductData: any) => {
     const landedCost = newProductData.totalCostOfGoods && newProductData.numberOfUnits 
@@ -938,5 +951,3 @@ export default function InventoryPage() {
     </div>
   );
 }
-
-    
