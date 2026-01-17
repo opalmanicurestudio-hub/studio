@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -82,9 +83,10 @@ const Step1_BasicDetails = ({
     categories: string[];
     onNewCategory: (category: string) => void;
 }) => {
-    const { register, control, setValue, formState: { errors } } = useFormContext<ProductFormData>();
+    const { register, control, setValue, watch, formState: { errors } } = useFormContext<ProductFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
+    const category = watch('category');
 
     const handleAddNewCategory = () => {
         if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
@@ -146,7 +148,7 @@ const Step2_CostingPricing = () => {
     const productType = watch('type');
     const costingMethod = watch('costingMethod');
     return (
-        <div className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
              <Card>
                 <CardHeader><CardTitle>Landed Cost Calculator</CardTitle><CardDescription>Calculate the true cost per item.</CardDescription></CardHeader>
                 <CardContent className="space-y-4">
@@ -345,7 +347,7 @@ export const AddProductDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl flex flex-col max-h-[90vh]">
+      <DialogContent className="max-w-4xl flex flex-col max-h-[90vh]">
         <FormProvider {...methods}>
           <DialogHeader>
             <DialogTitle>{title}</DialogTitle>
@@ -354,9 +356,9 @@ export const AddProductDialog = ({
           <form id={formId} onSubmit={methods.handleSubmit(handleSave)}>
             <div className="py-4 space-y-4">
               <Progress value={(step / totalSteps) * 100} />
-              <ScrollArea className="max-h-[60vh] -mr-6 pr-6">
-                <div className="pl-1 pr-1">{getStepContent()}</div>
-              </ScrollArea>
+              <div className="max-h-[60vh] overflow-y-auto pr-4 -mr-4">
+                {getStepContent()}
+              </div>
             </div>
             <DialogFooter>
               <div className='flex justify-between w-full'>
