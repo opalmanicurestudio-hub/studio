@@ -71,16 +71,17 @@ const productSchema = z.object({
 type ProductFormData = z.infer<typeof productSchema>;
 
 
-const Step1_BasicDetails = ({ 
+const Step1_Basics = ({ 
     categories, 
     onNewCategory,
 }: { 
     categories: string[];
     onNewCategory: (category: string) => void;
 }) => {
-    const { register, control, setValue, formState: { errors } } = useFormContext<ProductFormData>();
+    const { register, control, setValue, watch, formState: { errors } } = useFormContext<ProductFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
+    const category = watch('category');
 
     const handleAddNewCategory = () => {
         if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
@@ -571,7 +572,7 @@ export const AddProductDialog = ({
               <div className="py-4 space-y-4">
                   <Progress value={(step / totalSteps) * 100} />
                   <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
-                      {step === 1 && <Step1_BasicDetails categories={categories} onNewCategory={handleNewCategory} />}
+                      {step === 1 && <Step1_Basics categories={categories} onNewCategory={handleNewCategory} />}
                       {step === 2 && <Step2_CostingPricing productType={productType} />}
                       {step === 3 && <Step3_InventorySupplier onAddLocationClick={() => setIsAddLocationDialogOpen(true)} locations={locations}/>}
                   </div>
