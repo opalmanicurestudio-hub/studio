@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { createContext, useContext, useState, ReactNode, useCallback, useMemo } from 'react';
@@ -10,6 +11,10 @@ import {
     type LocationType as LocType,
     clients as initialClients,
     type Client,
+    appointments as initialAppointments,
+    type Appointment,
+    services as initialServices,
+    type Service,
 } from '@/lib/data';
 import {
     billDefinitions as initialBillDefinitions,
@@ -52,6 +57,10 @@ interface InventoryContextType {
   setTransactions: React.Dispatch<React.SetStateAction<Transaction[]>>;
   clients: Client[];
   setClients: React.Dispatch<React.SetStateAction<Client[]>>;
+  appointments: Appointment[];
+  setAppointments: React.Dispatch<React.SetStateAction<Appointment[]>>;
+  services: Service[];
+  setServices: React.Dispatch<React.SetStateAction<Service[]>>;
 }
 
 const InventoryContext = createContext<InventoryContextType | undefined>(undefined);
@@ -66,6 +75,8 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const [billInstances, setBillInstances] = useState<BillInstance[]>(initialBillInstances);
   const [transactions, setTransactions] = useState<Transaction[]>(initialTransactions);
   const [clients, setClients] = useState<Client[]>(initialClients);
+  const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
+  const [services, setServices] = useState<Service[]>(initialServices);
 
 
   const addStockCorrection = useCallback((correction: StockCorrection) => {
@@ -83,29 +94,39 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     locationTypes,
     setLocationTypes,
     billDefinitions,
+    setBillDefinitions,
     billInstances,
     setBillInstances,
     transactions,
     setTransactions,
     clients,
     setClients,
+    appointments,
+    setAppointments,
+    services,
+    setServices,
   }), [
     inventory,
-    setInventory,
     stockCorrections,
-    setStockCorrections,
     addStockCorrection,
     locations,
-    setLocations,
     locationTypes,
-    setLocationTypes,
     billDefinitions,
     billInstances,
-    setBillInstances,
     transactions,
-    setTransactions,
     clients,
+    appointments,
+    services,
+    setInventory,
+    setStockCorrections,
+    setLocations,
+    setLocationTypes,
+    setBillDefinitions,
+    setBillInstances,
+    setTransactions,
     setClients,
+    setAppointments,
+    setServices,
   ]);
 
   return (

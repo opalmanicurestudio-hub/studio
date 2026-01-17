@@ -39,7 +39,6 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { isPast, parseISO, differenceInMonths } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
-import { ClientOnly } from '@/components/shared/ClientOnly';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -103,27 +102,25 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                             <Link href={detailHref} className="group">
                                <p className="font-semibold text-base leading-tight group-hover:underline pr-2">{item.name}</p>
                             </Link>
-                            <ClientOnly>
-                                <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button aria-haspopup="true" size="icon" variant="ghost" className="h-8 w-8 flex-shrink-0 -mt-1 -mr-1">
-                                    <MoreHorizontal className="h-4 w-4" />
-                                    <span className="sr-only">Toggle menu</span>
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                    <DropdownMenuItem asChild><Link href={detailHref}>View Details</Link></DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => onEdit(item)}><Pencil className="mr-2 h-4 w-4" /> Edit</DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem onClick={() => item.isExperimentActive ? onEndExperiment(item) : onToggleExperiment(item)}>
-                                        {item.isExperimentActive ? <><CheckCircle className="mr-2 h-4 w-4 text-green-500" />End Lifespan Test</> : <><Rocket className="mr-2 h-4 w-4 text-purple-500"/>Start Lifespan Test</>}
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem asChild><Link href={`/inventory/labels?product=${item.id}`}><Printer className="mr-2 h-4 w-4" /> Print Label</Link></DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Delete</DropdownMenuItem>
-                                </DropdownMenuContent>
-                                </DropdownMenu>
-                            </ClientOnly>
+                            <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button aria-haspopup="true" size="icon" variant="ghost" className="h-8 w-8 flex-shrink-0 -mt-1 -mr-1">
+                                <MoreHorizontal className="h-4 w-4" />
+                                <span className="sr-only">Toggle menu</span>
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                <DropdownMenuItem asChild><Link href={detailHref}>View Details</Link></DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => onEdit(item)}><Pencil className="mr-2 h-4 w-4" /> Edit</DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => item.isExperimentActive ? onEndExperiment(item) : onToggleExperiment(item)}>
+                                    {item.isExperimentActive ? <><CheckCircle className="mr-2 h-4 w-4 text-green-500" />End Lifespan Test</> : <><Rocket className="mr-2 h-4 w-4 text-purple-500"/>Start Lifespan Test</>}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem asChild><Link href={`/inventory/labels?product=${item.id}`}><Printer className="mr-2 h-4 w-4" /> Print Label</Link></DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Delete</DropdownMenuItem>
+                            </DropdownMenuContent>
+                            </DropdownMenu>>
                         </div>
                         <p className="text-sm text-muted-foreground">{item.category}</p>
                     </div>
@@ -762,16 +759,15 @@ export default function InventoryPage() {
                             {inventory.length > 0 ? (
                                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                                     {filteredInventory.length > 0 ? filteredInventory.map(item => (
-                                       <ClientOnly key={`${item.id}-${item.totalStock}-${item.partialContainerUses}-${item.partialContainerSize}`}>
-                                            <ProductCard 
-                                                item={item} 
-                                                onEdit={() => {}} 
-                                                onToggleExperiment={handleToggleExperiment} 
-                                                onEndExperiment={handleEndExperiment} 
-                                                onWriteOff={handleOpenWriteOff} 
-                                                onLogUse={handleOpenLogUse}
-                                            />
-                                        </ClientOnly>
+                                        <ProductCard 
+                                            key={item.id}
+                                            item={item} 
+                                            onEdit={() => {}} 
+                                            onToggleExperiment={handleToggleExperiment} 
+                                            onEndExperiment={handleEndExperiment} 
+                                            onWriteOff={handleOpenWriteOff} 
+                                            onLogUse={handleOpenLogUse}
+                                        />
                                     )) : (
                                         <p className="text-muted-foreground col-span-full text-center">No items match your search.</p>
                                     )}
@@ -897,5 +893,3 @@ export default function InventoryPage() {
     </div>
   );
 }
-
-    

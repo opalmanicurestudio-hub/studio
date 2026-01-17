@@ -78,29 +78,23 @@ const productSchema = z.object({
 
 type ProductFormData = z.infer<typeof productSchema>;
 
-const CategoryContext = React.createContext<{
-    categories: string[];
-    onNewCategory: (category: string) => void;
-} | null>(null);
-
-const useCategoryContext = () => {
-    const context = React.useContext(CategoryContext);
-    if (!context) {
-        throw new Error("useCategoryContext must be used within a CategoryProvider");
-    }
-    return context;
-}
-
-const Step1_Basics = () => {
+const Step1_Basics = ({
+  categories,
+  onNewCategory,
+}: {
+  categories: string[];
+  onNewCategory: (category: string) => void;
+}) => {
     const { register, control, setValue, watch, formState: { errors } } = useFormContext<ProductFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
-    const { categories, onNewCategory } = useCategoryContext();
     
     const handleAddNewCategory = () => {
         if (newCategoryName.trim()) {
             const newCategory = newCategoryName.trim();
-            onNewCategory(newCategory);
+            if (!categories.includes(newCategory)) {
+                onNewCategory(newCategory);
+            }
             setValue('category', newCategory, { shouldValidate: true });
             setNewCategoryName('');
             setIsAddingCategory(false);
@@ -509,13 +503,13 @@ export const AddProductDialog = ({
     initialCategories: string[];
 }) => {
   const [step, setStep] = useState(1);
+  const [categories, setCategories] = useState<string[]>(initialCategories);
   const totalSteps = 3;
   const [isAddLocationDialogOpen, setIsAddLocationDialogOpen] = useState(false);
-  const [categories, setCategories] = useState<string[]>(initialCategories);
-
+  
   useEffect(() => {
     if (open) {
-        setCategories(initialCategories);
+      setCategories(initialCategories);
     }
   }, [open, initialCategories]);
 
@@ -539,13 +533,11 @@ export const AddProductDialog = ({
         }, 300);
     }
   }
-
-  const handleNewCategory = (newCategory: string) => {
-    if (!categories.includes(newCategory)) {
-        setCategories(prev => [...prev, newCategory]);
-    }
-  };
   
+  const handleNewCategory = (newCategory: string) => {
+    setCategories(prev => [...new Set([...prev, newCategory])]);
+  };
+
   const onSubmit = (data: ProductFormData) => {
     onProductAdded(data);
     handleOpenChange(false);
@@ -575,7 +567,6 @@ export const AddProductDialog = ({
     <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-lg">
             <FormProvider {...methods}>
-            <CategoryContext.Provider value={{ categories, onNewCategory: handleNewCategory }}>
                 <form onSubmit={methods.handleSubmit(onSubmit)}>
                 <DialogHeader>
                     <DialogTitle>Add New Product</DialogTitle>
@@ -585,7 +576,7 @@ export const AddProductDialog = ({
                 <div className="py-4 space-y-4">
                     <Progress value={(step / totalSteps) * 100} />
                     <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
-                        {step === 1 && <Step1_Basics />}
+                        {step === 1 && <Step1_Basics categories={categories} onNewCategory={handleNewCategory} />}
                         {step === 2 && <Step2_CostingPricing productType={productType} />}
                         {step === 3 && <Step3_InventorySupplier onAddLocationClick={() => setIsAddLocationDialogOpen(true)} locations={locations}/>}
                     </div>
@@ -604,7 +595,6 @@ export const AddProductDialog = ({
                     </div>
                 </DialogFooter>
                 </form>
-            </CategoryContext.Provider>
             </FormProvider>
         </DialogContent>
       </Dialog>
@@ -618,5 +608,3 @@ export const AddProductDialog = ({
     </>
   );
 };
-
-    
