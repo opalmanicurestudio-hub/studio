@@ -23,7 +23,7 @@ import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Slider } from '@/components/ui/slider';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { inventory, services as allServices, type Service, type InventoryItem, type Location } from '@/lib/data';
+import { services as allServices, type Service, type InventoryItem, type Location } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useForm, FormProvider, useFormContext, Controller } from 'react-hook-form';
@@ -127,7 +127,7 @@ const Step1_BasicDetails = ({
                   <SelectValue placeholder="Select a category" />
                 </SelectTrigger>
                 <SelectContent>
-                  {categories.map(cat => (
+                  {(categories || []).map(cat => (
                     <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                   ))}
                 </SelectContent>
@@ -236,8 +236,19 @@ export default function NewProductPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const { toast } = useToast();
-    const { onProductAdded, productCategories, onNewCategory, locations } = useInventory();
+    const { onProductAdded, inventory, locations } = useInventory();
     
+    const [productCategories, setProductCategories] = useState(() => {
+        const allCategories = inventory.map(p => p.category).filter((c): c is string => !!c);
+        return [...new Set(allCategories)];
+    });
+
+    const onNewCategory = (newCategory: string) => {
+        if (newCategory.trim() && !productCategories.includes(newCategory.trim())) {
+            setProductCategories(prev => [...prev, newCategory.trim()]);
+        }
+    };
+
     const [step, setStep] = useState(1);
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     
