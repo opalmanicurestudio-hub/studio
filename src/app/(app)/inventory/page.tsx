@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
@@ -14,7 +13,7 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette, QrCode, AlertTriangle, ListFilter, ChevronDown, ShoppingCart, Briefcase, DollarSign, Activity, Eye, CircleHelp, Warehouse, Beaker, Recycle, TrendingUp } from 'lucide-react';
-import { type InventoryItem, type StockCorrection, type Transaction, type Batch, inventory as initialInventory } from '@/lib/data';
+import { type InventoryItem, type StockCorrection, type Transaction, type Batch } from '@/lib/data';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -198,14 +197,24 @@ export default function InventoryPage() {
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  const [productCategories, setProductCategories] = useState(() => {
-    const allCategories = initialInventory.map(i => i.category).filter((c): c is string => !!c);
+  // Derive categories from the current inventory state
+  const inventoryCategories = useMemo(() => {
+    const allCategories = inventory.map(i => i.category).filter((c): c is string => !!c);
     return [...new Set(allCategories)];
-  });
+  }, [inventory]);
 
+  // State for categories added ad-hoc in the dialog
+  const [tempCategories, setTempCategories] = useState<string[]>([]);
+  
+  // Combine inventory categories with temporary new ones for the dialog
+  const productCategories = useMemo(() => {
+      return [...new Set([...inventoryCategories, ...tempCategories])];
+  }, [inventoryCategories, tempCategories]);
+
+  // Pass this to the dialog so it can add new categories to the temporary state
   const handleNewCategory = (newCategory: string) => {
     if (!productCategories.includes(newCategory)) {
-        setProductCategories(prev => [...prev, newCategory]);
+        setTempCategories(prev => [...prev, newCategory]);
     }
   };
 
@@ -241,9 +250,8 @@ export default function InventoryPage() {
         isExperimentActive: newProductData.isExperimentActive,
     };
     setInventory(prev => [...prev, newProduct]);
-    if (newProduct.category && !productCategories.includes(newProduct.category)) {
-        handleNewCategory(newProduct.category);
-    }
+    // After product is added, its category is now in the main inventory, so temp state can be cleared
+    setTempCategories([]);
   };
 
 
@@ -917,7 +925,7 @@ export default function InventoryPage() {
                     <AlertTriangle className="h-4 w-4" />
                     <AlertTitle>Camera Access Required</AlertTitle>
                     <AlertDescription>
-                        Please allow camera access to use this feature.
+                        Please enable camera access to use this feature.
                     </AlertDescription>
                 </Alert>
             )}
@@ -943,3 +951,6 @@ export default function InventoryPage() {
 
 
 
+
+
+    
