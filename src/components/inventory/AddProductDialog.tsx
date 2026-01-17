@@ -390,9 +390,9 @@ export const AddProductDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="sm:max-w-xl flex flex-col max-h-[90vh]">
         <FormProvider {...methods}>
-          <form id={formId} onSubmit={methods.handleSubmit(handleSave)}>
+          <form id={formId} onSubmit={methods.handleSubmit(handleSave)} className="flex flex-col flex-1 min-h-0">
             <DialogHeader>
               <DialogTitle>Add New Product</DialogTitle>
               <DialogDescription>
@@ -400,12 +400,14 @@ export const AddProductDialog = ({
               </DialogDescription>
             </DialogHeader>
 
-            <ScrollArea className="max-h-[60vh] pr-6 -mr-6">
-                 <div className="py-4 space-y-4 pl-6">
-                    <Progress value={(step / totalSteps) * 100} />
-                    {getStepContent()}
-                </div>
-            </ScrollArea>
+            <div className="flex-1 min-h-0 py-4">
+                <ScrollArea className="h-full pr-6 -mr-6">
+                    <div className="space-y-4 pl-6">
+                        <Progress value={(step / totalSteps) * 100} />
+                        {getStepContent()}
+                    </div>
+                </ScrollArea>
+            </div>
 
             <DialogFooter className="pt-4 border-t mt-4 pr-0">
               <div className='flex justify-between w-full'>
