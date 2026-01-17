@@ -358,11 +358,12 @@ export const AddProductDialog = ({
                                 Use this wizard to add a new professional or retail product.
                             </SheetDescription>
                         </SheetHeader>
-
+                        <div className="p-4">
+                            <Progress value={(step / totalSteps) * 100} />
+                        </div>
                         <div className="flex-1 min-h-0">
                           <ScrollArea className="h-full px-4">
-                              <div className="py-4 space-y-4">
-                                  <Progress value={(step / totalSteps) * 100} />
+                              <div className="pb-4 space-y-4">
                                   {getStepContent()}
                               </div>
                           </ScrollArea>
@@ -390,45 +391,43 @@ export const AddProductDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-xl flex flex-col max-h-[90vh]">
+      <DialogContent className="sm:max-w-xl">
         <FormProvider {...methods}>
-          <form id={formId} onSubmit={methods.handleSubmit(handleSave)} className="flex flex-col flex-1 min-h-0">
-            <DialogHeader>
-              <DialogTitle>Add New Product</DialogTitle>
-              <DialogDescription>
-                Use this wizard to add a new professional or retail product to your inventory.
-              </DialogDescription>
-            </DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Add New Product</DialogTitle>
+            <DialogDescription>
+              Use this wizard to add a new professional or retail product to your inventory.
+            </DialogDescription>
+          </DialogHeader>
 
-            <div className="flex-1 min-h-0 py-4">
-                <ScrollArea className="h-full pr-6 -mr-6">
-                    <div className="space-y-4 pl-6">
-                        <Progress value={(step / totalSteps) * 100} />
-                        {getStepContent()}
-                    </div>
-                </ScrollArea>
+          <form id={formId} onSubmit={methods.handleSubmit(handleSave)}>
+            <div className="py-4 space-y-4">
+              <Progress value={(step / totalSteps) * 100} />
+              <ScrollArea className="max-h-[60vh] -mr-6 pr-6">
+                <div className="pl-1 pr-1">
+                  {getStepContent()}
+                </div>
+              </ScrollArea>
             </div>
-
-            <DialogFooter className="pt-4 border-t mt-4 pr-0">
-              <div className='flex justify-between w-full'>
-                <div>
-                    {step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}
-                </div>
-                <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
-                    {step < totalSteps ? (
-                        <Button onClick={handleNext} type="button">Next</Button>
-                    ) : (
-                        <Button type="submit">Save Product</Button>
-                    )}
-                </div>
-              </div>
-            </DialogFooter>
           </form>
+
+          <DialogFooter>
+            <div className='flex justify-between w-full'>
+              <div>
+                {step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => handleOpenChange(false)} type="button">Cancel</Button>
+                {step < totalSteps ? (
+                  <Button onClick={handleNext} type="button">Next</Button>
+                ) : (
+                  <Button type="submit" form={formId}>Save Product</Button>
+                )}
+              </div>
+            </div>
+          </DialogFooter>
         </FormProvider>
       </DialogContent>
     </Dialog>
   );
 };
-
-    
