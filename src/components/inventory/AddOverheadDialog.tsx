@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { PlusCircle, Calendar as CalendarIcon, DollarSign } from 'lucide-react';
-import { useForm, Controller } from 'react-hook-form';
+import { useForm, Controller, FormProvider } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { type InventoryItem, type Location } from '@/lib/data';
@@ -31,6 +31,9 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from '../ui/sheet';
+import { ScrollArea } from '../ui/scroll-area';
 
 const overheadSchema = z.object({
   name: z.string().min(1, 'Item name is required.'),
@@ -48,92 +51,22 @@ const overheadSchema = z.object({
 
 type OverheadFormData = z.infer<typeof overheadSchema>;
 
-export const AddOverheadDialog = ({
-  open,
-  onOpenChange,
-  categories,
-  onNewCategory,
-  onOverheadAdded,
-  locations,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  categories: string[];
-  onNewCategory: (category: string) => void;
-  onOverheadAdded: (overhead: InventoryItem) => void;
-  locations: Location[];
-}) => {
-  const [isAddingCategory, setIsAddingCategory] = useState(false);
-  const [newCategoryName, setNewCategoryName] = useState('');
-  const { toast } = useToast();
+const OverheadFormContent = ({ categories, onNewCategory, locations, costingMethod }: { categories: string[], onNewCategory: (cat: string) => void, locations: Location[], costingMethod: 'size' | 'uses'}) => {
+    const { control, setValue, formState: { errors } } = useForm<OverheadFormData>();
+    const [isAddingCategory, setIsAddingCategory] = useState(false);
+    const [newCategoryName, setNewCategoryName] = useState('');
 
-  const {
-    control,
-    handleSubmit,
-    setValue,
-    watch,
-    reset,
-    formState: { errors },
-  } = useForm<OverheadFormData>({
-    resolver: zodResolver(overheadSchema),
-    defaultValues: {
-      costingMethod: 'uses',
-    }
-  });
-
-  const costingMethod = watch('costingMethod');
-
-  const handleAddNewCategory = () => {
-    if (newCategoryName.trim()) {
-      onNewCategory(newCategoryName.trim());
-      setValue('category', newCategoryName.trim());
-      setIsAddingCategory(false);
-      setNewCategoryName('');
-    }
-  };
-
-  const handleSave = (data: OverheadFormData) => {
-    const newOverhead: InventoryItem = {
-      id: `ovhd-${Date.now()}`,
-      name: data.name,
-      type: 'overhead',
-      category: data.category,
-      totalStock: data.initialStock,
-      costPerUnit: data.purchaseCost / data.initialStock,
-      supplier: data.supplier || '',
-      primaryLocationId: data.primaryLocationId,
-      costingMethod: data.costingMethod,
-      size: data.containerSize,
-      unit: data.containerUnit as any,
-      estimatedUses: data.usesPerContainer,
-      batches: [{
-        id: `batch-${Date.now()}`,
-        stock: data.initialStock,
-        costPerUnit: data.purchaseCost / data.initialStock,
-        receivedDate: data.purchaseDate.toISOString(),
-      }],
+    const handleAddNewCategory = () => {
+        if (newCategoryName.trim()) {
+            onNewCategory(newCategoryName.trim());
+            setValue('category', newCategoryName.trim());
+            setIsAddingCategory(false);
+            setNewCategoryName('');
+        }
     };
-    onOverheadAdded(newOverhead);
-    handleClose();
-  };
-  
-  const handleClose = () => {
-    reset();
-    setIsAddingCategory(false);
-    onOpenChange(false);
-  }
 
-  return (
-    <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Add Overhead Supply</DialogTitle>
-          <DialogDescription>
-            Log consumable supplies not directly tied to services.
-          </DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit(handleSave)}>
-          <div className="grid gap-4 py-4 max-h-[70vh] overflow-y-auto pr-4">
+    return (
+        <div className="grid gap-4 py-4">
             <Controller name="name" control={control} render={({ field }) => (
               <div className="space-y-2"><Label htmlFor="item-name">Item Name</Label><Input id="item-name" placeholder="e.g., Disinfectant Wipes" {...field} />{errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}</div>
             )}/>
@@ -176,11 +109,121 @@ export const AddOverheadDialog = ({
                  <Controller name="usesPerContainer" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="estimated-uses">Est. Uses Per Container</Label><Input id="estimated-uses" type="number" placeholder="e.g., 100 wipes" {...field} /></div>)}/>
             )}
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={handleClose} type="button">Cancel</Button>
-            <Button type="submit">Save Item</Button>
-          </DialogFooter>
-        </form>
+    );
+};
+
+
+export const AddOverheadDialog = ({
+  open,
+  onOpenChange,
+  categories,
+  onNewCategory,
+  onOverheadAdded,
+  locations,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  categories: string[];
+  onNewCategory: (category: string) => void;
+  onOverheadAdded: (overhead: InventoryItem) => void;
+  locations: Location[];
+}) => {
+  const { toast } = useToast();
+  const isMobile = useIsMobile();
+  const methods = useForm<OverheadFormData>({
+    resolver: zodResolver(overheadSchema),
+    defaultValues: {
+      costingMethod: 'uses',
+    }
+  });
+
+  const { handleSubmit, watch, reset } = methods;
+  const costingMethod = watch('costingMethod');
+
+  const handleSave = (data: OverheadFormData) => {
+    const newOverhead: InventoryItem = {
+      id: `ovhd-${Date.now()}`,
+      name: data.name,
+      type: 'overhead',
+      category: data.category,
+      totalStock: data.initialStock,
+      costPerUnit: data.purchaseCost / data.initialStock,
+      supplier: data.supplier || '',
+      primaryLocationId: data.primaryLocationId,
+      costingMethod: data.costingMethod,
+      size: data.containerSize,
+      unit: data.containerUnit as any,
+      estimatedUses: data.usesPerContainer,
+      batches: [{
+        id: `batch-${Date.now()}`,
+        stock: data.initialStock,
+        costPerUnit: data.purchaseCost / data.initialStock,
+        receivedDate: data.purchaseDate.toISOString(),
+      }],
+    };
+    onOverheadAdded(newOverhead);
+    handleClose();
+  };
+  
+  const handleClose = () => {
+    reset();
+    onOpenChange(false);
+  }
+
+  const FormContent = <OverheadFormContent categories={categories} onNewCategory={onNewCategory} locations={locations} costingMethod={costingMethod} />;
+
+  if (isMobile) {
+    return (
+         <Sheet open={open} onOpenChange={handleClose}>
+            <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
+                 <FormProvider {...methods}>
+                    <form onSubmit={handleSubmit(handleSave)} className="flex flex-col flex-1 min-h-0">
+                        <SheetHeader className="p-4 border-b text-left">
+                            <SheetTitle>Add Overhead Supply</SheetTitle>
+                            <SheetDescription>
+                                Log consumable supplies not directly tied to services.
+                            </SheetDescription>
+                        </SheetHeader>
+
+                        <div className="flex-1 min-h-0">
+                            <ScrollArea className="h-full px-4">
+                                {FormContent}
+                            </ScrollArea>
+                        </div>
+                        
+                        <SheetFooter className="p-4 border-t">
+                            <Button variant="outline" onClick={handleClose} type="button">Cancel</Button>
+                            <Button type="submit">Save Item</Button>
+                        </SheetFooter>
+                    </form>
+                </FormProvider>
+            </SheetContent>
+        </Sheet>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent className="sm:max-w-md">
+        <FormProvider {...methods}>
+          <form onSubmit={handleSubmit(handleSave)}>
+            <DialogHeader>
+              <DialogTitle>Add Overhead Supply</DialogTitle>
+              <DialogDescription>
+                Log consumable supplies not directly tied to services.
+              </DialogDescription>
+            </DialogHeader>
+             <ScrollArea className="max-h-[70vh] -mr-6 pr-6">
+                <div className="px-6">
+                    {FormContent}
+                </div>
+            </ScrollArea>
+            <DialogFooter className="pt-4 mt-4 border-t pr-6">
+              <Button variant="outline" onClick={handleClose} type="button">Cancel</Button>
+              <Button type="submit">Save Item</Button>
+            </DialogFooter>
+          </form>
+        </FormProvider>
       </DialogContent>
     </Dialog>
   );

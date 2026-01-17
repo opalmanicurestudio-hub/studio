@@ -26,8 +26,12 @@ import { PlusCircle, Package, Hammer, Trash2, QrCode, Check, AlertTriangle, Info
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Slider } from '@/components/ui/slider';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { inventory, services as allServices, type Service, type InventoryItem, type Location } from '@/lib/data';
+import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
+import { SelectEquipmentDialog } from '../services/SelectEquipmentDialog';
+import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
@@ -331,13 +335,6 @@ export const AddProductDialog = ({
     }
   };
   
-  const DialogOrSheet = isMobile ? Sheet : Dialog;
-  const DialogOrSheetContent = isMobile ? SheetContent : DialogContent;
-  const DialogOrSheetHeader = isMobile ? SheetHeader : DialogHeader;
-  const DialogOrSheetTitle = isMobile ? SheetTitle : DialogTitle;
-  const DialogOrSheetDescription = isMobile ? SheetDescription : DialogDescription;
-  const DialogOrSheetFooter = isMobile ? SheetFooter : DialogFooter;
-
   const getStepContent = () => {
       switch(step) {
           case 1: return <Step1_BasicDetails categories={categories} onNewCategory={onNewCategory} />;
@@ -348,46 +345,87 @@ export const AddProductDialog = ({
   }
 
   const FormContent = (
-    <div className={cn("py-4 space-y-4", isMobile && "px-4")}>
+    <div className="py-4 space-y-4">
         <Progress value={(step / totalSteps) * 100} />
         {getStepContent()}
     </div>
   );
 
+  if (isMobile) {
+    return (
+        <Sheet open={open} onOpenChange={handleOpenChange}>
+            <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
+                <FormProvider {...methods}>
+                    <form onSubmit={methods.handleSubmit(handleSave)} className="flex flex-col flex-1 min-h-0">
+                        <SheetHeader className="p-4 border-b text-left">
+                            <SheetTitle>Add New Product</SheetTitle>
+                            <SheetDescription>
+                                Use this wizard to add a new professional or retail product.
+                            </SheetDescription>
+                        </SheetHeader>
+
+                        <div className="flex-1 min-h-0">
+                            <ScrollArea className="h-full px-4">
+                                {FormContent}
+                            </ScrollArea>
+                        </div>
+                        
+                        <SheetFooter className="p-4 border-t">
+                             <div className='flex justify-between w-full'>
+                                <div>{step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}</div>
+                                <div className="flex gap-2">
+                                    <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
+                                    {step < totalSteps ? (
+                                        <Button onClick={handleNext} type="button">Next</Button>
+                                    ) : (
+                                        <Button type="submit">Save Product</Button>
+                                    )}
+                                </div>
+                            </div>
+                        </SheetFooter>
+                    </form>
+                </FormProvider>
+            </SheetContent>
+        </Sheet>
+    );
+  }
+
   return (
-    <DialogOrSheet open={open} onOpenChange={handleOpenChange}>
-      <DialogOrSheetContent className={isMobile ? "h-[95vh] flex flex-col p-0" : "sm:max-w-xl"}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="sm:max-w-xl">
         <FormProvider {...methods}>
           <form onSubmit={methods.handleSubmit(handleSave)}>
-            <DialogOrSheetHeader className={isMobile ? "p-4 border-b text-left" : "text-center"}>
-              <DialogOrSheetTitle>Add New Product</DialogOrSheetTitle>
-              <DialogOrSheetDescription>
+            <DialogHeader>
+              <DialogTitle>Add New Product</DialogTitle>
+              <DialogDescription>
                 Use this wizard to add a new professional or retail product to your inventory.
-              </DialogOrSheetDescription>
-            </DialogOrSheetHeader>
+              </DialogDescription>
+            </DialogHeader>
 
-             <div className={cn("flex-1", isMobile && "overflow-y-auto")}>
-                <ScrollArea className="h-full">
+            <ScrollArea className="max-h-[60vh] -mr-4 pr-4">
+                <div className="pl-1">
                     {FormContent}
-                </ScrollArea>
-             </div>
+                </div>
+            </ScrollArea>
 
-            <DialogOrSheetFooter className={cn(isMobile ? "p-4 border-t" : "pt-4 border-t")}>
+            <DialogFooter className="pt-4 border-t mt-4">
               <div className='flex justify-between w-full'>
-                <div>{step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}</div>
+                <div>
+                    {step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}
+                </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
-                  {step < totalSteps ? (
-                    <Button onClick={handleNext} type="button">Next</Button>
-                  ) : (
-                    <Button type="submit">Save Product</Button>
-                  )}
+                    <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
+                    {step < totalSteps ? (
+                        <Button onClick={handleNext} type="button">Next</Button>
+                    ) : (
+                        <Button type="submit">Save Product</Button>
+                    )}
                 </div>
               </div>
-            </DialogOrSheetFooter>
+            </DialogFooter>
           </form>
         </FormProvider>
-      </DialogOrSheetContent>
-    </DialogOrSheet>
+      </DialogContent>
+    </Dialog>
   );
 };
