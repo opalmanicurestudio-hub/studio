@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -13,7 +13,20 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette, QrCode, AlertTriangle, ListFilter, ChevronDown, ShoppingCart, Briefcase, DollarSign, Activity, Eye, CircleHelp, Warehouse, Beaker, Recycle, TrendingUp } from 'lucide-react';
-import { type InventoryItem, type StockCorrection, type Transaction, type Batch } from '@/lib/data';
+import {
+  inventory as initialInventory,
+  stockCorrections as initialStockCorrections,
+  type InventoryItem, 
+  type StockCorrection,
+  type Transaction,
+  type Batch
+} from '@/lib/data';
+import { 
+  type Location,
+  type LocationType,
+  initialLocations,
+  initialLocationTypes,
+} from '@/context/InventoryContext';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,7 +41,7 @@ import { AddProductDialog } from '@/components/inventory/AddProductDialog';
 import { AddEquipmentDialog } from '@/components/inventory/AddEquipmentDialog';
 import { AddOverheadDialog } from '@/components/inventory/AddOverheadDialog';
 import { EditProductDialog } from '@/components/inventory/EditProductDialog';
-import { AddLocationDialog, type Location, type LocationType } from '@/components/inventory/AddLocationDialog';
+import { AddLocationDialog } from '@/components/inventory/AddLocationDialog';
 import { EditLocationDialog } from '@/components/inventory/EditLocationDialog';
 import { EndCostPerUseTestDialog } from '@/components/inventory/EndCostPerUseTestDialog';
 import { WriteOffDialog } from '@/components/inventory/WriteOffDialog';
@@ -38,7 +51,6 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { isPast, parseISO, differenceInMonths } from 'date-fns';
-import { useInventory } from '@/context/InventoryContext';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -174,7 +186,11 @@ const EmptyState = ({ onActionClick }: { onActionClick: () => void }) => (
 );
 
 export default function InventoryPage() {
-  const { inventory, setInventory, addStockCorrection, stockCorrections, locations, setLocations, locationTypes, setLocationTypes, setTransactions } = useInventory();
+  const [inventory, setInventory] = useState<InventoryItem[]>(initialInventory);
+  const [stockCorrections, setStockCorrections] = useState<StockCorrection[]>(initialStockCorrections);
+  const [locations, setLocations] = useState<Location[]>(initialLocations);
+  const [locationTypes, setLocationTypes] = useState<LocationType[]>(initialLocationTypes);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const { toast } = useToast();
   
   const [activeView, setActiveView] = useState('products');
@@ -200,6 +216,10 @@ export default function InventoryPage() {
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
   const videoRef = useRef<HTMLVideoElement>(null);
   
+  const addStockCorrection = useCallback((correction: StockCorrection) => {
+    setStockCorrections(prev => [...prev, correction]);
+  }, []);
+
   const inventoryCategories = useMemo(() => {
     const allCategories = inventory.map(i => i.category).filter((c): c is string => !!c);
     return [...new Set(allCategories)];
@@ -662,7 +682,12 @@ export default function InventoryPage() {
         
         <div className="grid lg:grid-cols-4 gap-8">
             <div className="hidden lg:block lg:col-span-1">
-                <InventorySidebar onSpoilageConfirm={handleSpoilageConfirm} onLogOverheadUse={handleLogOverheadConsumption} />
+                <InventorySidebar
+                  inventory={inventory}
+                  stockCorrections={stockCorrections}
+                  onSpoilageConfirm={handleSpoilageConfirm} 
+                  onLogOverheadUse={handleLogOverheadConsumption} 
+                />
             </div>
 
             <div className="lg:col-span-3">
@@ -681,7 +706,12 @@ export default function InventoryPage() {
                             </SheetHeader>
                             <ScrollArea className="flex-1">
                                 <div className="p-4">
-                                     <InventorySidebar onSpoilageConfirm={handleSpoilageConfirm} onLogOverheadUse={handleLogOverheadConsumption} />
+                                     <InventorySidebar
+                                      inventory={inventory}
+                                      stockCorrections={stockCorrections}
+                                      onSpoilageConfirm={handleSpoilageConfirm}
+                                      onLogOverheadUse={handleLogOverheadConsumption}
+                                     />
                                 </div>
                             </ScrollArea>
                         </SheetContent>
@@ -780,8 +810,12 @@ export default function InventoryPage() {
                 </TabsContent>
                 <TabsContent value="locations" className="mt-6">
                         <Locations 
+                            locations={locations}
+                            locationTypes={locationTypes}
+                            inventory={inventory}
                             onAddLocation={handleOpenAddLocation}
                             onEditLocation={handleOpenEditLocation}
+                            setLocations={setLocations}
                         />
                 </TabsContent>
                 </Tabs>
@@ -818,9 +852,9 @@ export default function InventoryPage() {
         <AddLocationDialog 
             open={isAddLocationDialogOpen} 
             onOpenChange={setIsAddLocationDialogOpen}
-            onSave={() => {}}
+            onSave={handleSaveLocation}
             locationTypes={locationTypes}
-            onAddNewLocationType={() => ({ id: '', name: '', icon: '' })}
+            onAddNewLocationType={handleAddNewLocationType}
         />
         {selectedLocation && (
             <EditLocationDialog
@@ -829,7 +863,7 @@ export default function InventoryPage() {
                 location={selectedLocation}
                 onSave={handleUpdateLocation}
                 locationTypes={locationTypes}
-                onAddNewLocationType={() => ({ id: '', name: '', icon: '' })}
+                onAddNewLocationType={handleAddNewLocationType}
             />
         )}
         

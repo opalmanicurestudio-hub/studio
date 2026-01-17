@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -10,18 +9,20 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { ManageSpoilageDialog, SpoilageItem } from './ManageSpoilageDialog';
-import { useInventory } from '@/context/InventoryContext';
-import { type InventoryItem, type Batch } from '@/lib/data';
+import { type InventoryItem, type Batch, type StockCorrection } from '@/lib/data';
 import { isPast, parseISO, differenceInMonths } from 'date-fns';
 
 export const InventorySidebar = ({ 
+    inventory,
+    stockCorrections,
     onSpoilageConfirm,
     onLogOverheadUse,
 }: { 
+    inventory: InventoryItem[];
+    stockCorrections: StockCorrection[];
     onSpoilageConfirm: (items: SpoilageItem[]) => void; 
     onLogOverheadUse: (productId: string) => void;
 }) => {
-    const { inventory, stockCorrections } = useInventory();
     const [isSpoilageDialogOpen, setIsSpoilageDialogOpen] = useState(false);
 
     const {

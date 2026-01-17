@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState } from 'react';
@@ -8,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { MoreHorizontal, PlusCircle, Box, Building, Store, ClipboardList, LucideIcon, X } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { type Location, type LocationType, type InventoryItem } from '@/lib/data';
-import { useInventory } from '@/context/InventoryContext';
 import { Badge } from '../ui/badge';
 import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -109,13 +107,20 @@ const LocationCard = ({
 };
 
 export const Locations = ({
+    locations,
+    locationTypes,
+    inventory,
+    setLocations,
     onAddLocation,
     onEditLocation,
 }: {
+    locations: Location[];
+    locationTypes: LocationType[];
+    inventory: InventoryItem[];
+    setLocations: React.Dispatch<React.SetStateAction<Location[]>>;
     onAddLocation: () => void;
     onEditLocation: (location: Location) => void;
 }) => {
-    const { locations, locationTypes, inventory, setLocations } = useInventory();
     const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
 
     const handleDeleteLocation = (locationId: string) => {

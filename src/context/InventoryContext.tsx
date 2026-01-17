@@ -27,13 +27,13 @@ import {
 
 
 // Define initial locations and location types
-const initialLocationTypes: LocType[] = [
+export const initialLocationTypes: LocType[] = [
   { id: 'lt-1', name: 'General Storage', icon: 'Box' },
   { id: 'lt-2', name: 'Retail Display', icon: 'Store' },
   { id: 'lt-3', name: 'Workstation', icon: 'ClipboardList' },
 ];
 
-const initialLocations: LocationType[] = [
+export const initialLocations: LocationType[] = [
   { id: 'loc-1', name: 'Back Room - Shelf A', locationTypeId: 'lt-1', description: 'Main storage for backstock color and developers.' },
   { id: 'loc-2', name: 'Retail Display - Front', locationTypeId: 'lt-2', description: 'Client-facing retail shelves.' },
   { id: 'loc-3', name: 'Styling Station 1', locationTypeId: 'lt-3' },
@@ -107,16 +107,16 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     services,
     setServices,
   }), [
-    inventory, 
-    stockCorrections, 
-    addStockCorrection, 
-    locations, 
-    locationTypes, 
-    billDefinitions, 
-    billInstances, 
-    transactions, 
-    clients, 
-    appointments, 
+    inventory,
+    stockCorrections,
+    addStockCorrection,
+    locations,
+    locationTypes,
+    billDefinitions,
+    billInstances,
+    transactions,
+    clients,
+    appointments,
     services,
     setInventory,
     setStockCorrections,
