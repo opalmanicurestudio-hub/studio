@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette, QrCode, AlertTriangle, ListFilter, ChevronDown, ShoppingCart, Briefcase, DollarSign, Activity, Eye, CircleHelp, Warehouse, Beaker, Recycle, TrendingUp } from 'lucide-react';
-import {
+import { 
     inventory as initialInventoryData,
     stockCorrections as initialStockCorrectionsData,
     type InventoryItem, 
@@ -21,13 +21,11 @@ import {
     type Client,
     clients as initialClientsData,
     type Transaction,
+    type Location,
+    type LocationType,
+    initialLocations as initialLocationsData,
+    initialLocationTypes as initialLocationTypesData,
 } from '@/lib/data';
-import { 
-  type Location,
-  type LocationType,
-  initialLocations as initialLocationsData,
-  initialLocationTypes as initialLocationTypesData,
-} from '@/context/InventoryContext';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -877,6 +875,8 @@ export default function InventoryPage() {
             locationTypes={locationTypes}
             onProductAdded={handleAddProduct}
             initialCategories={inventoryCategories}
+            onAddNewLocation={handleSaveLocation}
+            onAddNewLocationType={handleAddNewLocationType}
         />
 
         <AddEquipmentDialog 

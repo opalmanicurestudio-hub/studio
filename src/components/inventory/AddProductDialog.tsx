@@ -39,7 +39,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { QrCode } from 'lucide-react';
 import { AddLocationDialog } from './AddLocationDialog';
-import { type Location, type LocationType } from '@/context/InventoryContext';
+import { type Location, type LocationType } from '@/lib/data';
 
 
 export type ProductType = 'professional' | 'retail' | 'both';
@@ -486,25 +486,29 @@ const Step3_InventorySupplier = ({ onAddLocationClick, locations }: { onAddLocat
     )
 };
 
-export const AddProductDialog = ({ 
-    open, 
-    onOpenChange, 
-    locations,
-    locationTypes,
-    onProductAdded,
-    initialCategories,
-}: { 
-    open: boolean, 
-    onOpenChange: (open: boolean) => void, 
-    locations: Location[],
-    locationTypes: LocationType[],
-    onProductAdded: (product: any) => void;
-    initialCategories: string[];
+export const AddProductDialog = ({
+  open,
+  onOpenChange,
+  locations,
+  locationTypes,
+  onProductAdded,
+  initialCategories,
+  onAddNewLocation,
+  onAddNewLocationType,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  locations: Location[];
+  locationTypes: LocationType[];
+  onProductAdded: (product: any) => void;
+  initialCategories: string[];
+  onAddNewLocation: (newLocation: Omit<Location, 'id'>) => void;
+  onAddNewLocationType: (name: string, icon: string) => LocationType;
 }) => {
   const [step, setStep] = useState(1);
   const [categories, setCategories] = useState<string[]>(initialCategories);
   const [isAddLocationDialogOpen, setIsAddLocationDialogOpen] = useState(false);
-  
+
   useEffect(() => {
     if (open) {
       setCategories(initialCategories);
@@ -514,25 +518,25 @@ export const AddProductDialog = ({
   const methods = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
     defaultValues: {
-        type: 'professional',
-        costingMethod: 'by-size',
-        isExperimentActive: false,
-    }
+      type: 'professional',
+      costingMethod: 'by-size',
+      isExperimentActive: false,
+    },
   });
 
   const productType = methods.watch('type');
   const totalSteps = 3;
-  
+
   const handleOpenChange = (isOpen: boolean) => {
     onOpenChange(isOpen);
     if (!isOpen) {
-        setTimeout(() => {
-            setStep(1);
-            methods.reset();
-        }, 300);
+      setTimeout(() => {
+        setStep(1);
+        methods.reset();
+      }, 300);
     }
-  }
-  
+  };
+
   const onNewCategory = (newCategory: string) => {
     setCategories(prev => [...new Set([...prev, newCategory])]);
   };
@@ -545,11 +549,11 @@ export const AddProductDialog = ({
   const handleNext = async () => {
     const fieldsToValidate: (keyof ProductFormData)[] = [];
     if (step === 1) {
-        fieldsToValidate.push('name', 'category');
+      fieldsToValidate.push('name', 'category');
     }
-    
+
     const isValid = await methods.trigger(fieldsToValidate);
-    
+
     if (isValid && step < totalSteps) {
       setStep(step + 1);
     }
@@ -563,46 +567,72 @@ export const AddProductDialog = ({
 
   return (
     <>
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-lg">
-            <FormProvider {...methods}>
-                <form onSubmit={methods.handleSubmit(onSubmit)}>
-                <DialogHeader>
-                    <DialogTitle>Add New Product</DialogTitle>
-                    <DialogDescription>Create a new professional or retail product for your inventory.</DialogDescription>
-                </DialogHeader>
+          <FormProvider {...methods}>
+            <form onSubmit={methods.handleSubmit(onSubmit)}>
+              <DialogHeader>
+                <DialogTitle>Add New Product</DialogTitle>
+                <DialogDescription>
+                  Create a new professional or retail product for your inventory.
+                </DialogDescription>
+              </DialogHeader>
 
-                <div className="py-4 space-y-4">
-                    <Progress value={(step / totalSteps) * 100} />
-                    <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
-                        {step === 1 && <Step1_Basics categories={categories} onNewCategory={onNewCategory} />}
-                        {step === 2 && <Step2_CostingPricing productType={productType} />}
-                        {step === 3 && <Step3_InventorySupplier onAddLocationClick={() => setIsAddLocationDialogOpen(true)} locations={locations}/>}
-                    </div>
+              <div className="py-4 space-y-4">
+                <Progress value={(step / totalSteps) * 100} />
+                <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
+                  {step === 1 && (
+                    <Step1_Basics
+                      categories={categories}
+                      onNewCategory={onNewCategory}
+                    />
+                  )}
+                  {step === 2 && <Step2_CostingPricing productType={productType} />}
+                  {step === 3 && (
+                    <Step3_InventorySupplier
+                      onAddLocationClick={() => setIsAddLocationDialogOpen(true)}
+                      locations={locations}
+                    />
+                  )}
                 </div>
+              </div>
 
-                <DialogFooter>
-                    <div className='flex justify-between w-full'>
-                        <div>
-                        {step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}
-                        </div>
-                        <div className="flex gap-2">
-                        <Button variant="outline" onClick={() => handleOpenChange(false)} type="button">Cancel</Button>
-                        {step < totalSteps && <Button onClick={handleNext} type="button">Next</Button>}
-                        {step === totalSteps && <Button type="submit">Save Product</Button>}
-                        </div>
-                    </div>
-                </DialogFooter>
-                </form>
-            </FormProvider>
+              <DialogFooter>
+                <div className="flex justify-between w-full">
+                  <div>
+                    {step > 1 && (
+                      <Button variant="outline" onClick={handleBack} type="button">
+                        Back
+                      </Button>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => handleOpenChange(false)}
+                      type="button"
+                    >
+                      Cancel
+                    </Button>
+                    {step < totalSteps && (
+                      <Button onClick={handleNext} type="button">
+                        Next
+                      </Button>
+                    )}
+                    {step === totalSteps && <Button type="submit">Save Product</Button>}
+                  </div>
+                </div>
+              </DialogFooter>
+            </form>
+          </FormProvider>
         </DialogContent>
       </Dialog>
-      <AddLocationDialog 
-          open={isAddLocationDialogOpen} 
-          onOpenChange={setIsAddLocationDialogOpen}
-          onSave={() => {}}
-          locationTypes={locationTypes}
-          onAddNewLocationType={() => ({ id: '', name: '', icon: '' })}
+      <AddLocationDialog
+        open={isAddLocationDialogOpen}
+        onOpenChange={setIsAddLocationDialogOpen}
+        onSave={onAddNewLocation}
+        locationTypes={locationTypes}
+        onAddNewLocationType={onAddNewLocationType}
       />
     </>
   );
