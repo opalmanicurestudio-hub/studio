@@ -51,6 +51,7 @@ interface InventoryContextType {
   locationTypes: LocType[];
   setLocationTypes: React.Dispatch<React.SetStateAction<LocType[]>>;
   billDefinitions: Bill[];
+  setBillDefinitions: React.Dispatch<React.SetStateAction<Bill[]>>;
   billInstances: BillInstance[];
   setBillInstances: React.Dispatch<React.SetStateAction<BillInstance[]>>;
   transactions: Transaction[];
@@ -81,7 +82,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
 
   const addStockCorrection = useCallback((correction: StockCorrection) => {
     setStockCorrections(prev => [...prev, correction]);
-  }, []);
+  }, [setStockCorrections]);
 
   const value = useMemo(() => ({
     inventory,
