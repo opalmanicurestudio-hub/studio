@@ -32,7 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { type InventoryItem, type Location } from '@/lib/data';
@@ -41,8 +41,7 @@ import { useForm, FormProvider, useFormContext, Controller } from 'react-hook-fo
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { ScrollArea } from '../ui/scroll-area';
-import { Check, PlusCircle, DollarSign } from 'lucide-react';
-import { useInventory } from '@/context/InventoryContext';
+import { Check, PlusCircle } from 'lucide-react';
 
 const productSchema = z.object({
   name: z.string().min(1, 'Product name is required'),
@@ -153,9 +152,18 @@ const Step2_CostingPricing = () => {
              <Card>
                 <CardHeader><CardTitle>Landed Cost Calculator</CardTitle><CardDescription>Calculate the true cost per item.</CardDescription></CardHeader>
                 <CardContent className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4"><Controller name="totalPurchaseCost" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="total-cost">Total Purchase Cost</Label><Input id="total-cost" type="number" placeholder="From invoice" {...field} /></div>)}/><Controller name="numUnits" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="num-units">Number of Units</Label><Input id="num-units" type="number" placeholder="In shipment" {...field} /></div>)}/></div>
-                    <div className="grid grid-cols-2 gap-4"><Controller name="shippingCost" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="shipping">Shipping</Label><Input id="shipping" type="number" placeholder="0.00" {...field} /></div>)}/><Controller name="taxCost" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="taxes">Taxes</Label><Input id="taxes" type="number" placeholder="0.00" {...field} /></div>)}/></div>
-                    <div className="space-y-2"><Label htmlFor="discounts">Discounts</Label><Input id="discounts" type="number" placeholder="0.00" /></div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <Controller name="totalPurchaseCost" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="total-cost">Total Purchase Cost</Label><Input id="total-cost" type="number" placeholder="From invoice" {...field} value={field.value ?? ''} /></div>)}/>
+                        <Controller name="numUnits" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="num-units">Number of Units</Label><Input id="num-units" type="number" placeholder="In shipment" {...field} value={field.value ?? ''} /></div>)}/>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <Controller name="shippingCost" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="shipping">Shipping</Label><Input id="shipping" type="number" placeholder="0.00" {...field} value={field.value ?? ''} /></div>)}/>
+                        <Controller name="taxCost" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="taxes">Taxes</Label><Input id="taxes" type="number" placeholder="0.00" {...field} value={field.value ?? ''} /></div>)}/>
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="discounts">Discounts</Label>
+                        <Controller name="discounts" control={control} render={({ field }) => (<Input id="discounts" type="number" placeholder="0.00" {...field} value={field.value ?? ''} />)} />
+                    </div>
                     <div className="p-3 bg-muted rounded-md flex items-center justify-between"><span className="font-medium">Landed Cost Per Item:</span><span className="text-lg font-bold text-primary">$0.00</span></div>
                 </CardContent>
             </Card>
@@ -164,9 +172,9 @@ const Step2_CostingPricing = () => {
                     <CardHeader><CardTitle>Professional Costing</CardTitle><CardDescription>How much does it cost to use this once?</CardDescription></CardHeader>
                     <CardContent className="space-y-4">
                         <Controller name="costingMethod" control={control} render={({ field }) => (<div className="space-y-2"><Label>Costing Method</Label><RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2"><div><RadioGroupItem value="size" id="by-size" className="peer sr-only" /><Label htmlFor="by-size" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">By Size</Label></div><div><RadioGroupItem value="uses" id="by-uses" className="peer sr-only" /><Label htmlFor="by-uses" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">By Uses</Label></div></RadioGroup></div>)}/>
-                        {costingMethod === 'size' && (<div className="grid grid-cols-2 gap-4"><Controller name="containerSize" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="container-size">Container Size</Label><Input id="container-size" type="number" placeholder="e.g., 1000" {...field} /></div>)}/><Controller name="containerUnit" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="unit">Unit</Label><Select onValueChange={field.onChange} value={field.value}><SelectTrigger id="unit"><SelectValue placeholder="Unit" /></SelectTrigger><SelectContent><SelectItem value="ml">ml</SelectItem><SelectItem value="oz">oz</SelectItem><SelectItem value="g">g</SelectItem></SelectContent></Select></div>)}/></div>)}
-                        {costingMethod === 'uses' && (<Controller name="usesPerContainer" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="estimated-uses">Uses Per Container</Label><Input id="estimated-uses" type="number" placeholder="e.g., 50" {...field} /></div>)}/>)}
-                         <Controller name="restockingMarkup" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="restocking-markup">Restocking Markup (%)</Label><Input id="restocking-markup" type="number" placeholder="e.g., 5" {...field} /></div>)}/>
+                        {costingMethod === 'size' && (<div className="grid grid-cols-2 gap-4"><Controller name="containerSize" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="container-size">Container Size</Label><Input id="container-size" type="number" placeholder="e.g., 1000" {...field} value={field.value ?? ''} /></div>)}/><Controller name="containerUnit" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="unit">Unit</Label><Select onValueChange={field.onChange} value={field.value}><SelectTrigger id="unit"><SelectValue placeholder="Unit" /></SelectTrigger><SelectContent><SelectItem value="ml">ml</SelectItem><SelectItem value="oz">oz</SelectItem><SelectItem value="g">g</SelectItem></SelectContent></Select></div>)}/></div>)}
+                        {costingMethod === 'uses' && (<Controller name="usesPerContainer" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="estimated-uses">Uses Per Container</Label><Input id="estimated-uses" type="number" placeholder="e.g., 50" {...field} value={field.value ?? ''} /></div>)}/>)}
+                         <Controller name="restockingMarkup" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="restocking-markup">Restocking Markup (%)</Label><Input id="restocking-markup" type="number" placeholder="e.g., 5" {...field} value={field.value ?? ''} /></div>)}/>
                     </CardContent>
                 </Card>
             )}
@@ -174,7 +182,7 @@ const Step2_CostingPricing = () => {
                 <Card>
                     <CardHeader><CardTitle>Retail Pricing</CardTitle><CardDescription>How much will clients pay?</CardDescription></CardHeader>
                     <CardContent className="space-y-4">
-                        <div className="grid grid-cols-2 gap-4"><Controller name="msrp" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="msrp">MSRP</Label><Input id="msrp" type="number" placeholder="0.00" {...field} /></div>)}/><Controller name="markdownPrice" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="markdown-price">Markdown Price</Label><Input id="markdown-price" type="number" placeholder="Optional" {...field} /></div>)}/></div>
+                        <div className="grid grid-cols-2 gap-4"><Controller name="msrp" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="msrp">MSRP</Label><Input id="msrp" type="number" placeholder="0.00" {...field} value={field.value ?? ''} /></div>)}/><Controller name="markdownPrice" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="markdown-price">Markdown Price</Label><Input id="markdown-price" type="number" placeholder="Optional" {...field} value={field.value ?? ''} /></div>)}/></div>
                         <div className="p-3 bg-muted rounded-md"><p className="font-medium text-center">Profit Margin: <span className="text-lg font-bold text-primary">0%</span></p></div>
                     </CardContent>
                 </Card>
@@ -198,9 +206,9 @@ const Step3_InventorySupplier = ({ onAddLocationClick, locations }: { onAddLocat
             <Card>
                  <CardHeader><CardTitle>Stock Management</CardTitle></CardHeader>
                  <CardContent className="space-y-4">
-                    <Controller name="reorderPoint" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="reorder-point">Reorder Point</Label><Input id="reorder-point" type="number" placeholder="e.g., 5" {...field} /></div>)} />
+                    <Controller name="reorderPoint" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="reorder-point">Reorder Point</Label><Input id="reorder-point" type="number" placeholder="e.g., 5" {...field} value={field.value ?? ''} /></div>)} />
                      <div className="grid grid-cols-2 gap-4">
-                        <Controller name="initialStock" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="initial-stock">Initial Stock</Label><Input id="initial-stock" type="number" placeholder="Quantity" {...field} /></div>)} />
+                        <Controller name="initialStock" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="initial-stock">Initial Stock</Label><Input id="initial-stock" type="number" placeholder="Quantity" {...field} value={field.value ?? ''} /></div>)} />
                         <Controller name="expirationDate" control={control} render={({ field }) => (<div className="space-y-2"><Label>Expiration</Label><p className="text-xs text-muted-foreground">Batch tracking coming soon</p></div>)} />
                     </div>
                 </CardContent>
@@ -220,6 +228,8 @@ export const AddProductDialog = ({
   open,
   onOpenChange,
   initialType,
+  categories,
+  onNewCategory,
   onProductAdded,
   locations,
   onAddLocationClick,
@@ -227,15 +237,15 @@ export const AddProductDialog = ({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialType: 'professional' | 'retail';
+  categories: string[];
+  onNewCategory: (category: string) => void;
   onProductAdded: (product: InventoryItem) => void;
   locations: Location[],
   onAddLocationClick: () => void;
 }) => {
-  const { inventory } = useInventory();
   const [step, setStep] = useState(1);
   const totalSteps = 3;
   const isMobile = useIsMobile();
-  const [productCategories, setProductCategories] = useState<string[]>([]);
   
   const methods = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
@@ -243,17 +253,6 @@ export const AddProductDialog = ({
       type: initialType,
     }
   });
-
-  useEffect(() => {
-    if (inventory) {
-        const allCategories = inventory.map(p => p.category).filter((c): c is string => !!c);
-        setProductCategories([...new Set(allCategories)]);
-    }
-  }, [inventory]);
-
-  const onNewCategory = useCallback((newCategory: string) => {
-    setProductCategories(prev => [...new Set([...prev, newCategory])]);
-  }, []);
 
   useEffect(() => {
     if (open) {
@@ -309,7 +308,7 @@ export const AddProductDialog = ({
 
   const getStepContent = () => {
       switch(step) {
-          case 1: return <Step1_BasicDetails categories={productCategories} onNewCategory={onNewCategory} />;
+          case 1: return <Step1_BasicDetails categories={categories} onNewCategory={onNewCategory} />;
           case 2: return <Step2_CostingPricing />;
           case 3: return <Step3_InventorySupplier onAddLocationClick={onAddLocationClick} locations={locations} />;
           default: return null;
@@ -380,7 +379,7 @@ export const AddProductDialog = ({
                   {step < totalSteps ? (
                     <Button onClick={handleNext} type="button">Next</Button>
                   ) : (
-                    <Button onClick={methods.handleSubmit(onSubmit)} type="button">Save Product</Button>
+                    <Button onClick={methods.handleSubmit(onSubmit)} type="submit" form={formId}>Save Product</Button>
                   )}
                 </div>
               </div>
