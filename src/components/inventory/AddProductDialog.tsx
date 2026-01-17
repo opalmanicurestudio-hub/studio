@@ -28,9 +28,6 @@ import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { inventory, services as allServices, type Service, type InventoryItem, type Location } from '@/lib/data';
-import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
-import { SelectEquipmentDialog } from '../services/SelectEquipmentDialog';
-import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
@@ -39,10 +36,11 @@ import { z } from 'zod';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from '../ui/sheet';
 import { ScrollArea } from '../ui/scroll-area';
+import { cn } from '@/lib/utils';
 
 const productSchema = z.object({
   name: z.string().min(1, 'Product name is required'),
-  type: z.enum(['professional', 'retail', 'both']),
+  type: z.enum(['professional', 'retail']),
   category: z.string().min(1, 'Category is required'),
   imageUrl: z.string().optional(),
   internalNotes: z.string().optional(),
@@ -83,48 +81,88 @@ const Step1_BasicDetails = ({
     categories: string[];
     onNewCategory: (category: string) => void;
 }) => {
-    const { register, control, setValue, formState: { errors } } = useFormContext<ProductFormData>();
+    const { register, control, setValue, watch, formState: { errors } } = useFormContext<ProductFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
+    const category = watch('category');
 
     const handleAddNewCategory = () => {
-        if (newCategoryName.trim()) {
-            onNewCategory(newCategoryName.trim());
-            setValue('category', newCategoryName.trim());
-            setIsAddingCategory(false);
+        if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
+            const newCategory = newCategoryName.trim();
+            onNewCategory(newCategory);
+            setValue('category', newCategory, { shouldValidate: true });
             setNewCategoryName('');
+            setIsAddingCategory(false);
         }
     };
     
     return (
-        <div className="grid gap-4 py-4">
-            <Controller name="name" control={control} render={({ field }) => (
-                <div className="space-y-2"><Label htmlFor="product-name">Product Name</Label><Input id="product-name" placeholder="e.g., Hydrating Shampoo" {...field} />{errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}</div>
-            )}/>
-            <Controller name="type" control={control} render={({ field }) => (
-                <div className="space-y-2"><Label>Product Type</Label><RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-3 gap-2"><div><RadioGroupItem value="professional" id="professional" className="peer sr-only" /><Label htmlFor="professional" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Professional</Label></div><div><RadioGroupItem value="retail" id="retail" className="peer sr-only" /><Label htmlFor="retail" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Retail</Label></div><div><RadioGroupItem value="both" id="both" className="peer sr-only" /><Label htmlFor="both" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Both</Label></div></RadioGroup></div>
-            )}/>
-            <Controller name="category" control={control} render={({ field }) => (
-                 <div className="space-y-2">
-                    <Label htmlFor="category">Category</Label>
-                    {isAddingCategory ? (
-                        <div className="flex gap-2"><Input placeholder="New category..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} /><Button onClick={handleAddNewCategory} type="button">Add</Button></div>
-                    ) : (
-                        <div className="flex gap-2">
-                        <Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger><SelectContent>{categories.map(cat => (<SelectItem key={cat} value={cat}>{cat}</SelectItem>))}</SelectContent></Select>
-                        <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"><PlusCircle className="h-4 w-4" /></Button>
-                        </div>
-                    )}
-                    {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
-                </div>
-              )}/>
-            <Controller name="imageUrl" control={control} render={({ field }) => (
-                <div className="space-y-2"><Label>Product Image</Label><ImageUpload onImageUploaded={field.onChange} /></div>
-            )}/>
-            <Controller name="internalNotes" control={control} render={({ field }) => (
-                <div className="space-y-2"><Label htmlFor="internal-notes">Internal Notes</Label><Textarea id="internal-notes" placeholder="Private usage instructions, formulation tips..." {...field} /></div>
-            )}/>
+  <div className="grid gap-6 py-4">
+    <div className="space-y-2">
+      <Label htmlFor="product-name">Product Name</Label>
+      <Input id="product-name" placeholder="e.g., Hydrating Shampoo" {...register('name')} />
+       {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+    </div>
+    <Controller
+      name="type"
+      control={control}
+      render={({ field }) => (
+        <input type="hidden" {...field} />
+      )}
+    />
+    <div className="space-y-2">
+      <Label htmlFor="category">Category</Label>
+      {isAddingCategory ? (
+        <div className="flex gap-2">
+          <Input
+            placeholder="Enter new category name..."
+            value={newCategoryName}
+            onChange={(e) => setNewCategoryName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()}
+          />
+          <Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button>
         </div>
+      ) : (
+        <div className="flex gap-2">
+          <Controller
+            name="category"
+            control={control}
+            render={({ field }) => (
+               <Select onValueChange={field.onChange} value={field.value}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map(cat => (
+                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          />
+         
+          <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button">
+            <PlusCircle className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
+       {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
+    </div>
+    <div className="space-y-2">
+      <Label>Product Image</Label>
+       <Controller
+        name="imageUrl"
+        control={control}
+        render={({ field }) => (
+          <ImageUpload onImageUploaded={field.onChange} />
+        )}
+      />
+    </div>
+    <div className="space-y-2">
+      <Label htmlFor="internal-notes">Internal Notes</Label>
+      <Textarea id="internal-notes" placeholder="Private usage instructions, formulation tips..." {...register('internalNotes')} />
+    </div>
+  </div>
     );
 };
 
@@ -185,7 +223,7 @@ const Step3_InventorySupplier = ({ onAddLocationClick, locations }: { onAddLocat
                     <Controller name="reorderPoint" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="reorder-point">Reorder Point</Label><Input id="reorder-point" type="number" placeholder="e.g., 5" {...field} /></div>)} />
                      <div className="grid grid-cols-2 gap-4">
                         <Controller name="initialStock" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="initial-stock">Initial Stock</Label><Input id="initial-stock" type="number" placeholder="Quantity" {...field} /></div>)} />
-                        <Controller name="expirationDate" control={control} render={({ field }) => (<div className="space-y-2"><Label>Expiration</Label><Popover><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start text-left font-normal"><CalendarIcon className="mr-2 h-4 w-4" />{field.value ? format(field.value, 'PPP') : <span>Optional</span>}</Button></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} /></PopoverContent></Popover></div>)} />
+                        <Controller name="expirationDate" control={control} render={({ field }) => (<div className="space-y-2"><Label>Expiration</Label><p className="text-xs text-muted-foreground">Batch tracking coming soon</p></div>)} />
                     </div>
                 </CardContent>
             </Card>
@@ -224,16 +262,15 @@ export const AddProductDialog = ({
   
   const methods = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
+    defaultValues: {
+      type: initialType,
+    }
   });
 
   useEffect(() => {
     if (open) {
       methods.reset({
         type: initialType,
-        depositType: 'none',
-        products: [],
-        equipment: [],
-        addOns: [],
       });
       setStep(1);
     }
@@ -244,7 +281,7 @@ export const AddProductDialog = ({
     const newProduct: InventoryItem = {
         id: `prod-${Date.now()}`,
         name: data.name,
-        type: data.type === 'both' ? 'professional' : data.type, // Handle 'both' case
+        type: data.type,
         category: data.category,
         totalStock: data.initialStock || 0,
         supplier: data.supplier || '',
@@ -291,6 +328,15 @@ export const AddProductDialog = ({
   const DialogOrSheetDescription = isMobile ? SheetDescription : DialogDescription;
   const DialogOrSheetFooter = isMobile ? SheetFooter : DialogFooter;
 
+  const getStepContent = () => {
+      switch(step) {
+          case 1: return <Step1_BasicDetails categories={categories} onNewCategory={onNewCategory} />;
+          case 2: return <Step2_CostingAndPricing />;
+          case 3: return <Step3_InventorySupplier onAddLocationClick={onAddLocationClick} locations={locations} />;
+          default: return null;
+      }
+  }
+
   return (
     <DialogOrSheet open={open} onOpenChange={onOpenChange}>
       <DialogOrSheetContent className={isMobile ? "h-[95dvh] flex flex-col p-0" : "sm:max-w-xl"}>
@@ -306,9 +352,7 @@ export const AddProductDialog = ({
             <div className={cn("py-4 space-y-4", isMobile && "px-4 flex-1 overflow-y-auto")}>
               <Progress value={(step / totalSteps) * 100} />
               <ScrollArea className={cn(!isMobile && "max-h-[60vh] pr-4")}>
-                {step === 1 && <Step1_BasicDetails categories={categories} onNewCategory={onNewCategory} />}
-                {step === 2 && <Step2_CostingAndPricing />}
-                {step === 3 && <Step3_InventorySupplier onAddLocationClick={onAddLocationClick} locations={locations} />}
+                {getStepContent()}
               </ScrollArea>
             </div>
 
