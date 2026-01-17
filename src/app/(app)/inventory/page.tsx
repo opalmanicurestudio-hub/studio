@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
@@ -91,25 +92,27 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                             <Link href={detailHref} className="group">
                                <p className="font-semibold text-base leading-tight group-hover:underline pr-2">{item.name}</p>
                             </Link>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button aria-haspopup="true" size="icon" variant="ghost" className="h-8 w-8 flex-shrink-0 -mt-1 -mr-1">
-                                  <MoreHorizontal className="h-4 w-4" />
-                                  <span className="sr-only">Toggle menu</span>
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem asChild><Link href={detailHref}>View Details</Link></DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => onEdit(item)}><Pencil className="mr-2 h-4 w-4" /> Edit</DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={() => item.isExperimentActive ? onEndExperiment(item) : onToggleExperiment(item)}>
-                                    {item.isExperimentActive ? <><CheckCircle className="mr-2 h-4 w-4 text-green-500" />End Lifespan Test</> : <><Rocket className="mr-2 h-4 w-4 text-purple-500"/>Start Lifespan Test</>}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem asChild><Link href={`/inventory/labels?product=${item.id}`}><Printer className="mr-2 h-4 w-4" /> Print Label</Link></DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Delete</DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
+                            <ClientOnly>
+                                <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button aria-haspopup="true" size="icon" variant="ghost" className="h-8 w-8 flex-shrink-0 -mt-1 -mr-1">
+                                    <MoreHorizontal className="h-4 w-4" />
+                                    <span className="sr-only">Toggle menu</span>
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                    <DropdownMenuItem asChild><Link href={detailHref}>View Details</Link></DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => onEdit(item)}><Pencil className="mr-2 h-4 w-4" /> Edit</DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem onClick={() => item.isExperimentActive ? onEndExperiment(item) : onToggleExperiment(item)}>
+                                        {item.isExperimentActive ? <><CheckCircle className="mr-2 h-4 w-4 text-green-500" />End Lifespan Test</> : <><Rocket className="mr-2 h-4 w-4 text-purple-500"/>Start Lifespan Test</>}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem asChild><Link href={`/inventory/labels?product=${item.id}`}><Printer className="mr-2 h-4 w-4" /> Print Label</Link></DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Delete</DropdownMenuItem>
+                                </DropdownMenuContent>
+                                </DropdownMenu>
+                            </ClientOnly>
                         </div>
                         <p className="text-sm text-muted-foreground">{item.category}</p>
                     </div>
@@ -241,7 +244,7 @@ export default function InventoryPage() {
     setLocations(prev => [...prev, newLocWithId]);
   };
   const handleUpdateLocation = (updatedLocation: Location) => {
-    setLocations(prev => prev.map(loc => loc.id === updatedLocation.id ? updatedLocation : c));
+    setLocations(prev => prev.map(loc => loc.id === updatedLocation.id ? updatedLocation : loc));
   };
    const handleAddNewLocationType = (name: string, icon: string): LocationType => {
     const newType = { id: `lt-${Date.now()}`, name, icon };
@@ -273,12 +276,13 @@ export default function InventoryPage() {
     let success = false;
     let message = '';
     
-    setInventory(prev => {
-        const newInventory = JSON.parse(JSON.stringify(prev));
+    setInventory(prevInventory => {
+        const newInventory = JSON.parse(JSON.stringify(prevInventory));
         const productIndex = newInventory.findIndex((p: InventoryItem) => p.id === productId);
+        
         if (productIndex === -1) {
             message = 'Product not found.';
-            return prev;
+            return prevInventory;
         }
 
         const product = newInventory[productIndex];
@@ -306,7 +310,7 @@ export default function InventoryPage() {
                     product.partialContainerUses = remainingUses;
                 } else {
                     message = `Insufficient stock for ${product.name}. Cannot log use.`;
-                    return prev;
+                    return prevInventory;
                 }
             }
         } else if (product.costingMethod === 'size') {
@@ -328,7 +332,7 @@ export default function InventoryPage() {
                     product.partialContainerSize = remainingSize;
                 } else {
                     message = `Insufficient stock for ${product.name}. Cannot log use.`;
-                    return prev;
+                    return prevInventory;
                 }
             }
         } else {
@@ -344,7 +348,7 @@ export default function InventoryPage() {
                 }
             } else {
                  message = `Insufficient stock for ${product.name}. Only ${product.totalStock} units available.`;
-                 return prev;
+                 return prevInventory;
             }
         }
 
@@ -366,7 +370,7 @@ export default function InventoryPage() {
                 message = `${quantity} ${unit} of ${product.name} logged.`;
              }
         }
-
+        
         return newInventory;
     });
 
@@ -881,9 +885,4 @@ export default function InventoryPage() {
       </Dialog>
     </div>
   );
-
-    
-
-
-
-    
+}

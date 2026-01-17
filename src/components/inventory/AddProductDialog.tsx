@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -70,22 +71,16 @@ const productSchema = z.object({
 type ProductFormData = z.infer<typeof productSchema>;
 
 
-const Step1_Basics = ({ 
-    categories, 
-    onNewCategory,
-}: { 
-    categories: string[];
-    onNewCategory: (category: string) => void;
-}) => {
-    const { register, control, setValue, watch, formState: { errors } } = useFormContext<ProductFormData>();
+const Step1_Basics = () => {
+    const { register, control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
+    const { categories, setCategories } = useDialogState();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
-    const category = watch('category');
-
+    
     const handleAddNewCategory = () => {
         if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
             const newCategory = newCategoryName.trim();
-            onNewCategory(newCategory);
+            setCategories(prev => [...prev, newCategory]);
             setValue('category', newCategory, { shouldValidate: true });
             setNewCategoryName('');
             setIsAddingCategory(false);
@@ -478,6 +473,18 @@ const Step3_InventorySupplier = ({ onAddLocationClick, locations }: { onAddLocat
     )
 };
 
+const DialogStateContext = React.createContext<{
+    categories: string[];
+    setCategories: React.Dispatch<React.SetStateAction<string[]>>;
+} | null>(null);
+
+const useDialogState = () => {
+    const context = React.useContext(DialogStateContext);
+    if (!context) {
+        throw new Error("useDialogState must be used within a DialogStateProvider");
+    }
+    return context;
+};
 
 export const AddProductDialog = ({ 
     open, 
@@ -550,46 +557,42 @@ export const AddProductDialog = ({
     }
   };
 
-  const handleNewCategory = (newCategory: string) => {
-    if (!categories.includes(newCategory)) {
-        setCategories(prev => [...prev, newCategory]);
-    }
-  }
-
   return (
     <>
-      <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-lg">
-          <FormProvider {...methods}>
-            <form onSubmit={methods.handleSubmit(onSubmit)}>
-              <DialogHeader>
-                <DialogTitle>Add New Product</DialogTitle>
-                <DialogDescription>Create a new professional or retail product for your inventory.</DialogDescription>
-              </DialogHeader>
+            <DialogStateContext.Provider value={{ categories, setCategories }}>
+                <FormProvider {...methods}>
+                    <form onSubmit={methods.handleSubmit(onSubmit)}>
+                    <DialogHeader>
+                        <DialogTitle>Add New Product</DialogTitle>
+                        <DialogDescription>Create a new professional or retail product for your inventory.</DialogDescription>
+                    </DialogHeader>
 
-              <div className="py-4 space-y-4">
-                  <Progress value={(step / totalSteps) * 100} />
-                  <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
-                      {step === 1 && <Step1_Basics categories={categories} onNewCategory={handleNewCategory} />}
-                      {step === 2 && <Step2_CostingPricing productType={productType} />}
-                      {step === 3 && <Step3_InventorySupplier onAddLocationClick={() => setIsAddLocationDialogOpen(true)} locations={locations}/>}
-                  </div>
-              </div>
+                    <div className="py-4 space-y-4">
+                        <Progress value={(step / totalSteps) * 100} />
+                        <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
+                            {step === 1 && <Step1_Basics />}
+                            {step === 2 && <Step2_CostingPricing productType={productType} />}
+                            {step === 3 && <Step3_InventorySupplier onAddLocationClick={() => setIsAddLocationDialogOpen(true)} locations={locations}/>}
+                        </div>
+                    </div>
 
-              <DialogFooter>
-                <div className='flex justify-between w-full'>
-                    <div>
-                      {step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}
-                    </div>
-                    <div className="flex gap-2">
-                      <Button variant="outline" onClick={() => handleOpenChange(false)} type="button">Cancel</Button>
-                      {step < totalSteps && <Button onClick={handleNext} type="button">Next</Button>}
-                      {step === totalSteps && <Button type="submit">Save Product</Button>}
-                    </div>
-                </div>
-              </DialogFooter>
-            </form>
-          </FormProvider>
+                    <DialogFooter>
+                        <div className='flex justify-between w-full'>
+                            <div>
+                            {step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}
+                            </div>
+                            <div className="flex gap-2">
+                            <Button variant="outline" onClick={() => handleOpenChange(false)} type="button">Cancel</Button>
+                            {step < totalSteps && <Button onClick={handleNext} type="button">Next</Button>}
+                            {step === totalSteps && <Button type="submit">Save Product</Button>}
+                            </div>
+                        </div>
+                    </DialogFooter>
+                    </form>
+                </FormProvider>
+            </DialogStateContext.Provider>
         </DialogContent>
       </Dialog>
       <AddLocationDialog 
@@ -602,5 +605,3 @@ export const AddProductDialog = ({
     </>
   );
 };
-
-    
