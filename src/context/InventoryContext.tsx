@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { createContext, useContext, useState, ReactNode, useCallback, useMemo } from 'react';
@@ -91,15 +90,22 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     clients,
     setClients,
   }), [
-    inventory, 
-    stockCorrections, 
-    addStockCorrection, 
-    locations, 
-    locationTypes, 
-    billDefinitions, 
-    billInstances, 
-    transactions, 
-    clients
+    inventory,
+    setInventory,
+    stockCorrections,
+    setStockCorrections,
+    addStockCorrection,
+    locations,
+    setLocations,
+    locationTypes,
+    setLocationTypes,
+    billDefinitions,
+    billInstances,
+    setBillInstances,
+    transactions,
+    setTransactions,
+    clients,
+    setClients,
   ]);
 
   return (
