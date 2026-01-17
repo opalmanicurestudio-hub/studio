@@ -485,8 +485,7 @@ export const AddProductDialog = ({
     locations,
     locationTypes,
     onProductAdded,
-    categories,
-    onNewCategory,
+    initialCategories,
     onAddNewLocationType,
     isAddLocationDialogOpen, 
     onAddLocationDialogOpenChange,
@@ -497,8 +496,7 @@ export const AddProductDialog = ({
     locations: Location[],
     locationTypes: LocationType[],
     onProductAdded: (product: any) => void;
-    categories: string[];
-    onNewCategory: (category: string) => void;
+    initialCategories: string[];
     onAddNewLocationType: (name: string, icon: string) => LocationType,
     isAddLocationDialogOpen: boolean, 
     onAddLocationDialogOpenChange: (open: boolean) => void,
@@ -506,6 +504,7 @@ export const AddProductDialog = ({
 }) => {
   const [step, setStep] = useState(1);
   const totalSteps = 3;
+  const [categories, setCategories] = useState(initialCategories);
 
   const methods = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
@@ -515,6 +514,19 @@ export const AddProductDialog = ({
         isExperimentActive: false,
     }
   });
+  
+  useEffect(() => {
+    if (open) {
+      setCategories(initialCategories);
+    }
+  }, [initialCategories, open]);
+
+  const handleNewCategory = (newCategory: string) => {
+    if (!categories.includes(newCategory)) {
+        setCategories(prev => [...prev, newCategory]);
+    }
+  };
+
 
   const productType = methods.watch('type');
 
@@ -566,7 +578,7 @@ export const AddProductDialog = ({
               <div className="py-4 space-y-4">
                   <Progress value={(step / totalSteps) * 100} />
                   <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
-                      {step === 1 && <Step1_BasicDetails categories={categories} onNewCategory={onNewCategory} />}
+                      {step === 1 && <Step1_BasicDetails categories={categories} onNewCategory={handleNewCategory} />}
                       {step === 2 && <Step2_CostingPricing productType={productType} />}
                       {step === 3 && <Step3_InventorySupplier onAddLocationClick={() => onAddLocationDialogOpenChange(true)} locations={locations}/>}
                   </div>

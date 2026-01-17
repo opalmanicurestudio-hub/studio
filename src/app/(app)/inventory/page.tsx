@@ -197,27 +197,11 @@ export default function InventoryPage() {
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  // Derive categories from the current inventory state
   const inventoryCategories = useMemo(() => {
     const allCategories = inventory.map(i => i.category).filter((c): c is string => !!c);
     return [...new Set(allCategories)];
   }, [inventory]);
-
-  // State for categories added ad-hoc in the dialog
-  const [tempCategories, setTempCategories] = useState<string[]>([]);
   
-  // Combine inventory categories with temporary new ones for the dialog
-  const productCategories = useMemo(() => {
-      return [...new Set([...inventoryCategories, ...tempCategories])];
-  }, [inventoryCategories, tempCategories]);
-
-  // Pass this to the dialog so it can add new categories to the temporary state
-  const handleNewCategory = (newCategory: string) => {
-    if (!productCategories.includes(newCategory)) {
-        setTempCategories(prev => [...prev, newCategory]);
-    }
-  };
-
   const handleAddProduct = (newProductData: any) => {
     const landedCost = newProductData.totalCostOfGoods && newProductData.numberOfUnits 
       ? (newProductData.totalCostOfGoods + (newProductData.shipping || 0) + (newProductData.taxes || 0)) / newProductData.numberOfUnits 
@@ -250,8 +234,6 @@ export default function InventoryPage() {
         isExperimentActive: newProductData.isExperimentActive,
     };
     setInventory(prev => [...prev, newProduct]);
-    // After product is added, its category is now in the main inventory, so temp state can be cleared
-    setTempCategories([]);
   };
 
 
@@ -318,7 +300,6 @@ export default function InventoryPage() {
             if (currentUses >= quantity) {
                 product.partialContainerUses -= quantity;
             } else {
-                // Not enough partial uses, need to open new containers
                 let usesNeeded = quantity - currentUses;
                 
                 while (usesNeeded > 0) {
@@ -882,8 +863,7 @@ export default function InventoryPage() {
             isAddLocationDialogOpen={isAddLocationDialogOpen}
             onAddLocationDialogOpenChange={setIsAddLocationDialogOpen}
             onAddNewLocation={handleSaveLocation}
-            categories={productCategories}
-            onNewCategory={handleNewCategory}
+            initialCategories={inventoryCategories}
             onProductAdded={handleAddProduct}
         />
 
@@ -925,7 +905,7 @@ export default function InventoryPage() {
                     <AlertTriangle className="h-4 w-4" />
                     <AlertTitle>Camera Access Required</AlertTitle>
                     <AlertDescription>
-                        Please enable camera access to use this feature.
+                        Please enable camera permissions in your browser settings to use this feature.
                     </AlertDescription>
                 </Alert>
             )}
