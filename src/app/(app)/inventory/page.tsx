@@ -20,15 +20,15 @@ import {
     type StockCorrection,
     type Client,
     clients as initialClientsData,
-    type Transaction,
+    type Appointment,
     type Location,
     type LocationType,
     services as initialServicesData,
     appointments as initialAppointmentsData,
     billDefinitions as initialBillDefinitionsData,
     billInstances as initialBillInstancesData,
-    transactions as initialTransactionsData,
     initialLocations as initialLocationsData,
+    initialLocationTypes as initialLocationTypesData
 } from '@/lib/data';
 import {
   DropdownMenu,
@@ -40,7 +40,6 @@ import {
 import Image from 'next/image';
 import { useToast } from '@/hooks/use-toast';
 import { Input } from '@/components/ui/input';
-import { EditProductDialog } from '@/components/inventory/EditProductDialog';
 import { AddLocationDialog } from '@/components/inventory/AddLocationDialog';
 import { EditLocationDialog } from '@/components/inventory/EditLocationDialog';
 import { EndCostPerUseTestDialog } from '@/components/inventory/EndCostPerUseTestDialog';
@@ -54,15 +53,16 @@ import { isPast, parseISO, differenceInMonths } from 'date-fns';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Separator } from '@/components/ui/separator';
 import { ManageSpoilageDialog, type SpoilageItem } from '@/components/inventory/ManageSpoilageDialog';
-import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { InventorySidebar } from '@/components/inventory/InventorySidebar';
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { type Batch } from '@/lib/data';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { initialLocationTypes as initialLocationTypesData } from '@/lib/data';
-
+import { AddProductDialog } from '@/components/inventory/AddProductDialog';
+import { AddEquipmentDialog } from '@/components/inventory/AddEquipmentDialog';
+import { AddOverheadDialog } from '@/components/inventory/AddOverheadDialog';
+import { transactions as initialTransactionsData, type Transaction } from '@/lib/financial-data';
+import { ClientOnly } from '@/components/shared/ClientOnly';
 
 const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff, onLogUse }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (itemId: string) => void, onLogUse: (item: InventoryItem) => void }) => {
     
@@ -154,7 +154,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
     )
 }
 
-const EmptyState = () => (
+const EmptyState = ({ onAddProduct }: { onAddProduct: () => void }) => (
     <div className="text-center py-20 px-6 col-span-full border-2 border-dashed rounded-lg">
         <div className='flex justify-center mb-6'>
             <div className='w-20 h-20 bg-muted rounded-full flex items-center justify-center'>
@@ -163,8 +163,11 @@ const EmptyState = () => (
         </div>
         <h3 className="text-xl font-semibold mb-2">Your Inventory is Empty</h3>
         <p className="text-muted-foreground max-w-sm mx-auto mb-6">
-            The ability to add new items is temporarily disabled to resolve a critical issue.
+            Get started by adding your first product, piece of equipment, or overhead supply.
         </p>
+         <Button onClick={onAddProduct}>
+            <PlusCircle className="mr-2 h-4 w-4" /> Add First Item
+        </Button>
     </div>
 );
 
@@ -174,6 +177,7 @@ export default function InventoryPage() {
   const [stockCorrections, setStockCorrections] = useState<StockCorrection[]>(initialStockCorrectionsData);
   const [locations, setLocations] = useState<Location[]>(initialLocationsData);
   const [locationTypes, setLocationTypes] = useState<LocationType[]>(initialLocationTypesData);
+  const [transactions, setTransactions] = useState<Transaction[]>(initialTransactionsData);
   
   const { toast } = useToast();
   
@@ -185,7 +189,6 @@ export default function InventoryPage() {
   const [isEditLocationDialogOpen, setIsEditLocationDialogOpen] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
 
-  const [isEditProductOpen, setIsEditProductOpen] = useState(false);
   const [isLogUseOpen, setIsLogUseOpen] = useState(false);
   const [isWriteOffOpen, setIsWriteOffOpen] = useState(false);
   const [isEndExperimentOpen, setIsEndExperimentOpen] = useState(false);
@@ -195,6 +198,45 @@ export default function InventoryPage() {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  const [isAddProductDialogOpen, setIsAddProductDialogOpen] = useState(false);
+  const [isAddEquipmentDialogOpen, setIsAddEquipmentDialogOpen] = useState(false);
+  const [isAddOverheadDialogOpen, setIsAddOverheadDialogOpen] = useState(false);
+  const [initialProductType, setInitialProductType] = useState<'professional' | 'retail'>('professional');
+  
+  const [productCategories, setProductCategories] = useState(() => [...new Set(initialInventoryData.filter(i => i.type === 'professional' || i.type === 'retail').map(i => i.category))]);
+  const [equipmentCategories, setEquipmentCategories] = useState(() => [...new Set(initialInventoryData.filter(i => i.type === 'equipment').map(i => i.category))]);
+  const [overheadCategories, setOverheadCategories] = useState(() => [...new Set(initialInventoryData.filter(i => i.type === 'overhead').map(i => i.category))]);
+
+  const handleOpenAddDialog = (type: 'professional' | 'retail' | 'equipment' | 'overhead') => {
+    if (type === 'professional' || type === 'retail') {
+        setInitialProductType(type);
+        setIsAddProductDialogOpen(true);
+    } else if (type === 'equipment') {
+        setIsAddEquipmentDialogOpen(true);
+    } else if (type === 'overhead') {
+        setIsAddOverheadDialogOpen(true);
+    }
+  };
+
+  const handleAddNewProduct = useCallback((newItem: InventoryItem) => {
+    setInventory(prev => [...prev, newItem]);
+    toast({
+        title: 'Item Added!',
+        description: `${newItem.name} has been added to your inventory.`
+    })
+  }, [toast]);
+
+  const handleNewCategory = useCallback((type: 'product' | 'equipment' | 'overhead', newCategory: string) => {
+    if (type === 'product') {
+        if (!productCategories.includes(newCategory)) setProductCategories(prev => [...prev, newCategory]);
+    } else if (type === 'equipment') {
+        if (!equipmentCategories.includes(newCategory)) setEquipmentCategories(prev => [...prev, newCategory]);
+    } else {
+        if (!overheadCategories.includes(newCategory)) setOverheadCategories(prev => [...prev, newCategory]);
+    }
+  }, [productCategories, equipmentCategories, overheadCategories]);
+
   
   const addStockCorrection = (correction: StockCorrection) => {
     setStockCorrections(prev => [...prev, correction]);
@@ -397,8 +439,19 @@ export default function InventoryPage() {
         reason: reason,
       };
       addStockCorrection(newCorrection);
-
-      console.log('TODO: Create transaction for write-off loss:', batch.costPerUnit * quantity);
+  
+      const newTransaction = {
+        date: new Date().toISOString(),
+        description: `Write-off: ${quantity} x ${product.name}`,
+        clientOrVendor: 'Internal',
+        type: 'expense' as const,
+        context: 'Business' as const,
+        category: 'Spoilage',
+        amount: batch.costPerUnit * quantity,
+        paymentMethod: 'Internal',
+        hasReceipt: false,
+      };
+      setTransactions(prev => [...prev, { ...newTransaction, id: `txn-${Date.now()}` }]);
   
       success = true;
       message = `${quantity} unit(s) of ${product.name} written off.`;
@@ -414,11 +467,18 @@ export default function InventoryPage() {
   };
   
  const handleSpoilageConfirm = (itemsToWriteOff: SpoilageItem[]) => {
-    // This function would also need to modify inventory and create transactions.
-    toast({
-      title: 'Spoilage Written Off',
-      description: `${itemsToWriteOff.length} item(s) have been removed from inventory and expensed.`,
+    let totalLoss = 0;
+    itemsToWriteOff.forEach(item => {
+        handleWriteOffConfirm(item.productId, item.batchId, item.stock, 'Expired');
+        totalLoss += item.stock * item.costPerUnit;
     });
+
+    if (itemsToWriteOff.length > 0) {
+        toast({
+            title: 'Spoilage Written Off',
+            description: `${itemsToWriteOff.length} item(s) totaling $${totalLoss.toFixed(2)} have been removed and expensed.`,
+        });
+    }
   };
   
   const handleToggleExperiment = (item: InventoryItem) => {
@@ -504,6 +564,7 @@ export default function InventoryPage() {
   const hasInventory = inventory.length > 0;
 
   return (
+    <ClientOnly>
     <div className="flex h-screen w-full flex-col">
       <AppHeader title="Inventory Hub" />
       <main className="flex-1 p-4 md:p-8">
@@ -558,6 +619,12 @@ export default function InventoryPage() {
                                     <CardTitle>All Inventory</CardTitle>
                                     <CardDescription>A complete list of your professional, retail, and equipment stock.</CardDescription>
                                 </div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <Button size="sm" onClick={() => handleOpenAddDialog('professional')}><Package className="mr-2" /> Product</Button>
+                                    <Button size="sm" onClick={() => handleOpenAddDialog('retail')}><Store className="mr-2" /> Retail</Button>
+                                    <Button size="sm" onClick={() => handleOpenAddDialog('equipment')}><Hammer className="mr-2" /> Equipment</Button>
+                                    <Button size="sm" onClick={() => handleOpenAddDialog('overhead')}><Recycle className="mr-2" /> Overhead</Button>
+                                </div>
                             </div>
                         </CardHeader>
                         <CardContent>
@@ -594,7 +661,7 @@ export default function InventoryPage() {
                                 </div>
                             </div>
                             {!hasInventory ? (
-                                <EmptyState />
+                                <EmptyState onAddProduct={() => handleOpenAddDialog('professional')} />
                             ) : (
                                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                                     {filteredInventory.length > 0 ? filteredInventory.map(item => (
@@ -702,6 +769,35 @@ export default function InventoryPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+        <AddProductDialog 
+            open={isAddProductDialogOpen}
+            onOpenChange={setIsAddProductDialogOpen}
+            initialType={initialProductType}
+            categories={productCategories}
+            onNewCategory={(cat) => handleNewCategory('product', cat)}
+            onProductAdded={handleAddNewProduct}
+            locations={locations}
+            onAddLocationClick={() => setIsAddLocationDialogOpen(true)}
+        />
+        <AddEquipmentDialog
+            open={isAddEquipmentDialogOpen}
+            onOpenChange={setIsAddEquipmentDialogOpen}
+            categories={equipmentCategories}
+            onNewCategory={(cat) => handleNewCategory('equipment', cat)}
+            onEquipmentAdded={handleAddNewProduct}
+            locations={locations}
+        />
+        <AddOverheadDialog
+            open={isAddOverheadDialogOpen}
+            onOpenChange={setIsAddOverheadDialogOpen}
+            categories={overheadCategories}
+            onNewCategory={(cat) => handleNewCategory('overhead', cat)}
+            onOverheadAdded={handleAddNewProduct}
+            locations={locations}
+        />
     </div>
+    </ClientOnly>
   );
 }
+
