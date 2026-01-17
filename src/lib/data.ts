@@ -67,6 +67,7 @@ export type Client = {
     relationship: string;
     phone: string;
   }
+  birthday?: string;
 };
 
 export type LocationType = {
@@ -264,6 +265,7 @@ export const clients: Client[] = [
     avatarUrl: 'https://picsum.photos/seed/101/100/100', 
     lifetimeValue: 2450.75, 
     lastAppointment: '2024-07-19T10:00:00.000Z',
+    birthday: '1990-05-15',
     notes: "Prefers sitting near the window.",
     customFormulas: [
       {

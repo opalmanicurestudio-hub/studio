@@ -1,7 +1,6 @@
-
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -24,20 +23,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { PlusCircle, Info, Trash2, Check, AlertTriangle } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
-import { Slider } from '@/components/ui/slider';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { type Service, type InventoryItem } from '@/lib/data';
-import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
-import { SelectEquipmentDialog } from './SelectEquipmentDialog';
-import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
-import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
+import { useForm, FormProvider, useFormContext, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { QrCode } from 'lucide-react';
 import { AddLocationDialog } from './AddLocationDialog';
 import { type Location, type LocationType } from '@/lib/data';
 
@@ -164,6 +157,7 @@ const Step1_Basics = ({
                         </Select>
                     )}
                 />
+         
                 <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button">
                     <PlusCircle className="h-4 w-4" />
                 </Button>
@@ -502,7 +496,7 @@ export const AddProductDialog = ({
   locationTypes: LocationType[];
   onProductAdded: (product: any) => void;
   initialCategories: string[];
-  onAddNewLocation: (newLocation: Omit<Location, 'id'>) => void;
+  onAddNewLocation: (newLocation: Omit<Location, 'id'>) => Location;
   onAddNewLocationType: (name: string, icon: string) => LocationType;
 }) => {
   const [step, setStep] = useState(1);
@@ -537,9 +531,9 @@ export const AddProductDialog = ({
     }
   };
 
-  const onNewCategory = (newCategory: string) => {
+  const onNewCategory = useCallback((newCategory: string) => {
     setCategories(prev => [...new Set([...prev, newCategory])]);
-  };
+  }, []);
 
   const onSubmit = (data: ProductFormData) => {
     onProductAdded(data);
@@ -564,6 +558,13 @@ export const AddProductDialog = ({
       setStep(step - 1);
     }
   };
+
+  const handleSaveAndOpenLocationDialog = (newLocation: Omit<Location, 'id'>): Location => {
+    const newLoc = onAddNewLocation(newLocation);
+    setIsAddLocationDialogOpen(false);
+    methods.setValue('primaryLocationId', newLoc.id);
+    return newLoc;
+  }
 
   return (
     <>
@@ -614,12 +615,13 @@ export const AddProductDialog = ({
                     >
                       Cancel
                     </Button>
-                    {step < totalSteps && (
+                    {step < totalSteps ? (
                       <Button onClick={handleNext} type="button">
                         Next
                       </Button>
+                    ) : (
+                      <Button type="submit">Save Product</Button>
                     )}
-                    {step === totalSteps && <Button type="submit">Save Product</Button>}
                   </div>
                 </div>
               </DialogFooter>
@@ -630,7 +632,7 @@ export const AddProductDialog = ({
       <AddLocationDialog
         open={isAddLocationDialogOpen}
         onOpenChange={setIsAddLocationDialogOpen}
-        onSave={onAddNewLocation}
+        onSave={handleSaveAndOpenLocationDialog}
         locationTypes={locationTypes}
         onAddNewLocationType={onAddNewLocationType}
       />

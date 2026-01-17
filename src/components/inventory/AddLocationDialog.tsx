@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState } from 'react';
@@ -23,21 +21,12 @@ import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { cn } from '@/lib/utils';
+import { Location } from '@/lib/data';
 
 export type LocationType = {
   id: string;
   name: string;
   icon: string;
-};
-
-export type Location = {
-  id: string;
-  name: string;
-  locationTypeId: string;
-  description?: string;
-  environmentalNeeds?: string[];
-  customNeeds?: string;
-  photoUrl?: string;
 };
 
 const locationSchema = z.object({
@@ -69,7 +58,7 @@ export const AddLocationDialog = ({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave: (data: Omit<Location, 'id'>) => void;
+  onSave: (data: Omit<Location, 'id'>) => Location;
   locationTypes: LocationType[];
   onAddNewLocationType: (name: string, icon: string) => LocationType;
 }) => {

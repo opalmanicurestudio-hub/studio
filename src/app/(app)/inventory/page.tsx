@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
@@ -23,9 +22,8 @@ import {
     type Transaction,
     type Location,
     type LocationType,
-    initialLocations as initialLocationsData,
-    initialLocationTypes as initialLocationTypesData,
 } from '@/lib/data';
+import { billDefinitions as initialBillDefinitions, billInstances as initialBillInstances, type BillDefinition, type BillInstance } from '@/lib/financial-data';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -188,8 +186,8 @@ const EmptyState = ({ onActionClick }: { onActionClick: () => void }) => (
 export default function InventoryPage() {
   const [inventory, setInventory] = useState<InventoryItem[]>(initialInventoryData);
   const [stockCorrections, setStockCorrections] = useState<StockCorrection[]>(initialStockCorrectionsData);
-  const [locations, setLocations] = useState<Location[]>(initialLocationsData);
-  const [locationTypes, setLocationTypes] = useState<LocationType[]>(initialLocationTypesData);
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [locationTypes, setLocationTypes] = useState<LocationType[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [clients, setClients] = useState<Client[]>(initialClientsData);
   const { toast } = useToast();
@@ -226,7 +224,7 @@ export default function InventoryPage() {
     return [...new Set(allCategories)];
   }, [inventory]);
   
-  const handleAddProduct = (newProductData: any) => {
+  const handleAddProduct = useCallback((newProductData: any) => {
     const landedCost = newProductData.totalCostOfGoods && newProductData.numberOfUnits 
       ? (newProductData.totalCostOfGoods + (newProductData.shipping || 0) + (newProductData.taxes || 0)) / newProductData.numberOfUnits 
       : 0;
@@ -260,26 +258,30 @@ export default function InventoryPage() {
         partialContainerUses: newProductData.costingMethod === 'uses' ? 0 : undefined,
     };
     setInventory(prev => [...prev, newProduct]);
-  };
+  }, []);
 
 
   const handleOpenAddLocation = () => setIsAddLocationDialogOpen(true);
+  
   const handleOpenEditLocation = (location: Location) => {
     setSelectedLocation(location);
     setIsEditLocationDialogOpen(true);
   };
-  const handleSaveLocation = (newLocation: Omit<Location, 'id'>) => {
+  
+  const handleSaveLocation = useCallback((newLocation: Omit<Location, 'id'>) => {
     const newLocWithId = { ...newLocation, id: `loc-${Date.now()}`};
     setLocations(prev => [...prev, newLocWithId]);
-  };
-  const handleUpdateLocation = (updatedLocation: Location) => {
+  }, []);
+
+  const handleUpdateLocation = useCallback((updatedLocation: Location) => {
     setLocations(prev => prev.map(loc => loc.id === updatedLocation.id ? updatedLocation : loc));
-  };
-   const handleAddNewLocationType = (name: string, icon: string): LocationType => {
+  }, []);
+
+  const handleAddNewLocationType = useCallback((name: string, icon: string): LocationType => {
     const newType = { id: `lt-${Date.now()}`, name, icon };
     setLocationTypes(prev => [...prev, newType]);
     return newType;
-  };
+  }, []);
 
 
   const handleOpenLogUse = (item: InventoryItem) => {
