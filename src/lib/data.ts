@@ -1,6 +1,5 @@
 
-
-import { BillDefinition, billDefinitions, billInstances } from './financial-data';
+import { BillDefinition, billDefinitions, billInstances, transactions } from './financial-data';
 import { addDays, subDays, setHours, setMinutes, startOfDay } from 'date-fns';
 import { nanoid } from 'nanoid';
 
@@ -255,6 +254,8 @@ export type Package = {
 export type Bill = BillDefinition;
 export const bills: Bill[] = billDefinitions;
 
+
+export { billDefinitions, billInstances, transactions };
 
 export const clients: Client[] = [
   { 
@@ -679,3 +680,5 @@ export const initialLocations: Location[] = [
 
 
 export { nanoid };
+
+    
