@@ -217,3 +217,5 @@ export const InventorySidebar = ({
     </div>
     )
 };
+
+    

@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
@@ -22,8 +23,14 @@ import {
     type Transaction,
     type Location,
     type LocationType,
+    services as initialServicesData,
+    appointments as initialAppointmentsData,
+    billDefinitions as initialBillDefinitionsData,
+    billInstances as initialBillInstancesData,
+    transactions as initialTransactionsData,
+    initialLocations as initialLocationsData,
+    initialLocationTypes
 } from '@/lib/data';
-import { billDefinitions as initialBillDefinitions, billInstances as initialBillInstances, type BillDefinition, type BillInstance } from '@/lib/financial-data';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -56,7 +63,6 @@ import { ManageSpoilageDialog, type SpoilageItem } from '@/components/inventory/
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { InventorySidebar } from '@/components/inventory/InventorySidebar';
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { type Batch } from '@/lib/data';
 
 
@@ -186,10 +192,9 @@ const EmptyState = ({ onActionClick }: { onActionClick: () => void }) => (
 export default function InventoryPage() {
   const [inventory, setInventory] = useState<InventoryItem[]>(initialInventoryData);
   const [stockCorrections, setStockCorrections] = useState<StockCorrection[]>(initialStockCorrectionsData);
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [locationTypes, setLocationTypes] = useState<LocationType[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [clients, setClients] = useState<Client[]>(initialClientsData);
+  const [locations, setLocations] = useState<Location[]>(initialLocationsData);
+  const [locationTypes, setLocationTypes] = useState<LocationType[]>(initialLocationTypes);
+  const [transactions, setTransactions] = useState<Transaction[]>(initialTransactionsData);
   const { toast } = useToast();
   
   const [activeView, setActiveView] = useState('products');
@@ -271,6 +276,7 @@ export default function InventoryPage() {
   const handleSaveLocation = useCallback((newLocation: Omit<Location, 'id'>) => {
     const newLocWithId = { ...newLocation, id: `loc-${Date.now()}`};
     setLocations(prev => [...prev, newLocWithId]);
+    return newLocWithId;
   }, []);
 
   const handleUpdateLocation = useCallback((updatedLocation: Location) => {
@@ -932,3 +938,5 @@ export default function InventoryPage() {
     </div>
   );
 }
+
+    
