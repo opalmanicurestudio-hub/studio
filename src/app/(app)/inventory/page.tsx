@@ -120,7 +120,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Delete</DropdownMenuItem>
                             </DropdownMenuContent>
-                            </DropdownMenu>>
+                            </DropdownMenu>
                         </div>
                         <p className="text-sm text-muted-foreground">{item.category}</p>
                     </div>
