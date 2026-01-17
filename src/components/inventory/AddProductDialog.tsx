@@ -320,6 +320,16 @@ export const AddProductDialog = ({
   };
 
   const handleBack = () => step > 1 && setStep(step - 1);
+
+  const handleOpenChange = (isOpen: boolean) => {
+    onOpenChange(isOpen);
+    if (!isOpen) {
+        setTimeout(() => {
+            setStep(1);
+            methods.reset();
+        }, 300);
+    }
+  };
   
   const DialogOrSheet = isMobile ? Sheet : Dialog;
   const DialogOrSheetContent = isMobile ? SheetContent : DialogContent;
@@ -337,24 +347,30 @@ export const AddProductDialog = ({
       }
   }
 
+  const FormContent = (
+    <div className={cn("py-4 space-y-4", isMobile && "px-4")}>
+        <Progress value={(step / totalSteps) * 100} />
+        {getStepContent()}
+    </div>
+  );
+
   return (
-    <DialogOrSheet open={open} onOpenChange={onOpenChange}>
-      <DialogOrSheetContent className={isMobile ? "h-[95dvh] flex flex-col p-0" : "sm:max-w-xl"}>
+    <DialogOrSheet open={open} onOpenChange={handleOpenChange}>
+      <DialogOrSheetContent className={isMobile ? "h-[95vh] flex flex-col p-0" : "sm:max-w-xl"}>
         <FormProvider {...methods}>
           <form onSubmit={methods.handleSubmit(handleSave)}>
-            <DialogOrSheetHeader className={isMobile ? "p-4 border-b" : ""}>
+            <DialogOrSheetHeader className={isMobile ? "p-4 border-b text-left" : "text-center"}>
               <DialogOrSheetTitle>Add New Product</DialogOrSheetTitle>
               <DialogOrSheetDescription>
                 Use this wizard to add a new professional or retail product to your inventory.
               </DialogOrSheetDescription>
             </DialogOrSheetHeader>
 
-            <div className={cn("py-4 space-y-4", isMobile && "px-4 flex-1 overflow-y-auto")}>
-              <Progress value={(step / totalSteps) * 100} />
-              <ScrollArea className={cn(!isMobile && "max-h-[60vh] pr-4")}>
-                {getStepContent()}
-              </ScrollArea>
-            </div>
+             <div className={cn("flex-1", isMobile && "overflow-y-auto")}>
+                <ScrollArea className="h-full">
+                    {FormContent}
+                </ScrollArea>
+             </div>
 
             <DialogOrSheetFooter className={cn(isMobile ? "p-4 border-t" : "pt-4 border-t")}>
               <div className='flex justify-between w-full'>
