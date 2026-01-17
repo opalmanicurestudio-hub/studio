@@ -90,7 +90,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     setTransactions,
     clients,
     setClients,
-  }), [inventory, stockCorrections, locations, locationTypes, billDefinitions, billInstances, transactions, clients, addStockCorrection]);
+  }), [inventory, stockCorrections, addStockCorrection, locations, locationTypes, billDefinitions, billInstances, transactions, clients]);
 
   return (
     <InventoryContext.Provider value={value}>
