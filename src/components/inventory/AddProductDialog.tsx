@@ -400,14 +400,14 @@ export const AddProductDialog = ({
               </DialogDescription>
             </DialogHeader>
 
-            <ScrollArea className="max-h-[60vh] -mr-6 pr-6">
-                 <div className="py-4 space-y-4 px-6">
+            <ScrollArea className="max-h-[60vh] pr-6 -mr-6">
+                 <div className="py-4 space-y-4 pl-6">
                     <Progress value={(step / totalSteps) * 100} />
                     {getStepContent()}
                 </div>
             </ScrollArea>
 
-            <DialogFooter className="pt-4 border-t mt-4 pr-6">
+            <DialogFooter className="pt-4 border-t mt-4 pr-0">
               <div className='flex justify-between w-full'>
                 <div>
                     {step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}
@@ -428,3 +428,5 @@ export const AddProductDialog = ({
     </Dialog>
   );
 };
+
+    
