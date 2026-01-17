@@ -255,7 +255,7 @@ export default function InventoryPage() {
     setLocations(prev => [...prev, newLocWithId]);
   };
   const handleUpdateLocation = (updatedLocation: Location) => {
-    setLocations(prev => prev.map(loc => loc.id === updatedLocation.id ? updatedLocation : loc));
+    setLocations(prev => prev.map(loc => loc.id === updatedLocation.id ? updatedLocation : c));
   };
    const handleAddNewLocationType = (name: string, icon: string): LocationType => {
     const newType = { id: `lt-${Date.now()}`, name, icon };
@@ -822,9 +822,9 @@ export default function InventoryPage() {
         <AddLocationDialog 
             open={isAddLocationDialogOpen} 
             onOpenChange={setIsAddLocationDialogOpen}
-            onSave={handleSaveLocation}
+            onSave={() => {}}
             locationTypes={locationTypes}
-            onAddNewLocationType={handleAddNewLocationType}
+            onAddNewLocationType={() => ({ id: '', name: '', icon: '' })}
         />
         {selectedLocation && (
             <EditLocationDialog
@@ -833,7 +833,7 @@ export default function InventoryPage() {
                 location={selectedLocation}
                 onSave={handleUpdateLocation}
                 locationTypes={locationTypes}
-                onAddNewLocationType={handleAddNewLocationType}
+                onAddNewLocationType={() => ({ id: '', name: '', icon: '' })}
             />
         )}
         

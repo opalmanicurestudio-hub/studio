@@ -28,7 +28,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { inventory, services as allServices, type Service, type InventoryItem } from '@/lib/data';
+import { inventory as initialInventory, services as allServices, type Service, type InventoryItem } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectEquipmentDialog } from './SelectEquipmentDialog';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
@@ -78,17 +78,24 @@ const productSchema = z.object({
 
 type ProductFormData = z.infer<typeof productSchema>;
 
-
-const Step1_Basics = ({ 
-    categories, 
-    onNewCategory 
-}: { 
+const CategoryContext = React.createContext<{
     categories: string[];
     onNewCategory: (category: string) => void;
-}) => {
-    const { register, control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
+} | null>(null);
+
+const useCategoryContext = () => {
+    const context = React.useContext(CategoryContext);
+    if (!context) {
+        throw new Error("useCategoryContext must be used within a CategoryProvider");
+    }
+    return context;
+}
+
+const Step1_Basics = () => {
+    const { register, control, setValue, watch, formState: { errors } } = useFormContext<ProductFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
+    const { categories, onNewCategory } = useCategoryContext();
     
     const handleAddNewCategory = () => {
         if (newCategoryName.trim()) {
@@ -507,8 +514,10 @@ export const AddProductDialog = ({
   const [categories, setCategories] = useState<string[]>(initialCategories);
 
   useEffect(() => {
-    setCategories(initialCategories);
-  }, [initialCategories]);
+    if (open) {
+        setCategories(initialCategories);
+    }
+  }, [open, initialCategories]);
 
   const methods = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
@@ -527,7 +536,6 @@ export const AddProductDialog = ({
         setTimeout(() => {
             setStep(1);
             methods.reset();
-            setCategories(initialCategories); // Reset categories on close
         }, 300);
     }
   }
@@ -567,6 +575,7 @@ export const AddProductDialog = ({
     <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-lg">
             <FormProvider {...methods}>
+            <CategoryContext.Provider value={{ categories, onNewCategory: handleNewCategory }}>
                 <form onSubmit={methods.handleSubmit(onSubmit)}>
                 <DialogHeader>
                     <DialogTitle>Add New Product</DialogTitle>
@@ -576,7 +585,7 @@ export const AddProductDialog = ({
                 <div className="py-4 space-y-4">
                     <Progress value={(step / totalSteps) * 100} />
                     <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
-                        {step === 1 && <Step1_Basics categories={categories} onNewCategory={handleNewCategory} />}
+                        {step === 1 && <Step1_Basics />}
                         {step === 2 && <Step2_CostingPricing productType={productType} />}
                         {step === 3 && <Step3_InventorySupplier onAddLocationClick={() => setIsAddLocationDialogOpen(true)} locations={locations}/>}
                     </div>
@@ -595,6 +604,7 @@ export const AddProductDialog = ({
                     </div>
                 </DialogFooter>
                 </form>
+            </CategoryContext.Provider>
             </FormProvider>
         </DialogContent>
       </Dialog>
@@ -608,3 +618,5 @@ export const AddProductDialog = ({
     </>
   );
 };
+
+    
