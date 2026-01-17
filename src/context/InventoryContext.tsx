@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { createContext, useContext, useState, ReactNode, useCallback } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useCallback, useMemo } from 'react';
 import { 
     inventory as initialInventory, 
     stockCorrections as initialStockCorrections, 
@@ -73,7 +73,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     setStockCorrections(prev => [...prev, correction]);
   }, []);
 
-  const value = {
+  const value = useMemo(() => ({
     inventory,
     setInventory,
     stockCorrections,
@@ -90,7 +90,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     setTransactions,
     clients,
     setClients,
-  };
+  }), [inventory, stockCorrections, locations, locationTypes, billDefinitions, billInstances, transactions, clients, addStockCorrection]);
 
   return (
     <InventoryContext.Provider value={value}>
