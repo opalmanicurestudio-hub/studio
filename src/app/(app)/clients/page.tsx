@@ -395,8 +395,7 @@ export default function ClientsPage() {
       <main className="flex-1 p-4 md:p-8">
         <div className="grid lg:grid-cols-[1fr,300px] gap-8 items-start">
             <div className="space-y-6">
-                 <div>
-                    <p className="text-muted-foreground">A scannable rolodex of your entire client base.</p>
+                <div>
                 </div>
                 <Card>
                     <CardHeader>
