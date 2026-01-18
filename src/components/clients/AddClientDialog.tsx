@@ -184,7 +184,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
 
     return (
         <ScrollArea className="h-[70vh]">
-            <div className="space-y-8 pr-6">
+            <div className="space-y-8 px-4">
                 {/* Section 1: Basic Info */}
                 <div className="space-y-4">
                     <h3 className="text-lg font-medium">Basic Information</h3>
