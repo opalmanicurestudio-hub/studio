@@ -10,6 +10,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  CardFooter,
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -163,6 +164,9 @@ export default function ClientsPage() {
   const [selectedItems, setSelectedItems] = useState(new Set<string>());
   const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 8;
+
   const handleItemSelect = useCallback((itemId: string) => {
     setSelectedItems(prev => {
         const newSelection = new Set(prev);
@@ -231,6 +235,21 @@ export default function ClientsPage() {
     return clientsToFilter.sort((a,b) => new Date(b.lastAppointment).getTime() - new Date(a.lastAppointment).getTime());
   }, [clients, searchTerm, lastSeenFilter, showArchived]);
   
+  const totalPages = Math.ceil(filteredClients.length / ITEMS_PER_PAGE);
+  const paginatedClients = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    return filteredClients.slice(startIndex, endIndex);
+  }, [filteredClients, currentPage]);
+
+  const handlePrevPage = () => {
+    setCurrentPage(prev => Math.max(prev - 1, 1));
+  };
+
+  const handleNextPage = () => {
+    setCurrentPage(prev => Math.min(prev + 1, totalPages));
+  };
+
   const hasClients = clients.length > 0;
   const hasFilteredClients = filteredClients.length > 0;
 
@@ -446,7 +465,7 @@ export default function ClientsPage() {
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-6">
-                                {filteredClients.map((client) => (
+                                {paginatedClients.map((client) => (
                                     <ClientCard 
                                         key={client.id} 
                                         client={client}
@@ -457,6 +476,33 @@ export default function ClientsPage() {
                             </div>
                         )}
                     </CardContent>
+                    {totalPages > 1 && (
+                        <CardFooter>
+                            <div className="flex items-center justify-between w-full">
+                                <span className="text-sm text-muted-foreground">
+                                    Page {currentPage} of {totalPages}
+                                </span>
+                                <div className="flex items-center gap-2">
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={handlePrevPage}
+                                        disabled={currentPage === 1}
+                                    >
+                                        Previous
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={handleNextPage}
+                                        disabled={currentPage === totalPages}
+                                    >
+                                        Next
+                                    </Button>
+                                </div>
+                            </div>
+                        </CardFooter>
+                    )}
                 </Card>
             </div>
             <div className="hidden lg:block">
@@ -501,3 +547,6 @@ export default function ClientsPage() {
     
 
 
+
+
+    
