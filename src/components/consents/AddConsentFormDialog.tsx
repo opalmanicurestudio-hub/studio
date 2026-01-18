@@ -202,12 +202,12 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95dvh] flex flex-col p-0">
+        <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
           <SheetHeader className="p-6 pb-4 text-left">
             <SheetTitle>{dialogTitle}</SheetTitle>
             <SheetDescription>Build your form by adding and configuring fields.</SheetDescription>
           </SheetHeader>
-          <div className="flex-1 overflow-y-auto px-6">
+          <div className="flex-1 overflow-y-auto p-6">
             {FormContent}
           </div>
           <SheetFooter className="p-4 border-t bg-background grid grid-cols-2 gap-2">
@@ -221,17 +221,17 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
+      <DialogContent className="max-w-2xl flex flex-col p-0">
+        <DialogHeader className="p-6 pb-4">
           <DialogTitle>{dialogTitle}</DialogTitle>
           <DialogDescription>Build your form by adding and configuring fields.</DialogDescription>
         </DialogHeader>
-        <ScrollArea className="max-h-[70vh] -mr-6 pr-6">
-            <div className="py-4 pl-6">
+        <ScrollArea className="max-h-[70vh] flex-1">
+            <div className="p-6 pt-0">
                 {FormContent}
             </div>
         </ScrollArea>
-        <DialogFooter className="pt-4 border-t pr-6">
+        <DialogFooter className="p-6 pt-4 border-t">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={handleSave}>Save Form</Button>
         </DialogFooter>
