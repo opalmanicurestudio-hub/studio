@@ -663,6 +663,10 @@ export const EditServiceDialog = ({
   }
   
   const formId = `edit-service-form-${service.id}`;
+  
+  const handleFinalSubmit = () => {
+    document.getElementById(formId)?.requestSubmit();
+  };
 
   const formBody = (
     <FormProvider {...methods}>
@@ -687,7 +691,7 @@ export const EditServiceDialog = ({
               {step < totalSteps ? (
                 <Button type="button" onClick={handleNext}>Next</Button>
               ) : (
-                <Button type="submit" form={formId}>Save Changes</Button>
+                <Button type="button" onClick={handleFinalSubmit}>Save Changes</Button>
               )}
             </div>
           </div>

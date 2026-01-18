@@ -745,6 +745,11 @@ export const AddServiceDialog = ({
   const formId = `add-service-form`;
   const title = `Add New ${isAddon ? 'Add-on' : 'Service'}`;
   const description = "Create a new service for your menu. Follow the steps to ensure accurate pricing.";
+  
+  const handleFinalSubmit = () => {
+    // This programmatically triggers the form's onSubmit handler
+    document.getElementById(formId)?.requestSubmit();
+  };
 
   const formBody = (
      <FormProvider {...methods}>
@@ -767,7 +772,7 @@ export const AddServiceDialog = ({
               {step < totalSteps ? (
                 <Button onClick={handleNext} type="button">Next</Button>
               ) : (
-                <Button type="submit" form={formId}>Save Service</Button>
+                <Button type="button" onClick={handleFinalSubmit}>Save Service</Button>
               )}
             </div>
           </div>
