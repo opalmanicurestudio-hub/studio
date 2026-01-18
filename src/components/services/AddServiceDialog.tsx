@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -206,22 +207,27 @@ const Step1_Basics = ({
                     <ChevronDown className="h-4 w-4 opacity-50" />
                 </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
+            <PopoverContent 
+                className="w-[var(--radix-popover-trigger-width)] p-0"
+                onInteractOutside={(e) => {
+                    e.preventDefault();
+                }}
+            >
                 <ScrollArea className="max-h-60">
                     <div className="p-2 space-y-1">
                     {consentForms.map(form => (
                         <div 
                             key={form.id} 
                             className="flex items-center space-x-2 p-2 rounded-md hover:bg-muted cursor-pointer"
-                            onClick={(e) => {
+                            onMouseDown={(e) => {
                                 e.preventDefault();
-                                e.stopPropagation();
                                 handleFormIdToggle(form.id);
                             }}
                         >
                             <Checkbox
                                 id={`form-${form.id}`}
                                 checked={requiredFormIds.includes(form.id)}
+                                className="pointer-events-none"
                             />
                             <Label htmlFor={`form-${form.id}`} className="font-normal cursor-pointer flex-1">{form.title}</Label>
                         </div>
