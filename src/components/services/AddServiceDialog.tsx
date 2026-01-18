@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Progress } from '@/components/ui/progress';
 import {
   Select,
   SelectContent,
@@ -52,9 +53,9 @@ import { ScrollArea } from '../ui/scroll-area';
 const serviceSchema = z.object({
     name: z.string().min(1, 'Service name is required'),
     category: z.string().min(1, 'Category is required'),
-    duration: z.number({ invalid_type_error: 'Duration is required.' }).min(1, 'Duration must be at least 1 minute'),
-    padBefore: z.number().optional(),
-    padAfter: z.number().optional(),
+    duration: z.coerce.number({ invalid_type_error: 'Duration is required.' }).min(1, 'Duration must be at least 1 minute'),
+    padBefore: z.coerce.number().optional(),
+    padAfter: z.coerce.number().optional(),
     description: z.string().optional(),
     imageUrl: z.string().optional(),
     isPrivate: z.boolean().optional(),
@@ -66,9 +67,9 @@ const serviceSchema = z.object({
     
     depositType: z.enum(['none', 'deposit', 'full']),
     depositSubType: z.string().optional(),
-    depositAmount: z.number().optional(),
+    depositAmount: z.coerce.number().optional(),
     
-    price: z.number().optional(),
+    price: z.coerce.number().optional(),
     confirmationMessage: z.string().optional(),
     requiredFormIds: z.array(z.string()).optional(),
 });
@@ -229,7 +230,7 @@ const AddServiceForm = ({
                             <Label>Deposit Requirement</Label>
                             <Controller name="depositType" control={control} defaultValue="none" render={({ field }) => (<RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-3 gap-2"><div><RadioGroupItem value="none" id="none-add" className="peer sr-only" /><Label htmlFor="none-add" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">None</Label></div><div><RadioGroupItem value="deposit" id="deposit-add" className="peer sr-only" /><Label htmlFor="deposit-add" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Deposit</Label></div><div><RadioGroupItem value="full" id="full-add" className="peer sr-only" /><Label htmlFor="full-add" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Pay in Full</Label></div></RadioGroup>)}/>
                             {depositType === 'deposit' && (
-                                <Card className="bg-muted/50"><CardContent className="p-4 space-y-4">
+                                <Card className="bg-background"><CardContent className="p-4 space-y-4">
                                 <div className="space-y-2"><Label>Deposit Type</Label><Controller name="depositSubType" control={control} render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue placeholder="Select deposit type" /></SelectTrigger><SelectContent><SelectItem value="flat">Flat Rate</SelectItem><SelectItem value="percentage">Percentage</SelectItem><SelectItem value="break-even">Break-Even Cost</SelectItem></SelectContent></Select>)}/></div>
                                 <div className="space-y-2"><Label>Deposit Amount</Label><Controller name="depositAmount" control={control} render={({ field }) => { const isBreakEven = depositSubType === 'break-even'; const isPercentage = depositSubType === 'percentage'; let displayValue: string | number = field.value || ''; if (isBreakEven && typeof field.value === 'number') { displayValue = field.value.toFixed(2); } return (<div className="relative">{!isPercentage && (<DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />)}<Input type={isBreakEven ? "text" : "number"} placeholder={isPercentage ? '%' : '25.00'} {...field} value={displayValue} onChange={e => { if (!isBreakEven) { field.onChange(parseFloat(e.target.value) || 0) } }} readOnly={isBreakEven} className={cn(!isPercentage && "pl-8")} />{isPercentage && (<span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>)}</div>)}} /></div>
                                 </CardContent></Card>
@@ -293,8 +294,8 @@ export const AddServiceDialog = ({
     }
   });
 
-  const isAddon = methods.watch('isAddon');
-  const values = methods.watch();
+  const { watch } = methods;
+  const values = watch();
   const { duration, padBefore, padAfter, products, equipment, price } = values;
   const [tmhr, setTmhr] = useState(0);
 
@@ -375,12 +376,12 @@ export const AddServiceDialog = ({
   };
   
   const formId = `add-service-form`;
-  const title = `Add New ${isAddon ? 'Add-on' : 'Service'}`;
+  const title = `Add New ${methods.getValues('isAddon') ? 'Add-on' : 'Service'}`;
   const description = "Create a new service for your menu.";
 
   const formBody = (
      <FormProvider {...methods}>
-      <form id={formId} onSubmit={methods.handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+      <form id={formId} className="flex flex-col flex-1 min-h-0">
         <DialogHeader className={isMobile ? "p-4 border-b text-left" : "p-6 pb-4"}>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
@@ -401,7 +402,7 @@ export const AddServiceDialog = ({
         
         <DialogFooter className={isMobile ? "p-4 border-t" : "p-6 border-t"}>
           <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
-          <Button type="submit" form={formId}>Save Service</Button>
+          <Button type="button" onClick={methods.handleSubmit(onSubmit)}>Save Service</Button>
         </DialogFooter>
       </form>
     </FormProvider>

@@ -44,9 +44,9 @@ const serviceSchema = z.object({
     name: z.string().min(1, 'Service name is required'),
     type: z.enum(['service', 'addon']),
     category: z.string().min(1, 'Category is required'),
-    duration: z.number({ invalid_type_error: 'Duration is required.' }).min(1, 'Duration must be at least 1 minute'),
-    padBefore: z.number().optional(),
-    padAfter: z.number().optional(),
+    duration: z.coerce.number({ invalid_type_error: 'Duration is required.' }).min(1, 'Duration must be at least 1 minute'),
+    padBefore: z.coerce.number().optional(),
+    padAfter: z.coerce.number().optional(),
     description: z.string().optional(),
     imageUrl: z.string().optional(),
     isPrivate: z.boolean().optional(),
@@ -57,9 +57,9 @@ const serviceSchema = z.object({
     addOns: z.array(z.any()).optional(),
     
     depositType: z.enum(['none', 'deposit', 'full']),
-    depositAmount: z.number().optional(),
+    depositAmount: z.coerce.number().optional(),
     
-    price: z.number().optional(),
+    price: z.coerce.number().optional(),
     confirmationMessage: z.string().optional(),
     requiredFormIds: z.array(z.string()).optional(),
 });
@@ -359,7 +359,7 @@ export const EditServiceDialog = ({
 
   const formBody = (
     <FormProvider {...methods}>
-      <form id={formId} onSubmit={methods.handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+      <form id={formId} className="flex flex-col flex-1 min-h-0">
         <DialogHeader className={isMobile ? "p-4 border-b text-left" : "p-6 pb-4"}>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
@@ -380,7 +380,7 @@ export const EditServiceDialog = ({
         
         <DialogFooter className={isMobile ? "p-4 border-t" : "p-6 border-t"}>
           <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
-          <Button type="submit" form={formId}>Save Changes</Button>
+          <Button type="button" onClick={methods.handleSubmit(onSubmit)}>Save Changes</Button>
         </DialogFooter>
       </form>
     </FormProvider>
