@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { PlusCircle, Package, Hammer, Trash2, QrCode, Check, AlertTriangle, ChevronDown } from 'lucide-react';
+import { PlusCircle, Package, Hammer, Trash2, QrCode, Check, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -54,6 +54,7 @@ const serviceSchema = z.object({
     addOns: z.array(z.any()).optional(),
     
     depositType: z.enum(['none', 'deposit', 'full']),
+    depositSubType: z.string().optional(),
     depositAmount: z.number().optional(),
     
     price: z.number().optional(),
@@ -392,9 +393,16 @@ const Step2_Formula = ({ onScanClick }: { onScanClick: () => void; }) => {
     );
 };
 
-const Step3_Deposits = () => {
-    const { control, watch, register } = useFormContext<ServiceFormData>();
+const Step3_Deposits = ({ breakEvenCost }: { breakEvenCost: number }) => {
+    const { control, watch, setValue } = useFormContext<ServiceFormData>();
     const depositType = watch('depositType');
+    const depositSubType = watch('depositSubType');
+
+    useEffect(() => {
+        if (depositType === 'deposit' && depositSubType === 'break-even') {
+            setValue('depositAmount', breakEvenCost, { shouldValidate: true });
+        }
+    }, [depositType, depositSubType, breakEvenCost, setValue]);
     
     return (
         <div className="grid gap-6 py-4">
@@ -407,7 +415,7 @@ const Step3_Deposits = () => {
                     render={({ field }) => (
                          <RadioGroup
                             onValueChange={field.onChange}
-                            defaultValue={field.value}
+                            value={field.value}
                             className="grid grid-cols-3 gap-2"
                         >
                             <div>
@@ -433,20 +441,38 @@ const Step3_Deposits = () => {
                     <CardContent className="p-4 space-y-4">
                          <div className="space-y-2">
                             <Label>Deposit Type</Label>
-                            <Select>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select deposit type" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="flat">Flat Rate</SelectItem>
-                                    <SelectItem value="percentage">Percentage</SelectItem>
-                                    <SelectItem value="break-even">Break-Even Cost</SelectItem>
-                                </SelectContent>
-                            </Select>
+                             <Controller
+                                name="depositSubType"
+                                control={control}
+                                render={({ field }) => (
+                                    <Select onValueChange={field.onChange} value={field.value}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select deposit type" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="flat">Flat Rate</SelectItem>
+                                            <SelectItem value="percentage">Percentage</SelectItem>
+                                            <SelectItem value="break-even">Break-Even Cost</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                )}
+                            />
                         </div>
                         <div className="space-y-2">
                             <Label>Deposit Amount</Label>
-                            <Input type="number" placeholder="25.00" {...register('depositAmount', { valueAsNumber: true })} />
+                             <Controller
+                                name="depositAmount"
+                                control={control}
+                                render={({ field }) => (
+                                    <Input 
+                                        type="number" 
+                                        placeholder={depositSubType === 'percentage' ? '%' : '25.00'}
+                                        {...field}
+                                        value={field.value || ''}
+                                        onChange={e => field.onChange(parseFloat(e.target.value) || 0)}
+                                        disabled={depositSubType === 'break-even'} />
+                                )}
+                            />
                         </div>
                     </CardContent>
                 </Card>
@@ -455,38 +481,9 @@ const Step3_Deposits = () => {
     );
 };
 
-const PricingPreview = () => {
+const PricingPreview = ({ breakEvenCost }: { breakEvenCost: number }) => {
     const { watch } = useFormContext<ServiceFormData>();
-    const [tmhr, setTmhr] = useState(0);
-
-    const values = watch();
-    const { duration, padBefore, padAfter, products, equipment, price } = values;
-
-    useEffect(() => {
-        if (typeof window !== 'undefined') {
-            setTmhr(parseFloat(localStorage.getItem('tmhr') || '50'));
-        }
-    }, []);
-
-    const breakEvenCost = useMemo(() => {
-        const totalDuration = (duration || 0) + (padBefore || 0) + (padAfter || 0);
-        const timeCost = (totalDuration / 60) * tmhr;
-
-        const productCost = (products || []).reduce((acc: number, p: any) => {
-            const product = inventory.find(i => i.id === p.id);
-            return acc + (product?.costPerUnit || 0);
-        }, 0);
-
-        const equipmentDepreciation = (equipment || []).reduce((acc: any, eq: any) => {
-            const equipmentItem = inventory.find(i => i.id === eq.id);
-            if (!equipmentItem) return acc;
-            const lifespanInMinutes = (equipmentItem.lifespanYears || 5) * 365 * 8 * 60;
-            const costPerMinute = (equipmentItem.costPerUnit || 0) / lifespanInMinutes;
-            return acc + (costPerMinute * totalDuration);
-        }, 0);
-
-        return timeCost + productCost + equipmentDepreciation;
-    }, [duration, padBefore, padAfter, products, equipment, tmhr]);
+    const price = watch('price');
     
     const finalPrice = price || 0;
     const netProfit = finalPrice - breakEvenCost;
@@ -523,7 +520,7 @@ const PricingPreview = () => {
 }
 
 
-const PricingForm = () => {
+const PricingForm = ({ breakEvenCost }: { breakEvenCost: number }) => {
     const { register } = useFormContext<ServiceFormData>();
 
     return (
@@ -532,7 +529,7 @@ const PricingForm = () => {
                 <Label htmlFor="final-price">Final Price</Label>
                 <Input id="final-price" type="number" placeholder="100.00" {...register('price', { valueAsNumber: true })} />
             </div>
-            <PricingPreview />
+            <PricingPreview breakEvenCost={breakEvenCost} />
         </div>
     );
 };
@@ -573,13 +570,41 @@ export const AddServiceDialog = ({
   });
 
   const isAddon = methods.watch('isAddon');
+  const values = methods.watch();
+  const { duration, padBefore, padAfter, products, equipment, price } = values;
+  const [tmhr, setTmhr] = useState(0);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+        setTmhr(parseFloat(localStorage.getItem('tmhr') || '50'));
+    }
+  }, []);
+
+  const breakEvenCost = useMemo(() => {
+      const totalDuration = (duration || 0) + (padBefore || 0) + (padAfter || 0);
+      const timeCost = (totalDuration / 60) * tmhr;
+
+      const productCost = (products || []).reduce((acc: number, p: any) => {
+          const product = inventory.find(i => i.id === p.id);
+          return acc + (product?.costPerUnit || 0);
+      }, 0);
+
+      const equipmentDepreciation = (equipment || []).reduce((acc: any, eq: any) => {
+          const equipmentItem = inventory.find(i => i.id === eq.id);
+          if (!equipmentItem) return acc;
+          const lifespanInMinutes = (equipmentItem.lifespanYears || 5) * 365 * 8 * 60;
+          const costPerMinute = (equipmentItem.costPerUnit || 0) / lifespanInMinutes;
+          return acc + (costPerMinute * totalDuration);
+      }, 0);
+
+      return timeCost + productCost + equipmentDepreciation;
+  }, [duration, padBefore, padAfter, products, equipment, tmhr]);
   
   const totalSteps = isAddon ? 3 : 4;
   
   const handleOpenChange = (isOpen: boolean) => {
     onOpenChange(isOpen);
     if (!isOpen) {
-        // Reset state when dialog closes
         setTimeout(() => {
             setStep(1);
             methods.reset();
@@ -588,39 +613,19 @@ export const AddServiceDialog = ({
   }
 
   const onSubmit = (data: ServiceFormData) => {
-      const price = data.price || 0;
-      
-      const duration = data.duration || 0;
-      const padBefore = data.padBefore || 0;
-      const padAfter = data.padAfter || 0;
-
-      const tmhr = (typeof window !== 'undefined' && parseFloat(localStorage.getItem('tmhr') || '0')) || 0;
-      const totalTime = duration + padBefore + padAfter;
-      const timeCost = (totalTime / 60) * tmhr;
-      const productCost = (data.products || []).reduce((acc: number, p: any) => {
-        const product = inventory.find(i => i.id === p.id);
-        return acc + (product?.costPerUnit || 0);
-      }, 0);
-      const equipmentDepreciation = (data.equipment || []).reduce((acc: any, eq: any) => {
-          const equipmentItem = inventory.find(i => i.id === eq.id);
-          if (!equipmentItem) return acc;
-          const lifespanInMinutes = (equipmentItem.lifespanYears || 5) * 365 * 8 * 60;
-          const costPerMinute = (equipmentItem.costPerUnit || 0) / lifespanInMinutes;
-          return acc + (costPerMinute * totalTime);
-      }, 0);
-      const breakEvenCost = timeCost + productCost + equipmentDepreciation;
-      const netProfit = price - breakEvenCost;
-      const margin = price > 0 ? (netProfit / price) * 100 : 0;
+      const finalPrice = data.price || 0;
+      const netProfit = finalPrice - breakEvenCost;
+      const margin = finalPrice > 0 ? (netProfit / finalPrice) * 100 : 0;
       
       const newService: Service = {
         id: `svc-${Date.now()}`,
         name: data.name,
         type: data.isAddon ? 'addon' : 'service',
         category: data.category || 'Uncategorized',
-        duration: duration,
-        padBefore: padBefore,
-        padAfter: padAfter,
-        price: price,
+        duration: data.duration,
+        padBefore: data.padBefore,
+        padAfter: data.padAfter,
+        price: finalPrice,
         cost: breakEvenCost,
         profit: netProfit,
         margin: margin,
@@ -694,10 +699,10 @@ export const AddServiceDialog = ({
     ];
     
     if (!isAddon) {
-      stepMap.push(<Step3_Deposits key="step3" />);
+      stepMap.push(<Step3_Deposits key="step3" breakEvenCost={breakEvenCost} />);
     }
     
-    stepMap.push(<PricingForm key="pricing" />);
+    stepMap.push(<PricingForm key="pricing" breakEvenCost={breakEvenCost} />);
     
     return stepMap[step - 1];
   }
@@ -717,8 +722,10 @@ export const AddServiceDialog = ({
 
             <div className="py-4 space-y-4">
             <Progress value={(step / totalSteps) * 100} />
-            <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4 pl-1">
-                {getStepContent()}
+            <div className="max-h-[60vh] overflow-y-auto px-1 -mx-4">
+                <div className="px-4">
+                    {getStepContent()}
+                </div>
             </div>
             </div>
 
