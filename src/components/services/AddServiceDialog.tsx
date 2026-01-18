@@ -39,7 +39,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Check, PlusCircle, QrCode, AlertTriangle, Hammer, Trash2, Package } from 'lucide-react';
+import { Check, PlusCircle, QrCode, AlertTriangle, Hammer, Trash2, Package, DollarSign } from 'lucide-react';
 import { inventory, services as allServices, type Service, consentForms, type ConsentForm } from '@/lib/data';
 import { BrowseProductsDialog } from './BrowseProductsDialog';
 import { SelectEquipmentDialog } from './SelectEquipmentDialog';
@@ -800,5 +800,3 @@ export const AddServiceDialog = ({
     </Dialog>
   );
 };
-
-    
