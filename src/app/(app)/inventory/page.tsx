@@ -723,7 +723,7 @@ export default function InventoryPage() {
                                 </div>
                                 <div className="flex items-center space-x-2">
                                     <Switch id="show-archived" checked={showArchived} onCheckedChange={setShowArchived} />
-                                    <Label htmlFor="show-archived">Show Archived</Label>
+                                    <Label htmlFor="show-archived">{showArchived ? "Viewing Archived" : "Show Archived"}</Label>
                                 </div>
                             </div>
                              {selectedItems.size > 0 && (
