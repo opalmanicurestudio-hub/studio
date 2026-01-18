@@ -726,6 +726,7 @@ export default function RetailPage() {
                         </Button>
                     </SheetTrigger>
                     <SheetContent side="bottom" className="h-[90vh] p-0 flex flex-col">
+                        <SheetTitle className="sr-only">Current Sale</SheetTitle>
                         <CartContent 
                             cart={cart}
                             selectedClientId={selectedClientId}
@@ -770,7 +771,7 @@ export default function RetailPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="p-4 relative">
-             <video ref={videoRef} className="w-full aspect-video rounded-md" autoPlay muted playsInline />
+             <video ref={videoRef} className="w-full aspect-square rounded-md" autoPlay muted playsInline />
              <div className="absolute inset-4 flex items-center justify-center pointer-events-none">
                 <div className="w-2/3 h-1/2 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
             </div>
@@ -784,7 +785,7 @@ export default function RetailPage() {
                 </Alert>
             )}
           </div>
-           <DialogFooter className="p-4 pt-0">
+           <DialogFooter className="p-4 pt-0 flex-col gap-2">
                 <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button>
           </DialogFooter>
         </DialogContent>
