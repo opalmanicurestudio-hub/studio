@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -39,7 +38,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Check, PlusCircle, QrCode, AlertTriangle, Hammer, Trash2, Package, DollarSign } from 'lucide-react';
+import { Check, PlusCircle, QrCode, AlertTriangle, Package, Hammer, Trash2, DollarSign } from 'lucide-react';
 import { inventory, services as allServices, type Service, consentForms, type ConsentForm } from '@/lib/data';
 import { BrowseProductsDialog } from './BrowseProductsDialog';
 import { SelectEquipmentDialog } from './SelectEquipmentDialog';
@@ -776,8 +775,10 @@ export const AddServiceDialog = ({
             <div>{step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}</div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
-              {step < totalSteps && (
+              {step < totalSteps ? (
                 <Button onClick={handleNext} type="button">Next</Button>
+              ) : (
+                <Button type="button" onClick={handleSave}>Save Service</Button>
               )}
             </div>
           </div>

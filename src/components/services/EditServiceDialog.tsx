@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -37,7 +36,8 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useForm, FormProvider, useFormContext, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-
+import { useIsMobile } from '@/hooks/use-mobile';
+import { Sheet, SheetContent } from '../ui/sheet';
 
 const serviceSchema = z.object({
     id: z.string(),
@@ -688,8 +688,10 @@ export const EditServiceDialog = ({
             <div>{step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}</div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => handleOpenChange(false)} type="button">Cancel</Button>
-              {step < totalSteps && (
+              {step < totalSteps ? (
                 <Button type="button" onClick={handleNext}>Next</Button>
+              ) : (
+                <Button type="button" onClick={handleSave}>Save Changes</Button>
               )}
             </div>
           </div>
