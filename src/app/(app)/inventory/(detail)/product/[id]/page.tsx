@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -177,13 +176,6 @@ export default function ProductDetailPage() {
                         <Badge variant="outline">{product.category}</Badge>
                     </div>
                 </div>
-            </div>
-
-            <div className="w-full sm:w-auto sm:ml-auto">
-                <Button variant="outline" className="w-full">
-                    <Edit className="h-4 w-4 mr-2" />
-                    Edit Product
-                </Button>
             </div>
         </div>
 
@@ -448,3 +440,5 @@ export default function ProductDetailPage() {
 
     
 }
+
+    

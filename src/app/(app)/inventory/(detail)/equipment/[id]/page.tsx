@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -274,12 +273,6 @@ export default function EquipmentDetailPage() {
                 </div>
             </div>
 
-            <div className="w-full sm:w-auto sm:ml-auto">
-                <Button variant="outline" className="w-full">
-                    <Edit className="h-4 w-4 mr-2" />
-                    Edit Equipment
-                </Button>
-            </div>
         </div>
         
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -442,3 +435,5 @@ export default function EquipmentDetailPage() {
     </div>
   );
 }
+
+    
