@@ -183,8 +183,8 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
 
 
     return (
-        <ScrollArea className="h-[70vh] pr-6">
-            <div className="space-y-8">
+        <ScrollArea className="h-[70vh]">
+            <div className="space-y-8 pr-6">
                 {/* Section 1: Basic Info */}
                 <div className="space-y-4">
                     <h3 className="text-lg font-medium">Basic Information</h3>
@@ -384,15 +384,15 @@ export const AddClientDialog = ({ open, onOpenChange, clients }: { open: boolean
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95dvh]">
-          <SheetHeader className="text-left">
+        <SheetContent side="bottom" className="h-[95dvh] flex flex-col p-0">
+          <SheetHeader className="text-left p-4">
             <SheetTitle>{title}</SheetTitle>
             <SheetDescription>{description}</SheetDescription>
           </SheetHeader>
-          <div className="py-4">
+          <div className="p-4 flex-1 min-h-0">
             <AddClientForm clients={clients} />
           </div>
-          <SheetFooter>
+          <SheetFooter className="p-4 border-t">
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button type="submit" className="w-full">Save Client</Button>
           </SheetFooter>
@@ -408,9 +408,7 @@ export const AddClientDialog = ({ open, onOpenChange, clients }: { open: boolean
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <div className="py-4">
-            <AddClientForm clients={clients} />
-        </div>
+        <AddClientForm clients={clients} />
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button type="submit">Save Client</Button>
