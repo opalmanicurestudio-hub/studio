@@ -396,7 +396,6 @@ export default function ClientsPage() {
         <div className="grid lg:grid-cols-[1fr,300px] gap-8 items-start">
             <div className="space-y-6">
                  <div>
-                    <h1 className="text-3xl font-bold">Client Rolodex</h1>
                     <p className="text-muted-foreground">A scannable rolodex of your entire client base.</p>
                 </div>
                 <Card>
@@ -548,5 +547,7 @@ export default function ClientsPage() {
 
 
 
+
+    
 
     
