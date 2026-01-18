@@ -78,12 +78,13 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
     if (isMobile) {
         return (
             <>
-                <button
-                    className={cn(buttonVariants({ variant: 'outline' }), "w-full justify-start text-left font-normal h-12", !date && "text-muted-foreground")}
+                <Button
+                    variant="outline"
+                    className={cn("w-full justify-start text-left font-normal h-12", !date && "text-muted-foreground")}
                      onClick={() => setIsOpen(true)}
                 >
                     {TriggerContent}
-                </button>
+                </Button>
                 <Sheet open={isOpen} onOpenChange={setIsOpen}>
                     <SheetContent side="bottom">
                          <SheetHeader className="text-left">
@@ -100,7 +101,13 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
 
     return (
         <Popover open={isOpen} onOpenChange={setIsOpen}>
-            <PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), "w-full justify-start text-left font-normal h-12", !date && "text-muted-foreground")}>
+            <PopoverTrigger
+                className={cn(
+                    buttonVariants({ variant: "outline" }),
+                    "w-full justify-start text-left font-normal h-12",
+                    !date && "text-muted-foreground"
+                )}
+            >
                 {TriggerContent}
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0">

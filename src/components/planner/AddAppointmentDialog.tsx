@@ -90,12 +90,13 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
     if (isMobile) {
         return (
             <>
-                <button
-                    className={cn(buttonVariants({ variant: 'outline' }), "w-full justify-start text-left font-normal", !date && "text-muted-foreground")}
+                <Button
+                    variant="outline"
+                    className={cn("w-full justify-start text-left font-normal", !date && "text-muted-foreground")}
                     onClick={() => setIsOpen(true)}
                 >
                     {TriggerContent}
-                </button>
+                </Button>
                 <Sheet open={isOpen} onOpenChange={setIsOpen}>
                     <SheetContent side="bottom" className="h-auto">
                          <SheetHeader className="text-left">
