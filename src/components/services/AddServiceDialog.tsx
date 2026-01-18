@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -38,10 +36,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
-import { Checkbox } from '../ui/checkbox';
-import { ScrollArea } from '../ui/scroll-area';
-
+import { BrowseConsentFormsDialog } from './BrowseConsentFormsDialog';
 
 const serviceSchema = z.object({
     name: z.string().min(1, 'Service name is required'),
@@ -79,14 +74,13 @@ const Step1_Basics = ({
     const { register, control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
-    const category = watch('category');
     const requiredFormIds = watch('requiredFormIds') || [];
+    const [isConsentFormBrowserOpen, setIsConsentFormBrowserOpen] = useState(false);
+    
+    const requiredForms = consentForms.filter(f => requiredFormIds.includes(f.id));
 
-    const handleFormIdToggle = (formId: string) => {
-        const currentIds = watch('requiredFormIds') || [];
-        const newIds = currentIds.includes(formId)
-            ? currentIds.filter(id => id !== formId)
-            : [...currentIds, formId];
+    const handleRemoveForm = (formId: string) => {
+        const newIds = requiredFormIds.filter(id => id !== formId);
         setValue('requiredFormIds', newIds, { shouldDirty: true });
     };
 
@@ -101,143 +95,141 @@ const Step1_Basics = ({
     };
     
     return (
-  <div className="grid gap-6 py-4">
-    <div className="flex items-center justify-between p-4 border rounded-lg">
-      <div className='space-y-1'>
-        <Label htmlFor="is-addon">Is this an Add-on Service?</Label>
-        <p className='text-sm text-muted-foreground'>Add-ons can be appended to primary services.</p>
-      </div>
-      <Controller
-        name="isAddon"
-        control={control}
-        render={({ field }) => (
-          <Switch id="is-addon" checked={field.value} onCheckedChange={field.onChange} />
-        )}
-      />
-    </div>
-    <div className="space-y-2">
-      <Label htmlFor="service-name">Name</Label>
-      <Input id="service-name" placeholder="e.g., Signature Haircut" {...register('name')} />
-       {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
-    </div>
-    <div className="space-y-2">
-      <Label htmlFor="category">Category</Label>
-      {isAddingCategory ? (
-        <div className="flex gap-2">
-          <Input
-            placeholder="Enter new category name..."
-            value={newCategoryName}
-            onChange={(e) => setNewCategoryName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()}
-          />
-          <Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button>
-        </div>
-      ) : (
-        <div className="flex gap-2">
-          <Controller
-            name="category"
-            control={control}
-            render={({ field }) => (
-               <Select onValueChange={field.onChange} value={field.value}>
-                <SelectTrigger> <SelectValue placeholder="Select a category" /> </SelectTrigger>
-                <SelectContent> {categories.map(cat => ( <SelectItem key={cat} value={cat}>{cat}</SelectItem> ))} </SelectContent>
-              </Select>
-            )}
-          />
-         
-          <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button">
-            <PlusCircle className="h-4 w-4" />
-          </Button>
-        </div>
-      )}
-       {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
-    </div>
-    <div className="grid grid-cols-3 gap-4">
-      <div className="space-y-2">
-        <Label htmlFor="duration">Duration (min)</Label>
-        <Input id="duration" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>
-        {errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="pad-before">Pad Before (min)</Label>
-        <Input id="pad-before" type="number" placeholder="e.g., 0" {...register('padBefore', { valueAsNumber: true })} />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="pad-after">Pad After (min)</Label>
-        <Input id="pad-after" type="number" placeholder="e.g., 15" {...register('padAfter', { valueAsNumber: true })} />
-      </div>
-    </div>
-    <div className="space-y-2">
-      <Label htmlFor="description">Description</Label>
-      <Textarea id="description" placeholder="Describe the service for your booking page..." {...register('description')} />
-    </div>
-    <div className="space-y-2">
-        <Label htmlFor="confirmationMessage">Confirmation Message</Label>
-        <Textarea id="confirmationMessage" placeholder="Optional: A message to show clients after they book this service." {...register('confirmationMessage')} />
-    </div>
-    <div className="space-y-2">
-      <Label>Service Image</Label>
-       <Controller
-        name="imageUrl"
-        control={control}
-        render={({ field }) => (
-          <ImageUpload onImageUploaded={field.onChange} />
-        )}
-      />
-    </div>
-    <div className="flex items-center justify-between p-4 border rounded-lg">
-      <div className='space-y-1'>
-        <Label htmlFor="private-service">Private Service</Label>
-        <p className='text-sm text-muted-foreground'>Hide from public booking page.</p>
-      </div>
-      <Controller
-        name="isPrivate"
-        control={control}
-        render={({ field }) => (
-          <Switch id="private-service" checked={field.value} onCheckedChange={field.onChange} />
-        )}
-      />
-    </div>
-     <div className="space-y-2">
-      <Label>Required Consent Forms</Label>
-        <Popover>
-            <PopoverTrigger asChild>
-                <Button variant="outline" className="w-full justify-between">
-                    {requiredFormIds.length > 0 ? `${requiredFormIds.length} form(s) selected` : "Select forms..."}
-                    <ChevronDown className="h-4 w-4 opacity-50" />
+    <>
+        <div className="grid gap-6 py-4">
+            <div className="flex items-center justify-between p-4 border rounded-lg">
+            <div className='space-y-1'>
+                <Label htmlFor="is-addon">Is this an Add-on Service?</Label>
+                <p className='text-sm text-muted-foreground'>Add-ons can be appended to primary services.</p>
+            </div>
+            <Controller
+                name="isAddon"
+                control={control}
+                render={({ field }) => (
+                <Switch id="is-addon" checked={field.value} onCheckedChange={field.onChange} />
+                )}
+            />
+            </div>
+            <div className="space-y-2">
+            <Label htmlFor="service-name">Name</Label>
+            <Input id="service-name" placeholder="e.g., Signature Haircut" {...register('name')} />
+            {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+            </div>
+            <div className="space-y-2">
+            <Label htmlFor="category">Category</Label>
+            {isAddingCategory ? (
+                <div className="flex gap-2">
+                <Input
+                    placeholder="Enter new category name..."
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()}
+                />
+                <Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button>
+                </div>
+            ) : (
+                <div className="flex gap-2">
+                <Controller
+                    name="category"
+                    control={control}
+                    render={({ field }) => (
+                    <Select onValueChange={field.onChange} value={field.value}>
+                        <SelectTrigger> <SelectValue placeholder="Select a category" /> </SelectTrigger>
+                        <SelectContent> {categories.map(cat => ( <SelectItem key={cat} value={cat}>{cat}</SelectItem> ))} </SelectContent>
+                    </Select>
+                    )}
+                />
+                
+                <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button">
+                    <PlusCircle className="h-4 w-4" />
                 </Button>
-            </PopoverTrigger>
-            <PopoverContent 
-                className="w-[var(--radix-popover-trigger-width)] p-0"
-                onInteractOutside={(e) => {
-                    e.preventDefault();
-                }}
-            >
-                <ScrollArea className="max-h-60">
-                    <div className="p-2 space-y-1">
-                    {consentForms.map(form => (
-                        <div 
-                            key={form.id} 
-                            className="flex items-center space-x-2 p-2 rounded-md hover:bg-muted cursor-pointer"
-                            onMouseDown={(e) => {
-                                e.preventDefault();
-                                handleFormIdToggle(form.id);
-                            }}
-                        >
-                            <Checkbox
-                                id={`form-${form.id}`}
-                                checked={requiredFormIds.includes(form.id)}
-                                className="pointer-events-none"
-                            />
-                            <Label htmlFor={`form-${form.id}`} className="font-normal cursor-pointer flex-1">{form.title}</Label>
-                        </div>
-                    ))}
-                    </div>
-                </ScrollArea>
-            </PopoverContent>
-        </Popover>
-    </div>
-  </div>
+                </div>
+            )}
+            {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+            <div className="space-y-2">
+                <Label htmlFor="duration">Duration (min)</Label>
+                <Input id="duration" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>
+                {errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}
+            </div>
+            <div className="space-y-2">
+                <Label htmlFor="pad-before">Pad Before (min)</Label>
+                <Input id="pad-before" type="number" placeholder="e.g., 0" {...register('padBefore', { valueAsNumber: true })} />
+            </div>
+            <div className="space-y-2">
+                <Label htmlFor="pad-after">Pad After (min)</Label>
+                <Input id="pad-after" type="number" placeholder="e.g., 15" {...register('padAfter', { valueAsNumber: true })} />
+            </div>
+            </div>
+            <div className="space-y-2">
+            <Label htmlFor="description">Description</Label>
+            <Textarea id="description" placeholder="Describe the service for your booking page..." {...register('description')} />
+            </div>
+            <div className="space-y-2">
+                <Label htmlFor="confirmationMessage">Confirmation Message</Label>
+                <Textarea id="confirmationMessage" placeholder="Optional: A message to show clients after they book this service." {...register('confirmationMessage')} />
+            </div>
+            <div className="space-y-2">
+            <Label>Service Image</Label>
+            <Controller
+                name="imageUrl"
+                control={control}
+                render={({ field }) => (
+                <ImageUpload onImageUploaded={field.onChange} />
+                )}
+            />
+            </div>
+            <div className="flex items-center justify-between p-4 border rounded-lg">
+            <div className='space-y-1'>
+                <Label htmlFor="private-service">Private Service</Label>
+                <p className='text-sm text-muted-foreground'>Hide from public booking page.</p>
+            </div>
+            <Controller
+                name="isPrivate"
+                control={control}
+                render={({ field }) => (
+                <Switch id="private-service" checked={field.value} onCheckedChange={field.onChange} />
+                )}
+            />
+            </div>
+             <div className="space-y-2">
+                <Label>Required Consent Forms</Label>
+                {requiredForms.length > 0 ? (
+                    <Card>
+                        <CardContent className="p-2 space-y-2">
+                            {requiredForms.map(form => (
+                                <div key={form.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50">
+                                    <span className="text-sm font-medium">{form.title}</span>
+                                    <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveForm(form.id)}>
+                                        <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            ))}
+                        </CardContent>
+                    </Card>
+                ) : (
+                    <Card>
+                        <CardContent className="p-4 text-center text-sm text-muted-foreground">
+                            No forms required.
+                        </CardContent>
+                    </Card>
+                )}
+                <Button variant="outline" onClick={() => setIsConsentFormBrowserOpen(true)} type="button" className="w-full">
+                    <PlusCircle className="mr-2 h-4 w-4" /> Browse Forms
+                </Button>
+            </div>
+        </div>
+        <BrowseConsentFormsDialog
+            open={isConsentFormBrowserOpen}
+            onOpenChange={setIsConsentFormBrowserOpen}
+            onSelect={(forms) => {
+                setValue('requiredFormIds', forms.map(f => f.id), { shouldDirty: true });
+            }}
+            allForms={consentForms}
+            initialSelected={requiredForms}
+        />
+    </>
     );
 };
 
