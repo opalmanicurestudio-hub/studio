@@ -20,7 +20,7 @@ import {
   SheetDescription,
   SheetFooter,
 } from '@/components/ui/sheet';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -213,19 +213,11 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                          <div className="space-y-2">
                             <Label htmlFor="birthday">Birthday</Label>
                              <Popover>
-                                <PopoverTrigger asChild>
-                                <Button
-                                    variant={"outline"}
-                                    className={cn(
-                                    "w-full justify-start text-left font-normal",
-                                    !date && "text-muted-foreground"
-                                    )}
-                                >
+                                <PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), "w-full justify-start text-left font-normal", !date && "text-muted-foreground")}>
                                   <span className="flex items-center">
                                     <CalendarIcon className="mr-2 h-4 w-4" />
                                     {date ? date.toLocaleDateString() : "Pick a date"}
                                   </span>
-                                </Button>
                                 </PopoverTrigger>
                                 <PopoverContent className="w-auto p-0">
                                 <Calendar

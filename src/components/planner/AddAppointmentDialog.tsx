@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -32,7 +33,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -65,19 +66,15 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
     }
     
     const TriggerButton = (
-        <Button
-            variant={"outline"}
-            className={cn(
-            "w-full justify-start text-left font-normal",
-            !date && "text-muted-foreground"
-            )}
+        <button
+            className={cn(buttonVariants({ variant: 'outline' }), "w-full justify-start text-left font-normal", !date && "text-muted-foreground")}
             onClick={() => setIsOpen(true)}
         >
             <span className="flex items-center">
                 <CalendarIcon className="mr-2 h-4 w-4" />
                 {date ? format(date, 'PPP') : "Pick a date"}
             </span>
-        </Button>
+        </button>
     );
     
     const CalendarComponent = (

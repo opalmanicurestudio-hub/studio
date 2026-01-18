@@ -4,7 +4,7 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import {
   Card,
   CardContent,
@@ -351,13 +351,11 @@ export default function QuoteGeneratorPage() {
                             </div>
                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                <Popover>
-                                    <PopoverTrigger asChild>
-                                    <Button variant="outline" className="justify-start font-normal h-11">
+                                    <PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), "justify-start font-normal h-11")}>
                                         <span className="flex items-center">
                                             <CalendarIcon className="mr-2 h-4 w-4" />
                                             {eventStartDate ? format(eventStartDate, "PPP") : "Start Date"}
                                         </span>
-                                    </Button>
                                     </PopoverTrigger>
                                     <PopoverContent className="w-auto p-0">
                                     <Calendar mode="single" selected={eventStartDate} onSelect={setEventStartDate} initialFocus />
@@ -365,13 +363,11 @@ export default function QuoteGeneratorPage() {
                                 </Popover>
                                 {isMultiDay && (
                                      <Popover>
-                                        <PopoverTrigger asChild>
-                                        <Button variant="outline" className="justify-start font-normal h-11">
+                                        <PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), "justify-start font-normal h-11")}>
                                             <span className="flex items-center">
                                                 <CalendarIcon className="mr-2 h-4 w-4" />
                                                 {eventEndDate ? format(eventEndDate, "PPP") : "End Date"}
                                             </span>
-                                        </Button>
                                         </PopoverTrigger>
                                         <PopoverContent className="w-auto p-0">
                                         <Calendar mode="single" selected={eventEndDate} onSelect={setEventEndDate} initialFocus disabled={{ before: eventStartDate }}/>
