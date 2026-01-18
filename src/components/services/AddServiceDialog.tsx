@@ -2,6 +2,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
   DialogContent,
@@ -10,6 +11,14 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -22,24 +31,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { PlusCircle, Package, Hammer, Trash2, QrCode, Check, AlertTriangle, DollarSign } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Slider } from '@/components/ui/slider';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { inventory, services as allServices, type Service, type InventoryItem, consentForms, type ConsentForm } from '@/lib/data';
-import { BrowseProductsDialog } from './BrowseProductsDialog';
-import { SelectEquipmentDialog } from './SelectEquipmentDialog';
-import { SelectAddOnsDialog } from './SelectAddOnsDialog';
+import { type InventoryItem, type Location } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign } from 'lucide-react';
+import { inventory, services as allServices, type Service, consentForms, type ConsentForm } from '@/lib/data';
+import { BrowseProductsDialog } from './BrowseProductsDialog';
+import { SelectEquipmentDialog } from './SelectEquipmentDialog';
+import { SelectAddOnsDialog } from './SelectAddOnsDialog';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { BrowseConsentFormsDialog } from './BrowseConsentFormsDialog';
 import { cn } from '@/lib/utils';
-import { useIsMobile } from '@/hooks/use-mobile';
+import { Switch } from '../ui/switch';
 
 const serviceSchema = z.object({
     name: z.string().min(1, 'Service name is required'),
@@ -743,53 +751,73 @@ export const AddServiceDialog = ({
   const title = `Add New ${isAddon ? 'Add-on' : 'Service'}`;
   const description = "Create a new service for your menu. Follow the steps to ensure accurate pricing.";
 
-  const formBody = (
-     <FormProvider {...methods}>
-      <form id={formId} onSubmit={methods.handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
-        <DialogHeader className={isMobile ? "p-4 border-b text-left" : "p-6 pb-4"}>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
-        <div className="px-4 md:px-6 py-4">
-          <Progress value={(step / totalSteps) * 100} />
-        </div>
-        <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-6">
-          {getStepContent()}
-        </div>
-        <DialogFooter className={isMobile ? "p-4 border-t" : "p-6 border-t"}>
-          <div className='flex justify-between w-full'>
-            <div>{step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}</div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
-              {step < totalSteps ? (
-                <Button onClick={handleNext} type="button">Next</Button>
-              ) : (
-                <Button type="button" onClick={methods.handleSubmit(onSubmit)}>Save {isAddon ? 'Add-on' : 'Service'}</Button>
-              )}
-            </div>
-          </div>
-        </DialogFooter>
-      </form>
-    </FormProvider>
-  );
-
   if (isMobile) {
     return (
-      <Sheet open={open} onOpenChange={handleOpenChange}>
-        <SheetContent side="bottom" className="max-h-[90dvh] flex flex-col p-0">
-          {formBody}
-        </SheetContent>
-      </Sheet>
+      <FormProvider {...methods}>
+        <Sheet open={open} onOpenChange={handleOpenChange}>
+          <SheetContent side="bottom" className="max-h-[90dvh] flex flex-col p-0">
+            <form id={formId} onSubmit={methods.handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+              <SheetHeader className="p-4 border-b text-left">
+                <SheetTitle>{title}</SheetTitle>
+                <SheetDescription>{description}</SheetDescription>
+              </SheetHeader>
+              <div className="px-4 md:px-6 py-4">
+                <Progress value={(step / totalSteps) * 100} />
+              </div>
+              <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-6">
+                {getStepContent()}
+              </div>
+              <SheetFooter className="p-4 border-t">
+                <div className='flex justify-between w-full'>
+                  <div>{step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}</div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
+                    {step < totalSteps ? (
+                      <Button onClick={handleNext} type="button">Next</Button>
+                    ) : (
+                      <Button type="button" onClick={methods.handleSubmit(onSubmit)}>Save {isAddon ? 'Add-on' : 'Service'}</Button>
+                    )}
+                  </div>
+                </div>
+              </SheetFooter>
+            </form>
+          </SheetContent>
+        </Sheet>
+      </FormProvider>
     );
   }
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col p-0">
-        {formBody}
+        <FormProvider {...methods}>
+          <form id={formId} onSubmit={methods.handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+            <DialogHeader className="p-6 pb-4">
+              <DialogTitle>{title}</DialogTitle>
+              <DialogDescription>{description}</DialogDescription>
+            </DialogHeader>
+            <div className="px-4 md:px-6 py-4">
+              <Progress value={(step / totalSteps) * 100} />
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-6">
+              {getStepContent()}
+            </div>
+            <DialogFooter className="p-6 border-t">
+              <div className='flex justify-between w-full'>
+                <div>{step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}</div>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
+                  {step < totalSteps ? (
+                    <Button onClick={handleNext} type="button">Next</Button>
+                  ) : (
+                    <Button type="button" onClick={methods.handleSubmit(onSubmit)}>Save {isAddon ? 'Add-on' : 'Service'}</Button>
+                  )}
+                </div>
+              </div>
+            </DialogFooter>
+          </form>
+        </FormProvider>
       </DialogContent>
     </Dialog>
   );
 };
-
-    
