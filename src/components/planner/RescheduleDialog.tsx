@@ -53,16 +53,11 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
         }
     }
     
-    const TriggerButton = (
-        <button
-            className={cn(buttonVariants({ variant: 'outline' }), "w-full justify-start text-left font-normal h-12", !date && "text-muted-foreground")}
-             onClick={() => setIsOpen(true)}
-        >
-            <span className="flex items-center">
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                {date ? format(date, 'PPP') : "Pick a date"}
-            </span>
-        </button>
+    const TriggerContent = (
+        <span className="flex items-center">
+            <CalendarIcon className="mr-2 h-4 w-4" />
+            {date ? format(date, 'PPP') : "Pick a date"}
+        </span>
     );
     
     const CalendarComponent = (
@@ -83,7 +78,12 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
     if (isMobile) {
         return (
             <>
-                {TriggerButton}
+                <button
+                    className={cn(buttonVariants({ variant: 'outline' }), "w-full justify-start text-left font-normal h-12", !date && "text-muted-foreground")}
+                     onClick={() => setIsOpen(true)}
+                >
+                    {TriggerContent}
+                </button>
                 <Sheet open={isOpen} onOpenChange={setIsOpen}>
                     <SheetContent side="bottom">
                          <SheetHeader className="text-left">
@@ -100,8 +100,8 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
 
     return (
         <Popover open={isOpen} onOpenChange={setIsOpen}>
-            <PopoverTrigger asChild>
-                {TriggerButton}
+            <PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), "w-full justify-start text-left font-normal h-12", !date && "text-muted-foreground")}>
+                {TriggerContent}
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0">
                 {CalendarComponent}
@@ -285,12 +285,12 @@ export const RescheduleDialog = ({
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent side="bottom" className="h-[95vh] flex flex-col">
-          <SheetHeader className="text-left">
+          <SheetHeader className="text-left px-4">
             <SheetTitle>{title}</SheetTitle>
             <SheetDescription>{description}</SheetDescription>
           </SheetHeader>
-          <div className="py-4 flex-1 overflow-y-auto">{FormContent}</div>
-          <SheetFooter>
+          <div className="py-4 flex-1 overflow-y-auto px-4">{FormContent}</div>
+          <SheetFooter className="px-4">
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button type="submit" form="reschedule-appointment-form" className="w-full">Save Changes</Button>
           </SheetFooter>

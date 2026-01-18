@@ -86,7 +86,7 @@ const LogPaymentForm = ({ billInstance }: { billInstance: BillInstance & { defin
           <div className="space-y-2">
             <Label htmlFor="payment-date">Payment Date</Label>
             <Popover>
-              <PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), 'w-full justify-start text-left font-normal', !field.value && 'text-muted-foreground')}>
+              <PopoverTrigger id="payment-date" className={cn(buttonVariants({ variant: 'outline' }), 'w-full justify-start text-left font-normal', !field.value && 'text-muted-foreground')}>
                 <span className="flex items-center">
                   <CalendarIcon className="mr-2 h-4 w-4" />
                   {field.value ? format(field.value, 'PPP') : 'Pick a date'}
