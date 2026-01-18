@@ -114,6 +114,7 @@ export type Service = {
   isPrivate?: boolean;
   confirmationMessage?: string;
   requiredFormIds?: string[];
+  status?: 'active' | 'archived';
 };
 
 export type Batch = {
@@ -511,6 +512,7 @@ export const services: Service[] = [
     margin: 91.1,
     imageUrl: 'https://picsum.photos/seed/updo/200/200',
     isPrivate: false,
+    status: 'archived',
   },
   { 
     id: 'svc-addon-1', 

@@ -2,7 +2,7 @@
 
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -12,14 +12,15 @@ import {
   CardDescription,
   CardFooter,
 } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Clock, DollarSign, Sparkles, Box, List, Pencil, Search, SlidersHorizontal, Info, ShoppingCart, Hammer, FileText, BarChart, Users, TrendingUp, MapPin, Book, Calendar as CalendarIcon, Landmark, Link as LinkIcon, EyeOff } from 'lucide-react';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { MoreHorizontal, PlusCircle, Clock, DollarSign, Sparkles, Box, List, Pencil, Search, SlidersHorizontal, Info, ShoppingCart, Hammer, FileText, BarChart, Users, TrendingUp, MapPin, Book, Calendar as CalendarIcon, Landmark, Link as LinkIcon, EyeOff, Trash2 } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { services as initialServices, type Service, inventory as allInventory, type InventoryItem, type Appointment } from '@/lib/data';
@@ -36,6 +37,10 @@ import { collection } from 'firebase/firestore';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useInventory } from '@/context/InventoryContext';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Switch } from '@/components/ui/switch';
+import { cn } from '@/lib/utils';
 
 
 const InlineProfitTester = ({ service, tmhr, onPriceUpdate }: { service: Service, tmhr: number, onPriceUpdate: (newPrice: number) => void; }) => {
@@ -184,7 +189,7 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
   );
 };
 
-const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUpdate }: { service: Service, onEditServiceOpen: (service: Service) => void, tmhr: number, appointments: Appointment[] | null, onPriceUpdate: (serviceId: string, newPrice: number) => void }) => {
+const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUpdate, isSelected, onSelect }: { service: Service, onEditServiceOpen: (service: Service) => void, tmhr: number, appointments: Appointment[] | null, onPriceUpdate: (serviceId: string, newPrice: number) => void, isSelected: boolean, onSelect: () => void }) => {
   const { toast } = useToast();
   const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
   
@@ -212,9 +217,17 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUp
 
 
   return (
-    <Card className="overflow-hidden flex flex-col transition-all duration-200 hover:shadow-xl hover:-translate-y-1">
+    <Card className={cn("overflow-hidden flex flex-col transition-all duration-200 hover:shadow-xl hover:-translate-y-1", isSelected && "border-primary ring-2 ring-primary")}>
       <CardContent className="p-4 space-y-4 flex-1">
-        <div className="flex items-start gap-4">
+        <div className="flex items-start gap-3">
+          <div className="flex items-center pt-1">
+            <Checkbox
+                id={`select-${service.id}`}
+                checked={isSelected}
+                onCheckedChange={onSelect}
+                aria-label={`Select ${service.name}`}
+            />
+          </div>
           <Link href={`/services/${service.id}`} className="w-20 h-20 bg-muted rounded-md flex-shrink-0">
              <Image 
                 src={service.imageUrl || `https://picsum.photos/seed/svc${service.id}/200/200`} 
@@ -241,9 +254,6 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUp
                   <DropdownMenuItem onClick={() => onEditServiceOpen(service)}>
                     <Pencil className="mr-2 h-4 w-4" />
                     Edit
-                  </DropdownMenuItem>
-                  <DropdownMenuItem className="text-destructive">
-                    Delete
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -326,14 +336,23 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUp
   );
 };
 
-const ServiceCategory = ({ title, services, onEditServiceOpen, tmhr, appointments, onPriceUpdate }: { title: string, services: Service[], onEditServiceOpen: (service: Service) => void, tmhr: number, appointments: Appointment[] | null, onPriceUpdate: (serviceId: string, newPrice: number) => void }) => {
+const ServiceCategory = ({ title, services, onEditServiceOpen, tmhr, appointments, onPriceUpdate, selectedItems, onSelectItem }: { title: string, services: Service[], onEditServiceOpen: (service: Service) => void, tmhr: number, appointments: Appointment[] | null, onPriceUpdate: (serviceId: string, newPrice: number) => void, selectedItems: Set<string>, onSelectItem: (id: string) => void }) => {
     if (services.length === 0) return null;
     return (
         <div>
             <h2 className="text-2xl font-bold mb-4">{title}</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                 {services.map((service) => (
-                    <ServiceCard key={service.id} service={service} onEditServiceOpen={onEditServiceOpen} tmhr={tmhr} appointments={appointments} onPriceUpdate={onPriceUpdate} />
+                    <ServiceCard 
+                        key={service.id} 
+                        service={service} 
+                        onEditServiceOpen={onEditServiceOpen} 
+                        tmhr={tmhr} 
+                        appointments={appointments} 
+                        onPriceUpdate={onPriceUpdate}
+                        isSelected={selectedItems.has(service.id)}
+                        onSelect={() => onSelectItem(service.id)}
+                    />
                 ))}
             </div>
         </div>
@@ -362,13 +381,17 @@ const EmptyState = ({ onAddNewService }: { onAddNewService: () => void }) => (
 
 
 export default function ServicesPage() {
-  const [services, setServices] = useState(initialServices);
+  const { services, setServices } = useInventory();
   const [isAddServiceDialogOpen, setIsAddServiceDialogOpen] = useState(false);
   const [isEditServiceDialogOpen, setIsEditServiceDialogOpen] = useState(false);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [tmhr, setTmhr] = useState(0);
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
+  
+  const [showArchived, setShowArchived] = useState(false);
+  const [selectedItems, setSelectedItems] = useState(new Set<string>());
+  const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
 
   const { firestore, user, isUserLoading } = useFirebase();
   const tenantId = 'tenant-abc';
@@ -379,6 +402,52 @@ export default function ServicesPage() {
 
   const { data: appointments, isLoading: areAppointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
 
+  const handleItemSelect = useCallback((itemId: string) => {
+    setSelectedItems(prev => {
+        const newSelection = new Set(prev);
+        if (newSelection.has(itemId)) {
+            newSelection.delete(itemId);
+        } else {
+            newSelection.add(itemId);
+        }
+        return newSelection;
+    });
+  }, []);
+
+  const handleBulkArchive = useCallback(() => {
+    setServices(prev =>
+        prev.map(item =>
+            selectedItems.has(item.id) ? { ...item, status: 'archived' } : item
+        )
+    );
+    toast({ title: `${selectedItems.size} service(s) have been archived.` });
+    setSelectedItems(new Set());
+  }, [selectedItems, setServices, toast]);
+
+  const handleBulkUnarchive = useCallback(() => {
+      setServices(prev =>
+          prev.map(item =>
+              selectedItems.has(item.id) ? { ...item, status: 'active' } : item
+          )
+      );
+      toast({ title: `${selectedItems.size} service(s) have been restored.` });
+      setSelectedItems(new Set());
+  }, [selectedItems, setServices, toast]);
+
+  const handleBulkDeleteClick = () => {
+    setIsBulkDeleteConfirmOpen(true);
+  };
+  
+  const handleBulkDeleteConfirm = useCallback(() => {
+    const itemCount = selectedItems.size;
+    setServices(prev => prev.filter(item => !selectedItems.has(item.id)));
+    setSelectedItems(new Set());
+    setIsBulkDeleteConfirmOpen(false);
+    toast({
+        title: "Services Deleted",
+        description: `${itemCount} service(s) have been removed.`,
+    })
+  }, [selectedItems, setServices, toast]);
 
   useEffect(() => {
     const storedTmhr = localStorage.getItem('tmhr');
@@ -397,7 +466,7 @@ export default function ServicesPage() {
         if (s.id === serviceId) {
              const breakEvenCost = s.cost;
              const newProfit = newPrice - breakEvenCost;
-             const newMargin = newPrice > 0 ? (newProfit / newPrice) * 100 : 0;
+             const newMargin = newPrice > 0 ? (newProfit / price) * 100 : 0;
             return {
                 ...s,
                 price: newPrice,
@@ -410,10 +479,16 @@ export default function ServicesPage() {
   };
   
   const filteredServices = useMemo(() => {
-    return services.filter(service =>
-      service.name.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  }, [services, searchTerm]);
+    let servicesToFilter = services.filter(service => {
+        return showArchived ? service.status === 'archived' : service.status !== 'archived';
+    });
+    if (searchTerm) {
+        servicesToFilter = servicesToFilter.filter(service =>
+          service.name.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    }
+    return servicesToFilter;
+  }, [services, searchTerm, showArchived]);
 
   const mainServices = filteredServices.filter(s => s.type === 'service');
   const addOnServices = filteredServices.filter(s => s.type === 'addon');
@@ -465,6 +540,7 @@ export default function ServicesPage() {
     })
   };
 
+  const hasServices = services.length > 0;
 
   return (
     <div className="w-full">
@@ -506,7 +582,25 @@ export default function ServicesPage() {
                     onChange={(e) => setSearchTerm(e.target.value)}
                 />
             </div>
+            <div className="flex items-center space-x-2">
+                <Switch id="show-archived" checked={showArchived} onCheckedChange={setShowArchived} />
+                <Label htmlFor="show-archived">{showArchived ? "Viewing Archived" : "Show Archived"}</Label>
+            </div>
         </div>
+        
+        {selectedItems.size > 0 && (
+            <div className="mb-4 p-3 rounded-lg bg-muted/50 flex items-center justify-between">
+                <p className="text-sm font-medium">{selectedItems.size} service(s) selected</p>
+                <div className="flex gap-2">
+                    {showArchived ? (
+                        <Button variant="outline" size="sm" onClick={handleBulkUnarchive}>Unarchive</Button>
+                    ) : (
+                        <Button variant="outline" size="sm" onClick={handleBulkArchive}>Archive</Button>
+                    )}
+                    <Button variant="destructive" size="sm" onClick={handleBulkDeleteClick}>Delete</Button>
+                </div>
+            </div>
+        )}
         
         <Tabs defaultValue="services" className="w-full">
           <TabsList className="grid w-full grid-cols-2 sm:w-auto sm:inline-flex">
@@ -516,14 +610,34 @@ export default function ServicesPage() {
           <TabsContent value="services" className="mt-6 space-y-8">
              {Object.keys(servicesByCategory).length > 0 ? (
                 Object.entries(servicesByCategory).map(([category, services]) => (
-                    <ServiceCategory key={category} title={category} services={services} onEditServiceOpen={handleOpenEditService} tmhr={tmhr} appointments={appointments} onPriceUpdate={handlePriceUpdate}/>
+                    <ServiceCategory 
+                        key={category} 
+                        title={category} 
+                        services={services} 
+                        onEditServiceOpen={handleOpenEditService} 
+                        tmhr={tmhr} 
+                        appointments={appointments} 
+                        onPriceUpdate={handlePriceUpdate}
+                        selectedItems={selectedItems}
+                        onSelectItem={handleItemSelect}
+                    />
                 ))
             ) : <EmptyState onAddNewService={() => setIsAddServiceDialogOpen(true)} />}
           </TabsContent>
           <TabsContent value="add-ons" className="mt-6 space-y-8">
              {Object.keys(addOnsByCategory).length > 0 ? (
                 Object.entries(addOnsByCategory).map(([category, services]) => (
-                    <ServiceCategory key={category} title={category} services={services} onEditServiceOpen={handleOpenEditService} tmhr={tmhr} appointments={appointments} onPriceUpdate={handlePriceUpdate}/>
+                    <ServiceCategory 
+                        key={category} 
+                        title={category} 
+                        services={services} 
+                        onEditServiceOpen={handleOpenEditService} 
+                        tmhr={tmhr} 
+                        appointments={appointments} 
+                        onPriceUpdate={handlePriceUpdate}
+                        selectedItems={selectedItems}
+                        onSelectItem={handleItemSelect}
+                    />
                 ))
              ) : (
                 <Card>
@@ -554,8 +668,26 @@ export default function ServicesPage() {
             onServiceUpdated={handleUpdateService}
         />
       )}
+
+      <AlertDialog open={isBulkDeleteConfirmOpen} onOpenChange={setIsBulkDeleteConfirmOpen}>
+        <AlertDialogContent>
+            <AlertDialogHeader>
+                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                <AlertDialogDescription>
+                    This will permanently delete {selectedItems.size} service(s). This action cannot be undone.
+                </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={handleBulkDeleteConfirm} className={buttonVariants({ variant: "destructive" })}>
+                    Delete
+                </AlertDialogAction>
+            </AlertDialogFooter>
+        </AlertDialogContent>
+    </AlertDialog>
     </div>
   );
 }
+
 
 
