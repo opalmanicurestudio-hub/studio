@@ -65,10 +65,10 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
             )}
              onClick={() => setIsOpen(true)}
         >
-          <span className="flex items-center">
-            <CalendarIcon className="mr-2 h-4 w-4" />
-            {date ? format(date, 'PPP') : "Pick a date"}
-          </span>
+            <span className="flex items-center">
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {date ? format(date, 'PPP') : "Pick a date"}
+            </span>
         </Button>
     );
     
@@ -444,7 +444,7 @@ export const EditAppointmentDialog = ({ open, onOpenChange, appointment, clients
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95dvh] flex flex-col">
+        <SheetContent side="bottom" className="h-[95vh] flex flex-col">
           <SheetHeader className="text-left px-4">
             <SheetTitle>{title}</SheetTitle>
             <SheetDescription>{description}</SheetDescription>

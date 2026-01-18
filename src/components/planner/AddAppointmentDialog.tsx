@@ -357,7 +357,7 @@ export const AddAppointmentDialog = ({ open, onOpenChange, clients, services, ap
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95dvh] flex flex-col">
+        <SheetContent side="bottom" className="h-[95vh] flex flex-col">
           <SheetHeader className="text-left px-4">
             <SheetTitle>{title}</SheetTitle>
             <SheetDescription>{description}</SheetDescription>

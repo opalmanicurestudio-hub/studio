@@ -33,7 +33,6 @@ import {
 } from '@/components/ui/select';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { CalendarIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Client, Service, Appointment } from '@/lib/data';
@@ -289,7 +288,7 @@ export const RescheduleDialog = ({
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95dvh] flex flex-col">
+        <SheetContent side="bottom" className="h-[95vh] flex flex-col">
           <SheetHeader className="text-left">
             <SheetTitle>{title}</SheetTitle>
             <SheetDescription>{description}</SheetDescription>
