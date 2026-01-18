@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -781,7 +780,7 @@ export const AddServiceDialog = ({
               {step < totalSteps ? (
                 <Button onClick={handleNext} type="button">Next</Button>
               ) : (
-                <Button type="button" onClick={methods.handleSubmit(onSubmit)}>Save {isAddon ? 'Add-on' : 'Service'}</Button>
+                <Button type="submit" form={formId}>Save {isAddon ? 'Add-on' : 'Service'}</Button>
               )}
             </div>
           </div>

@@ -660,13 +660,15 @@ export const EditServiceDialog = ({
     
     return stepMap[step - 1];
   }
+  
+  const formId = `edit-service-form-${service.id}`;
 
   return (
     <>
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-4xl">
         <FormProvider {...methods}>
-        <form>
+        <form id={formId} onSubmit={methods.handleSubmit(onSubmit)}>
             <DialogHeader>
             <DialogTitle>Edit {isAddon ? 'Add-on' : 'Service'}</DialogTitle>
             <DialogDescription>
@@ -691,7 +693,7 @@ export const EditServiceDialog = ({
                     {step < totalSteps ? (
                         <Button type="button" onClick={handleNext}>Next</Button>
                     ) : (
-                        <Button type="button" onClick={methods.handleSubmit(onSubmit)}>Save Changes</Button>
+                        <Button type="submit" form={formId}>Save Changes</Button>
                     )}
                 </div>
             </div>
