@@ -98,7 +98,7 @@ const mockForms: ConsentForm[] = [
 const ConsentCard = ({ form, onEdit, onPreview, onShare }: { form: ConsentForm, onEdit: (form: ConsentForm) => void; onPreview: (form: ConsentForm) => void; onShare: (form: ConsentForm) => void; }) => {
 
   return (
-    <Card className="flex flex-col">
+    <Card className="flex flex-col transition-all duration-200 hover:shadow-lg hover:-translate-y-1">
       <CardHeader>
         <CardTitle className="truncate">{form.title}</CardTitle>
         <CardDescription>{form.category}</CardDescription>
@@ -134,7 +134,7 @@ const ConsentCard = ({ form, onEdit, onPreview, onShare }: { form: ConsentForm, 
 };
 
 const AddConsentCard = ({ onClick }: { onClick: () => void }) => (
-    <Card className="border-2 border-dashed h-full flex items-center justify-center hover:border-primary transition-colors">
+    <Card className="border-2 border-dashed h-full flex items-center justify-center hover:border-primary transition-all duration-200 hover:shadow-lg hover:-translate-y-1">
         <CardContent className="p-6 text-center">
             <button onClick={onClick} className="flex flex-col items-center gap-2 text-muted-foreground hover:text-primary">
                 <PlusCircle className="w-10 h-10" />
