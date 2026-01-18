@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { PlusCircle, Package, Hammer, Trash2, QrCode, Check, AlertTriangle } from 'lucide-react';
+import { PlusCircle, Package, Hammer, Trash2, QrCode, Check, AlertTriangle, DollarSign } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -37,6 +37,7 @@ import { useForm, FormProvider, useFormContext, Controller, type Control } from 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { BrowseConsentFormsDialog } from './BrowseConsentFormsDialog';
+import { cn } from '@/lib/utils';
 
 const serviceSchema = z.object({
     name: z.string().min(1, 'Service name is required'),
@@ -460,18 +461,43 @@ const Step3_Deposits = ({ breakEvenCost }: { breakEvenCost: number }) => {
                         </div>
                         <div className="space-y-2">
                             <Label>Deposit Amount</Label>
-                             <Controller
+                            <Controller
                                 name="depositAmount"
                                 control={control}
-                                render={({ field }) => (
-                                    <Input 
-                                        type="number" 
-                                        placeholder={depositSubType === 'percentage' ? '%' : '25.00'}
-                                        {...field}
-                                        value={field.value || ''}
-                                        onChange={e => field.onChange(parseFloat(e.target.value) || 0)}
-                                        disabled={depositSubType === 'break-even'} />
-                                )}
+                                render={({ field }) => {
+                                    const isBreakEven = depositSubType === 'break-even';
+                                    const isPercentage = depositSubType === 'percentage';
+                                    
+                                    // Format for display if break-even
+                                    let displayValue: string | number = field.value || '';
+                                    if (isBreakEven && typeof field.value === 'number') {
+                                        displayValue = field.value.toFixed(2);
+                                    }
+
+                                    return (
+                                        <div className="relative">
+                                            {!isPercentage && (
+                                                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                            )}
+                                            <Input 
+                                                type={isBreakEven ? "text" : "number"}
+                                                placeholder={isPercentage ? '%' : '25.00'}
+                                                {...field}
+                                                value={displayValue}
+                                                onChange={e => {
+                                                    if (!isBreakEven) {
+                                                        field.onChange(parseFloat(e.target.value) || 0)
+                                                    }
+                                                }}
+                                                readOnly={isBreakEven}
+                                                className={cn(!isPercentage && "pl-8")}
+                                            />
+                                            {isPercentage && (
+                                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>
+                                            )}
+                                        </div>
+                                    )
+                                }}
                             />
                         </div>
                     </CardContent>
