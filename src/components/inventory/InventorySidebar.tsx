@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -11,6 +10,17 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/comp
 import { ManageSpoilageDialog, SpoilageItem } from './ManageSpoilageDialog';
 import { type InventoryItem, type Batch, type StockCorrection } from '@/lib/data';
 import { isPast, parseISO, differenceInMonths } from 'date-fns';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+
 
 export const InventorySidebar = ({ 
     inventory,
@@ -24,6 +34,8 @@ export const InventorySidebar = ({
     onLogOverheadUse: (productId: string) => void;
 }) => {
     const [isSpoilageDialogOpen, setIsSpoilageDialogOpen] = useState(false);
+    const [isLogUseConfirmOpen, setIsLogUseConfirmOpen] = useState(false);
+    const [itemToLogUse, setItemToLogUse] = useState<InventoryItem | null>(null);
 
     const {
         professionalValue,
@@ -111,6 +123,19 @@ export const InventorySidebar = ({
         setIsSpoilageDialogOpen(false);
     };
 
+    const handleLogUseClick = (item: InventoryItem) => {
+        setItemToLogUse(item);
+        setIsLogUseConfirmOpen(true);
+    };
+
+    const handleConfirmLogUse = () => {
+        if (itemToLogUse) {
+            onLogOverheadUse(itemToLogUse.id);
+        }
+        setIsLogUseConfirmOpen(false);
+        setItemToLogUse(null);
+    };
+
     return (
     <div className="lg:sticky top-24 space-y-6">
         <Card>
@@ -163,7 +188,7 @@ export const InventorySidebar = ({
                          {overheadItemsInStock.length > 0 ? overheadItemsInStock.map(item => (
                              <div key={item.id} className="flex justify-between items-center text-xs">
                                 <span className="truncate pr-2">{item.name}</span>
-                                <Button variant="outline" size="xs" onClick={() => onLogOverheadUse(item.id)}>
+                                <Button variant="outline" size="xs" onClick={() => handleLogUseClick(item)}>
                                     <Pipette className="mr-1.5 h-3 w-3"/> Log 1 Unit Used
                                 </Button>
                             </div>
@@ -214,8 +239,23 @@ export const InventorySidebar = ({
         </Card>
 
         <ManageSpoilageDialog open={isSpoilageDialogOpen} onOpenChange={setIsSpoilageDialogOpen} inventory={inventory} onConfirm={handleConfirmAndClose} />
+
+        <AlertDialog open={isLogUseConfirmOpen} onOpenChange={setIsLogUseConfirmOpen}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Confirm Usage</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        Are you sure you want to log the use of 1 unit of &quot;{itemToLogUse?.name}&quot;? This will be recorded as an expense.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleConfirmLogUse}>
+                        Log Use
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
     </div>
     )
 };
-
-    
