@@ -102,7 +102,7 @@ const OverheadFormContent = ({ categories, onNewCategory, locations, costingMeth
              <Controller name="purchaseDate" control={control} render={({ field }) => (
                 <div className="space-y-2">
                     <Label htmlFor="purchase-date">Purchase Date</Label>
-                    <Popover><PopoverTrigger asChild><Button variant={"outline"} className={cn("w-full justify-start text-left font-normal",!field.value && "text-muted-foreground")}><CalendarIcon className="mr-2 h-4 w-4" />{field.value ? format(field.value, "PPP") : <span>Pick a date</span>}</Button></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent></Popover>
+                    <Popover><PopoverTrigger asChild><Button variant={"outline"} className={cn("w-full justify-start text-left font-normal",!field.value && "text-muted-foreground")}><span className="flex items-center"><CalendarIcon className="mr-2 h-4 w-4" />{field.value ? format(field.value, "PPP") : "Pick a date"}</span></Button></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent></Popover>
                     {errors.purchaseDate && <p className="text-sm text-destructive">{errors.purchaseDate.message}</p>}
                 </div>
               )}/>

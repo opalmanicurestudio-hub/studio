@@ -1,3 +1,5 @@
+
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -72,8 +74,10 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
             )}
             onClick={() => setIsOpen(true)}
         >
-            <CalendarIcon className="mr-2 h-4 w-4" />
-            {date ? format(date, 'PPP') : <span>Pick a date</span>}
+            <span className="flex items-center">
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {date ? format(date, 'PPP') : "Pick a date"}
+            </span>
         </Button>
     );
     

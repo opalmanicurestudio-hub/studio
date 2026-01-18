@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -352,8 +353,10 @@ export default function QuoteGeneratorPage() {
                                <Popover>
                                     <PopoverTrigger asChild>
                                     <Button variant="outline" className="justify-start font-normal h-11">
-                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {eventStartDate ? format(eventStartDate, "PPP") : <span>Start Date</span>}
+                                        <span className="flex items-center">
+                                            <CalendarIcon className="mr-2 h-4 w-4" />
+                                            {eventStartDate ? format(eventStartDate, "PPP") : "Start Date"}
+                                        </span>
                                     </Button>
                                     </PopoverTrigger>
                                     <PopoverContent className="w-auto p-0">
@@ -364,8 +367,10 @@ export default function QuoteGeneratorPage() {
                                      <Popover>
                                         <PopoverTrigger asChild>
                                         <Button variant="outline" className="justify-start font-normal h-11">
-                                            <CalendarIcon className="mr-2 h-4 w-4" />
-                                            {eventEndDate ? format(eventEndDate, "PPP") : <span>End Date</span>}
+                                            <span className="flex items-center">
+                                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                                {eventEndDate ? format(eventEndDate, "PPP") : "End Date"}
+                                            </span>
                                         </Button>
                                         </PopoverTrigger>
                                         <PopoverContent className="w-auto p-0">

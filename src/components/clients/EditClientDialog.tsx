@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, KeyboardEvent } from 'react';
@@ -245,8 +246,10 @@ const EditClientForm = ({ client }: { client: Client }) => {
                                     !field.value && "text-muted-foreground"
                                     )}
                                 >
-                                    <CalendarIcon className="mr-2 h-4 w-4" />
-                                    {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
+                                    <span className="flex items-center">
+                                        <CalendarIcon className="mr-2 h-4 w-4" />
+                                        {field.value ? format(field.value, "PPP") : "Pick a date"}
+                                    </span>
                                 </Button>
                                 </PopoverTrigger>
                                 <PopoverContent className="w-auto p-0">

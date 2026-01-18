@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, KeyboardEvent } from 'react';
@@ -219,8 +220,10 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                                     !date && "text-muted-foreground"
                                     )}
                                 >
+                                  <span className="flex items-center">
                                     <CalendarIcon className="mr-2 h-4 w-4" />
-                                    {date ? date.toLocaleDateString() : <span>Pick a date</span>}
+                                    {date ? date.toLocaleDateString() : "Pick a date"}
+                                  </span>
                                 </Button>
                                 </PopoverTrigger>
                                 <PopoverContent className="w-auto p-0">
