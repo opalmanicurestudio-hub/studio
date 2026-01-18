@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -44,7 +43,6 @@ import { inventory, services as allServices, type Service } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectEquipmentDialog } from '../services/SelectEquipmentDialog';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
-import { Switch } from '@/components/ui/switch';
 
 const productSchema = z.object({
   name: z.string().min(1, 'Product name is required'),
@@ -103,19 +101,6 @@ const Step1_BasicDetails = ({
     
     return (
   <div className="grid gap-6 py-4">
-    <div className="flex items-center justify-between p-4 border rounded-lg">
-      <div className='space-y-1'>
-        <Label htmlFor="is-addon">Is this an Add-on Service?</Label>
-        <p className='text-sm text-muted-foreground'>Add-ons can be appended to primary services.</p>
-      </div>
-      <Controller
-        name="isAddon"
-        control={control}
-        render={({ field }) => (
-          <Switch id="is-addon" checked={field.value} onCheckedChange={field.onChange} />
-        )}
-      />
-    </div>
     <div className="space-y-2">
       <Label htmlFor="product-name">Product Name</Label>
       <Input id="product-name" placeholder="e.g., Hydrating Shampoo" {...register('name')} />
