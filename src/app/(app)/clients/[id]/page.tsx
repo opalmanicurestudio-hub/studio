@@ -118,25 +118,27 @@ const AppointmentHistoryCard = ({
   return (
     <Card>
       <CardContent className="p-4 space-y-3">
-        <div className="flex justify-between items-start gap-3">
-          <div>
-            <p className="font-semibold">{appointment.service?.name || 'N/A'}</p>
-            <p className="text-sm text-muted-foreground">
-              {format(appointment.startTime, 'MMMM d, yyyy')}
-            </p>
-          </div>
-          <Badge
-            variant={appointment.status === 'completed' ? 'default' : 'secondary'}
-            className={cn(
-              'capitalize',
-              appointment.status === 'completed' &&
-                'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300'
-            )}
-          >
-            {appointment.status}
-          </Badge>
+        <div className="grid grid-cols-2 gap-4">
+            <div>
+                <p className="font-semibold">{appointment.service?.name || 'N/A'}</p>
+                <p className="text-sm text-muted-foreground">
+                {format(appointment.startTime, 'MMMM d, yyyy')}
+                </p>
+            </div>
+            <div className="text-right">
+                 <Badge
+                    variant={appointment.status === 'completed' ? 'default' : 'secondary'}
+                    className={cn(
+                    'capitalize',
+                    appointment.status === 'completed' &&
+                        'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300'
+                    )}
+                >
+                    {appointment.status}
+                </Badge>
+            </div>
         </div>
-        <div className="flex justify-between items-center text-sm">
+        <div className="flex justify-between items-center text-sm pt-3 border-t">
           <span className="text-muted-foreground">Total</span>
           <span className="font-semibold text-lg">
             ${appointment.service?.price.toFixed(2) || '0.00'}
@@ -293,7 +295,7 @@ export default function ClientDetailPage() {
                         <div className="text-muted-foreground space-y-2">
                             <a href={`mailto:${client.email}`} className="flex items-center justify-center sm:justify-start gap-2 break-all hover:text-primary transition-colors">
                                 <Mail className="w-4 h-4 flex-shrink-0" />
-                                <span>{client.email}</span>
+                                <span className="break-all">{client.email}</span>
                             </a>
                             <div className="flex items-center justify-center sm:justify-start gap-2">
                                 <Phone className="w-4 h-4 flex-shrink-0" />
@@ -316,7 +318,7 @@ export default function ClientDetailPage() {
             
             <Tabs defaultValue="overview">
                 <ScrollArea className="w-full whitespace-nowrap border-b bg-background">
-                  <TabsList className="inline-flex h-auto p-0 bg-transparent gap-1 mx-4 md:mx-6">
+                  <TabsList className="inline-flex h-auto p-0 bg-transparent gap-1 mx-0">
                     <TabsTrigger value="overview">Overview</TabsTrigger>
                     <TabsTrigger value="history">History</TabsTrigger>
                     <TabsTrigger value="referrals">Referrals</TabsTrigger>
@@ -327,9 +329,9 @@ export default function ClientDetailPage() {
                   <ScrollBar orientation="horizontal" />
                 </ScrollArea>
                 
-                <div className="p-4 md:p-6 space-y-6">
-                  <TabsContent value="overview" className="m-0">
-                      <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+                <div className="space-y-6 pt-6">
+                  <TabsContent value="overview" className="m-0 space-y-6">
+                      <div className="grid gap-6 grid-cols-1 lg:grid-cols-3">
                           <div className="lg:col-span-2 space-y-6">
                               <Card>
                                   <CardHeader><CardTitle>Client Details</CardTitle></CardHeader>
@@ -384,13 +386,13 @@ export default function ClientDetailPage() {
                   <TabsContent value="history" className="m-0 space-y-6">
                       <Card>
                           <CardHeader><CardTitle>Upcoming Appointments</CardTitle></CardHeader>
-                          <CardContent className="grid gap-4 sm:grid-cols-2">
+                          <CardContent className="space-y-4">
                               {upcomingAppointments.length > 0 ? upcomingAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} />) : <p className="text-sm text-muted-foreground text-center col-span-full py-4">No upcoming appointments.</p>}
                           </CardContent>
                       </Card>
                        <Card>
                           <CardHeader><CardTitle>Past Appointments</CardTitle></CardHeader>
-                          <CardContent className="grid gap-4 sm:grid-cols-2">
+                          <CardContent className="space-y-4">
                               {pastAppointments.length > 0 ? pastAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} />) : <p className="text-sm text-muted-foreground text-center col-span-full py-4">No past appointments.</p>}
                           </CardContent>
                       </Card>
@@ -401,7 +403,7 @@ export default function ClientDetailPage() {
                           <CardContent className="space-y-6">
                               <div className="space-y-2">
                                   <Label htmlFor="referral-code">Unique Referral Code</Label>
-                                  <div className="flex gap-2">
+                                  <div className="grid grid-cols-[1fr,auto] gap-2">
                                       <Input id="referral-code" value={client.referralCode} readOnly />
                                       <Button variant="outline" onClick={handleCopyReferralCode}><Copy className="w-4 h-4 mr-2" /> Copy</Button>
                                   </div>
@@ -449,11 +451,19 @@ export default function ClientDetailPage() {
                           <CardContent className="space-y-4">
                              {client.intel?.incidents && client.intel.incidents.length > 0 ? (
                                  client.intel.incidents.map(incident => (
-                                     <div key={incident.id} className="p-4 rounded-lg border bg-muted/50">
-                                         <div className="flex justify-between items-start"><div><p className="font-semibold">{incident.type}</p><p className="text-sm text-muted-foreground">{format(new Date(incident.date), 'MMM d, yyyy h:mm a')}</p></div><Badge variant={incident.severity === 'Severe' ? 'destructive' : 'secondary'}>{incident.severity}</Badge></div>
-                                         <p className="text-sm mt-2">{incident.description}</p>
-                                          {incident.actionsTaken && <p className="text-xs mt-2 text-muted-foreground border-t pt-2">Actions Taken: {incident.actionsTaken}</p>}
-                                     </div>
+                                     <Card key={incident.id}>
+                                         <CardContent className="p-4">
+                                             <div className="grid grid-cols-[1fr,auto] gap-4">
+                                                 <div>
+                                                     <p className="font-semibold">{incident.type}</p>
+                                                     <p className="text-sm text-muted-foreground">{format(new Date(incident.date), 'MMM d, yyyy h:mm a')}</p>
+                                                 </div>
+                                                 <Badge variant={incident.severity === 'Severe' ? 'destructive' : 'secondary'}>{incident.severity}</Badge>
+                                             </div>
+                                             <p className="text-sm mt-2">{incident.description}</p>
+                                             {incident.actionsTaken && <p className="text-xs mt-2 text-muted-foreground border-t pt-2">Actions Taken: {incident.actionsTaken}</p>}
+                                         </CardContent>
+                                     </Card>
                                  ))
                              ) : (
                                  <div className="border-2 border-dashed rounded-lg p-12 text-center"><ShieldAlert className="w-10 h-10 text-muted-foreground mx-auto mb-4" /><h3 className="font-semibold text-lg">No Incidents Logged</h3><p className="text-sm text-muted-foreground">This client has a clean record.</p></div>
@@ -506,4 +516,3 @@ export default function ClientDetailPage() {
     </div>
   );
 }
-
