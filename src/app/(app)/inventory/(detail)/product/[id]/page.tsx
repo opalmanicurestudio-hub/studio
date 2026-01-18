@@ -29,7 +29,7 @@ import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import React, { useMemo, useState } from 'react';
 import { useInventory } from '@/context/InventoryContext';
-import { StockCorrection } from '@/lib/data';
+import { StockCorrection, type InventoryItem } from '@/lib/data';
 import { EditProductDialog } from '@/components/inventory/EditProductDialog';
 import { useToast } from '@/hooks/use-toast';
 
