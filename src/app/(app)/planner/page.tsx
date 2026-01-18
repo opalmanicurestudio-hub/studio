@@ -189,7 +189,6 @@ const DayTimeline = ({
         
         // This function positions a cluster of overlapping events.
         function positionCluster(cluster: any[]) {
-            const columns: any[][] = [];
             cluster.sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
 
             for(const item of cluster) {
@@ -917,17 +916,14 @@ export default function PlannerPage() {
                     <BellRing className={cn("h-4 w-4", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
                         {dailyBillInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
                 </Button>
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button variant="default" size="icon" className="h-8 w-8">
-                            <Plus className="h-4 h-4" />
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent>
-                        <DropdownMenuItem onClick={() => setIsAddAppointmentOpen(true)}>Add Appointment</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setIsAddEventOpen(true)}>Add Event</DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                <Button variant="outline" size="sm" onClick={() => setIsAddEventOpen(true)}>
+                    <PlusCircle className="mr-2 h-4 w-4" />
+                    Event
+                </Button>
+                <Button size="sm" onClick={() => setIsAddAppointmentOpen(true)}>
+                    <PlusCircle className="mr-2 h-4 w-4" />
+                    Appointment
+                </Button>
             </div>
         </div>
          <div className="flex items-center justify-start gap-2">
@@ -1107,4 +1103,5 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
