@@ -79,6 +79,7 @@ const Step1_Basics = ({
     const { register, control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
+    const category = watch('category');
     const requiredFormIds = watch('requiredFormIds') || [];
 
     const handleFormIdToggle = (formId: string) => {
@@ -138,14 +139,8 @@ const Step1_Basics = ({
             control={control}
             render={({ field }) => (
                <Select onValueChange={field.onChange} value={field.value}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.map(cat => (
-                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                  ))}
-                </SelectContent>
+                <SelectTrigger> <SelectValue placeholder="Select a category" /> </SelectTrigger>
+                <SelectContent> {categories.map(cat => ( <SelectItem key={cat} value={cat}>{cat}</SelectItem> ))} </SelectContent>
               </Select>
             )}
           />
@@ -216,10 +211,11 @@ const Step1_Basics = ({
                 <ScrollArea className="max-h-60">
                     <div className="p-2 space-y-1">
                     {consentForms.map(form => (
-                        <div key={form.id} className="flex items-center space-x-2 p-2 rounded-md hover:bg-muted cursor-pointer" onClick={() => handleFormIdToggle(form.id)}>
+                        <div key={form.id} className="flex items-center space-x-2 p-2 rounded-md hover:bg-muted">
                             <Checkbox
                                 id={`form-${form.id}`}
                                 checked={requiredFormIds.includes(form.id)}
+                                onCheckedChange={() => handleFormIdToggle(form.id)}
                             />
                             <Label htmlFor={`form-${form.id}`} className="font-normal cursor-pointer flex-1">{form.title}</Label>
                         </div>
@@ -717,7 +713,7 @@ export const AddServiceDialog = ({
 
             <div className="py-4 space-y-4">
             <Progress value={(step / totalSteps) * 100} />
-            <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
+            <div className="max-h-[60vh] overflow-y-auto pr-4 -mr-6">
                 {getStepContent()}
             </div>
             </div>
