@@ -2,7 +2,7 @@
 
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -12,7 +12,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { MoreHorizontal, PlusCircle, Search, FileDown, UserPlus, Merge, Users, ShieldPlus, AlertTriangle, Ear, ShieldAlert, BadgeInfo, Ban } from 'lucide-react';
 import {
   DropdownMenu,
@@ -29,9 +29,15 @@ import { AddClientDialog } from '@/components/clients/AddClientDialog';
 import { MergeClientsDialog } from '@/components/clients/MergeClientsDialog';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { useInventory } from '@/context/InventoryContext';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { useToast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
 
 
-const ClientCard = ({ client }: { client: Client }) => {
+const ClientCard = ({ client, isSelected, onSelect }: { client: Client, isSelected: boolean, onSelect: () => void }) => {
     const { clients } = useInventory();
     const lastAppointment = useMemo(() => {
         if (!client.lastAppointment) return null;
@@ -39,9 +45,20 @@ const ClientCard = ({ client }: { client: Client }) => {
     }, [client.lastAppointment]);
 
     return (
-        <Card className="transition-all hover:shadow-lg hover:-translate-y-1">
+        <Card className={cn(
+            "transition-all duration-200 hover:shadow-lg hover:-translate-y-1",
+            isSelected && "border-primary ring-2 ring-primary"
+        )}>
             <CardContent className="p-4 space-y-4">
                 <div className="flex items-start gap-4">
+                    <div className="flex items-center pt-1">
+                        <Checkbox
+                            id={`select-${client.id}`}
+                            checked={isSelected}
+                            onCheckedChange={onSelect}
+                            aria-label={`Select ${client.name}`}
+                        />
+                    </div>
                      <Avatar className="w-16 h-16 border">
                         <AvatarImage src={client.avatarUrl} alt={client.name} data-ai-hint="person portrait" />
                         <AvatarFallback>{client.name.charAt(0)}</AvatarFallback>
@@ -141,9 +158,63 @@ export default function ClientsPage() {
   const [isMergeClientsOpen, setIsMergeClientsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [lastSeenFilter, setLastSeenFilter] = useState('all');
+  const { toast } = useToast();
+  
+  const [showArchived, setShowArchived] = useState(false);
+  const [selectedItems, setSelectedItems] = useState(new Set<string>());
+  const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
+
+  const handleItemSelect = useCallback((itemId: string) => {
+    setSelectedItems(prev => {
+        const newSelection = new Set(prev);
+        if (newSelection.has(itemId)) {
+            newSelection.delete(itemId);
+        } else {
+            newSelection.add(itemId);
+        }
+        return newSelection;
+    });
+  }, []);
+
+  const handleBulkDeleteClick = () => {
+    setIsBulkDeleteConfirmOpen(true);
+  };
+  
+  const handleBulkArchive = useCallback(() => {
+    setClients(prev =>
+        prev.map(item =>
+            selectedItems.has(item.id) ? { ...item, status: 'archived' } : item
+        )
+    );
+    toast({ title: `${selectedItems.size} client(s) have been archived.` });
+    setSelectedItems(new Set());
+  }, [selectedItems, setClients, toast]);
+
+  const handleBulkUnarchive = useCallback(() => {
+      setClients(prev =>
+          prev.map(item =>
+              selectedItems.has(item.id) ? { ...item, status: 'active' } : item
+          )
+      );
+      toast({ title: `${selectedItems.size} client(s) have been restored.` });
+      setSelectedItems(new Set());
+  }, [selectedItems, setClients, toast]);
+
+  const handleBulkDeleteConfirm = useCallback(() => {
+    const itemCount = selectedItems.size;
+    setClients(prev => prev.filter(item => !selectedItems.has(item.id)));
+    setSelectedItems(new Set());
+    setIsBulkDeleteConfirmOpen(false);
+    toast({
+        title: "Clients Deleted",
+        description: `${itemCount} client(s) have been removed.`,
+    })
+  }, [selectedItems, setClients, toast]);
   
   const filteredClients = useMemo(() => {
-    let clientsToFilter = clients;
+    let clientsToFilter = clients.filter(client => {
+      return showArchived ? client.status === 'archived' : client.status !== 'archived';
+    });
     
     if (lastSeenFilter !== 'all') {
       const days = parseInt(lastSeenFilter);
@@ -159,7 +230,7 @@ export default function ClientsPage() {
     }
 
     return clientsToFilter.sort((a,b) => new Date(b.lastAppointment).getTime() - new Date(a.lastAppointment).getTime());
-  }, [clients, searchTerm, lastSeenFilter]);
+  }, [clients, searchTerm, lastSeenFilter, showArchived]);
   
   const hasClients = clients.length > 0;
   const hasFilteredClients = filteredClients.length > 0;
@@ -349,8 +420,25 @@ export default function ClientsPage() {
                                 <Button className='w-full sm:w-auto' onClick={() => setIsAddClientOpen(true)}><UserPlus className="mr-2 h-4 w-4" /> New Client</Button>
                             </div>
                         </div>
+                        <div className="flex items-center space-x-2 pt-4">
+                            <Switch id="show-archived" checked={showArchived} onCheckedChange={setShowArchived} />
+                            <Label htmlFor="show-archived">{showArchived ? "Viewing Archived" : "Show Archived"}</Label>
+                        </div>
                     </CardHeader>
                     <CardContent>
+                         {selectedItems.size > 0 && (
+                            <div className="mb-4 p-3 rounded-lg bg-muted/50 flex items-center justify-between">
+                                <p className="text-sm font-medium">{selectedItems.size} client(s) selected</p>
+                                <div className="flex gap-2">
+                                    {showArchived ? (
+                                        <Button variant="outline" size="sm" onClick={handleBulkUnarchive}>Unarchive</Button>
+                                    ) : (
+                                        <Button variant="outline" size="sm" onClick={handleBulkArchive}>Archive</Button>
+                                    )}
+                                    <Button variant="destructive" size="sm" onClick={handleBulkDeleteClick}>Delete</Button>
+                                </div>
+                            </div>
+                        )}
                         {!hasClients ? (
                             <EmptyState onAddClient={() => setIsAddClientOpen(true)} />
                         ) : !hasFilteredClients ? (
@@ -360,7 +448,12 @@ export default function ClientsPage() {
                         ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-6">
                                 {filteredClients.map((client) => (
-                                    <ClientCard key={client.id} client={client} />
+                                    <ClientCard 
+                                        key={client.id} 
+                                        client={client}
+                                        isSelected={selectedItems.has(client.id)}
+                                        onSelect={() => handleItemSelect(client.id)}
+                                    />
                                 ))}
                             </div>
                         )}
@@ -382,6 +475,23 @@ export default function ClientsPage() {
         allAppointments={appointments}
         onMerge={handleMergeConfirm}
       />
+      
+       <AlertDialog open={isBulkDeleteConfirmOpen} onOpenChange={setIsBulkDeleteConfirmOpen}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        This will permanently delete {selectedItems.size} client(s) and all their associated data. This action cannot be undone.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleBulkDeleteConfirm} className={buttonVariants({ variant: "destructive" })}>
+                        Delete
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
 
     </div>
   );
@@ -390,3 +500,4 @@ export default function ClientsPage() {
     
 
     
+

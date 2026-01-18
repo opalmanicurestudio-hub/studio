@@ -40,6 +40,7 @@ export type Client = {
   avatarUrl: string;
   lifetimeValue: number;
   lastAppointment: string;
+  status?: 'active' | 'archived';
   notes?: string;
   customFormulas?: CustomFormula[];
   medicalNotes?: string;
@@ -304,7 +305,7 @@ export const clients: Client[] = [
     referralCode: 'MARCUS15',
     activePackages: [{ packageId: 'pkg-2', sessionsRemaining: 2 }],
   },
-  { id: 'cli-3', name: 'Anya Sharma', email: 'anya@example.com', phone: '773-555-0123', avatarUrl: 'https://picsum.photos/seed/103/100/100', lifetimeValue: 3200.50, lastAppointment: '2024-05-01T11:00:00.000Z', referralCode: 'ANYA20' },
+  { id: 'cli-3', name: 'Anya Sharma', email: 'anya@example.com', phone: '773-555-0123', avatarUrl: 'https://picsum.photos/seed/103/100/100', lifetimeValue: 3200.50, lastAppointment: '2024-05-01T11:00:00.000Z', referralCode: 'ANYA20', status: 'archived' },
   { id: 'cli-4', name: 'Leo Gallagher', email: 'leo@example.com', phone: '415-555-0142', avatarUrl: 'https://picsum.photos/seed/104/100/100', lifetimeValue: 950.00, lastAppointment: '2024-04-22T16:00:00.000Z', referredBy: 'Eleanor Vance', referralCode: 'LEO5' },
   { 
     id: 'cli-5', 
