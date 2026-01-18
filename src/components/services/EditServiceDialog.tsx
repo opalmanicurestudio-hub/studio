@@ -601,10 +601,6 @@ export const EditServiceDialog = ({
       onServiceUpdated(updatedService);
       handleOpenChange(false);
   };
-  
-  const handleSave = () => {
-    methods.handleSubmit(onSubmit)();
-  };
 
   const handleNext = async () => {
     const fieldsToValidate: (keyof ServiceFormData)[] = [];
@@ -691,7 +687,7 @@ export const EditServiceDialog = ({
               {step < totalSteps ? (
                 <Button type="button" onClick={handleNext}>Next</Button>
               ) : (
-                <Button type="button" onClick={handleSave}>Save Changes</Button>
+                <Button type="submit" form={formId}>Save Changes</Button>
               )}
             </div>
           </div>

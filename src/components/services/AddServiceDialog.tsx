@@ -141,20 +141,13 @@ const Step1_Basics = ({
                 </div>
             ) : (
                 <div className="flex gap-2">
-                <Controller
-                    name="category"
-                    control={control}
-                    render={({ field }) => (
-                    <Select onValueChange={field.onChange} value={field.value}>
-                        <SelectTrigger> <SelectValue placeholder="Select a category" /> </SelectTrigger>
-                        <SelectContent> {categories.map(cat => ( <SelectItem key={cat} value={cat}>{cat}</SelectItem> ))} </SelectContent>
-                    </Select>
-                    )}
-                />
-                
-                <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button">
-                    <PlusCircle className="h-4 w-4" />
-                </Button>
+                <Controller name="category" control={control} render={({ field }) => (
+               <Select onValueChange={field.onChange} value={field.value}>
+                <SelectTrigger> <SelectValue placeholder="Select a category" /> </SelectTrigger>
+                <SelectContent> {categories.map(cat => ( <SelectItem key={cat} value={cat}>{cat}</SelectItem> ))} </SelectContent>
+              </Select>
+          )}/>
+                <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"> <PlusCircle className="h-4 w-4" /> </Button>
                 </div>
             )}
             {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
@@ -688,11 +681,7 @@ export const AddServiceDialog = ({
       })
       handleOpenChange(false);
   };
-
-  const handleSave = () => {
-    methods.handleSubmit(onSubmit)();
-  };
-
+  
   const handleNext = async () => {
     const fieldsToValidate: (keyof ServiceFormData)[] = [];
     if (step === 1) {
@@ -778,7 +767,7 @@ export const AddServiceDialog = ({
               {step < totalSteps ? (
                 <Button onClick={handleNext} type="button">Next</Button>
               ) : (
-                <Button type="button" onClick={handleSave}>Save Service</Button>
+                <Button type="submit" form={formId}>Save Service</Button>
               )}
             </div>
           </div>
