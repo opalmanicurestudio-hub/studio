@@ -596,10 +596,6 @@ export const AddServiceDialog = ({
   const methods = useForm<ServiceFormData>({
     resolver: zodResolver(serviceSchema),
     defaultValues: {
-      type: initialType,
-      duration: undefined,
-      padBefore: undefined,
-      padAfter: undefined,
       isPrivate: false,
       isAddon: false,
       products: [],
@@ -648,7 +644,19 @@ export const AddServiceDialog = ({
     if (!isOpen) {
         setTimeout(() => {
             setStep(1);
-            methods.reset();
+            methods.reset({
+              type: initialType,
+              duration: undefined,
+              padBefore: undefined,
+              padAfter: undefined,
+              isPrivate: false,
+              isAddon: false,
+              products: [],
+              equipment: [],
+              addOns: [],
+              depositType: 'none',
+              price: 0,
+            });
         }, 300);
     }
   }
@@ -686,7 +694,7 @@ export const AddServiceDialog = ({
           description: `${data.name} has been added to your library.`
       })
       handleOpenChange(false);
-  }
+  };
 
   const handleNext = async () => {
     const fieldsToValidate: (keyof ServiceFormData)[] = [];

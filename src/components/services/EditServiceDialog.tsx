@@ -80,7 +80,7 @@ const Step1_Basics = ({
     const category = watch('category');
 
     const handleAddNewCategory = () => {
-        if (newCategoryName.trim()) {
+        if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
             const newCategory = newCategoryName.trim();
             onNewCategory(newCategory);
             setValue('category', newCategory, { shouldValidate: true });
@@ -584,7 +584,7 @@ export const EditServiceDialog = ({
         duration: data.duration,
         padBefore: data.padBefore,
         padAfter: data.padAfter,
-        price: price,
+        price: finalPrice,
         cost: breakEvenCost,
         profit: netProfit,
         margin: margin,
@@ -653,10 +653,10 @@ export const EditServiceDialog = ({
     ];
     
     if (!isAddon) {
-      stepMap.push(<Step3_Deposits key="step3" />);
+      stepMap.push(<Step3_Deposits key="step3" breakEvenCost={breakEvenCost} />);
     }
     
-    stepMap.push(<PricingForm key="pricing" />);
+    stepMap.push(<PricingForm key="pricing" breakEvenCost={breakEvenCost} />);
     
     return stepMap[step - 1];
   }
@@ -664,7 +664,7 @@ export const EditServiceDialog = ({
   return (
     <>
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="sm:max-w-4xl">
         <FormProvider {...methods}>
         <form>
             <DialogHeader>
@@ -731,5 +731,3 @@ export const EditServiceDialog = ({
     </>
   );
 };
-
-    
