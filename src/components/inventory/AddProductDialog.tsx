@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -43,6 +44,7 @@ import { inventory, services as allServices, type Service } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectEquipmentDialog } from '../services/SelectEquipmentDialog';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
+import { Switch } from '@/components/ui/switch';
 
 const productSchema = z.object({
   name: z.string().min(1, 'Product name is required'),
