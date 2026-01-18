@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -43,7 +44,7 @@ import { inventory, services as allServices, type Service, consentForms, type Co
 import { BrowseProductsDialog } from './BrowseProductsDialog';
 import { SelectEquipmentDialog } from './SelectEquipmentDialog';
 import { SelectAddOnsDialog } from './SelectAddOnsDialog';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
 import { BrowseConsentFormsDialog } from './BrowseConsentFormsDialog';
 import { cn } from '@/lib/utils';
 import { Switch } from '../ui/switch';
@@ -478,7 +479,6 @@ const Step3_Deposits = ({ breakEvenCost }: { breakEvenCost: number }) => {
                                     const isBreakEven = depositSubType === 'break-even';
                                     const isPercentage = depositSubType === 'percentage';
                                     
-                                    // Format for display if break-even
                                     let displayValue: string | number = field.value || '';
                                     if (isBreakEven && typeof field.value === 'number') {
                                         displayValue = field.value.toFixed(2);
@@ -616,6 +616,13 @@ export const AddServiceDialog = ({
     }
   }, []);
 
+  useEffect(() => {
+    if (open) {
+      methods.reset({ isAddon: false, isPrivate: false, depositType: 'none', price: 0, products: [], equipment: [], addOns: [] });
+      setStep(1);
+    }
+  }, [open, methods]);
+
   const breakEvenCost = useMemo(() => {
       const totalDuration = (duration || 0) + (padBefore || 0) + (padAfter || 0);
       const timeCost = (totalDuration / 60) * tmhr;
@@ -643,19 +650,7 @@ export const AddServiceDialog = ({
     if (!isOpen) {
         setTimeout(() => {
             setStep(1);
-            methods.reset({
-              type: initialType,
-              duration: undefined,
-              padBefore: undefined,
-              padAfter: undefined,
-              isPrivate: false,
-              isAddon: false,
-              products: [],
-              equipment: [],
-              addOns: [],
-              depositType: 'none',
-              price: 0,
-            });
+            methods.reset();
         }, 300);
     }
   }
@@ -693,6 +688,10 @@ export const AddServiceDialog = ({
           description: `${data.name} has been added to your library.`
       })
       handleOpenChange(false);
+  };
+
+  const handleSave = () => {
+    methods.handleSubmit(onSubmit)();
   };
 
   const handleNext = async () => {
@@ -780,7 +779,7 @@ export const AddServiceDialog = ({
               {step < totalSteps ? (
                 <Button onClick={handleNext} type="button">Next</Button>
               ) : (
-                <Button type="submit" form={formId}>Save {isAddon ? 'Add-on' : 'Service'}</Button>
+                <Button onClick={handleSave} type="button">Save {isAddon ? 'Add-on' : 'Service'}</Button>
               )}
             </div>
           </div>

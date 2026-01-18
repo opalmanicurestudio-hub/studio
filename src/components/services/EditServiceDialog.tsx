@@ -22,7 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { PlusCircle, Package, Hammer, Trash2, QrCode, Check, AlertTriangle } from 'lucide-react';
+import { PlusCircle, Package, Hammer, Trash2, QrCode, Check, AlertTriangle, DollarSign } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -498,6 +498,7 @@ export const EditServiceDialog = ({
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
   const videoRef = useRef<HTMLVideoElement>(null);
   const { toast } = useToast();
+  const isMobile = useIsMobile();
   
   const methods = useForm<ServiceFormData>({
     resolver: zodResolver(serviceSchema),
@@ -599,7 +600,11 @@ export const EditServiceDialog = ({
       
       onServiceUpdated(updatedService);
       handleOpenChange(false);
-  }
+  };
+  
+  const handleSave = () => {
+    methods.handleSubmit(onSubmit)();
+  };
 
   const handleNext = async () => {
     const fieldsToValidate: (keyof ServiceFormData)[] = [];
@@ -663,73 +668,53 @@ export const EditServiceDialog = ({
   
   const formId = `edit-service-form-${service.id}`;
 
+  const formBody = (
+    <FormProvider {...methods}>
+      <form id={formId} onSubmit={methods.handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+        <DialogHeader className={isMobile ? "p-4 border-b text-left" : "p-6 pb-4"}>
+          <DialogTitle>Edit {isAddon ? 'Add-on' : 'Service'}</DialogTitle>
+          <DialogDescription>
+            Update the details for &quot;{service.name}&quot;.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="px-4 md:px-6 py-4">
+          <Progress value={(step / totalSteps) * 100} />
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-6">
+          {getStepContent()}
+        </div>
+        <DialogFooter className={isMobile ? "p-4 border-t" : "p-6 border-t"}>
+          <div className='flex justify-between w-full'>
+            <div>{step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}</div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => handleOpenChange(false)} type="button">Cancel</Button>
+              {step < totalSteps ? (
+                <Button type="button" onClick={handleNext}>Next</Button>
+              ) : (
+                <Button type="button" onClick={handleSave}>Save Changes</Button>
+              )}
+            </div>
+          </div>
+        </DialogFooter>
+      </form>
+    </FormProvider>
+  );
+
+  if (isMobile) {
+    return (
+      <Sheet open={open} onOpenChange={handleOpenChange}>
+        <SheetContent side="bottom" className="max-h-[90dvh] flex flex-col p-0">
+          {formBody}
+        </SheetContent>
+      </Sheet>
+    );
+  }
+
   return (
-    <>
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-4xl">
-        <FormProvider {...methods}>
-        <form id={formId} onSubmit={methods.handleSubmit(onSubmit)}>
-            <DialogHeader>
-            <DialogTitle>Edit {isAddon ? 'Add-on' : 'Service'}</DialogTitle>
-            <DialogDescription>
-                Update the details for &quot;{service.name}&quot;.
-            </DialogDescription>
-            </DialogHeader>
-
-            <div className="py-4 space-y-4">
-            <Progress value={(step / totalSteps) * 100} />
-            <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
-                {getStepContent()}
-            </div>
-            </div>
-
-            <DialogFooter>
-            <div className='flex justify-between w-full'>
-                <div>
-                    {step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}
-                </div>
-                <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => handleOpenChange(false)} type="button">Cancel</Button>
-                    {step < totalSteps ? (
-                        <Button type="button" onClick={handleNext}>Next</Button>
-                    ) : (
-                        <Button type="submit" form={formId}>Save Changes</Button>
-                    )}
-                </div>
-            </div>
-            </DialogFooter>
-        </form>
-        </FormProvider>
+      <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col p-0">
+        {formBody}
       </DialogContent>
     </Dialog>
-    <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
-        <DialogContent className="sm:max-w-md p-0">
-          <DialogHeader className="p-4 pb-0">
-            <DialogTitle>Scan Product</DialogTitle>
-            <DialogDescription>
-              Position the product's barcode or QR code inside the frame.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="p-4 relative">
-             <video ref={videoRef} className="w-full aspect-square rounded-md bg-muted" autoPlay muted playsInline />
-             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
-            </div>
-            {hasCameraPermission === false && (
-                <Alert variant="destructive" className="mt-4">
-                    <AlertTriangle className="h-4 w-4" />
-                    <AlertTitle>Camera Access Required</AlertTitle>
-                    <AlertDescription>
-                        Please enable camera access to use the scanner. You may need to change permissions in your browser settings.
-                    </AlertDescription>
-                </Alert>
-            )}
-          </div>
-           <DialogFooter className="p-4 pt-0">
-                <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
   );
 };
