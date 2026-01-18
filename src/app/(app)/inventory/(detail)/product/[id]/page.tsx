@@ -173,7 +173,7 @@ export default function ProductDetailPage() {
                     <h1 className="text-xl md:text-2xl font-semibold tracking-tight">
                         {product.name}
                     </h1>
-                     <div className="text-xs sm:text-sm text-muted-foreground flex flex-col sm:flex-row sm:items-center sm:gap-2">
+                     <div className="text-xs sm:text-sm text-muted-foreground flex items-center gap-2 mt-1">
                         <Badge variant="outline">{product.category}</Badge>
                     </div>
                 </div>
