@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState } from 'react';
@@ -154,7 +155,7 @@ export const AddEquipmentDialog = ({
     return (
       <FormProvider {...methods}>
         <Sheet open={open} onOpenChange={handleOpenChange}>
-          <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
+          <SheetContent side="bottom" className="max-h-[90dvh] flex flex-col p-0">
             <SheetHeader className="p-4 border-b text-left">
               <SheetTitle>{title}</SheetTitle>
               <SheetDescription>{description}</SheetDescription>
@@ -178,19 +179,21 @@ export const AddEquipmentDialog = ({
     <FormProvider {...methods}>
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col p-0">
-          <DialogHeader className="p-6 pb-4">
-            <DialogTitle>{title}</DialogTitle>
-            <DialogDescription>{description}</DialogDescription>
-          </DialogHeader>
-          <ScrollArea className="flex-1 min-h-0">
-            <form id={formId} onSubmit={handleSubmit(handleSave)} className="px-6 pb-6">
-                {formContent}
-            </form>
-          </ScrollArea>
-          <DialogFooter className="p-4 border-t">
-            <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" form={formId}>Save Equipment</Button>
-          </DialogFooter>
+          <form id={formId} onSubmit={handleSubmit(handleSave)} className="flex flex-col h-full">
+            <DialogHeader className="p-6 pb-4">
+              <DialogTitle>{title}</DialogTitle>
+              <DialogDescription>{description}</DialogDescription>
+            </DialogHeader>
+            <ScrollArea className="flex-1 min-h-0">
+              <div className="px-6 pb-6">
+                  {formContent}
+              </div>
+            </ScrollArea>
+            <DialogFooter className="p-4 border-t">
+              <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>Cancel</Button>
+              <Button type="submit" form={formId}>Save Equipment</Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </FormProvider>
