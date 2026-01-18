@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -363,7 +362,7 @@ const Step2_Formula = ({ onScanClick }: { onScanClick: () => void; }) => {
     );
 };
 
-const Step3_Deposits = () => {
+const Step3_Deposits = ({ breakEvenCost }: { breakEvenCost: number }) => {
     const { control, watch, register } = useFormContext<ServiceFormData>();
     const depositType = watch('depositType');
     
@@ -426,38 +425,9 @@ const Step3_Deposits = () => {
     );
 };
 
-const PricingPreview = () => {
+const PricingPreview = ({ breakEvenCost }: { breakEvenCost: number }) => {
     const { watch } = useFormContext<ServiceFormData>();
-    const [tmhr, setTmhr] = useState(0);
-
-    const values = watch();
-    const { duration, padBefore, padAfter, products, equipment, price } = values;
-
-    useEffect(() => {
-        if (typeof window !== 'undefined') {
-            setTmhr(parseFloat(localStorage.getItem('tmhr') || '50'));
-        }
-    }, []);
-
-    const breakEvenCost = useMemo(() => {
-        const totalDuration = (duration || 0) + (padBefore || 0) + (padAfter || 0);
-        const timeCost = (totalDuration / 60) * tmhr;
-
-        const productCost = (products || []).reduce((acc: number, p: any) => {
-            const product = inventory.find(i => i.id === p.id);
-            return acc + (product?.costPerUnit || 0);
-        }, 0);
-
-        const equipmentDepreciation = (equipment || []).reduce((acc: any, eq: any) => {
-            const equipmentItem = inventory.find(i => i.id === eq.id);
-            if (!equipmentItem) return acc;
-            const lifespanInMinutes = (equipmentItem.lifespanYears || 5) * 365 * 8 * 60;
-            const costPerMinute = (equipmentItem.costPerUnit || 0) / lifespanInMinutes;
-            return acc + (costPerMinute * totalDuration);
-        }, 0);
-
-        return timeCost + productCost + equipmentDepreciation;
-    }, [duration, padBefore, padAfter, products, equipment, tmhr]);
+    const price = watch('price');
     
     const finalPrice = price || 0;
     const netProfit = finalPrice - breakEvenCost;
@@ -494,7 +464,7 @@ const PricingPreview = () => {
 }
 
 
-const PricingForm = () => {
+const PricingForm = ({ breakEvenCost }: { breakEvenCost: number }) => {
     const { register } = useFormContext<ServiceFormData>();
 
     return (
@@ -503,7 +473,7 @@ const PricingForm = () => {
                 <Label htmlFor="final-price">Final Price</Label>
                 <Input id="final-price" type="number" placeholder="100.00" {...register('price', { valueAsNumber: true })} />
             </div>
-            <PricingPreview />
+            <PricingPreview breakEvenCost={breakEvenCost} />
         </div>
     );
 };
@@ -571,43 +541,53 @@ export const EditServiceDialog = ({
     }
   }
 
-  const onSubmit = (data: ServiceFormData) => {
-      const price = data.price || 0;
-      
-      const duration = data.duration || 0;
-      const padBefore = data.padBefore || 0;
-      const padAfter = data.padAfter || 0;
+  const values = methods.watch();
+  const { duration, padBefore, padAfter, products, equipment, price } = values;
+  const [tmhr, setTmhr] = useState(0);
 
-      const tmhr = (typeof window !== 'undefined' && parseFloat(localStorage.getItem('tmhr') || '0')) || 0;
-      const totalTime = duration + padBefore + padAfter;
-      const timeCost = (totalTime / 60) * tmhr;
-      const productCost = (data.products || []).reduce((acc: number, p: any) => {
-        const product = inventory.find(i => i.id === p.id);
-        return acc + (product?.costPerUnit || 0);
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+        setTmhr(parseFloat(localStorage.getItem('tmhr') || '50'));
+    }
+  }, []);
+
+  const breakEvenCost = useMemo(() => {
+      const totalDuration = (duration || 0) + (padBefore || 0) + (padAfter || 0);
+      const timeCost = (totalDuration / 60) * tmhr;
+
+      const productCost = (products || []).reduce((acc: number, p: any) => {
+          const product = inventory.find(i => i.id === p.id);
+          return acc + (product?.costPerUnit || 0);
       }, 0);
-      const equipmentDepreciation = (data.equipment || []).reduce((acc: any, eq: any) => {
+
+      const equipmentDepreciation = (equipment || []).reduce((acc: any, eq: any) => {
           const equipmentItem = inventory.find(i => i.id === eq.id);
           if (!equipmentItem) return acc;
           const lifespanInMinutes = (equipmentItem.lifespanYears || 5) * 365 * 8 * 60;
           const costPerMinute = (equipmentItem.costPerUnit || 0) / lifespanInMinutes;
-          return acc + (costPerMinute * totalTime);
+          return acc + (costPerMinute * totalDuration);
       }, 0);
-      const breakEvenCost = timeCost + productCost + equipmentDepreciation;
-      const netProfit = price - breakEvenCost;
-      const profitMargin = price > 0 ? (netProfit / price) * 100 : 0;
+
+      return timeCost + productCost + equipmentDepreciation;
+  }, [duration, padBefore, padAfter, products, equipment, tmhr]);
+
+  const onSubmit = (data: ServiceFormData) => {
+      const finalPrice = data.price || 0;
+      const netProfit = finalPrice - breakEvenCost;
+      const margin = finalPrice > 0 ? (netProfit / finalPrice) * 100 : 0;
       
       const updatedService: Service = {
         id: data.id,
         name: data.name,
         type: data.isAddon ? 'addon' : 'service',
         category: data.category || 'Uncategorized',
-        duration: duration,
-        padBefore: padBefore,
-        padAfter: padAfter,
+        duration: data.duration,
+        padBefore: data.padBefore,
+        padAfter: data.padAfter,
         price: price,
         cost: breakEvenCost,
         profit: netProfit,
-        margin: profitMargin,
+        margin: margin,
         imageUrl: data.imageUrl,
         description: data.description,
         isPrivate: data.isPrivate,
@@ -665,7 +645,7 @@ export const EditServiceDialog = ({
         }
     }
   }, [isScannerOpen, toast]);
-
+  
   const getStepContent = () => {
     const stepMap = [
       <Step1_Basics key="step1" categories={categories} onNewCategory={onNewCategory} />,
@@ -751,3 +731,5 @@ export const EditServiceDialog = ({
     </>
   );
 };
+
+    
