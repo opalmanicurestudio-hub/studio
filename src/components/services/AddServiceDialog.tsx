@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -29,7 +28,7 @@ import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Slider } from '@/components/ui/slider';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { inventory, services as allServices, type Service, type InventoryItem, type ConsentForm, consentForms } from '@/lib/data';
+import { inventory, services as allServices, type Service, type InventoryItem, consentForms, type ConsentForm } from '@/lib/data';
 import { BrowseProductsDialog } from './BrowseProductsDialog';
 import { SelectEquipmentDialog } from './SelectEquipmentDialog';
 import { SelectAddOnsDialog } from './SelectAddOnsDialog';
@@ -211,11 +210,18 @@ const Step1_Basics = ({
                 <ScrollArea className="max-h-60">
                     <div className="p-2 space-y-1">
                     {consentForms.map(form => (
-                        <div key={form.id} className="flex items-center space-x-2 p-2 rounded-md hover:bg-muted">
+                        <div 
+                            key={form.id} 
+                            className="flex items-center space-x-2 p-2 rounded-md hover:bg-muted cursor-pointer"
+                            onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                handleFormIdToggle(form.id);
+                            }}
+                        >
                             <Checkbox
                                 id={`form-${form.id}`}
                                 checked={requiredFormIds.includes(form.id)}
-                                onCheckedChange={() => handleFormIdToggle(form.id)}
                             />
                             <Label htmlFor={`form-${form.id}`} className="font-normal cursor-pointer flex-1">{form.title}</Label>
                         </div>
@@ -713,7 +719,7 @@ export const AddServiceDialog = ({
 
             <div className="py-4 space-y-4">
             <Progress value={(step / totalSteps) * 100} />
-            <div className="max-h-[60vh] overflow-y-auto pr-4 -mr-6">
+            <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4 pl-1">
                 {getStepContent()}
             </div>
             </div>
