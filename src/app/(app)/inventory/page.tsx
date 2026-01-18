@@ -11,7 +11,7 @@ import {
   CardDescription,
   CardFooter,
 } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette, QrCode, AlertTriangle, ListFilter, ChevronDown, ShoppingCart, Briefcase, DollarSign, Activity, Eye, CircleHelp, Warehouse, Beaker, Recycle, TrendingUp } from 'lucide-react';
 import { 
     inventory as initialInventoryData,
@@ -51,6 +51,7 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { isPast, parseISO, differenceInMonths } from 'date-fns';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ManageSpoilageDialog, type SpoilageItem } from '@/components/inventory/ManageSpoilageDialog';
@@ -64,8 +65,9 @@ import { AddProductDialog } from '@/components/inventory/AddProductDialog';
 import { AddEquipmentDialog } from '@/components/inventory/AddEquipmentDialog';
 import { AddOverheadDialog } from '@/components/inventory/AddOverheadDialog';
 import { useInventory } from '@/context/InventoryContext';
+import { Checkbox } from '@/components/ui/checkbox';
 
-const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff, onLogUse }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (itemId: string) => void, onLogUse: (item: InventoryItem) => void }) => {
+const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff, onLogUse, isSelected, onSelect }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (itemId: string) => void, onLogUse: (item: InventoryItem) => void, isSelected: boolean, onSelect: () => void }) => {
     
     const stockStatus = useMemo(() => {
         const hasExpiredBatch = item.batches.some(b => b.expirationDate && isPast(parseISO(b.expirationDate)));
@@ -105,10 +107,19 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
     return (
         <Card className={cn(
             "transition-all duration-200 hover:shadow-xl hover:-translate-y-1 flex flex-col",
-            item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20"
+            item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20",
+            isSelected && "border-primary ring-2 ring-primary"
         )}>
             <CardContent className="p-4 flex-1 flex flex-col space-y-4">
-                <div className="flex items-start gap-4">
+                 <div className="flex items-start gap-4">
+                    <div className="flex items-center pt-1">
+                        <Checkbox
+                            id={`select-${item.id}`}
+                            checked={isSelected}
+                            onCheckedChange={onSelect}
+                            aria-label={`Select ${item.name}`}
+                        />
+                    </div>
                      <Link href={detailHref} className='w-20 h-20 bg-muted rounded-md flex-shrink-0'>
                         <Image src={item.imageUrl || `https://picsum.photos/seed/inv${item.id}/100/100`} alt={item.name} width={80} height={80} className='rounded-md object-cover' data-ai-hint="product photo"/>
                     </Link>
@@ -203,6 +214,37 @@ export default function InventoryPage() {
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
   const videoRef = useRef<HTMLVideoElement>(null);
   
+  const [selectedItems, setSelectedItems] = useState(new Set<string>());
+  const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
+
+  const handleItemSelect = useCallback((itemId: string) => {
+    setSelectedItems(prev => {
+        const newSelection = new Set(prev);
+        if (newSelection.has(itemId)) {
+            newSelection.delete(itemId);
+        } else {
+            newSelection.add(itemId);
+        }
+        return newSelection;
+    });
+  }, []);
+
+  const handleBulkDeleteClick = () => {
+    setIsBulkDeleteConfirmOpen(true);
+  };
+  
+  const handleBulkDeleteConfirm = () => {
+    const itemCount = selectedItems.size;
+    setInventory(prev => prev.filter(item => !selectedItems.has(item.id)));
+    setSelectedItems(new Set());
+    setIsBulkDeleteConfirmOpen(false);
+    toast({
+        title: "Items Deleted",
+        description: `${itemCount} item(s) have been removed from your inventory.`,
+    })
+  };
+
+
   const handleOpenAddProductDialog = (type: 'professional' | 'retail') => {
     setAddProductDialogType(type);
     setIsAddProductDialogOpen(true);
@@ -652,6 +694,15 @@ export default function InventoryPage() {
                                     </DropdownMenu>
                                 </div>
                             </div>
+                             {selectedItems.size > 0 && (
+                                <div className="mb-4 p-3 rounded-lg bg-muted/50 flex items-center justify-between">
+                                    <p className="text-sm font-medium">{selectedItems.size} item(s) selected</p>
+                                    <div className="flex gap-2">
+                                        <Button variant="outline" size="sm">Archive</Button>
+                                        <Button variant="destructive" size="sm" onClick={handleBulkDeleteClick}>Delete</Button>
+                                    </div>
+                                </div>
+                            )}
                             {!hasInventory ? (
                                 <EmptyState onAddFirstItem={() => handleOpenAddProductDialog('professional')} />
                             ) : (
@@ -665,6 +716,8 @@ export default function InventoryPage() {
                                             onEndExperiment={handleEndExperiment} 
                                             onWriteOff={handleOpenWriteOff} 
                                             onLogUse={handleOpenLogUse}
+                                            isSelected={selectedItems.has(item.id)}
+                                            onSelect={() => handleItemSelect(item.id)}
                                         />
                                     )) : (
                                         <p className="text-muted-foreground col-span-full text-center">No items match your search.</p>
@@ -790,6 +843,24 @@ export default function InventoryPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+        <AlertDialog open={isBulkDeleteConfirmOpen} onOpenChange={setIsBulkDeleteConfirmOpen}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        This will permanently delete {selectedItems.size} item(s) from your inventory. This action cannot be undone.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleBulkDeleteConfirm} className={buttonVariants({ variant: "destructive" })}>
+                        Delete
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+
     </div>
     </ClientOnly>
   );
