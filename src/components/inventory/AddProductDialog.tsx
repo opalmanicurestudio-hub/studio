@@ -40,7 +40,6 @@ import { useToast } from '@/hooks/use-toast';
 import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { ScrollArea } from '../ui/scroll-area';
 import { Check, PlusCircle, QrCode, AlertTriangle } from 'lucide-react';
 import { inventory, services as allServices, type Service } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
@@ -336,6 +335,16 @@ export const AddProductDialog = ({
   };
 
   const handleBack = () => step > 1 && setStep(step - 1);
+  
+  const handleOpenChange = (isOpen: boolean) => {
+    onOpenChange(isOpen);
+    if (!isOpen) {
+      setTimeout(() => {
+        setStep(1);
+        methods.reset();
+      }, 300);
+    }
+  };
 
   const getStepContent = () => {
       switch(step) {
@@ -351,19 +360,19 @@ export const AddProductDialog = ({
   const description = "Use this wizard to add a new item to your inventory.";
 
   const formBody = (
-    <FormProvider {...methods}>
-      <form id={formId} onSubmit={methods.handleSubmit(onSubmit)} className="flex flex-col h-full">
-        <DialogHeader className={isMobile ? "p-4 border-b text-left" : "p-6 pb-0"}>
+     <FormProvider {...methods}>
+      <form id={formId} onSubmit={methods.handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+        <DialogHeader className={isMobile ? "p-4 border-b text-left" : "p-6 pb-4"}>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <div className="p-4 md:p-6"><Progress value={(step / totalSteps) * 100} /></div>
-        <ScrollArea className="flex-1 min-h-0">
-          <div className="px-6 pb-6">
-              {getStepContent()}
-          </div>
-        </ScrollArea>
-        <DialogFooter className={isMobile ? "p-4 border-t" : "p-6 pt-6"}>
+        <div className="px-4 md:px-6 py-4">
+          <Progress value={(step / totalSteps) * 100} />
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-6">
+          {getStepContent()}
+        </div>
+        <DialogFooter className={isMobile ? "p-4 border-t" : "p-6 border-t"}>
           <div className='flex justify-between w-full'>
             <div>{step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}</div>
             <div className="flex gap-2">
@@ -382,7 +391,7 @@ export const AddProductDialog = ({
 
   if (isMobile) {
     return (
-      <Sheet open={open} onOpenChange={onOpenChange}>
+      <Sheet open={open} onOpenChange={handleOpenChange}>
         <SheetContent side="bottom" className="max-h-[90dvh] flex flex-col p-0">
           {formBody}
         </SheetContent>
@@ -391,7 +400,7 @@ export const AddProductDialog = ({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col p-0">
         {formBody}
       </DialogContent>
