@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
@@ -227,6 +226,9 @@ export default function InventoryPage() {
 
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 8;
 
   const handleEditItem = (item: InventoryItem) => {
     setEditingItem(item);
@@ -602,6 +604,22 @@ export default function InventoryPage() {
 
     return items;
   }, [inventory, activeFilter, searchTerm, showArchived]);
+  
+  const totalPages = Math.ceil(filteredInventory.length / ITEMS_PER_PAGE);
+  const paginatedItems = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    return filteredInventory.slice(startIndex, endIndex);
+  }, [filteredInventory, currentPage]);
+
+  const handlePrevPage = () => {
+    setCurrentPage(prev => Math.max(prev - 1, 1));
+  };
+
+  const handleNextPage = () => {
+    setCurrentPage(prev => Math.min(prev + 1, totalPages));
+  };
+
 
   useEffect(() => {
     if (isScannerOpen) {
@@ -633,6 +651,7 @@ export default function InventoryPage() {
   }, [isScannerOpen, toast]);
   
   const hasInventory = inventory.length > 0;
+  const hasFilteredInventory = filteredInventory.length > 0;
 
   const productCategories = useMemo(() => {
     const allCategories = inventory.map(p => p.category).filter((c): c is string => !!c);
@@ -763,8 +782,8 @@ export default function InventoryPage() {
                             {!hasInventory ? (
                                 <EmptyState onAddFirstItem={() => handleOpenAddProductDialog('professional')} />
                             ) : (
-                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-6">
-                                    {filteredInventory.length > 0 ? filteredInventory.map(item => (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    {hasFilteredInventory ? paginatedItems.map(item => (
                                         <ProductCard 
                                             key={item.id}
                                             item={item} 
@@ -782,6 +801,33 @@ export default function InventoryPage() {
                                 </div>
                             )}
                         </CardContent>
+                        {totalPages > 1 && (
+                            <CardFooter>
+                                <div className="flex items-center justify-between w-full">
+                                    <span className="text-sm text-muted-foreground">
+                                        Page {currentPage} of {totalPages}
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={handlePrevPage}
+                                            disabled={currentPage === 1}
+                                        >
+                                            Previous
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={handleNextPage}
+                                            disabled={currentPage === totalPages}
+                                        >
+                                            Next
+                                        </Button>
+                                    </div>
+                                </div>
+                            </CardFooter>
+                        )}
                     </Card>
                 </TabsContent>
                 <TabsContent value="locations" className="mt-6">
@@ -948,3 +994,6 @@ export default function InventoryPage() {
   );
 }
 
+
+
+    
