@@ -688,40 +688,42 @@ export default function InventoryPage() {
                             </div>
                         </CardHeader>
                         <CardContent>
-                            <div className="flex flex-col sm:flex-row items-center gap-4 mb-4">
-                                <div className="relative flex-1 w-full">
-                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                    <Input 
-                                        placeholder="Search by name or SKU..." 
-                                        className="pl-9"
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
-                                    />
-                                </div>
-                                <div className="flex items-center gap-2 w-full sm:w-auto">
-                                     <div className="flex items-center space-x-2">
-                                        <Switch id="show-archived" checked={showArchived} onCheckedChange={setShowArchived} />
-                                        <Label htmlFor="show-archived">Archived</Label>
+                            <div className="mb-4 space-y-4">
+                                <div className="flex flex-col sm:flex-row items-center gap-4">
+                                    <div className="relative flex-1 w-full">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input 
+                                            placeholder="Search by name or SKU..." 
+                                            className="pl-9"
+                                            value={searchTerm}
+                                            onChange={(e) => setSearchTerm(e.target.value)}
+                                        />
                                     </div>
-                                    <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
-                                        <QrCode className="h-4 w-4" />
-                                        <span className="sr-only">Scan</span>
-                                    </Button>
-                                    <DropdownMenu>
-                                        <DropdownMenuTrigger asChild>
-                                            <Button variant="outline" className="w-full sm:w-auto">
-                                                <ListFilter className="mr-2 h-4 w-4" />
-                                                Filter
-                                            </Button>
-                                        </DropdownMenuTrigger>
-                                        <DropdownMenuContent align="end">
-                                            <DropdownMenuItem onClick={() => setActiveFilter('all')}>All</DropdownMenuItem>
-                                            <DropdownMenuItem onClick={() => setActiveFilter('professional')}>Professional</DropdownMenuItem>
-                                            <DropdownMenuItem onClick={() => setActiveFilter('retail')}>Retail</DropdownMenuItem>
-                                            <DropdownMenuItem onClick={() => setActiveFilter('equipment')}>Equipment</DropdownMenuItem>
-                                            <DropdownMenuItem onClick={() => setActiveFilter('overhead')}>Overhead</DropdownMenuItem>
-                                        </DropdownMenuContent>
-                                    </DropdownMenu>
+                                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                                        <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
+                                            <QrCode className="h-4 w-4" />
+                                            <span className="sr-only">Scan</span>
+                                        </Button>
+                                        <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                                <Button variant="outline" className="w-full sm:w-auto">
+                                                    <ListFilter className="mr-2 h-4 w-4" />
+                                                    Filter
+                                                </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="end">
+                                                <DropdownMenuItem onClick={() => setActiveFilter('all')}>All</DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => setActiveFilter('professional')}>Professional</DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => setActiveFilter('retail')}>Retail</DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => setActiveFilter('equipment')}>Equipment</DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => setActiveFilter('overhead')}>Overhead</DropdownMenuItem>
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
+                                    </div>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    <Switch id="show-archived" checked={showArchived} onCheckedChange={setShowArchived} />
+                                    <Label htmlFor="show-archived">Show Archived</Label>
                                 </div>
                             </div>
                              {selectedItems.size > 0 && (
