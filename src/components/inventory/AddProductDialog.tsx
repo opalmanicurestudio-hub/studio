@@ -40,7 +40,11 @@ import { useForm, FormProvider, useFormContext, Controller } from 'react-hook-fo
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { ScrollArea } from '../ui/scroll-area';
-import { Check, PlusCircle } from 'lucide-react';
+import { Check, PlusCircle, QrCode } from 'lucide-react';
+import { inventory, services as allServices, type Service } from '@/lib/data';
+import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
+import { SelectEquipmentDialog } from '../services/SelectEquipmentDialog';
+import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 
 const productSchema = z.object({
   name: z.string().min(1, 'Product name is required'),
@@ -68,7 +72,7 @@ const productSchema = z.object({
   sku: z.string().optional(),
   purchaseLink: z.string().url().optional().or(z.literal('')),
   reorderPoint: z.coerce.number().optional(),
-  initialStock: z.coerce.number().min(1, 'Initial stock is required').optional(),
+  initialStock: z.coerce.number().min(1, 'Initial stock is required'),
   expirationDate: z.date().optional(),
   primaryLocationId: z.string().optional(),
 });
@@ -323,31 +327,29 @@ export const AddProductDialog = ({
 
   const formBody = (
     <FormProvider {...methods}>
-      <form id={formId} onSubmit={methods.handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
-          <DialogHeader className={isMobile ? "p-4 border-b text-left" : "p-6 pb-0"}>
-            <DialogTitle>{title}</DialogTitle>
-            <DialogDescription>{description}</DialogDescription>
-          </DialogHeader>
-          <div className="p-4 md:p-6"><Progress value={(step / totalSteps) * 100} /></div>
-          <ScrollArea className="flex-1">
-            <div className={isMobile ? "px-4" : "px-6"}>
+        <DialogHeader className={isMobile ? "p-4 border-b text-left" : "p-6 pb-0"}>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        <div className="p-4 md:p-6"><Progress value={(step / totalSteps) * 100} /></div>
+        <ScrollArea className="flex-1 min-h-0">
+          <form id={formId} onSubmit={methods.handleSubmit(onSubmit)} className="px-6 pb-6">
               {getStepContent()}
+          </form>
+        </ScrollArea>
+        <DialogFooter className={isMobile ? "p-4 border-t" : "p-6 pt-6"}>
+          <div className='flex justify-between w-full'>
+            <div>{step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}</div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
+              {step < totalSteps ? (
+                <Button onClick={handleNext} type="button">Next</Button>
+              ) : (
+                <Button type="submit" form={formId}>Save Product</Button>
+              )}
             </div>
-          </ScrollArea>
-          <DialogFooter className={isMobile ? "p-4 border-t" : "p-6 pt-6"}>
-            <div className='flex justify-between w-full'>
-              <div>{step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}</div>
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
-                {step < totalSteps ? (
-                  <Button onClick={handleNext} type="button">Next</Button>
-                ) : (
-                  <Button type="submit">Save Product</Button>
-                )}
-              </div>
-            </div>
-          </DialogFooter>
-      </form>
+          </div>
+        </DialogFooter>
     </FormProvider>
   );
 

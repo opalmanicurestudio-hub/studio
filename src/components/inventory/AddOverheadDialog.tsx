@@ -191,15 +191,15 @@ export const AddOverheadDialog = ({
               <SheetTitle>{title}</SheetTitle>
               <SheetDescription>{description}</SheetDescription>
             </SheetHeader>
-            <form id={formId} onSubmit={handleSubmit(handleSave)} className="flex flex-col flex-1 min-h-0">
-              <ScrollArea className="flex-1">
-                <div className="px-4 py-6">{formContent}</div>
-              </ScrollArea>
-              <SheetFooter className="p-4 border-t">
-                <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>Cancel</Button>
-                <Button type="submit">Save Item</Button>
-              </SheetFooter>
-            </form>
+            <ScrollArea className="flex-1 min-h-0">
+                <form id={formId} onSubmit={handleSubmit(handleSave)} className="px-4 py-6">
+                    {formContent}
+                </form>
+            </ScrollArea>
+            <SheetFooter className="p-4 border-t">
+              <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>Cancel</Button>
+              <Button type="submit" form={formId}>Save Item</Button>
+            </SheetFooter>
           </SheetContent>
         </Sheet>
       </FormProvider>
@@ -209,20 +209,20 @@ export const AddOverheadDialog = ({
   return (
     <FormProvider {...methods}>
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col p-0">
+          <DialogHeader className="p-6 pb-4">
             <DialogTitle>{title}</DialogTitle>
             <DialogDescription>{description}</DialogDescription>
           </DialogHeader>
-          <form id={formId} onSubmit={handleSubmit(handleSave)}>
-            <ScrollArea className="max-h-[70vh] -mr-6 pr-6">
-              <div className="px-6 py-4">{formContent}</div>
-            </ScrollArea>
-            <DialogFooter className="pt-6 border-t pr-6">
-              <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>Cancel</Button>
-              <Button type="submit">Save Item</Button>
-            </DialogFooter>
-          </form>
+          <ScrollArea className="flex-1 min-h-0">
+            <form id={formId} onSubmit={handleSubmit(handleSave)} className="px-6 pb-6">
+                {formContent}
+            </form>
+          </ScrollArea>
+          <DialogFooter className="p-4 border-t">
+            <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button type="submit" form={formId}>Save Item</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </FormProvider>
