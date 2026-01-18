@@ -37,9 +37,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { type InventoryItem, type Location } from '@/lib/data';
-import { Check, PlusCircle } from 'lucide-react';
+import { Check, PlusCircle, QrCode, AlertTriangle } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { inventory, services as allServices, type Service } from '@/lib/data';
+import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
 
 const productSchema = z.object({
   id: z.string(),
@@ -68,8 +69,6 @@ const productSchema = z.object({
   sku: z.string().optional(),
   purchaseLink: z.string().url().optional().or(z.literal('')),
   reorderPoint: z.coerce.number().optional(),
-  initialStock: z.coerce.number().min(1, 'Initial stock is required'),
-  expirationDate: z.date().optional(),
   primaryLocationId: z.string().optional(),
 });
 
@@ -127,45 +126,119 @@ const Step1_BasicDetails = ({ categories, onNewCategory }: { categories: string[
 const Step2_CostingPricing = () => {
     const { control, watch, register } = useFormContext<ProductFormData>();
     const productType = watch('type');
+    const costingMethod = watch('costingMethod');
+    const [totalPurchaseCost, numUnits, shippingCost, taxCost, discounts, msrp] = watch([
+        'totalPurchaseCost',
+        'numUnits',
+        'shippingCost',
+        'taxCost',
+        'discounts',
+        'msrp'
+    ]);
+
+    const landedCostPerItem = useMemo(() => {
+        const totalCost = (totalPurchaseCost || 0) + (shippingCost || 0) + (taxCost || 0) - (discounts || 0);
+        const units = numUnits || 0;
+        if (units === 0) return 0;
+        return totalCost / units;
+    }, [totalPurchaseCost, numUnits, shippingCost, taxCost, discounts]);
+
+    const profitMargin = useMemo(() => {
+        const price = msrp || 0;
+        if (price === 0 || landedCostPerItem === 0) return 0;
+        const profit = price - landedCostPerItem;
+        return (profit / price) * 100;
+    }, [msrp, landedCostPerItem]);
+
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-        {/* Costing card for all types */}
-      </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+             <Card>
+                <CardHeader><CardTitle>Landed Cost Calculator</CardTitle><CardDescription>Calculate the true cost per item.</CardDescription></CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2"><Label htmlFor="total-cost-edit">Total Purchase Cost</Label><Input id="total-cost-edit" type="number" placeholder="From invoice" {...register('totalPurchaseCost')} /></div>
+                        <div className="space-y-2"><Label htmlFor="num-units-edit">Number of Units</Label><Input id="num-units-edit" type="number" placeholder="In shipment" {...register('numUnits')} /></div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2"><Label htmlFor="shipping-edit">Shipping</Label><Input id="shipping-edit" type="number" placeholder="0.00" {...register('shippingCost')} /></div>
+                        <div className="space-y-2"><Label htmlFor="taxes-edit">Taxes</Label><Input id="taxes-edit" type="number" placeholder="0.00" {...register('taxCost')} /></div>
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="discounts-edit">Discounts</Label>
+                        <Input id="discounts-edit" type="number" placeholder="0.00" {...register('discounts')} />
+                    </div>
+                    <div className="p-3 bg-muted rounded-md flex items-center justify-between"><span className="font-medium">Landed Cost Per Item:</span><span className="text-lg font-bold text-primary">${landedCostPerItem.toFixed(2)}</span></div>
+                </CardContent>
+            </Card>
+            {(productType === 'professional') && (
+                <Card>
+                    <CardHeader><CardTitle>Professional Costing</CardTitle><CardDescription>How much does it cost to use this once?</CardDescription></CardHeader>
+                    <CardContent className="space-y-4">
+                        <Controller name="costingMethod" control={control} render={({ field }) => (<div className="space-y-2"><Label>Costing Method</Label><RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2"><div><RadioGroupItem value="size" id="by-size-edit" className="peer sr-only" /><Label htmlFor="by-size-edit" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">By Size</Label></div><div><RadioGroupItem value="uses" id="by-uses-edit" className="peer sr-only" /><Label htmlFor="by-uses-edit" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">By Uses</Label></div></RadioGroup></div>)}/>
+                        {costingMethod === 'size' && (<div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label htmlFor="container-size-edit">Container Size</Label><Input id="container-size-edit" type="number" placeholder="e.g., 1000" {...register('containerSize')} /></div><div className="space-y-2"><Label htmlFor="unit-edit">Unit</Label><Controller name="containerUnit" control={control} render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger id="unit-edit"><SelectValue placeholder="Unit" /></SelectTrigger><SelectContent><SelectItem value="ml">ml</SelectItem><SelectItem value="oz">oz</SelectItem><SelectItem value="g">g</SelectItem></SelectContent></Select>)}/></div></div>)}
+                        {costingMethod === 'uses' && (<div className="space-y-2"><Label htmlFor="estimated-uses-edit">Uses Per Container</Label><Input id="estimated-uses-edit" type="number" placeholder="e.g., 50" {...register('usesPerContainer')} /></div>)}
+                         <div className="space-y-2"><Label htmlFor="restocking-markup-edit">Restocking Markup (%)</Label><Input id="restocking-markup-edit" type="number" placeholder="e.g., 5" {...register('restockingMarkup')} /></div>
+                    </CardContent>
+                </Card>
+            )}
+            {(productType === 'retail') && (
+                <Card>
+                    <CardHeader><CardTitle>Retail Pricing</CardTitle><CardDescription>How much will clients pay?</CardDescription></CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label htmlFor="msrp-edit">MSRP</Label><Input id="msrp-edit" type="number" placeholder="0.00" {...register('msrp')} /></div><div className="space-y-2"><Label htmlFor="markdown-price-edit">Markdown Price</Label><Input id="markdown-price-edit" type="number" placeholder="Optional" {...register('markdownPrice')} /></div></div>
+                        <div className="p-3 bg-muted rounded-md"><p className="font-medium text-center">Profit Margin: <span className="text-lg font-bold text-primary">{profitMargin.toFixed(1)}%</span></p></div>
+                    </CardContent>
+                </Card>
+            )}
+        </div>
     );
 };
 
 const Step3_InventorySupplier = ({ onAddLocationClick, locations }: { onAddLocationClick: () => void; locations: Location[] }) => {
-    const { control, register } = useFormContext<ProductFormData>();
+     const { control, register, formState: { errors } } = useFormContext<ProductFormData>();
     return (
         <div className="space-y-6">
             <Card>
                 <CardHeader><CardTitle>Supplier Info</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
-                    <div className="space-y-2"><Label htmlFor="vendor">Vendor</Label><Input id="vendor" {...register('supplier')} /></div>
-                    <div className="space-y-2"><Label htmlFor="sku">SKU / Barcode</Label><Input id="sku" {...register('sku')} /></div>
-                    <div className="space-y-2"><Label htmlFor="purchase-link">Purchase Link</Label><Input id="purchase-link" type="url" {...register('purchaseLink')} /></div>
+                    <div className="space-y-2"><Label htmlFor="vendor-edit">Vendor</Label><Input id="vendor-edit" placeholder="e.g., SalonCentric" {...register('supplier')} /></div>
+                    <div className="space-y-2"><Label htmlFor="sku-edit">SKU / Barcode</Label><Input id="sku-edit" placeholder="Product identifier" {...register('sku')} /></div>
+                    <div className="space-y-2"><Label htmlFor="purchase-link-edit">Purchase Link</Label><Input id="purchase-link-edit" type="url" placeholder="https://..." {...register('purchaseLink')} /></div>
                 </CardContent>
             </Card>
             <Card>
-                <CardHeader><CardTitle>Stock Management</CardTitle></CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="space-y-2"><Label htmlFor="reorder-point">Reorder Point</Label><Input id="reorder-point" type="number" {...register('reorderPoint')} /></div>
+                 <CardHeader><CardTitle>Stock Management</CardTitle></CardHeader>
+                 <CardContent className="space-y-4">
+                    <div className="space-y-2"><Label htmlFor="reorder-point-edit">Reorder Point</Label><Input id="reorder-point-edit" type="number" placeholder="e.g., 5" {...register('reorderPoint')} /></div>
+                    <Alert variant="destructive">
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertTitle>Stock Levels</AlertTitle>
+                        <AlertDescription>
+                            Stock quantities are managed through inventory actions (e.g., Log Use, Write-off) and cannot be edited directly here.
+                        </AlertDescription>
+                    </Alert>
                 </CardContent>
             </Card>
-            <Card>
+             <Card>
                 <CardHeader><CardTitle>Storage Locations</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
                     <div className="space-y-2">
                         <Label>Primary Location</Label>
-                        <Controller name="primaryLocationId" control={control} render={({ field }) => (
-                            <div className="flex gap-2">
+                        <Controller
+                            name="primaryLocationId"
+                            control={control}
+                            render={({ field }) => (
+                                <div className="flex gap-2">
                                 <Select onValueChange={field.onChange} value={field.value}>
                                     <SelectTrigger><SelectValue placeholder="Select location" /></SelectTrigger>
                                     <SelectContent>{locations.map(loc => (<SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>))}</SelectContent>
                                 </Select>
-                                <Button variant="outline" size="icon" onClick={onAddLocationClick} type="button"><PlusCircle className="h-4 w-4" /></Button>
-                            </div>
-                        )} />
+                                <Button variant="outline" size="icon" onClick={onAddLocationClick} type="button">
+                                    <PlusCircle className="h-4 w-4" />
+                                </Button>
+                                </div>
+                            )}
+                        />
                     </div>
                 </CardContent>
             </Card>
@@ -211,15 +284,14 @@ export const EditProductDialog: React.FC<EditProductDialogProps> = ({
             category: product.category,
             imageUrl: product.imageUrl || '',
             supplier: product.supplier || '',
-            supplierUrl: product.supplierUrl || '',
-            costPerUnit: product.costPerUnit,
-            reorderPoint: product.reorderPoint,
-            primaryLocationId: product.primaryLocationId,
+            purchaseLink: product.supplierUrl || '',
             costingMethod: product.costingMethod,
             containerSize: product.size,
             containerUnit: product.unit,
             usesPerContainer: product.estimatedUses,
-            initialStock: product.totalStock,
+            reorderPoint: product.reorderPoint,
+            primaryLocationId: product.primaryLocationId,
+            // Non-editable fields like stock are not set here
       });
       setStep(1); // Reset to first step when dialog opens with new product
     }

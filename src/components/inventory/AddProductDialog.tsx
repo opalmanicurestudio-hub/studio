@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -150,6 +149,28 @@ const Step2_CostingPricing = () => {
     const { control, watch, register } = useFormContext<ProductFormData>();
     const productType = watch('type');
     const costingMethod = watch('costingMethod');
+    const [totalPurchaseCost, numUnits, shippingCost, taxCost, discounts, msrp] = watch([
+        'totalPurchaseCost',
+        'numUnits',
+        'shippingCost',
+        'taxCost',
+        'discounts',
+        'msrp'
+    ]);
+
+    const landedCostPerItem = useMemo(() => {
+        const totalCost = (totalPurchaseCost || 0) + (shippingCost || 0) + (taxCost || 0) - (discounts || 0);
+        const units = numUnits || 0;
+        if (units === 0) return 0;
+        return totalCost / units;
+    }, [totalPurchaseCost, numUnits, shippingCost, taxCost, discounts]);
+
+    const profitMargin = useMemo(() => {
+        const price = msrp || 0;
+        if (price === 0 || landedCostPerItem === 0) return 0;
+        const profit = price - landedCostPerItem;
+        return (profit / price) * 100;
+    }, [msrp, landedCostPerItem]);
     
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
@@ -168,7 +189,10 @@ const Step2_CostingPricing = () => {
                         <Label htmlFor="discounts">Discounts</Label>
                         <Input id="discounts" type="number" placeholder="0.00" {...register('discounts')} />
                     </div>
-                    <div className="p-3 bg-muted rounded-md flex items-center justify-between"><span className="font-medium">Landed Cost Per Item:</span><span className="text-lg font-bold text-primary">$0.00</span></div>
+                    <div className="p-3 bg-muted rounded-md flex items-center justify-between">
+                        <span className="font-medium">Landed Cost Per Item:</span>
+                        <span className="text-lg font-bold text-primary">${landedCostPerItem.toFixed(2)}</span>
+                    </div>
                 </CardContent>
             </Card>
             {(productType === 'professional') && (
@@ -187,7 +211,7 @@ const Step2_CostingPricing = () => {
                     <CardHeader><CardTitle>Retail Pricing</CardTitle><CardDescription>How much will clients pay?</CardDescription></CardHeader>
                     <CardContent className="space-y-4">
                         <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label htmlFor="msrp">MSRP</Label><Input id="msrp" type="number" placeholder="0.00" {...register('msrp')} /></div><div className="space-y-2"><Label htmlFor="markdown-price">Markdown Price</Label><Input id="markdown-price" type="number" placeholder="Optional" {...register('markdownPrice')} /></div></div>
-                        <div className="p-3 bg-muted rounded-md"><p className="font-medium text-center">Profit Margin: <span className="text-lg font-bold text-primary">0%</span></p></div>
+                        <div className="p-3 bg-muted rounded-md"><p className="font-medium text-center">Profit Margin: <span className="text-lg font-bold text-primary">{profitMargin.toFixed(1)}%</span></p></div>
                     </CardContent>
                 </Card>
             )}
