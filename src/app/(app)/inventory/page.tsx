@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
@@ -66,6 +67,8 @@ import { AddEquipmentDialog } from '@/components/inventory/AddEquipmentDialog';
 import { AddOverheadDialog } from '@/components/inventory/AddOverheadDialog';
 import { useInventory } from '@/context/InventoryContext';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 
 const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff, onLogUse, isSelected, onSelect }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (itemId: string) => void, onLogUse: (item: InventoryItem) => void, isSelected: boolean, onSelect: () => void }) => {
     
@@ -195,6 +198,7 @@ export default function InventoryPage() {
   const [activeView, setActiveView] = useState('products');
   const [activeFilter, setActiveFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
   
   const [isAddProductDialogOpen, setIsAddProductDialogOpen] = useState(false);
   const [addProductDialogType, setAddProductDialogType] = useState<'professional' | 'retail'>('professional');
@@ -233,7 +237,7 @@ export default function InventoryPage() {
     setIsBulkDeleteConfirmOpen(true);
   };
   
-  const handleBulkDeleteConfirm = () => {
+  const handleBulkDeleteConfirm = useCallback(() => {
     const itemCount = selectedItems.size;
     setInventory(prev => prev.filter(item => !selectedItems.has(item.id)));
     setSelectedItems(new Set());
@@ -242,7 +246,27 @@ export default function InventoryPage() {
         title: "Items Deleted",
         description: `${itemCount} item(s) have been removed from your inventory.`,
     })
-  };
+  }, [selectedItems, setInventory, toast]);
+
+    const handleBulkArchive = useCallback(() => {
+        setInventory(prev =>
+            prev.map(item =>
+                selectedItems.has(item.id) ? { ...item, status: 'archived' } : item
+            )
+        );
+        toast({ title: `${selectedItems.size} item(s) have been archived.` });
+        setSelectedItems(new Set());
+    }, [selectedItems, setInventory, toast]);
+
+    const handleBulkUnarchive = useCallback(() => {
+        setInventory(prev =>
+            prev.map(item =>
+                selectedItems.has(item.id) ? { ...item, status: 'active' } : item
+            )
+        );
+        toast({ title: `${selectedItems.size} item(s) have been restored.` });
+        setSelectedItems(new Set());
+    }, [selectedItems, setInventory, toast]);
 
 
   const handleOpenAddProductDialog = (type: 'professional' | 'retail') => {
@@ -540,7 +564,9 @@ export default function InventoryPage() {
   }
 
   const filteredInventory = useMemo(() => {
-    let items = inventory;
+    let items = inventory.filter(item => {
+      return showArchived ? item.status === 'archived' : item.status !== 'archived';
+    });
 
     if (activeFilter !== 'all') {
       items = items.filter(item => item.type === activeFilter);
@@ -554,7 +580,7 @@ export default function InventoryPage() {
     }
 
     return items;
-  }, [inventory, activeFilter, searchTerm]);
+  }, [inventory, activeFilter, searchTerm, showArchived]);
 
   useEffect(() => {
     if (isScannerOpen) {
@@ -673,6 +699,10 @@ export default function InventoryPage() {
                                     />
                                 </div>
                                 <div className="flex items-center gap-2 w-full sm:w-auto">
+                                     <div className="flex items-center space-x-2">
+                                        <Switch id="show-archived" checked={showArchived} onCheckedChange={setShowArchived} />
+                                        <Label htmlFor="show-archived">Archived</Label>
+                                    </div>
                                     <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
                                         <QrCode className="h-4 w-4" />
                                         <span className="sr-only">Scan</span>
@@ -698,7 +728,11 @@ export default function InventoryPage() {
                                 <div className="mb-4 p-3 rounded-lg bg-muted/50 flex items-center justify-between">
                                     <p className="text-sm font-medium">{selectedItems.size} item(s) selected</p>
                                     <div className="flex gap-2">
-                                        <Button variant="outline" size="sm">Archive</Button>
+                                        {showArchived ? (
+                                            <Button variant="outline" size="sm" onClick={handleBulkUnarchive}>Unarchive</Button>
+                                        ) : (
+                                            <Button variant="outline" size="sm" onClick={handleBulkArchive}>Archive</Button>
+                                        )}
                                         <Button variant="destructive" size="sm" onClick={handleBulkDeleteClick}>Delete</Button>
                                     </div>
                                 </div>
@@ -720,7 +754,7 @@ export default function InventoryPage() {
                                             onSelect={() => handleItemSelect(item.id)}
                                         />
                                     )) : (
-                                        <p className="text-muted-foreground col-span-full text-center">No items match your search.</p>
+                                        <p className="text-muted-foreground col-span-full text-center py-10">No items match your filters.</p>
                                     )}
                                 </div>
                             )}
