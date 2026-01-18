@@ -69,6 +69,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { EditProductDialog } from '../inventory/EditProductDialog';
 
 const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff, onLogUse, isSelected, onSelect }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (itemId: string) => void, onLogUse: (item: InventoryItem) => void, isSelected: boolean, onSelect: () => void }) => {
     
@@ -140,6 +141,9 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                                 <DropdownMenuItem asChild><Link href={detailHref}>View Details</Link></DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => onEdit(item)}>
+                                    <Edit className="mr-2 h-4 w-4"/>Edit
+                                </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem onClick={() => item.isExperimentActive ? onEndExperiment(item) : onToggleExperiment(item)}>
                                     {item.isExperimentActive ? <><CheckCircle className="mr-2 h-4 w-4 text-green-500" />End Lifespan Test</> : <><Rocket className="mr-2 h-4 w-4 text-purple-500"/>Start Lifespan Test</>}
@@ -220,6 +224,23 @@ export default function InventoryPage() {
   
   const [selectedItems, setSelectedItems] = useState(new Set<string>());
   const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
+
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+
+  const handleEditItem = (item: InventoryItem) => {
+    setEditingItem(item);
+    setIsEditDialogOpen(true);
+  };
+
+  const handleUpdateItem = (updatedItem: InventoryItem) => {
+    setInventory(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
+    toast({
+        title: "Item Updated",
+        description: `${updatedItem.name} has been successfully updated.`,
+    });
+    setIsEditDialogOpen(false);
+  };
 
   const handleItemSelect = useCallback((itemId: string) => {
     setSelectedItems(prev => {
@@ -742,12 +763,12 @@ export default function InventoryPage() {
                             {!hasInventory ? (
                                 <EmptyState onAddFirstItem={() => handleOpenAddProductDialog('professional')} />
                             ) : (
-                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-6">
                                     {filteredInventory.length > 0 ? filteredInventory.map(item => (
                                         <ProductCard 
                                             key={item.id}
                                             item={item} 
-                                            onEdit={() => {}} 
+                                            onEdit={handleEditItem} 
                                             onToggleExperiment={handleToggleExperiment} 
                                             onEndExperiment={handleEndExperiment} 
                                             onWriteOff={handleOpenWriteOff} 
@@ -806,6 +827,31 @@ export default function InventoryPage() {
         onNewCategory={onNewCategory}
         locations={locations}
       />
+
+        {editingItem && editingItem.type === 'equipment' && (
+            <EditEquipmentDialog
+                open={isEditDialogOpen}
+                onOpenChange={setIsEditDialogOpen}
+                equipment={editingItem}
+                onEquipmentUpdated={handleUpdateItem}
+                equipmentCategories={productCategories}
+                onNewCategory={onNewCategory}
+                locations={locations}
+            />
+        )}
+        
+        {editingItem && (editingItem.type === 'professional' || editingItem.type === 'retail') && (
+            <EditProductDialog
+                open={isEditDialogOpen}
+                onOpenChange={setIsEditDialogOpen}
+                product={editingItem}
+                onProductUpdated={handleUpdateItem}
+                categories={productCategories}
+                onNewCategory={onNewCategory}
+                locations={locations}
+                onAddLocationClick={handleOpenAddLocation}
+            />
+        )}
 
       <LogUseDialog
         open={isLogUseOpen}
