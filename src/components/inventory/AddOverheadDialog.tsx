@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -19,7 +20,7 @@ import {
   SheetFooter,
 } from '@/components/ui/sheet';
 import { PlusCircle, Calendar as CalendarIcon, DollarSign } from 'lucide-react';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -71,7 +72,7 @@ const OverheadFormContent = ({ categories, onNewCategory, locations, costingMeth
     };
 
     return (
-        <div className="grid gap-4 py-4">
+        <div className="space-y-6">
             <Controller name="name" control={control} render={({ field }) => (
               <div className="space-y-2"><Label htmlFor="item-name">Item Name</Label><Input id="item-name" placeholder="e.g., Disinfectant Wipes" {...field} />{errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}</div>
             )}/>
@@ -100,7 +101,7 @@ const OverheadFormContent = ({ categories, onNewCategory, locations, costingMeth
              <Controller name="purchaseDate" control={control} render={({ field }) => (
                 <div className="space-y-2">
                     <Label htmlFor="purchase-date">Purchase Date</Label>
-                    <Popover><PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), 'w-full justify-start text-left font-normal', !field.value && 'text-muted-foreground')}><span className="flex items-center"><CalendarIcon className="mr-2 h-4 w-4" />{field.value ? format(field.value, 'PPP') : 'Pick a date'}</span></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent></Popover>
+                    <Popover><PopoverTrigger asChild><Button variant={'outline'} className={cn("w-full justify-start text-left font-normal", !field.value && "text-muted-foreground")}><span className="flex items-center"><CalendarIcon className="mr-2 h-4 w-4" />{field.value ? format(field.value, 'PPP') : 'Pick a date'}</span></Button></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent></Popover>
                     {errors.purchaseDate && <p className="text-sm text-destructive">{errors.purchaseDate.message}</p>}
                 </div>
               )}/>
@@ -188,24 +189,26 @@ export const AddOverheadDialog = ({
     <FormProvider {...methods}>
       <DialogContainer open={open} onOpenChange={handleOpenChange}>
         <DialogContentContainer
-          className={isMobile ? "h-[90dvh] flex flex-col p-0" : "sm:max-w-lg max-h-[90vh] flex flex-col p-0"}
+          className={
+            isMobile
+              ? "h-[90dvh] flex flex-col"
+              : "sm:max-w-lg"
+          }
           side="bottom"
         >
-            <form id={formId} onSubmit={handleSubmit(handleSave)} className="flex flex-col h-full">
-                <DialogHeader className={isMobile ? "p-4 border-b" : "p-6 pb-4"}>
-                    <DialogTitle>{title}</DialogTitle>
-                    <DialogDescription>{description}</DialogDescription>
-                </DialogHeader>
-                <ScrollArea className="flex-1 min-h-0">
-                    <div className={isMobile ? "px-4 py-6" : "px-6 py-6"}>
-                        {formContent}
-                    </div>
-                </ScrollArea>
-                <DialogFooter className={isMobile ? "p-4 border-t" : "p-6 pt-4 border-t"}>
-                    <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>Cancel</Button>
-                    <Button type="submit" form={formId}>Save Item</Button>
-                </DialogFooter>
-            </form>
+            <DialogHeader>
+                <DialogTitle>{title}</DialogTitle>
+                <DialogDescription>{description}</DialogDescription>
+            </DialogHeader>
+            <div className="flex-1 min-h-0 overflow-y-auto -mx-6 px-6">
+                <form id={formId} onSubmit={handleSubmit(handleSave)} className="py-4">
+                    {formContent}
+                </form>
+            </div>
+            <DialogFooter>
+                <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>Cancel</Button>
+                <Button type="submit" form={formId}>Save Item</Button>
+            </DialogFooter>
         </DialogContentContainer>
       </DialogContainer>
     </FormProvider>

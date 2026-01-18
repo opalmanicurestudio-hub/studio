@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -19,7 +20,7 @@ import {
   SheetFooter,
 } from '@/components/ui/sheet';
 import { ArrowLeft, PlusCircle, DollarSign, Calendar as CalendarIcon } from 'lucide-react';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -82,7 +83,7 @@ const EquipmentForm = ({
       <Controller name="category" control={control} render={({ field }) => ( <div className="space-y-2"> <Label htmlFor="category">Category</Label> {isAddingCategory ? ( <div className="flex gap-2"> <Input placeholder="New category..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} /> <Button onClick={handleAddNewCategory} type="button">Add</Button> </div> ) : ( <div className="flex gap-2"> <Select onValueChange={field.onChange} value={field.value}> <SelectTrigger> <SelectValue placeholder="Select category" /> </SelectTrigger> <SelectContent> {equipmentCategories.map(cat => ( <SelectItem key={cat} value={cat}>{cat}</SelectItem> ))} </SelectContent> </Select> <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"> <PlusCircle className="h-4 w-4" /> </Button> </div> )} {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>} </div> )}/>
       <Controller name="purchaseCost" control={control} render={({ field }) => ( <div className="space-y-2"> <Label htmlFor="purchase-cost">Total Purchase Cost</Label> <div className="relative"> <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /> <Input id="purchase-cost" type="number" placeholder="0.00" className="pl-8" {...field} /> </div> {errors.purchaseCost && <p className="text-sm text-destructive">{errors.purchaseCost.message}</p>} </div> )}/>
       <Controller name="lifespanYears" control={control} render={({ field }) => ( <div className="space-y-2"> <Label htmlFor="lifespan">Estimated Lifespan (Years)</Label> <Input id="lifespan" type="number" placeholder="e.g., 5" {...field} /> {errors.lifespanYears && <p className="text-sm text-destructive">{errors.lifespanYears.message}</p>} </div> )}/>
-      <Controller name="purchaseDate" control={control} render={({ field }) => ( <div className="space-y-2"> <Label htmlFor="purchase-date">Purchase Date</Label> <Popover> <PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), 'w-full justify-start text-left font-normal')}> <span className="flex items-center"><CalendarIcon className="mr-2 h-4 w-4" /> {field.value ? format(field.value, "PPP") : "Pick a date"}</span> </PopoverTrigger> <PopoverContent className="w-auto p-0"> <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /> </PopoverContent> </Popover> {errors.purchaseDate && <p className="text-sm text-destructive">{errors.purchaseDate.message}</p>} </div> )}/>
+      <Controller name="purchaseDate" control={control} render={({ field }) => ( <div className="space-y-2"> <Label htmlFor="purchase-date">Purchase Date</Label> <Popover> <PopoverTrigger className={cn( "w-full justify-start text-left font-normal" )} asChild> <Button variant={'outline'} className={cn(!field.value && "text-muted-foreground")}> <span className="flex items-center"><CalendarIcon className="mr-2 h-4 w-4" /> {field.value ? format(field.value, "PPP") : "Pick a date"}</span> </Button> </PopoverTrigger> <PopoverContent className="w-auto p-0"> <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /> </PopoverContent> </Popover> {errors.purchaseDate && <p className="text-sm text-destructive">{errors.purchaseDate.message}</p>} </div> )}/>
       <Controller name="primaryLocationId" control={control} render={({ field }) => ( <div className="space-y-2"> <Label htmlFor="location">Storage Location</Label> <Select onValueChange={field.onChange} value={field.value}> <SelectTrigger id="location"> <SelectValue placeholder="Select a location" /> </SelectTrigger> <SelectContent> {locations.map(loc => <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>)} </SelectContent> </Select> </div> )}/>
       <Controller name="imageUrl" control={control} render={({ field }) => ( <div className="space-y-2"> <Label>Equipment Image</Label> <ImageUpload onImageUploaded={field.onChange} /> </div> )}/>
     </div>
@@ -169,28 +170,26 @@ export const AddEquipmentDialog = ({
         <DialogContentContainer
           className={
             isMobile
-              ? "h-[90dvh] flex flex-col p-0"
-              : "sm:max-w-2xl max-h-[90vh] flex flex-col p-0"
+              ? "h-[90dvh] flex flex-col"
+              : "sm:max-w-2xl"
           }
           side="bottom"
         >
-          <form id={formId} onSubmit={handleSubmit(handleSave)} className="flex flex-col h-full">
-            <DialogHeader className="p-6 pb-4 shrink-0">
-                <DialogTitle>{title}</DialogTitle>
-                <DialogDescription>{description}</DialogDescription>
-            </DialogHeader>
-            
-            <ScrollArea className="flex-1 min-h-0">
-                <div className="px-6 py-6">
-                    {formContent}
-                </div>
-            </ScrollArea>
+          <DialogHeader>
+              <DialogTitle>{title}</DialogTitle>
+              <DialogDescription>{description}</DialogDescription>
+          </DialogHeader>
+          
+          <div className="flex-1 min-h-0 overflow-y-auto -mx-6 px-6">
+            <form id={formId} onSubmit={handleSubmit(handleSave)} className="py-4">
+                {formContent}
+            </form>
+          </div>
 
-            <DialogFooter className="p-6 pt-4 border-t shrink-0">
-                <Button variant="outline" type="button" onClick={() => handleOpenChange(false)}>Cancel</Button>
-                <Button type="submit" form={formId}>Save Equipment</Button>
-            </DialogFooter>
-          </form>
+          <DialogFooter className="pt-4 border-t">
+              <Button variant="outline" type="button" onClick={() => handleOpenChange(false)}>Cancel</Button>
+              <Button type="submit" form={formId}>Save Equipment</Button>
+          </DialogFooter>
         </DialogContentContainer>
       </DialogContainer>
     </FormProvider>
