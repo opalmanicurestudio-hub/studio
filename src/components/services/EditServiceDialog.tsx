@@ -38,6 +38,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent } from '../ui/sheet';
 import { ScrollArea } from '../ui/scroll-area';
 import { BrowseConsentFormsDialog } from './BrowseConsentFormsDialog';
+import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
 
 const serviceSchema = z.object({
     id: z.string(),

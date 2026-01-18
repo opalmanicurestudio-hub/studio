@@ -381,7 +381,7 @@ export const AddServiceDialog = ({
 
   const formBody = (
      <FormProvider {...methods}>
-      <form id={formId} className="flex flex-col flex-1 min-h-0">
+      <form id={formId} onSubmit={methods.handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
         <DialogHeader className={isMobile ? "p-4 border-b text-left" : "p-6 pb-4"}>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
