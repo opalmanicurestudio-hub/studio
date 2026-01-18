@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -126,7 +125,7 @@ export const AddEquipmentDialog = ({
 
   const handleSave = (data: EquipmentFormData) => {
     const newEquipment: InventoryItem = {
-      id: `equip-${Date.now()}`,
+      id: `equip-${''.concat(Date.now().toString())}`,
       name: data.name,
       type: 'equipment',
       category: data.category,
@@ -138,7 +137,7 @@ export const AddEquipmentDialog = ({
       primaryLocationId: data.primaryLocationId,
       imageUrl: data.imageUrl,
       batches: [{
-        id: `batch-${Date.now()}`,
+        id: `batch-${''.concat(Date.now().toString())}`,
         stock: 1,
         costPerUnit: data.purchaseCost,
         receivedDate: data.purchaseDate.toISOString(),
