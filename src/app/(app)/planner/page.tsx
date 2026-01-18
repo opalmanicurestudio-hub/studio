@@ -190,6 +190,8 @@ const DayTimeline = ({
         // This function positions a cluster of overlapping events.
         function positionCluster(cluster: any[]) {
             cluster.sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
+            
+            const columns: any[][] = [];
 
             for(const item of cluster) {
                 let placed = false;
@@ -1103,5 +1105,6 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
