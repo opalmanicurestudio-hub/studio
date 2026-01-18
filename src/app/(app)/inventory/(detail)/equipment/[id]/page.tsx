@@ -37,6 +37,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
 import { EndCostPerUseTestDialog } from '@/components/inventory/EndCostPerUseTestDialog';
+import { useToast } from '@/hooks/use-toast';
+import { EditEquipmentDialog } from '@/components/inventory/EditEquipmentDialog';
 
 const LogMaintenanceDialog = ({
   open,
@@ -138,11 +140,27 @@ const LogMaintenanceDialog = ({
 
 export default function EquipmentDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { inventory, setInventory } = useInventory();
+  const { inventory, setInventory, locations } = useInventory();
   const [isLogMaintenanceOpen, setIsLogMaintenanceOpen] = useState(false);
   const [isEndExperimentOpen, setIsEndExperimentOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const { toast } = useToast();
   
   const equipment = inventory.find((p) => p.id === id && p.type === 'equipment');
+  
+  const handleEquipmentUpdate = (updatedEquipment: InventoryItem) => {
+    setInventory(prev => prev.map(item => item.id === updatedEquipment.id ? updatedEquipment : item));
+    toast({
+        title: "Equipment Updated",
+        description: `${updatedEquipment.name} has been successfully updated.`,
+    });
+    setIsEditDialogOpen(false);
+  };
+  
+  const equipmentCategories = useMemo(() => {
+    const allCategories = inventory.filter(i => i.type === 'equipment').map(p => p.category).filter((c): c is string => !!c);
+    return [...new Set(allCategories)];
+  }, [inventory]);
 
   const { purchaseCost, monthlyDepreciation, accumulatedDepreciation, bookValue, serviceMonths } = useMemo(() => {
     if (!equipment) return { purchaseCost: 0, monthlyDepreciation: 0, accumulatedDepreciation: 0, bookValue: 0, serviceMonths: 0 };
@@ -247,32 +265,37 @@ export default function EquipmentDetailPage() {
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Equipment Details" />
       <main className="flex-1 p-4 md:p-8 space-y-6">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-            <div className="flex items-center gap-4 w-full">
-                <Button variant="outline" size="icon" className="h-7 w-7 flex-shrink-0" asChild>
-                    <Link href="/inventory">
-                        <ArrowLeft className="h-4 w-4" />
-                        <span className="sr-only">Back</span>
-                    </Link>
-                </Button>
-                <div className="w-16 h-16 bg-muted rounded-md flex-shrink-0">
-                    <Image src={equipment.imageUrl || `https://picsum.photos/seed/inv${equipment.id}/100/100`} alt={equipment.name} width={64} height={64} className='rounded-md' data-ai-hint="equipment photo"/>
-                </div>
-                <div className='flex-1'>
-                    <h1 className="text-xl md:text-2xl font-semibold tracking-tight">
-                        {equipment.name}
-                    </h1>
-                     <div className="text-xs sm:text-sm text-muted-foreground flex items-center gap-2">
-                        <Badge variant="secondary">{equipment.totalStock > 0 ? "Active" : "Retired"}</Badge>
-                         {equipment.isExperimentActive && (
-                            <Badge variant="secondary" className="flex items-center gap-1.5 bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300">
-                                <FlaskConical className="h-3 w-3" /> Lifespan Test Active
-                            </Badge>
-                        )}
-                    </div>
+        <div className="flex items-center justify-between">
+            <Button variant="outline" size="sm" asChild>
+                <Link href="/inventory">
+                    <ArrowLeft className="h-4 w-4 mr-2" />
+                    Back to Inventory
+                </Link>
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setIsEditDialogOpen(true)}>
+                <Edit className="h-4 w-4 mr-2"/>
+                Edit Equipment
+            </Button>
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-start gap-4">
+            <div className="w-24 h-24 bg-muted rounded-md flex-shrink-0">
+                <Image src={equipment.imageUrl || `https://picsum.photos/seed/inv${equipment.id}/100/100`} alt={equipment.name} width={96} height={96} className='rounded-md' data-ai-hint="equipment photo"/>
+            </div>
+            <div className='flex-1'>
+                <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
+                    {equipment.name}
+                </h1>
+                <div className="text-sm text-muted-foreground flex items-center gap-2 mt-1">
+                    <Badge variant="outline">{equipment.category}</Badge>
+                    <Badge variant="secondary">{equipment.totalStock > 0 ? "Active" : "Retired"}</Badge>
+                    {equipment.isExperimentActive && (
+                        <Badge variant="secondary" className="flex items-center gap-1.5 bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300">
+                            <FlaskConical className="h-3 w-3" /> Lifespan Test Active
+                        </Badge>
+                    )}
                 </div>
             </div>
-
         </div>
         
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -431,9 +454,18 @@ export default function EquipmentDetailPage() {
             onConfirm={handleEndExperimentConfirmed}
             usageHistory={usageHistory}
         />}
+        {equipment && (
+            <EditEquipmentDialog 
+                open={isEditDialogOpen}
+                onOpenChange={setIsEditDialogOpen}
+                equipment={equipment}
+                onEquipmentUpdated={handleEquipmentUpdate}
+                equipmentCategories={equipmentCategories}
+                onNewCategory={() => {}}
+                locations={locations}
+            />
+        )}
       </main>
     </div>
   );
 }
-
-    

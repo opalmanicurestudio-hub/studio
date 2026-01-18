@@ -27,9 +27,11 @@ import {
 } from '@/components/ui/table';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useInventory } from '@/context/InventoryContext';
 import { StockCorrection } from '@/lib/data';
+import { EditProductDialog } from '@/components/inventory/EditProductDialog';
+import { useToast } from '@/hooks/use-toast';
 
 const CorrectionIcon = ({ reason }: { reason: string }) => {
     if (reason.startsWith('Appointment')) return <TrendingDown className="h-4 w-4 text-red-500" />;
@@ -41,9 +43,26 @@ const CorrectionIcon = ({ reason }: { reason: string }) => {
 
 export default function ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { inventory, stockCorrections } = useInventory();
+  const { inventory, stockCorrections, setInventory, locations } = useInventory();
+  const { toast } = useToast();
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   
   const product = inventory.find((p) => p.id === id);
+
+  const handleProductUpdate = (updatedProduct: InventoryItem) => {
+    setInventory(prev => prev.map(p => p.id === updatedProduct.id ? updatedProduct : p));
+    toast({
+        title: "Product Updated",
+        description: `${updatedProduct.name} has been successfully updated.`,
+    });
+    setIsEditDialogOpen(false);
+  };
+  
+  const productCategories = useMemo(() => {
+    const allCategories = inventory.map(p => p.category).filter((c): c is string => !!c);
+    return [...new Set(allCategories)];
+  }, [inventory]);
+
 
   if (!product) {
     return (
@@ -157,24 +176,30 @@ export default function ProductDetailPage() {
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Product Details" />
       <main className="flex-1 p-4 md:p-8 space-y-6">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-            <div className="flex items-center gap-4 w-full">
-                <Button variant="outline" size="icon" className="h-7 w-7 flex-shrink-0" asChild>
-                    <Link href="/inventory">
-                        <ArrowLeft className="h-4 w-4" />
-                        <span className="sr-only">Back</span>
-                    </Link>
-                </Button>
-                <div className="w-16 h-16 bg-muted rounded-md flex-shrink-0">
-                    <Image src={product.imageUrl || `https://picsum.photos/seed/inv${product.id}/100/100`} alt={product.name} width={64} height={64} className='rounded-md' data-ai-hint="product photo"/>
-                </div>
-                <div className='flex-1'>
-                    <h1 className="text-xl md:text-2xl font-semibold tracking-tight">
-                        {product.name}
-                    </h1>
-                     <div className="text-xs sm:text-sm text-muted-foreground flex items-center gap-2 mt-1">
-                        <Badge variant="outline">{product.category}</Badge>
-                    </div>
+        <div className="flex items-center justify-between">
+            <Button variant="outline" size="sm" asChild>
+                <Link href="/inventory">
+                    <ArrowLeft className="h-4 w-4 mr-2" />
+                    Back to Inventory
+                </Link>
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setIsEditDialogOpen(true)}>
+                <Edit className="h-4 w-4 mr-2"/>
+                Edit Product
+            </Button>
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-start gap-4">
+            <div className="w-24 h-24 bg-muted rounded-md flex-shrink-0">
+                <Image src={product.imageUrl || `https://picsum.photos/seed/inv${product.id}/100/100`} alt={product.name} width={96} height={96} className='rounded-md' data-ai-hint="product photo"/>
+            </div>
+            <div className='flex-1'>
+                <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
+                    {product.name}
+                </h1>
+                <div className="text-sm text-muted-foreground flex items-center gap-2 mt-1">
+                    <Badge variant="outline">{product.category}</Badge>
+                    <Badge variant="secondary">{product.type}</Badge>
                 </div>
             </div>
         </div>
@@ -433,12 +458,21 @@ export default function ProductDetailPage() {
                 </Tabs>
              </Card>
         </div>
-
       </main>
+      {product && (
+        <EditProductDialog
+            open={isEditDialogOpen}
+            onOpenChange={setIsEditDialogOpen}
+            product={product}
+            onProductUpdated={handleProductUpdate}
+            categories={productCategories}
+            onNewCategory={() => {}}
+            locations={locations}
+            onAddLocationClick={() => {}}
+        />
+      )}
     </div>
   );
 
     
 }
-
-    
