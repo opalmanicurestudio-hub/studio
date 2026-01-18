@@ -84,7 +84,6 @@ const ClientCard = ({ client, isSelected, onSelect }: { client: Client, isSelect
                             </DropdownMenuItem>
                             <DropdownMenuItem>Book Appointment</DropdownMenuItem>
                             <DropdownMenuItem>Generate Report</DropdownMenuItem>
-                            <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
                 </div>
@@ -500,4 +499,5 @@ export default function ClientsPage() {
     
 
     
+
 
