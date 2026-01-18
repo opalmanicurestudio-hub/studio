@@ -23,13 +23,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { PlusCircle, Package, Hammer, Trash2, QrCode, Check, AlertTriangle } from 'lucide-react';
+import { PlusCircle, Package, Hammer, Trash2, QrCode, Check, AlertTriangle, ChevronDown } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Slider } from '@/components/ui/slider';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { inventory, services as allServices, type Service, type InventoryItem } from '@/lib/data';
+import { inventory, services as allServices, type Service, type InventoryItem, type ConsentForm, consentForms } from '@/lib/data';
 import { BrowseProductsDialog } from './BrowseProductsDialog';
 import { SelectEquipmentDialog } from './SelectEquipmentDialog';
 import { SelectAddOnsDialog } from './SelectAddOnsDialog';
@@ -38,6 +38,9 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { Checkbox } from '../ui/checkbox';
+import { ScrollArea } from '../ui/scroll-area';
 
 
 const serviceSchema = z.object({
@@ -76,7 +79,15 @@ const Step1_Basics = ({
     const { register, control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
-    const category = watch('category');
+    const requiredFormIds = watch('requiredFormIds') || [];
+
+    const handleFormIdToggle = (formId: string) => {
+        const currentIds = watch('requiredFormIds') || [];
+        const newIds = currentIds.includes(formId)
+            ? currentIds.filter(id => id !== formId)
+            : [...currentIds, formId];
+        setValue('requiredFormIds', newIds, { shouldDirty: true });
+    };
 
     const handleAddNewCategory = () => {
         if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
@@ -194,11 +205,29 @@ const Step1_Basics = ({
     </div>
      <div className="space-y-2">
       <Label>Required Consent Forms</Label>
-      <Card>
-        <CardContent className="p-4 text-center text-sm text-muted-foreground">
-          Consent form selection will go here.
-        </CardContent>
-      </Card>
+        <Popover>
+            <PopoverTrigger asChild>
+                <Button variant="outline" className="w-full justify-between">
+                    {requiredFormIds.length > 0 ? `${requiredFormIds.length} form(s) selected` : "Select forms..."}
+                    <ChevronDown className="h-4 w-4 opacity-50" />
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
+                <ScrollArea className="max-h-60">
+                    <div className="p-2 space-y-1">
+                    {consentForms.map(form => (
+                        <div key={form.id} className="flex items-center space-x-2 p-2 rounded-md hover:bg-muted cursor-pointer" onClick={() => handleFormIdToggle(form.id)}>
+                            <Checkbox
+                                id={`form-${form.id}`}
+                                checked={requiredFormIds.includes(form.id)}
+                            />
+                            <Label htmlFor={`form-${form.id}`} className="font-normal cursor-pointer flex-1">{form.title}</Label>
+                        </div>
+                    ))}
+                    </div>
+                </ScrollArea>
+            </PopoverContent>
+        </Popover>
     </div>
   </div>
     );
@@ -678,7 +707,7 @@ export const AddServiceDialog = ({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-xl">
         <FormProvider {...methods}>
-        <form onSubmit={methods.handleSubmit(onSubmit)}>
+        <form>
             <DialogHeader>
                 <DialogTitle>Add New {isAddon ? 'Add-on' : 'Service'}</DialogTitle>
                 <DialogDescription>
@@ -701,9 +730,9 @@ export const AddServiceDialog = ({
                 <div className="flex gap-2">
                     <Button variant="outline" onClick={() => handleOpenChange(false)} type="button">Cancel</Button>
                     {step < totalSteps ? (
-                        <Button onClick={handleNext} type="button">Next</Button>
+                        <Button type="button" onClick={handleNext}>Next</Button>
                     ) : (
-                        <Button type="submit">Save {isAddon ? 'Add-on' : 'Service'}</Button>
+                        <Button type="button" onClick={methods.handleSubmit(onSubmit)}>Save {isAddon ? 'Add-on' : 'Service'}</Button>
                     )}
                 </div>
             </div>

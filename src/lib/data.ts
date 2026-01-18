@@ -254,6 +254,24 @@ export type Package = {
   isPrivate: boolean;
 };
 
+export type FormField = {
+  id: string;
+  type: 'heading' | 'paragraph' | 'short-text' | 'long-text' | 'multiple-choice' | 'checkboxes' | 'image-upload' | 'signature';
+  label: string;
+  options?: string[];
+};
+
+export type ConsentForm = {
+  id: string;
+  title: string;
+  category: 'Intake' | 'Waiver' | 'Release' | 'General';
+  clientsSigned: number;
+  totalClients: number;
+  isPasswordProtected: boolean;
+  notifyOnEdit: boolean;
+  fields?: FormField[];
+};
+
 
 export type Bill = BillDefinition;
 export const bills: Bill[] = billDefinitions;
@@ -670,6 +688,53 @@ export const packages: Package[] = [
       isPrivate: false,
     }
 ];
+
+export const consentForms: ConsentForm[] = [
+  {
+    id: 'form-1',
+    title: 'New Client Intake Form',
+    category: 'Intake',
+    clientsSigned: 18,
+    totalClients: 25,
+    isPasswordProtected: false,
+    notifyOnEdit: true,
+    fields: [
+        { id: 'f1', type: 'short-text', label: 'Full Name' },
+        { id: 'f2', type: 'short-text', label: 'Email Address' },
+        { id: 'f3', type: 'paragraph', label: 'Please list any known allergies or medical conditions.' },
+        { id: 'f4', type: 'long-text', label: '' },
+        { id: 'f5', type: 'signature', label: 'Client Signature' },
+    ]
+  },
+  {
+    id: 'form-2',
+    title: 'Chemical Service Waiver',
+    category: 'Waiver',
+    clientsSigned: 12,
+    totalClients: 15,
+    isPasswordProtected: true,
+    notifyOnEdit: true,
+  },
+  {
+    id: 'form-3',
+    title: 'Photo & Video Release',
+    category: 'Release',
+    clientsSigned: 22,
+    totalClients: 25,
+    isPasswordProtected: false,
+    notifyOnEdit: false,
+  },
+  {
+    id: 'form-4',
+    title: 'General Liability Waiver',
+    category: 'Waiver',
+    clientsSigned: 25,
+    totalClients: 25,
+    isPasswordProtected: false,
+    notifyOnEdit: false,
+  },
+];
+
 
 export const initialLocationTypes: LocationType[] = [
   { id: 'lt-1', name: 'General Storage', icon: 'Box' },

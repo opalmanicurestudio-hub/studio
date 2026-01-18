@@ -31,22 +31,11 @@ import {
 } from '@/components/ui/select';
 import { PlusCircle } from 'lucide-react';
 import { ScrollArea } from '../ui/scroll-area';
-import { FieldEditor, type FormField } from './FieldEditor';
+import { FieldEditor } from './FieldEditor';
 import { Switch } from '../ui/switch';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { nanoid } from 'nanoid';
-
-type ConsentForm = {
-  id: string;
-  title: string;
-  category: 'Intake' | 'Waiver' | 'Release' | 'General';
-  clientsSigned: number;
-  totalClients: number;
-  isPasswordProtected: boolean;
-  notifyOnEdit: boolean;
-  fields?: FormField[];
-};
-
+import { ConsentForm, FormField } from '@/lib/data';
 
 interface AddConsentFormDialogProps {
   open: boolean;

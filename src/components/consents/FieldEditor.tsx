@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState } from 'react';
@@ -17,13 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ArrowUp, ArrowDown, Trash2, Heading1, CaseSensitive, Pilcrow, CheckSquare, ListOrdered, Image as ImageIcon, Signature, PlusCircle } from 'lucide-react';
-
-export type FormField = {
-  id: string;
-  type: 'heading' | 'paragraph' | 'short-text' | 'long-text' | 'multiple-choice' | 'checkboxes' | 'image-upload' | 'signature';
-  label: string;
-  options?: string[];
-};
+import { FormField } from '@/lib/data';
 
 interface FieldEditorProps {
   field: FormField;

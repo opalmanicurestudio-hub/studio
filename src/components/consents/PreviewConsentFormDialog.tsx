@@ -21,19 +21,9 @@ import {
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '../ui/scroll-area';
-import { FormField } from './FieldEditor';
 import { FormFieldRenderer } from './FormFieldRenderer';
+import { type ConsentForm } from '@/lib/data';
 
-type ConsentForm = {
-  id: string;
-  title: string;
-  category: 'Intake' | 'Waiver' | 'Release' | 'General';
-  clientsSigned: number;
-  totalClients: number;
-  isPasswordProtected: boolean;
-  notifyOnEdit: boolean;
-  fields?: FormField[];
-};
 
 interface PreviewConsentFormDialogProps {
   open: boolean;

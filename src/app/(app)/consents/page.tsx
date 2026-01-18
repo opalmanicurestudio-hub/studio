@@ -34,66 +34,9 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import { AddConsentFormDialog } from '@/components/consents/AddConsentFormDialog';
-import { FormField } from '@/components/consents/FieldEditor';
 import { PreviewConsentFormDialog } from '@/components/consents/PreviewConsentFormDialog';
 import { useToast } from '@/hooks/use-toast';
-
-type ConsentForm = {
-  id: string;
-  title: string;
-  category: 'Intake' | 'Waiver' | 'Release' | 'General';
-  clientsSigned: number;
-  totalClients: number;
-  isPasswordProtected: boolean;
-  notifyOnEdit: boolean;
-  fields?: FormField[];
-};
-
-const mockForms: ConsentForm[] = [
-  {
-    id: 'form-1',
-    title: 'New Client Intake Form',
-    category: 'Intake',
-    clientsSigned: 18,
-    totalClients: 25,
-    isPasswordProtected: false,
-    notifyOnEdit: true,
-    fields: [
-        { id: 'f1', type: 'short-text', label: 'Full Name' },
-        { id: 'f2', type: 'short-text', label: 'Email Address' },
-        { id: 'f3', type: 'paragraph', label: 'Please list any known allergies or medical conditions.' },
-        { id: 'f4', type: 'long-text', label: '' },
-        { id: 'f5', type: 'signature', label: 'Client Signature' },
-    ]
-  },
-  {
-    id: 'form-2',
-    title: 'Chemical Service Waiver',
-    category: 'Waiver',
-    clientsSigned: 12,
-    totalClients: 15,
-    isPasswordProtected: true,
-    notifyOnEdit: true,
-  },
-  {
-    id: 'form-3',
-    title: 'Photo & Video Release',
-    category: 'Release',
-    clientsSigned: 22,
-    totalClients: 25,
-    isPasswordProtected: false,
-    notifyOnEdit: false,
-  },
-  {
-    id: 'form-4',
-    title: 'General Liability Waiver',
-    category: 'Waiver',
-    clientsSigned: 25,
-    totalClients: 25,
-    isPasswordProtected: false,
-    notifyOnEdit: false,
-  },
-];
+import { consentForms, type ConsentForm } from '@/lib/data';
 
 const ConsentCard = ({ form, onEdit, onPreview, onShare }: { form: ConsentForm, onEdit: (form: ConsentForm) => void; onPreview: (form: ConsentForm) => void; onShare: (form: ConsentForm) => void; }) => {
 
@@ -145,7 +88,7 @@ const AddConsentCard = ({ onClick }: { onClick: () => void }) => (
 )
 
 export default function ConsentsPage() {
-  const [forms, setForms] = useState<ConsentForm[]>(mockForms);
+  const [forms, setForms] = useState<ConsentForm[]>(consentForms);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('all');
   const [isFormBuilderOpen, setIsFormBuilderOpen] = useState(false);
