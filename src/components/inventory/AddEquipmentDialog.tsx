@@ -113,7 +113,7 @@ export const AddEquipmentDialog = ({
     defaultValues: {
       name: '',
       category: '',
-      purchaseCost: undefined,
+      purchaseCost: 0,
       lifespanYears: 5,
       purchaseDate: new Date(),
       supplier: '',
