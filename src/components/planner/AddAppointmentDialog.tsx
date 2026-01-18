@@ -65,16 +65,11 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
         }
     }
     
-    const TriggerButton = (
-        <button
-            className={cn(buttonVariants({ variant: 'outline' }), "w-full justify-start text-left font-normal", !date && "text-muted-foreground")}
-            onClick={() => setIsOpen(true)}
-        >
-            <span className="flex items-center">
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                {date ? format(date, 'PPP') : "Pick a date"}
-            </span>
-        </button>
+    const TriggerContent = (
+        <span className="flex items-center">
+            <CalendarIcon className="mr-2 h-4 w-4" />
+            {date ? format(date, 'PPP') : "Pick a date"}
+        </span>
     );
     
     const CalendarComponent = (
@@ -95,7 +90,12 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
     if (isMobile) {
         return (
             <>
-                {TriggerButton}
+                <button
+                    className={cn(buttonVariants({ variant: 'outline' }), "w-full justify-start text-left font-normal", !date && "text-muted-foreground")}
+                    onClick={() => setIsOpen(true)}
+                >
+                    {TriggerContent}
+                </button>
                 <Sheet open={isOpen} onOpenChange={setIsOpen}>
                     <SheetContent side="bottom" className="h-auto">
                          <SheetHeader className="text-left">
@@ -112,8 +112,8 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
 
     return (
         <Popover open={isOpen} onOpenChange={setIsOpen}>
-            <PopoverTrigger asChild>
-                {TriggerButton}
+            <PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), "w-full justify-start text-left font-normal", !date && "text-muted-foreground")}>
+                {TriggerContent}
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0">
                 {CalendarComponent}
