@@ -688,10 +688,8 @@ export const EditServiceDialog = ({
             <div>{step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}</div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => handleOpenChange(false)} type="button">Cancel</Button>
-              {step < totalSteps ? (
+              {step < totalSteps && (
                 <Button type="button" onClick={handleNext}>Next</Button>
-              ) : (
-                <Button type="button" onClick={handleSave}>Save Changes</Button>
               )}
             </div>
           </div>

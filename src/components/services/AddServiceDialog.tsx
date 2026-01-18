@@ -776,10 +776,8 @@ export const AddServiceDialog = ({
             <div>{step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}</div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
-              {step < totalSteps ? (
+              {step < totalSteps && (
                 <Button onClick={handleNext} type="button">Next</Button>
-              ) : (
-                <Button onClick={handleSave} type="button">Save {isAddon ? 'Add-on' : 'Service'}</Button>
               )}
             </div>
           </div>
