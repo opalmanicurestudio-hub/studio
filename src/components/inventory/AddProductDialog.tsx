@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -102,6 +101,19 @@ const Step1_BasicDetails = ({
     
     return (
   <div className="grid gap-6 py-4">
+    <div className="flex items-center justify-between p-4 border rounded-lg">
+      <div className='space-y-1'>
+        <Label htmlFor="is-addon">Is this an Add-on Service?</Label>
+        <p className='text-sm text-muted-foreground'>Add-ons can be appended to primary services.</p>
+      </div>
+      <Controller
+        name="isAddon"
+        control={control}
+        render={({ field }) => (
+          <Switch id="is-addon" checked={field.value} onCheckedChange={field.onChange} />
+        )}
+      />
+    </div>
     <div className="space-y-2">
       <Label htmlFor="product-name">Product Name</Label>
       <Input id="product-name" placeholder="e.g., Hydrating Shampoo" {...register('name')} />
@@ -159,10 +171,13 @@ const Step2_CostingPricing = () => {
     ]);
 
     const landedCostPerItem = useMemo(() => {
-        const totalCost = (totalPurchaseCost || 0) + (shippingCost || 0) + (taxCost || 0) - (discounts || 0);
-        const units = numUnits || 0;
+        const safeParse = (val: any) => parseFloat(val) || 0;
+
+        const total = safeParse(totalPurchaseCost) + safeParse(shippingCost) + safeParse(taxCost) - safeParse(discounts);
+        const units = safeParse(numUnits);
+
         if (units === 0) return 0;
-        return totalCost / units;
+        return total / units;
     }, [totalPurchaseCost, numUnits, shippingCost, taxCost, discounts]);
 
     const profitMargin = useMemo(() => {

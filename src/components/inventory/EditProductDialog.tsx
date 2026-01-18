@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -41,6 +40,9 @@ import { Check, PlusCircle, QrCode, AlertTriangle } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { inventory, services as allServices, type Service } from '@/lib/data';
 import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
+import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
+import { SelectEquipmentDialog } from '../services/SelectEquipmentDialog';
+import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 
 const productSchema = z.object({
   id: z.string(),
@@ -137,10 +139,13 @@ const Step2_CostingPricing = () => {
     ]);
 
     const landedCostPerItem = useMemo(() => {
-        const totalCost = (totalPurchaseCost || 0) + (shippingCost || 0) + (taxCost || 0) - (discounts || 0);
-        const units = numUnits || 0;
+        const safeParse = (val: any) => parseFloat(val) || 0;
+
+        const total = safeParse(totalPurchaseCost) + safeParse(shippingCost) + safeParse(taxCost) - safeParse(discounts);
+        const units = safeParse(numUnits);
+
         if (units === 0) return 0;
-        return totalCost / units;
+        return total / units;
     }, [totalPurchaseCost, numUnits, shippingCost, taxCost, discounts]);
 
     const profitMargin = useMemo(() => {
