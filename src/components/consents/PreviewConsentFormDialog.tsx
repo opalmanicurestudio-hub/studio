@@ -42,7 +42,6 @@ interface PreviewConsentFormDialogProps {
 }
 
 const PreviewContent = ({ form }: { form: ConsentForm }) => (
-  <ScrollArea className="h-[70vh] pr-4">
     <div className="space-y-6">
       {form.fields && form.fields.length > 0 ? (
         form.fields.map(field => <FormFieldRenderer key={field.id} field={field} />)
@@ -50,7 +49,6 @@ const PreviewContent = ({ form }: { form: ConsentForm }) => (
         <p className="text-center text-muted-foreground p-8">This form has no fields.</p>
       )}
     </div>
-  </ScrollArea>
 );
 
 export const PreviewConsentFormDialog: React.FC<PreviewConsentFormDialogProps> = ({
@@ -64,15 +62,17 @@ export const PreviewConsentFormDialog: React.FC<PreviewConsentFormDialogProps> =
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95vh] flex flex-col">
-          <SheetHeader className="text-left">
+        <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
+          <SheetHeader className="p-6 pb-4 text-left">
             <SheetTitle>{title}</SheetTitle>
             <SheetDescription>This is what your client will see.</SheetDescription>
           </SheetHeader>
-          <div className="py-4 flex-1 overflow-y-auto">
-            <PreviewContent form={form} />
-          </div>
-          <SheetFooter>
+          <ScrollArea className="flex-1">
+             <div className="px-6 pb-6">
+                <PreviewContent form={form} />
+             </div>
+          </ScrollArea>
+          <SheetFooter className="p-4 border-t bg-background">
             <Button onClick={() => onOpenChange(false)} className="w-full">Close</Button>
           </SheetFooter>
         </SheetContent>
@@ -82,15 +82,17 @@ export const PreviewConsentFormDialog: React.FC<PreviewConsentFormDialogProps> =
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
+      <DialogContent className="max-w-2xl flex flex-col p-0">
+        <DialogHeader className="p-6 pb-4">
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>This is what your client will see.</DialogDescription>
         </DialogHeader>
-        <div className="py-4">
-          <PreviewContent form={form} />
-        </div>
-        <DialogFooter>
+        <ScrollArea className="flex-1 max-h-[70vh]">
+            <div className="px-6 pb-6">
+                <PreviewContent form={form} />
+            </div>
+        </ScrollArea>
+        <DialogFooter className="p-6 pt-4 border-t">
           <Button onClick={() => onOpenChange(false)}>Close</Button>
         </DialogFooter>
       </DialogContent>
