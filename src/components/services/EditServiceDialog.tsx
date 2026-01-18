@@ -237,21 +237,22 @@ const EditServiceForm = ({
     );
 };
 
-
-export const EditServiceDialog = ({ 
-    open, 
-    onOpenChange, 
-    service,
-    onServiceUpdated,
-    categories,
-    onNewCategory,
-}: { 
+interface EditServiceDialogProps { 
   open: boolean;
   onOpenChange: (open: boolean) => void;
   service: Service;
   onServiceUpdated: (service: Service) => void;
   categories: string[];
   onNewCategory: (category: string) => void;
+}
+
+export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({ 
+    open, 
+    onOpenChange, 
+    service,
+    onServiceUpdated,
+    categories,
+    onNewCategory,
 }) => {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
