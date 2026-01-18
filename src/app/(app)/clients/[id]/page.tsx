@@ -317,8 +317,8 @@ export default function ClientDetailPage() {
             <ClientIntelBanner client={client} />
             
             <Tabs defaultValue="overview">
-                <ScrollArea className="w-full whitespace-nowrap border-b bg-background">
-                  <TabsList className="inline-flex h-auto p-0 bg-transparent gap-1 mx-0">
+                <div className="w-full border-b bg-background">
+                  <TabsList className="flex flex-wrap h-auto p-0 bg-transparent gap-1 mx-0">
                     <TabsTrigger value="overview">Overview</TabsTrigger>
                     <TabsTrigger value="history">History</TabsTrigger>
                     <TabsTrigger value="referrals">Referrals</TabsTrigger>
@@ -326,8 +326,7 @@ export default function ClientDetailPage() {
                     <TabsTrigger value="incidents">Incidents</TabsTrigger>
                     <TabsTrigger value="consents">Consents</TabsTrigger>
                   </TabsList>
-                  <ScrollBar orientation="horizontal" />
-                </ScrollArea>
+                </div>
                 
                 <div className="space-y-6 pt-6">
                   <TabsContent value="overview" className="m-0 space-y-6">
@@ -516,5 +515,3 @@ export default function ClientDetailPage() {
     </div>
   );
 }
-
-    
