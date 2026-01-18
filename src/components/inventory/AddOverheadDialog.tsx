@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -183,51 +181,33 @@ export const AddOverheadDialog = ({
 
   const formContent = <OverheadFormContent categories={categories} onNewCategory={onNewCategory} locations={locations} costingMethod={costingMethod} />;
 
-  if (isMobile) {
-    return (
-      <FormProvider {...methods}>
-        <Sheet open={open} onOpenChange={handleOpenChange}>
-          <SheetContent side="bottom" className="max-h-[90dvh] flex flex-col p-0">
-            <SheetHeader className="p-4 border-b text-left">
-              <SheetTitle>{title}</SheetTitle>
-              <SheetDescription>{description}</SheetDescription>
-            </SheetHeader>
-            <ScrollArea className="flex-1 min-h-0">
-                <form id={formId} onSubmit={handleSubmit(handleSave)} className="px-4 py-6">
-                    {formContent}
-                </form>
-            </ScrollArea>
-            <SheetFooter className="p-4 border-t">
-              <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>Cancel</Button>
-              <Button type="submit" form={formId}>Save Item</Button>
-            </SheetFooter>
-          </SheetContent>
-        </Sheet>
-      </FormProvider>
-    );
-  }
+  const DialogContainer = isMobile ? Sheet : Dialog;
+  const DialogContentContainer = isMobile ? SheetContent : DialogContent;
 
   return (
     <FormProvider {...methods}>
-      <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col p-0">
+      <DialogContainer open={open} onOpenChange={handleOpenChange}>
+        <DialogContentContainer
+          className={isMobile ? "h-[90dvh] flex flex-col p-0" : "sm:max-w-lg max-h-[90vh] flex flex-col p-0"}
+          side="bottom"
+        >
             <form id={formId} onSubmit={handleSubmit(handleSave)} className="flex flex-col h-full">
-                <DialogHeader className="p-6 pb-4">
+                <DialogHeader className={isMobile ? "p-4 border-b" : "p-6 pb-4"}>
                     <DialogTitle>{title}</DialogTitle>
                     <DialogDescription>{description}</DialogDescription>
                 </DialogHeader>
                 <ScrollArea className="flex-1 min-h-0">
-                    <div className="px-6 pb-6">
+                    <div className={isMobile ? "px-4 py-6" : "px-6 py-6"}>
                         {formContent}
                     </div>
                 </ScrollArea>
-                <DialogFooter className="p-4 border-t">
+                <DialogFooter className={isMobile ? "p-4 border-t" : "p-6 pt-4 border-t"}>
                     <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>Cancel</Button>
                     <Button type="submit" form={formId}>Save Item</Button>
                 </DialogFooter>
             </form>
-        </DialogContent>
-      </Dialog>
+        </DialogContentContainer>
+      </DialogContainer>
     </FormProvider>
   );
 };
