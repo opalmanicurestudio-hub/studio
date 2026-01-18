@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -50,26 +49,26 @@ const productSchema = z.object({
   imageUrl: z.string().optional(),
   internalNotes: z.string().optional(),
   
-  totalPurchaseCost: z.number().optional(),
-  numUnits: z.number().optional(),
-  shippingCost: z.number().optional(),
-  taxCost: z.number().optional(),
-  discounts: z.number().optional(),
+  totalPurchaseCost: z.coerce.number().optional(),
+  numUnits: z.coerce.number().optional(),
+  shippingCost: z.coerce.number().optional(),
+  taxCost: z.coerce.number().optional(),
+  discounts: z.coerce.number().optional(),
   
   costingMethod: z.enum(['size', 'uses']).optional(),
-  containerSize: z.number().optional(),
+  containerSize: z.coerce.number().optional(),
   containerUnit: z.string().optional(),
-  usesPerContainer: z.number().optional(),
-  restockingMarkup: z.number().optional(),
+  usesPerContainer: z.coerce.number().optional(),
+  restockingMarkup: z.coerce.number().optional(),
 
-  msrp: z.number().optional(),
-  markdownPrice: z.number().optional(),
+  msrp: z.coerce.number().optional(),
+  markdownPrice: z.coerce.number().optional(),
 
   supplier: z.string().optional(),
   sku: z.string().optional(),
   purchaseLink: z.string().url().optional().or(z.literal('')),
-  reorderPoint: z.number().optional(),
-  initialStock: z.number().optional(),
+  reorderPoint: z.coerce.number().optional(),
+  initialStock: z.coerce.number().min(1, 'Initial stock is required').optional(),
   expirationDate: z.date().optional(),
   primaryLocationId: z.string().optional(),
 });
@@ -192,15 +191,15 @@ const Step2_CostingPricing = () => {
 };
 
 const Step3_InventorySupplier = ({ onAddLocationClick, locations }: { onAddLocationClick: () => void, locations: Location[] }) => {
-     const { control, register } = useFormContext<ProductFormData>();
+     const { control, register, formState: { errors } } = useFormContext<ProductFormData>();
     return (
         <div className="space-y-6">
             <Card>
                 <CardHeader><CardTitle>Supplier Info</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
-                    <Controller name="supplier" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="vendor">Vendor</Label><Input id="vendor" placeholder="e.g., SalonCentric" {...field} /></div>)} />
-                    <Controller name="sku" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="sku">SKU / Barcode</Label><Input id="sku" placeholder="Product identifier" {...field} /></div>)} />
-                    <Controller name="purchaseLink" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="purchase-link">Purchase Link</Label><Input id="purchase-link" type="url" placeholder="https://..." {...field} /></div>)} />
+                    <Controller name="supplier" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="vendor">Vendor</Label><Input id="vendor" placeholder="e.g., SalonCentric" {...field} value={field.value ?? ''} /></div>)} />
+                    <Controller name="sku" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="sku">SKU / Barcode</Label><Input id="sku" placeholder="Product identifier" {...field} value={field.value ?? ''} /></div>)} />
+                    <Controller name="purchaseLink" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="purchase-link">Purchase Link</Label><Input id="purchase-link" type="url" placeholder="https://..." {...field} value={field.value ?? ''} /></div>)} />
                 </CardContent>
             </Card>
             <Card>
@@ -208,7 +207,7 @@ const Step3_InventorySupplier = ({ onAddLocationClick, locations }: { onAddLocat
                  <CardContent className="space-y-4">
                     <Controller name="reorderPoint" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="reorder-point">Reorder Point</Label><Input id="reorder-point" type="number" placeholder="e.g., 5" {...field} value={field.value ?? ''} /></div>)} />
                      <div className="grid grid-cols-2 gap-4">
-                        <Controller name="initialStock" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="initial-stock">Initial Stock</Label><Input id="initial-stock" type="number" placeholder="Quantity" {...field} value={field.value ?? ''} /></div>)} />
+                        <Controller name="initialStock" control={control} render={({ field }) => (<div className="space-y-2"><Label htmlFor="initial-stock">Initial Stock</Label><Input id="initial-stock" type="number" placeholder="Quantity" {...field} value={field.value ?? ''} />{errors.initialStock && <p className="text-sm text-destructive">{errors.initialStock.message}</p>}</div>)} />
                         <Controller name="expirationDate" control={control} render={({ field }) => (<div className="space-y-2"><Label>Expiration</Label><p className="text-xs text-muted-foreground">Batch tracking coming soon</p></div>)} />
                     </div>
                 </CardContent>
@@ -296,6 +295,9 @@ export const AddProductDialog = ({
     if (step === 1) {
       fieldsToValidate.push('name', 'category');
     }
+     if (step === 3) {
+      fieldsToValidate.push('initialStock');
+    }
     
     const isValid = fieldsToValidate.length > 0 ? await methods.trigger(fieldsToValidate) : true;
     
@@ -319,72 +321,50 @@ export const AddProductDialog = ({
   const title = `Add New ${initialType === 'retail' ? 'Retail Product' : 'Professional Product'}`;
   const description = "Use this wizard to add a new item to your inventory.";
 
+  const formBody = (
+    <FormProvider {...methods}>
+      <form id={formId} onSubmit={methods.handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+          <DialogHeader className={isMobile ? "p-4 border-b text-left" : "p-6 pb-0"}>
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription>{description}</DialogDescription>
+          </DialogHeader>
+          <div className="p-4 md:p-6"><Progress value={(step / totalSteps) * 100} /></div>
+          <ScrollArea className="flex-1">
+            <div className={isMobile ? "px-4" : "px-6"}>
+              {getStepContent()}
+            </div>
+          </ScrollArea>
+          <DialogFooter className={isMobile ? "p-4 border-t" : "p-6 pt-6"}>
+            <div className='flex justify-between w-full'>
+              <div>{step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}</div>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
+                {step < totalSteps ? (
+                  <Button onClick={handleNext} type="button">Next</Button>
+                ) : (
+                  <Button type="submit">Save Product</Button>
+                )}
+              </div>
+            </div>
+          </DialogFooter>
+      </form>
+    </FormProvider>
+  );
+
   if (isMobile) {
     return (
-      <FormProvider {...methods}>
-        <Sheet open={open} onOpenChange={onOpenChange}>
-          <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
-            <SheetHeader className="p-4 border-b text-left">
-              <SheetTitle>{title}</SheetTitle>
-              <SheetDescription>{description}</SheetDescription>
-            </SheetHeader>
-            <div className="p-4"><Progress value={(step / totalSteps) * 100} /></div>
-            <form id={formId} className="flex-1 min-h-0">
-              <ScrollArea className="h-full px-4">
-                {getStepContent()}
-              </ScrollArea>
-            </form>
-            <SheetFooter className="p-4 border-t">
-              <div className='flex justify-between w-full'>
-                <div>{step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}</div>
-                <div className="flex gap-2">
-                  <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
-                  {step < totalSteps ? (
-                    <Button onClick={handleNext} type="button">Next</Button>
-                  ) : (
-                    <Button onClick={methods.handleSubmit(onSubmit)} type="button">Save Product</Button>
-                  )}
-                </div>
-              </div>
-            </SheetFooter>
-          </SheetContent>
-        </Sheet>
-      </FormProvider>
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
+          {formBody}
+        </SheetContent>
+      </Sheet>
     );
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-4xl">
-        <FormProvider {...methods}>
-            <DialogHeader>
-              <DialogTitle>{title}</DialogTitle>
-              <DialogDescription>{description}</DialogDescription>
-            </DialogHeader>
-            <form id={formId} onSubmit={methods.handleSubmit(onSubmit)}>
-              <div className="py-4 space-y-4">
-                <Progress value={(step / totalSteps) * 100} />
-                <div className="max-h-[60vh] overflow-y-auto pr-2 -mr-4">
-                    {getStepContent()}
-                </div>
-              </div>
-            </form>
-            <DialogFooter>
-              <div className='flex justify-between w-full'>
-                <div>
-                  {step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}
-                </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
-                  {step < totalSteps ? (
-                    <Button onClick={handleNext} type="button">Next</Button>
-                  ) : (
-                    <Button onClick={methods.handleSubmit(onSubmit)} type="submit" form={formId}>Save Product</Button>
-                  )}
-                </div>
-              </div>
-            </DialogFooter>
-        </FormProvider>
+      <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col p-0">
+        {formBody}
       </DialogContent>
     </Dialog>
   );
