@@ -612,8 +612,8 @@ export default function InventoryPage() {
                                     <CardTitle>All Inventory</CardTitle>
                                     <CardDescription>A complete list of your professional, retail, and equipment stock.</CardDescription>
                                 </div>
-                                <div className="flex flex-wrap items-center gap-2">
-                                     <Button size="sm" onClick={() => handleOpenAddProductDialog('professional')}><Package className="mr-2" /> Product</Button>
+                                <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+                                    <Button size="sm" onClick={() => handleOpenAddProductDialog('professional')}><Package className="mr-2" /> Product</Button>
                                     <Button size="sm" onClick={() => handleOpenAddProductDialog('retail')}><Store className="mr-2" /> Retail</Button>
                                     <Button size="sm" onClick={() => setIsAddEquipmentDialogOpen(true)}><Hammer className="mr-2" /> Equipment</Button>
                                     <Button size="sm" onClick={() => setIsAddOverheadDialogOpen(true)}><Recycle className="mr-2" /> Overhead</Button>
@@ -774,7 +774,7 @@ export default function InventoryPage() {
           <div className="p-4 relative">
              <video ref={videoRef} className="w-full aspect-video rounded-md bg-muted" autoPlay muted playsInline />
              <div className="absolute inset-4 flex items-center justify-center pointer-events-none">
-                <div className="w-2/3 h-1/2 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
+                <div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
             </div>
             {hasCameraPermission === false && (
                 <Alert variant="destructive" className="mt-4">
