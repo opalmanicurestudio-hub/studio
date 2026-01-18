@@ -163,134 +163,132 @@ const AddEventForm = ({
     return (
         <>
             <form id="add-event-form" onSubmit={(e) => { e.preventDefault(); handleSaveAttempt(); }}>
-                <ScrollArea className="pr-6">
-                    <div className="space-y-6">
-                        <div className="space-y-4">
-                            <h3 className="text-lg font-medium">Event Details</h3>
-                            <div className="space-y-2">
-                                <Label htmlFor="title">Title</Label>
-                                <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., Team Lunch" />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Type</Label>
-                                <RadioGroup value={type} onValueChange={(v: any) => setType(v)} className="grid grid-cols-3 gap-2">
-                                    <div>
-                                        <RadioGroupItem value="business" id="business" className="peer sr-only" />
-                                        <Label htmlFor="business" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Business</Label>
-                                    </div>
-                                    <div>
-                                        <RadioGroupItem value="personal" id="personal" className="peer sr-only" />
-                                        <Label htmlFor="personal" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Personal</Label>
-                                    </div>
-                                    <div>
-                                        <RadioGroupItem value="blocked" id="blocked" className="peer sr-only" />
-                                        <Label htmlFor="blocked" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Blocked</Label>
-                                    </div>
-                                </RadioGroup>
-                            </div>
+                <div className="space-y-6">
+                    <div className="space-y-4">
+                        <h3 className="text-lg font-medium">Event Details</h3>
+                        <div className="space-y-2">
+                            <Label htmlFor="title">Title</Label>
+                            <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., Team Lunch" />
                         </div>
-
-                        <div className="space-y-4">
-                            <h3 className="text-lg font-medium">Date & Time</h3>
-                            <div className="space-y-2">
-                                <Label htmlFor="event-date">Date</Label>
-                                <Popover>
-                                    <PopoverTrigger asChild>
-                                        <Button
-                                            variant={"outline"}
-                                            className={cn(
-                                            "w-full justify-start text-left font-normal",
-                                            !date && "text-muted-foreground"
-                                            )}
-                                        >
-                                            <span className="flex items-center">
-                                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                                {date ? format(date, 'PPP') : "Pick a date"}
-                                            </span>
-                                        </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0">
-                                        <Calendar
-                                            mode="single"
-                                            selected={date}
-                                            onSelect={(d) => setDate(d || new Date())}
-                                            initialFocus
-                                        />
-                                    </PopoverContent>
-                                </Popover>
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="start-time">Start Time</Label>
-                                    <Select onValueChange={setStartTime} defaultValue={startTime}>
-                                        <SelectTrigger id="start-time">
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {timeOptions.map(time => (
-                                                <SelectItem key={`start-${time}`} value={time}>{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                        <div className="space-y-2">
+                            <Label>Type</Label>
+                            <RadioGroup value={type} onValueChange={(v: any) => setType(v)} className="grid grid-cols-3 gap-2">
+                                <div>
+                                    <RadioGroupItem value="business" id="business" className="peer sr-only" />
+                                    <Label htmlFor="business" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Business</Label>
                                 </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="end-time">End Time</Label>
-                                    <Select onValueChange={setEndTime} defaultValue={endTime}>
-                                        <SelectTrigger id="end-time">
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {timeOptions.map(time => (
-                                                <SelectItem key={`end-${time}`} value={time}>{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                <div>
+                                    <RadioGroupItem value="personal" id="personal" className="peer sr-only" />
+                                    <Label htmlFor="personal" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Personal</Label>
                                 </div>
-                            </div>
-                             {isOverlapping && (
-                                <Alert variant="destructive" className="mt-2">
-                                    <AlertTriangle className="h-4 w-4" />
-                                    <AlertTitle>Potential Double Booking</AlertTitle>
-                                    <AlertDescription>
-                                        This event overlaps with an existing item on your calendar.
-                                    </AlertDescription>
-                                </Alert>
-                            )}
-                        </div>
-
-                        <div className="space-y-4">
-                            <h3 className="text-lg font-medium">Important Details</h3>
-                            <div className="space-y-2">
-                                <Label htmlFor="location">Location</Label>
-                                <Input id="location" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g., 123 Main St or 'Zoom'" />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Checklist</Label>
-                                <div className='space-y-2'>
-                                    {checklist.map((item, index) => (
-                                        <div key={index} className="flex items-center gap-2 p-2 bg-muted/50 rounded-md">
-                                            <p className="flex-1 text-sm">{item.text}</p>
-                                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeChecklistItem(index)}><Trash2 className="h-4 w-4"/></Button>
-                                        </div>
-                                    ))}
+                                <div>
+                                    <RadioGroupItem value="blocked" id="blocked" className="peer sr-only" />
+                                    <Label htmlFor="blocked" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Blocked</Label>
                                 </div>
-                                <div className="flex gap-2">
-                                    <Input 
-                                        placeholder="Add checklist item..."
-                                        value={newChecklistItem}
-                                        onChange={(e) => setNewChecklistItem(e.target.value)}
-                                        onKeyDown={handleChecklistKeyDown}
-                                    />
-                                    <Button type="button" variant="outline" onClick={handleAddChecklistItem}><PlusCircle className="h-4 w-4"/></Button>
-                                </div>
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="notes">Notes</Label>
-                                <Textarea id="notes" rows={4} placeholder="Add any event-specific notes..." value={notes} onChange={(e) => setNotes(e.target.value)} />
-                            </div>
+                            </RadioGroup>
                         </div>
                     </div>
-                </ScrollArea>
+
+                    <div className="space-y-4">
+                        <h3 className="text-lg font-medium">Date & Time</h3>
+                        <div className="space-y-2">
+                            <Label htmlFor="event-date">Date</Label>
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                        variant={"outline"}
+                                        className={cn(
+                                        "w-full justify-start text-left font-normal",
+                                        !date && "text-muted-foreground"
+                                        )}
+                                    >
+                                        <span className="flex items-center">
+                                            <CalendarIcon className="mr-2 h-4 w-4" />
+                                            {date ? format(date, 'PPP') : "Pick a date"}
+                                        </span>
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0">
+                                    <Calendar
+                                        mode="single"
+                                        selected={date}
+                                        onSelect={(d) => setDate(d || new Date())}
+                                        initialFocus
+                                    />
+                                </PopoverContent>
+                            </Popover>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="start-time">Start Time</Label>
+                                <Select onValueChange={setStartTime} defaultValue={startTime}>
+                                    <SelectTrigger id="start-time">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {timeOptions.map(time => (
+                                            <SelectItem key={`start-${time}`} value={time}>{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="end-time">End Time</Label>
+                                <Select onValueChange={setEndTime} defaultValue={endTime}>
+                                    <SelectTrigger id="end-time">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {timeOptions.map(time => (
+                                            <SelectItem key={`end-${time}`} value={time}>{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+                            {isOverlapping && (
+                            <Alert variant="destructive" className="mt-2">
+                                <AlertTriangle className="h-4 w-4" />
+                                <AlertTitle>Potential Double Booking</AlertTitle>
+                                <AlertDescription>
+                                    This event overlaps with an existing item on your calendar.
+                                </AlertDescription>
+                            </Alert>
+                        )}
+                    </div>
+
+                    <div className="space-y-4">
+                        <h3 className="text-lg font-medium">Important Details</h3>
+                        <div className="space-y-2">
+                            <Label htmlFor="location">Location</Label>
+                            <Input id="location" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g., 123 Main St or 'Zoom'" />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Checklist</Label>
+                            <div className='space-y-2'>
+                                {checklist.map((item, index) => (
+                                    <div key={index} className="flex items-center gap-2 p-2 bg-muted/50 rounded-md">
+                                        <p className="flex-1 text-sm">{item.text}</p>
+                                        <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeChecklistItem(index)}><Trash2 className="h-4 w-4"/></Button>
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="flex gap-2">
+                                <Input 
+                                    placeholder="Add checklist item..."
+                                    value={newChecklistItem}
+                                    onChange={(e) => setNewChecklistItem(e.target.value)}
+                                    onKeyDown={handleChecklistKeyDown}
+                                />
+                                <Button type="button" variant="outline" onClick={handleAddChecklistItem}><PlusCircle className="h-4 w-4"/></Button>
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="notes">Notes</Label>
+                            <Textarea id="notes" rows={4} placeholder="Add any event-specific notes..." value={notes} onChange={(e) => setNotes(e.target.value)} />
+                        </div>
+                    </div>
+                </div>
             </form>
              <AlertDialog open={showConfirmation} onOpenChange={setShowConfirmation}>
                 <AlertDialogContent>
@@ -321,13 +319,13 @@ export const AddEventDialog = ({ open, onOpenChange, onConfirm, appointments, ev
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95vh] flex flex-col">
-          <SheetHeader className="text-left px-4">
+        <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
+          <SheetHeader className="text-left p-4 border-b">
             <SheetTitle>{title}</SheetTitle>
             <SheetDescription>{description}</SheetDescription>
           </SheetHeader>
-          <div className="py-4 flex-1 overflow-y-auto px-4">{FormContent}</div>
-          <SheetFooter className="px-4">
+          <div className="flex-1 overflow-y-auto p-4">{FormContent}</div>
+          <SheetFooter className="p-4 border-t">
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button type="submit" form="add-event-form" className="w-full">Save Event</Button>
           </SheetFooter>
@@ -338,13 +336,15 @@ export const AddEventDialog = ({ open, onOpenChange, onConfirm, appointments, ev
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
-         <DialogHeader>
+      <DialogContent className="max-w-xl max-h-[90vh] flex flex-col p-0">
+         <DialogHeader className="p-6 pb-4">
             <DialogTitle>{title}</DialogTitle>
             <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <div className="py-4">{FormContent}</div>
-        <DialogFooter>
+        <div className="flex-1 overflow-y-auto px-6">
+            {FormContent}
+        </div>
+        <DialogFooter className="p-6 pt-4 border-t">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button type="submit" form="add-event-form">Save Event</Button>
         </DialogFooter>

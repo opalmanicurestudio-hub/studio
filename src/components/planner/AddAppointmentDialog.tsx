@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -223,100 +222,98 @@ const AddAppointmentForm = ({
     return (
         <>
             <form id="add-appointment-form" onSubmit={(e) => { e.preventDefault(); handleSaveAttempt(); }}>
-                <ScrollArea className="pr-6">
-                    <div className="space-y-6">
-                        <div className="space-y-4">
-                            <h3 className="text-lg font-medium">Client & Service</h3>
-                            <div className="space-y-2">
-                                <Label htmlFor="client">Client</Label>
-                                <div className="flex gap-2">
-                                    <Select onValueChange={setSelectedClientId}>
-                                        <SelectTrigger id="client">
-                                        <SelectValue placeholder="Select an existing client" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                        {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                                        </SelectContent>
-                                    </Select>
-                                    <Button variant="outline" size="icon"><PlusCircle className="h-4 w-4" /></Button>
-                                </div>
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="service">Service</Label>
-                                <Select onValueChange={setSelectedServiceId}>
-                                    <SelectTrigger id="service">
-                                    <SelectValue placeholder="Select a service" />
+                <div className="space-y-6">
+                    <div className="space-y-4">
+                        <h3 className="text-lg font-medium">Client & Service</h3>
+                        <div className="space-y-2">
+                            <Label htmlFor="client">Client</Label>
+                            <div className="flex gap-2">
+                                <Select onValueChange={setSelectedClientId}>
+                                    <SelectTrigger id="client">
+                                    <SelectValue placeholder="Select an existing client" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                    {services.filter(s => s.type === 'service').map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                                    {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                                    </SelectContent>
+                                </Select>
+                                <Button variant="outline" size="icon"><PlusCircle className="h-4 w-4" /></Button>
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="service">Service</Label>
+                            <Select onValueChange={setSelectedServiceId}>
+                                <SelectTrigger id="service">
+                                <SelectValue placeholder="Select a service" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                {services.filter(s => s.type === 'service').map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
+
+                        <div className="space-y-4">
+                        <h3 className="text-lg font-medium">Add-on Services</h3>
+                            {selectedAddOns.length > 0 ? (
+                            <Card>
+                                <CardContent className="p-2 space-y-2">
+                                    {selectedAddOns.map(item => (
+                                        <div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50">
+                                            <span className="text-sm font-medium">{item.name}</span>
+                                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}>
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                    ))}
+                                </CardContent>
+                            </Card>
+                        ) : (
+                            <Card>
+                                <CardContent className="p-4 text-center text-sm text-muted-foreground">
+                                    No add-ons selected.
+                                </CardContent>
+                            </Card>
+                        )}
+                        <Button variant="outline" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button>
+                    </div>
+
+                    <div className="space-y-4">
+                        <h3 className="text-lg font-medium">Date & Time</h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="date">Date</Label>
+                                <DatePicker date={date} onDateChange={setDate} />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="start-time">Start Time</Label>
+                                <Select onValueChange={setStartTime} value={startTime}>
+                                    <SelectTrigger id="start-time" disabled={!selectedService}>
+                                        <SelectValue placeholder="Select a time" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {timeOptions.map(time => (
+                                            <SelectItem key={time} value={time}>{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</SelectItem>
+                                        ))}
                                     </SelectContent>
                                 </Select>
                             </div>
                         </div>
-
-                         <div className="space-y-4">
-                            <h3 className="text-lg font-medium">Add-on Services</h3>
-                                {selectedAddOns.length > 0 ? (
-                                <Card>
-                                    <CardContent className="p-2 space-y-2">
-                                        {selectedAddOns.map(item => (
-                                            <div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50">
-                                                <span className="text-sm font-medium">{item.name}</span>
-                                                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}>
-                                                    <Trash2 className="h-4 w-4" />
-                                                </Button>
-                                            </div>
-                                        ))}
-                                    </CardContent>
-                                </Card>
-                            ) : (
-                                <Card>
-                                    <CardContent className="p-4 text-center text-sm text-muted-foreground">
-                                        No add-ons selected.
-                                    </CardContent>
-                                </Card>
-                            )}
-                            <Button variant="outline" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button>
-                        </div>
-
-                        <div className="space-y-4">
-                            <h3 className="text-lg font-medium">Date & Time</h3>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="date">Date</Label>
-                                    <DatePicker date={date} onDateChange={setDate} />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="start-time">Start Time</Label>
-                                    <Select onValueChange={setStartTime} value={startTime}>
-                                        <SelectTrigger id="start-time" disabled={!selectedService}>
-                                            <SelectValue placeholder="Select a time" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {timeOptions.map(time => (
-                                                <SelectItem key={time} value={time}>{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                            </div>
-                             {isOverlapping && (
-                                <Alert variant="destructive" className="mt-2">
-                                    <AlertTriangle className="h-4 w-4" />
-                                    <AlertTitle>Potential Double Booking</AlertTitle>
-                                    <AlertDescription>
-                                        This time slot overlaps with an existing appointment.
-                                    </AlertDescription>
-                                </Alert>
-                            )}
-                        </div>
-
-                        <div className="space-y-4">
-                            <h3 className="text-lg font-medium">Notes</h3>
-                            <Textarea rows={4} placeholder="Add any appointment-specific notes..."/>
-                        </div>
+                            {isOverlapping && (
+                            <Alert variant="destructive" className="mt-2">
+                                <AlertTriangle className="h-4 w-4" />
+                                <AlertTitle>Potential Double Booking</AlertTitle>
+                                <AlertDescription>
+                                    This time slot overlaps with an existing appointment.
+                                </AlertDescription>
+                            </Alert>
+                        )}
                     </div>
-                </ScrollArea>
+
+                    <div className="space-y-4">
+                        <h3 className="text-lg font-medium">Notes</h3>
+                        <Textarea rows={4} placeholder="Add any appointment-specific notes..."/>
+                    </div>
+                </div>
             </form>
             <SelectAddOnsDialog
                 open={isAddOnSelectorOpen}
@@ -325,7 +322,7 @@ const AddAppointmentForm = ({
                 allAddOns={services.filter(s => s.type === 'addon')}
                 initialSelected={selectedAddOns}
             />
-             <AlertDialog open={showConfirmation} onOpenChange={setShowConfirmation}>
+                <AlertDialog open={showConfirmation} onOpenChange={setShowConfirmation}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
                     <AlertDialogTitle>Confirm Double Booking</AlertDialogTitle>
@@ -354,13 +351,13 @@ export const AddAppointmentDialog = ({ open, onOpenChange, clients, services, ap
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95vh] flex flex-col">
-          <SheetHeader className="text-left px-4">
+        <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
+          <SheetHeader className="text-left p-4 border-b">
             <SheetTitle>{title}</SheetTitle>
             <SheetDescription>{description}</SheetDescription>
           </SheetHeader>
-          <div className="py-4 flex-1 overflow-y-auto px-4">{FormContent}</div>
-          <SheetFooter className="px-4">
+          <div className="flex-1 overflow-y-auto p-4">{FormContent}</div>
+          <SheetFooter className="p-4 border-t">
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button type="submit" form="add-appointment-form" className="w-full">Book Appointment</Button>
           </SheetFooter>
@@ -371,13 +368,15 @@ export const AddAppointmentDialog = ({ open, onOpenChange, clients, services, ap
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
-         <DialogHeader>
+      <DialogContent className="max-w-xl max-h-[90vh] flex flex-col p-0">
+         <DialogHeader className="p-6 pb-4">
             <DialogTitle>{title}</DialogTitle>
             <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <div className="py-4">{FormContent}</div>
-        <DialogFooter>
+        <div className="flex-1 overflow-y-auto px-6">
+            {FormContent}
+        </div>
+        <DialogFooter className="p-6 pt-4 border-t">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button type="submit" form="add-appointment-form">Book Appointment</Button>
         </DialogFooter>
