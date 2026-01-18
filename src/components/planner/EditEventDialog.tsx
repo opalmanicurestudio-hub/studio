@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, KeyboardEvent, useEffect } from 'react';
@@ -161,8 +160,10 @@ const EditEventForm = ({
                                         !date && "text-muted-foreground"
                                         )}
                                     >
-                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {date ? format(date, 'PPP') : <span>Pick a date</span>}
+                                        <span className="flex items-center">
+                                            <CalendarIcon className="mr-2 h-4 w-4" />
+                                            {date ? format(date, 'PPP') : "Pick a date"}
+                                        </span>
                                     </Button>
                                 </PopoverTrigger>
                                 <PopoverContent className="w-auto p-0">
@@ -255,7 +256,7 @@ export const EditEventDialog = ({ open, onOpenChange, event, onConfirm }: { open
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95dvh]">
+        <SheetContent side="bottom" className="h-[95vh]">
           <SheetHeader className="text-left">
             <SheetTitle>{title}</SheetTitle>
             <SheetDescription>{description}</SheetDescription>
