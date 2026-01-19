@@ -8,12 +8,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
-import { ArrowLeft, Printer, BarChart, DollarSign, TrendingUp, Star } from 'lucide-react';
+import { ArrowLeft, Printer, BarChart, DollarSign, TrendingUp, Star, Download } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { format, isPast, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { type Service } from '@/lib/data';
 
+// Component for the report page
 const ServiceReportPage = () => {
     const { services, appointments } = useInventory();
 
@@ -56,6 +57,38 @@ const ServiceReportPage = () => {
         window.print();
     };
 
+    const handleExport = () => {
+        const headers = ['Service Name', 'Category', 'Price', 'Cost', 'Profit', 'Margin (%)', 'Total Bookings', 'Total Revenue'];
+        
+        const data = servicePerformance.map(service => [
+            `"${service.name.replace(/"/g, '""')}"`,
+            service.category,
+            service.price.toFixed(2),
+            service.cost.toFixed(2),
+            service.profit.toFixed(2),
+            service.margin.toFixed(1),
+            service.totalBookings.toString(),
+            service.totalRevenue.toFixed(2)
+        ]);
+
+        const csvContent = [
+            headers.join(','),
+            ...data.map(row => row.join(','))
+        ].join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        if (link.href) {
+            URL.revokeObjectURL(link.href);
+        }
+        const url = URL.createObjectURL(blob);
+        link.href = url;
+        link.setAttribute('download', `services-performance-report_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
     return (
         <div className="flex min-h-screen w-full flex-col bg-muted/40 print:bg-white">
             <AppHeader title="Services Performance Report" />
@@ -67,10 +100,16 @@ const ServiceReportPage = () => {
                             Back to Services
                         </Link>
                     </Button>
-                    <Button variant="outline" size="sm" onClick={handlePrint}>
-                        <Printer className="h-4 w-4 mr-2" />
-                        Print Report
-                    </Button>
+                    <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" onClick={handleExport}>
+                            <Download className="h-4 w-4 mr-2" />
+                            Export CSV
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={handlePrint}>
+                            <Printer className="h-4 w-4 mr-2" />
+                            Print Report
+                        </Button>
+                    </div>
                 </div>
 
                 <div id="print-area" className="max-w-5xl mx-auto space-y-8">
@@ -168,4 +207,3 @@ const ServiceReportPage = () => {
 }
 
 export default ServiceReportPage;
-    
