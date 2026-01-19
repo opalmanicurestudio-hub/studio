@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -6,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { notFound, useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Printer, Sparkles, Loader, User, Calendar, DollarSign, AlertTriangle, FileText, FlaskConical } from 'lucide-react';
+import { ArrowLeft, Printer, Sparkles, Loader, User, Calendar, DollarSign, AlertTriangle, FileText, FlaskConical, Gift } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { format, formatDistanceToNow } from 'date-fns';
 import { Separator } from '@/components/ui/separator';
@@ -207,6 +208,36 @@ const ClientReportPage = () => {
                                 ))}
                                 {(!client.customFormulas || client.customFormulas.length === 0) && <p className="text-center text-muted-foreground">No custom formulas saved.</p>}
                             </div>
+                        </div>
+
+                        <div>
+                            <h2 className="text-xl font-semibold mb-4">Referrals &amp; Loyalty</h2>
+                            <Card>
+                                <CardContent className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="space-y-4">
+                                        <div className="p-4 rounded-lg bg-muted/50">
+                                            <div className="text-sm text-muted-foreground flex items-center gap-2"><Gift className="h-4 w-4"/>Wallet Balance</div>
+                                            <div className="text-2xl font-bold text-primary">${(client.walletCredit || 0).toFixed(2)}</div>
+                                        </div>
+                                        <div className="p-4 rounded-lg bg-muted/50">
+                                            <div className="text-sm text-muted-foreground">Referred By</div>
+                                            <div className="text-lg font-semibold">{client.referredBy || 'N/A'}</div>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-4">
+                                        <h4 className="font-medium">Successful Referrals ({client.successfulReferrals?.length || 0})</h4>
+                                        {client.successfulReferrals && client.successfulReferrals.length > 0 ? (
+                                            <div className="space-y-2 text-sm">
+                                                {client.successfulReferrals.map((name, index) => (
+                                                    <p key={index} className="p-2 bg-muted/50 rounded-md">{name}</p>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <p className="text-sm text-muted-foreground">No successful referrals yet.</p>
+                                        )}
+                                    </div>
+                                </CardContent>
+                            </Card>
                         </div>
                     </div>
                 </div>
