@@ -69,7 +69,8 @@ const clientSchema = z.object({
     sensory: z.object({
         flags: z.array(z.string()).optional(),
         notes: z.string().optional()
-    }).optional()
+    }).optional(),
+    referralSource: z.string().optional(),
   }).optional(),
   notes: z.object({
     goals: z.string().optional(),
@@ -90,7 +91,6 @@ const clientSchema = z.object({
       relationship: z.string().optional(),
       phone: z.string().optional(),
   }).optional(),
-  referralSource: z.string().optional(),
 });
 
 type ClientFormData = z.infer<typeof clientSchema>;
@@ -241,8 +241,8 @@ const ClientIntelAccordion = () => (
 
 
 const AddClientForm = ({ clients }: { clients: Client[] }) => {
-    const { register, control, formState: { errors } } = useFormContext<ClientFormData>();
-    const [referralSource, setReferralSource] = useState<string>('');
+    const { register, control, watch, formState: { errors } } = useFormContext<ClientFormData>();
+    const referralSource = watch('intel.referralSource');
     const [tags, setTags] = useState<string[]>([]);
     const [tagInput, setTagInput] = useState('');
     
@@ -273,7 +273,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
             {/* Section 1: Basic Info */}
             <div className="space-y-4">
                 <h3 className="text-lg font-medium">Basic Information</h3>
-                 <div className="flex flex-row items-center justify-center gap-4">
+                 <div className="flex flex-col md:flex-row items-center justify-center gap-4">
                     <Controller
                         name="avatarUrl"
                         control={control}
@@ -407,10 +407,10 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                 <div className="space-y-2">
                     <Label htmlFor="referral-source">Referral Source</Label>
                      <Controller
-                        name="referralSource"
+                        name="intel.referralSource"
                         control={control}
                         render={({ field }) => (
-                            <Select onValueChange={(value) => { field.onChange(value); setReferralSource(value); }} value={field.value}>
+                            <Select onValueChange={field.onChange} value={field.value}>
                                 <SelectTrigger id="referral-source">
                                     <SelectValue placeholder="How did they find you?" />
                                 </SelectTrigger>
@@ -509,7 +509,14 @@ export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open:
 
   const handleSaveSubmit = (data: ClientFormData) => {
     const transformedData: Partial<Client> = {
-      ...data,
+      name: data.name,
+      email: data.email,
+      phone: data.phone,
+      avatarUrl: data.avatarUrl,
+      notes: data.notes,
+      birthday: data.birthday ? data.birthday.toISOString() : undefined,
+      address: data.address,
+      emergencyContact: data.emergencyContact,
       medicalNotes: [
           ...(data.intel?.medical?.flags || []),
           data.intel?.medical?.notes || ''
@@ -522,9 +529,10 @@ export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open:
           ...(data.intel?.sensory?.flags || []),
           data.intel?.sensory?.notes || ''
       ].filter(Boolean).join(', '),
+      intel: {
+        referralSource: data.intel?.referralSource
+      }
     };
-    delete (transformedData as any).intel;
-
     onSave(transformedData);
     onOpenChange(false);
   };
