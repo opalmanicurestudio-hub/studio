@@ -280,7 +280,7 @@ const ClientLogReportPage = () => {
                     </Button>
                 </div>
 
-                <div id="print-area" className="max-w-4xl mx-auto bg-card p-8 rounded-lg shadow-sm print:shadow-none print:p-0">
+                <div id="print-area" className="max-w-4xl mx-auto bg-card p-8 rounded-lg border shadow-sm print:shadow-none print:p-0 print:border-0">
                     <div className="flex justify-between items-center mb-8">
                         <h1 className="text-3xl font-bold">Client Log Report</h1>
                         <div className="text-sm text-muted-foreground text-right">
