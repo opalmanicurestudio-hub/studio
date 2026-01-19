@@ -1,3 +1,4 @@
+
 'use client';
 
 import {
@@ -16,6 +17,7 @@ import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { useState } from 'react';
 import { Badge } from '../ui/badge';
 import Link from 'next/link';
+import { ClientOnly } from './ClientOnly';
 
 type AppHeaderProps = {
   title: string;
@@ -48,73 +50,75 @@ export function AppHeader({ title }: AppHeaderProps) {
         <h1 className="text-xl font-semibold md:text-2xl">{title}</h1>
       </div>
       <div className="ml-auto flex items-center gap-2">
-        <DropdownMenu>
+        <ClientOnly>
+          <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="rounded-full relative">
+                      <Bell className="h-5 w-5" />
+                      {unreadCount > 0 && (
+                          <span className="absolute top-0 right-0 flex h-2 w-2">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+                          </span>
+                      )}
+                      <span className="sr-only">Toggle notifications</span>
+                  </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-80">
+                  <DropdownMenuLabel className="flex justify-between items-center">
+                      Notifications
+                      <Button variant="link" size="xs" className="p-0 h-auto" onClick={markAllAsRead}>Mark all as read</Button>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {notifications.length > 0 ? notifications.map(notification => (
+                      <DropdownMenuItem key={notification.id} className={`flex items-start gap-3 p-2 ${notification.read ? '' : 'bg-primary/5'}`}>
+                          <div className="mt-1">{notification.icon}</div>
+                          <Link href={notification.link || '#'} className="flex-1 space-y-1">
+                            <p className="text-xs font-medium leading-none">{notification.message}</p>
+                          </Link>
+                          {!notification.read && (
+                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => markAsRead(notification.id)}>
+                                  <Check className="h-4 w-4 text-primary" />
+                              </Button>
+                          )}
+                      </DropdownMenuItem>
+                  )) : (
+                      <p className="p-4 text-center text-sm text-muted-foreground">No new notifications.</p>
+                  )}
+              </DropdownMenuContent>
+          </DropdownMenu>
+          <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="rounded-full relative">
-                    <Bell className="h-5 w-5" />
-                    {unreadCount > 0 && (
-                        <span className="absolute top-0 right-0 flex h-2 w-2">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
-                        </span>
-                    )}
-                    <span className="sr-only">Toggle notifications</span>
-                </Button>
+              <Button variant="ghost" className="relative h-10 w-10 rounded-full">
+                <Avatar className="h-10 w-10">
+                  <AvatarImage src="https://picsum.photos/seed/106/100/100" alt="User" data-ai-hint="man smiling" />
+                  <AvatarFallback>U</AvatarFallback>
+                </Avatar>
+              </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-80">
-                <DropdownMenuLabel className="flex justify-between items-center">
-                    Notifications
-                    <Button variant="link" size="xs" className="p-0 h-auto" onClick={markAllAsRead}>Mark all as read</Button>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {notifications.length > 0 ? notifications.map(notification => (
-                    <DropdownMenuItem key={notification.id} className={`flex items-start gap-3 p-2 ${notification.read ? '' : 'bg-primary/5'}`}>
-                        <div className="mt-1">{notification.icon}</div>
-                        <Link href={notification.link || '#'} className="flex-1 space-y-1">
-                          <p className="text-xs font-medium leading-none">{notification.message}</p>
-                        </Link>
-                         {!notification.read && (
-                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => markAsRead(notification.id)}>
-                                <Check className="h-4 w-4 text-primary" />
-                            </Button>
-                        )}
-                    </DropdownMenuItem>
-                )) : (
-                    <p className="p-4 text-center text-sm text-muted-foreground">No new notifications.</p>
-                )}
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel>My Account</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem>
+                <User />
+                <span>Profile</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem>
+                <Settings />
+                <span>Settings</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem>
+                <LifeBuoy />
+                <span>Support</span>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem>
+                <LogOut />
+                <span>Log out</span>
+              </DropdownMenuItem>
             </DropdownMenuContent>
-        </DropdownMenu>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="relative h-10 w-10 rounded-full">
-              <Avatar className="h-10 w-10">
-                <AvatarImage src="https://picsum.photos/seed/106/100/100" alt="User" data-ai-hint="man smiling" />
-                <AvatarFallback>U</AvatarFallback>
-              </Avatar>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuLabel>My Account</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem>
-              <User />
-              <span>Profile</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem>
-              <Settings />
-              <span>Settings</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem>
-              <LifeBuoy />
-              <span>Support</span>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem>
-              <LogOut />
-              <span>Log out</span>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+          </DropdownMenu>
+        </ClientOnly>
       </div>
     </header>
   );

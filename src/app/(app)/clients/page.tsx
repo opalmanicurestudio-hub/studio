@@ -37,6 +37,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
+import { ClientOnly } from '@/components/shared/ClientOnly';
 
 
 const ClientCard = ({ client, isSelected, onSelect }: { client: Client, isSelected: boolean, onSelect: () => void }) => {
@@ -455,169 +456,157 @@ export default function ClientsPage() {
   };
 
   return (
-    <div className="flex min-h-screen w-full flex-col">
-      <AppHeader title="Client Log" />
-      <main className="flex-1 p-4 md:p-8">
-        <div className="grid lg:grid-cols-[1fr,300px] gap-8 items-start">
-            <div className="space-y-6">
-                <div>
-                </div>
-                <Card>
-                    <CardHeader>
-                        <div className="flex flex-col sm:flex-row items-center gap-4">
-                            <div className="relative w-full sm:max-w-xs">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                <Input 
-                                    placeholder="Search by name or email..." 
-                                    className="pl-9"
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                />
-                            </div>
-                             <div className="flex-1 w-full sm:w-auto">
-                                <select
-                                    value={lastSeenFilter}
-                                    onChange={(e) => setLastSeenFilter(e.target.value)}
-                                    className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                                >
-                                    <option value="all">Filter by last seen...</option>
-                                    <option value="30">Over 30 days ago</option>
-                                    <option value="90">Over 90 days ago</option>
-                                    <option value="180">Over 180 days ago</option>
-                                </select>
-                            </div>
-                            <div className="ml-auto flex w-full flex-col sm:flex-row sm:w-auto items-center gap-2">
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <Button variant="outline" className='w-full sm:w-auto'>
-                                            <MoreHorizontal className="mr-2 h-4 w-4" /> More
-                                        </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent>
-                                        <DropdownMenuItem asChild>
-                                            <Link href="/clients/report"><FileText className="mr-2 h-4 w-4"/>View Full Report</Link>
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => setIsMergeClientsOpen(true)}><Merge className="mr-2 h-4 w-4"/>Merge Duplicates</DropdownMenuItem>
-                                        <DropdownMenuItem onClick={handleExport}><FileDown className="mr-2 h-4 w-4"/>Export List</DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
-                                <Button className='w-full sm:w-auto' onClick={() => setIsAddClientOpen(true)}><UserPlus className="mr-2 h-4 w-4" /> New Client</Button>
-                            </div>
-                        </div>
-                        <div className="flex items-center space-x-2 pt-4">
-                            <Switch id="show-archived" checked={showArchived} onCheckedChange={setShowArchived} />
-                            <Label htmlFor="show-archived">{showArchived ? "Viewing Archived" : "Show Archived"}</Label>
-                        </div>
-                    </CardHeader>
-                    <CardContent>
-                         {selectedItems.size > 0 && (
-                            <div className="mb-4 p-3 rounded-lg bg-muted/50 flex items-center justify-between">
-                                <p className="text-sm font-medium">{selectedItems.size} client(s) selected</p>
-                                <div className="flex gap-2">
-                                    {showArchived ? (
-                                        <Button variant="outline" size="sm" onClick={handleBulkUnarchive}>Unarchive</Button>
-                                    ) : (
-                                        <Button variant="outline" size="sm" onClick={handleBulkArchive}>Archive</Button>
-                                    )}
-                                    <Button variant="destructive" size="sm" onClick={handleBulkDeleteClick}>Delete</Button>
-                                </div>
-                            </div>
-                        )}
-                        {!hasClients ? (
-                            <EmptyState onAddClient={() => setIsAddClientOpen(true)} />
-                        ) : !hasFilteredClients ? (
-                            <div className="text-center py-20 px-6">
-                                <p className="text-muted-foreground">No clients found matching your filters.</p>
-                            </div>
-                        ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-6">
-                                {paginatedClients.map((client) => (
-                                    <ClientCard 
-                                        key={client.id} 
-                                        client={client}
-                                        isSelected={selectedItems.has(client.id)}
-                                        onSelect={() => handleItemSelect(client.id)}
-                                    />
-                                ))}
-                            </div>
-                        )}
-                    </CardContent>
-                    {totalPages > 1 && (
-                        <CardFooter>
-                            <div className="flex items-center justify-between w-full">
-                                <span className="text-sm text-muted-foreground">
-                                    Page {currentPage} of {totalPages}
-                                </span>
-                                <div className="flex items-center gap-2">
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={handlePrevPage}
-                                        disabled={currentPage === 1}
-                                    >
-                                        Previous
-                                    </Button>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={handleNextPage}
-                                        disabled={currentPage === totalPages}
-                                    >
-                                        Next
-                                    </Button>
-                                </div>
-                            </div>
-                        </CardFooter>
-                    )}
-                </Card>
-            </div>
-            <div className="hidden lg:block">
-                <ClientStatsSidebar />
-            </div>
-        </div>
+    <ClientOnly>
+      <div className="flex min-h-screen w-full flex-col">
+        <AppHeader title="Client Log" />
+        <main className="flex-1 p-4 md:p-8">
+          <div className="grid lg:grid-cols-[1fr,300px] gap-8 items-start">
+              <div className="space-y-6">
+                  <div>
+                  </div>
+                  <Card>
+                      <CardHeader>
+                          <div className="flex flex-col sm:flex-row items-center gap-4">
+                              <div className="relative w-full sm:max-w-xs">
+                                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                  <Input 
+                                      placeholder="Search by name or email..." 
+                                      className="pl-9"
+                                      value={searchTerm}
+                                      onChange={(e) => setSearchTerm(e.target.value)}
+                                  />
+                              </div>
+                              <div className="flex-1 w-full sm:w-auto">
+                                  <select
+                                      value={lastSeenFilter}
+                                      onChange={(e) => setLastSeenFilter(e.target.value)}
+                                      className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                                  >
+                                      <option value="all">Filter by last seen...</option>
+                                      <option value="30">Over 30 days ago</option>
+                                      <option value="90">Over 90 days ago</option>
+                                      <option value="180">Over 180 days ago</option>
+                                  </select>
+                              </div>
+                              <div className="ml-auto flex w-full flex-col sm:flex-row sm:w-auto items-center gap-2">
+                                  <DropdownMenu>
+                                      <DropdownMenuTrigger asChild>
+                                          <Button variant="outline" className='w-full sm:w-auto'>
+                                              <MoreHorizontal className="mr-2 h-4 w-4" /> More
+                                          </Button>
+                                      </DropdownMenuTrigger>
+                                      <DropdownMenuContent>
+                                          <DropdownMenuItem asChild>
+                                              <Link href="/clients/report"><FileText className="mr-2 h-4 w-4"/>View Full Report</Link>
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem onClick={() => setIsMergeClientsOpen(true)}><Merge className="mr-2 h-4 w-4"/>Merge Duplicates</DropdownMenuItem>
+                                          <DropdownMenuItem onClick={handleExport}><FileDown className="mr-2 h-4 w-4"/>Export List</DropdownMenuItem>
+                                      </DropdownMenuContent>
+                                  </DropdownMenu>
+                                  <Button className='w-full sm:w-auto' onClick={() => setIsAddClientOpen(true)}><UserPlus className="mr-2 h-4 w-4" /> New Client</Button>
+                              </div>
+                          </div>
+                          <div className="flex items-center space-x-2 pt-4">
+                              <Switch id="show-archived" checked={showArchived} onCheckedChange={setShowArchived} />
+                              <Label htmlFor="show-archived">{showArchived ? "Viewing Archived" : "Show Archived"}</Label>
+                          </div>
+                      </CardHeader>
+                      <CardContent>
+                          {selectedItems.size > 0 && (
+                              <div className="mb-4 p-3 rounded-lg bg-muted/50 flex items-center justify-between">
+                                  <p className="text-sm font-medium">{selectedItems.size} client(s) selected</p>
+                                  <div className="flex gap-2">
+                                      {showArchived ? (
+                                          <Button variant="outline" size="sm" onClick={handleBulkUnarchive}>Unarchive</Button>
+                                      ) : (
+                                          <Button variant="outline" size="sm" onClick={handleBulkArchive}>Archive</Button>
+                                      )}
+                                      <Button variant="destructive" size="sm" onClick={handleBulkDeleteClick}>Delete</Button>
+                                  </div>
+                              </div>
+                          )}
+                          {!hasClients ? (
+                              <EmptyState onAddClient={() => setIsAddClientOpen(true)} />
+                          ) : !hasFilteredClients ? (
+                              <div className="text-center py-20 px-6">
+                                  <p className="text-muted-foreground">No clients found matching your filters.</p>
+                              </div>
+                          ) : (
+                              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-6">
+                                  {paginatedClients.map((client) => (
+                                      <ClientCard 
+                                          key={client.id} 
+                                          client={client}
+                                          isSelected={selectedItems.has(client.id)}
+                                          onSelect={() => handleItemSelect(client.id)}
+                                      />
+                                  ))}
+                              </div>
+                          )}
+                      </CardContent>
+                      {totalPages > 1 && (
+                          <CardFooter>
+                              <div className="flex items-center justify-between w-full">
+                                  <span className="text-sm text-muted-foreground">
+                                      Page {currentPage} of {totalPages}
+                                  </span>
+                                  <div className="flex items-center gap-2">
+                                      <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={handlePrevPage}
+                                          disabled={currentPage === 1}
+                                      >
+                                          Previous
+                                      </Button>
+                                      <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={handleNextPage}
+                                          disabled={currentPage === totalPages}
+                                      >
+                                          Next
+                                      </Button>
+                                  </div>
+                              </div>
+                          </CardFooter>
+                      )}
+                  </Card>
+              </div>
+              <div className="hidden lg:block">
+                  <ClientStatsSidebar />
+              </div>
+          </div>
 
-      </main>
+        </main>
 
-      <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients} onSave={handleAddClient} />
-      <MergeClientsDialog 
-        open={isMergeClientsOpen} 
-        onOpenChange={setIsMergeClientsOpen} 
-        allClients={clients} 
-        allAppointments={initialAppointments}
-        onMerge={handleMergeConfirm}
-      />
-      
-       <AlertDialog open={isBulkDeleteConfirmOpen} onOpenChange={setIsBulkDeleteConfirmOpen}>
-            <AlertDialogContent>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                        This will permanently delete {selectedItems.size} client(s) and all their associated data. This action cannot be undone.
-                    </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleBulkDeleteConfirm} className={buttonVariants({ variant: "destructive" })}>
-                        Delete
-                    </AlertDialogAction>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-        </AlertDialog>
+        <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients} onSave={handleAddClient} />
+        <MergeClientsDialog 
+          open={isMergeClientsOpen} 
+          onOpenChange={setIsMergeClientsOpen} 
+          allClients={clients} 
+          allAppointments={initialAppointments}
+          onMerge={handleMergeConfirm}
+        />
+        
+        <AlertDialog open={isBulkDeleteConfirmOpen} onOpenChange={setIsBulkDeleteConfirmOpen}>
+              <AlertDialogContent>
+                  <AlertDialogHeader>
+                      <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                          This will permanently delete {selectedItems.size} client(s) and all their associated data. This action cannot be undone.
+                      </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={handleBulkDeleteConfirm} className={buttonVariants({ variant: "destructive" })}>
+                          Delete
+                      </AlertDialogAction>
+                  </AlertDialogFooter>
+              </AlertDialogContent>
+          </AlertDialog>
 
-    </div>
+      </div>
+    </ClientOnly>
   );
 }
-
-    
-
-    
-
-
-
-
-    
-
-    
-
-
-
