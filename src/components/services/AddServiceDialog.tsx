@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -36,7 +35,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { type InventoryItem, type Location, type ConsentForm } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
-import { useForm, FormProvider, useFormContext, Controller } from 'react-hook-form';
+import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Check, PlusCircle, QrCode, DollarSign, Package, Hammer, Trash2 } from 'lucide-react';
@@ -172,7 +171,7 @@ const AddServiceForm = ({
                     </div>
                     <div className="space-y-2"><Label htmlFor="service-name">Name</Label><Input id="service-name" placeholder="e.g., Signature Haircut" {...register('name')} />{errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}</div>
                     <div className="space-y-2"><Label htmlFor="category">Category</Label>
-                    {isAddingCategory ? ( <div className="flex gap-2"> <Input placeholder="Enter new category name..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()} /> <Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button> </div> ) : ( <div className="flex gap-2"> <Controller name="category" control={control} render={({ field }) => ( <Select onValueChange={field.onChange} value={field.value}> <SelectTrigger> <SelectValue placeholder="Select a category" /> </SelectTrigger> <SelectContent> {categories.map(cat => ( <SelectItem key={cat} value={cat}>{cat}</SelectItem> ))} </SelectContent> </Select> )}/> <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"> <PlusCircle className="h-4 w-4" /> </Button> d> )}
+                    {isAddingCategory ? ( <div className="flex gap-2"> <Input placeholder="Enter new category name..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()} /> <Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button> </div> ) : ( <div className="flex gap-2"> <Controller name="category" control={control} render={({ field }) => ( <Select onValueChange={field.onChange} value={field.value}> <SelectTrigger> <SelectValue placeholder="Select a category" /> </SelectTrigger> <SelectContent> {categories.map(cat => ( <SelectItem key={cat} value={cat}>{cat}</SelectItem> ))} </SelectContent> </Select> )}/> <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"> <PlusCircle className="h-4 w-4" /> </Button> </div> )}
                     {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}</div>
                     <div className="grid grid-cols-3 gap-4">
                         <div className="space-y-2"><Label htmlFor="duration">Duration (min)</Label><Input id="duration" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>{errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}</div>
@@ -416,7 +415,7 @@ export const AddServiceDialog = ({
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={handleOpenChange}>
-        <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
+        <SheetContent side="bottom" className="max-h-[90dvh] flex flex-col p-0">
           {formBody}
         </SheetContent>
       </Sheet>
