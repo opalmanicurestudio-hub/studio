@@ -294,7 +294,27 @@ const EditClientForm = ({ client }: { client: Client }) => {
             </div>
             <div className="space-y-2">
                 <Label htmlFor="emergency-relationship">Relationship</Label>
-                <Input id="emergency-relationship" {...register('emergencyContact.relationship')} />
+                 <Controller
+                    name="emergencyContact.relationship"
+                    control={control}
+                    render={({ field }) => (
+                        <Select onValueChange={field.onChange} value={field.value}>
+                            <SelectTrigger id="emergency-relationship">
+                                <SelectValue placeholder="Select a relationship" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="Spouse">Spouse</SelectItem>
+                                <SelectItem value="Partner">Partner</SelectItem>
+                                <SelectItem value="Parent">Parent</SelectItem>
+                                <SelectItem value="Guardian">Guardian</SelectItem>
+                                <SelectItem value="Sibling">Sibling</SelectItem>
+                                <SelectItem value="Child">Child</SelectItem>
+                                <SelectItem value="Friend">Friend</SelectItem>
+                                <SelectItem value="Other">Other</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    )}
+                />
             </div>
         </div>
 
