@@ -72,6 +72,7 @@ const clientSchema = z.object({
     }).optional(),
     referralSource: z.string().optional(),
   }).optional(),
+  referringClientId: z.string().optional(),
   notes: z.object({
     goals: z.string().optional(),
     routine: z.string().optional(),
@@ -93,7 +94,7 @@ const clientSchema = z.object({
   }).optional(),
 });
 
-type ClientFormData = z.infer<typeof clientSchema>;
+export type ClientFormData = z.infer<typeof clientSchema>;
 
 
 const ClientIntelCategory = ({
@@ -273,7 +274,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
             {/* Section 1: Basic Info */}
             <div className="space-y-4">
                 <h3 className="text-lg font-medium">Basic Information</h3>
-                 <div className="flex flex-col md:flex-row items-center justify-center gap-4">
+                 <div className="flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-4">
                     <Controller
                         name="avatarUrl"
                         control={control}
@@ -425,19 +426,25 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                     />
                 </div>
                 {referralSource === 'client-referral' && (
-                    <div className="space-y-2">
-                        <Label htmlFor="referring-client">Referring Client</Label>
-                        <Select>
-                            <SelectTrigger id="referring-client">
-                            <SelectValue placeholder="Select referring client" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {clients.map(client => (
-                                    <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
+                    <Controller
+                        name="referringClientId"
+                        control={control}
+                        render={({ field }) => (
+                            <div className="space-y-2">
+                                <Label htmlFor="referring-client">Referring Client</Label>
+                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                    <SelectTrigger id="referring-client">
+                                    <SelectValue placeholder="Select referring client" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {clients.map(client => (
+                                            <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        )}
+                    />
                 )}
              </div>
 
@@ -482,7 +489,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
 };
 
 
-export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open: boolean, onOpenChange: (open: boolean) => void, clients: Client[], onSave: (data: Partial<Client>) => void }) => {
+export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open: boolean, onOpenChange: (open: boolean) => void, clients: Client[], onSave: (data: ClientFormData) => void }) => {
   const isMobile = useIsMobile();
   const methods = useForm<ClientFormData>({
     resolver: zodResolver(clientSchema),
@@ -508,32 +515,7 @@ export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open:
   }, [open, reset]);
 
   const handleSaveSubmit = (data: ClientFormData) => {
-    const transformedData: Partial<Client> = {
-      name: data.name,
-      email: data.email,
-      phone: data.phone,
-      avatarUrl: data.avatarUrl,
-      notes: data.notes,
-      birthday: data.birthday ? data.birthday.toISOString() : undefined,
-      address: data.address,
-      emergencyContact: data.emergencyContact,
-      medicalNotes: [
-          ...(data.intel?.medical?.flags || []),
-          data.intel?.medical?.notes || ''
-      ].filter(Boolean).join(', '),
-      allergyNotes: [
-          ...(data.intel?.allergies?.flags || []),
-          data.intel?.allergies?.notes || ''
-      ].filter(Boolean).join(', '),
-      sensoryNeeds: [
-          ...(data.intel?.sensory?.flags || []),
-          data.intel?.sensory?.notes || ''
-      ].filter(Boolean).join(', '),
-      intel: {
-        referralSource: data.intel?.referralSource
-      }
-    };
-    onSave(transformedData);
+    onSave(data);
     onOpenChange(false);
   };
   

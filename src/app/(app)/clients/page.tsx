@@ -26,7 +26,7 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { formatDistanceToNow, subDays, format } from 'date-fns';
 import { Input } from '@/components/ui/input';
-import { AddClientDialog } from '@/components/clients/AddClientDialog';
+import { AddClientDialog, type ClientFormData } from '@/components/clients/AddClientDialog';
 import { MergeClientsDialog } from '@/components/clients/MergeClientsDialog';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { useInventory } from '@/context/InventoryContext';
@@ -169,19 +169,63 @@ export default function ClientsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 8;
   
-  const handleAddClient = (data: Partial<Client>) => {
+  const handleAddClient = (data: ClientFormData) => {
+    const { referringClientId } = data;
+    
     const newClient: Client = {
       id: `cli-${nanoid()}`,
-      name: data.name || 'Unnamed Client',
+      name: data.name,
       email: data.email || '',
       phone: data.phone || '',
       avatarUrl: data.avatarUrl || '',
       lifetimeValue: 0,
       lastAppointment: new Date().toISOString(),
       status: 'active',
-      ...data,
+      notes: data.notes,
+      birthday: data.birthday ? data.birthday.toISOString() : undefined,
+      address: data.address,
+      emergencyContact: data.emergencyContact,
+      medicalNotes: [
+          ...(data.intel?.medical?.flags || []),
+          data.intel?.medical?.notes || ''
+      ].filter(Boolean).join(', '),
+      allergyNotes: [
+          ...(data.intel?.allergies?.flags || []),
+          data.intel?.allergies?.notes || ''
+      ].filter(Boolean).join(', '),
+      sensoryNeeds: [
+          ...(data.intel?.sensory?.flags || []),
+          data.intel?.sensory?.notes || ''
+      ].filter(Boolean).join(', '),
+      intel: {
+        referralSource: data.intel?.referralSource
+      }
     };
-    setClients(prev => [...prev, newClient]);
+    
+    setClients(prevClients => {
+        let updatedClients = [...prevClients];
+        
+        if (referringClientId) {
+            const referrerIndex = updatedClients.findIndex(c => c.id === referringClientId);
+            if (referrerIndex !== -1) {
+                const referrer = { ...updatedClients[referrerIndex] };
+                
+                // Set who referred the new client
+                newClient.referredBy = referrer.name;
+
+                // Update the referrer's profile
+                referrer.successfulReferrals = [...(referrer.successfulReferrals || []), newClient.name];
+                
+                updatedClients[referrerIndex] = referrer;
+            }
+        }
+        
+        // Add the new client
+        updatedClients.push(newClient);
+        
+        return updatedClients;
+    });
+
     toast({
       title: "Client Added",
       description: `${newClient.name} has been added to your client list.`,
@@ -574,5 +618,6 @@ export default function ClientsPage() {
     
 
     
+
 
 
