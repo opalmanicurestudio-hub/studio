@@ -271,14 +271,14 @@ export default function ClientDetailPage() {
     <div className="flex min-h-screen w-full flex-col bg-muted/40">
       <AppHeader title="Client Profile" />
       <main className="flex-1 p-4 md:p-6 space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
                 <Button variant="outline" size="sm" asChild>
                     <Link href="/clients">
                         <ArrowLeft className="h-4 w-4 mr-2" />
                         Back to Clients
                     </Link>
                 </Button>
-                <div className="flex items-center gap-2">
+                <div className="grid grid-cols-2 w-full gap-2 sm:flex sm:w-auto">
                     <Button variant="outline" size="sm" asChild>
                         <Link href={`/clients/${client.id}/report`}>
                             <FileText className="h-4 w-4 mr-2" />
