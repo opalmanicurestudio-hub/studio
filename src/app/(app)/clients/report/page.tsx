@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -44,6 +44,11 @@ const ClientList = ({ clients }: { clients: Client[] }) => (
 
 const ClientLogReportPage = () => {
     const { clients, appointments } = useInventory();
+    const [generationDate, setGenerationDate] = useState<Date | null>(null);
+
+    useEffect(() => {
+        setGenerationDate(new Date());
+    }, []);
 
     const reportData = useMemo(() => {
         const activeClients = clients.filter(c => c.status !== 'archived');
@@ -176,7 +181,7 @@ const ClientLogReportPage = () => {
                         <h1 className="text-3xl font-bold">Client Log Report</h1>
                         <div className="text-sm text-muted-foreground text-right">
                              <p>Report Generated:</p>
-                             <p>{format(new Date(), 'MMM d, yyyy')}</p>
+                             <p>{generationDate ? format(generationDate, 'MMM d, yyyy') : '...'}</p>
                          </div>
                     </div>
                     
@@ -356,6 +361,16 @@ const ClientLogReportPage = () => {
                       }
                       #lifecycle-chart-card {
                         break-inside: avoid;
+                      }
+                      #lifecycle-chart-card .recharts-responsive-container {
+                          width: 200px !important;
+                          height: 200px !important;
+                      }
+                      #lifecycle-chart-card > div {
+                          display: flex !important;
+                          justify-content: center !important;
+                          flex-direction: column !important;
+                          align-items: center !important;
                       }
                     }
                 `}</style>
