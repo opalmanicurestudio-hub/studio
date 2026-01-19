@@ -467,25 +467,25 @@ export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open:
 
   const FormBody = (
     <FormProvider {...methods}>
-        <form id={formId} onSubmit={handleSubmit(handleSaveSubmit)} className="flex-1 flex flex-col min-h-0">
-             <SheetHeader className={isMobile ? "p-4 border-b flex-shrink-0 text-left" : "p-6 pb-4 flex-shrink-0 border-b"}>
-                <SheetTitle>{title}</SheetTitle>
-                <SheetDescription>{description}</SheetDescription>
-            </SheetHeader>
+      <form id={formId} onSubmit={handleSubmit(handleSaveSubmit)} className="flex flex-col flex-1 min-h-0">
+        <DialogHeader className={isMobile ? 'p-4 border-b text-left flex-shrink-0' : 'p-6 pb-4 flex-shrink-0'}>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
 
-            <ScrollArea className="flex-1">
-                <div className="p-6">
-                    <AddClientForm clients={clients} />
-                </div>
-            </ScrollArea>
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <div className="p-6">
+            <AddClientForm clients={clients} />
+          </div>
+        </div>
              
-            <SheetFooter className={cn("flex-shrink-0", isMobile ? "p-4 border-t" : "p-6 border-t")}>
-                <div className={cn("flex w-full", isMobile ? "grid grid-cols-2 gap-2" : "justify-end gap-2")}>
-                    <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
-                    <Button type="submit">Save Client</Button>
-                </div>
-            </SheetFooter>
-        </form>
+        <DialogFooter className={cn("flex-shrink-0", isMobile ? "p-4 border-t" : "p-6 border-t")}>
+          <div className={cn("flex w-full", isMobile ? "grid grid-cols-2 gap-2" : "justify-end gap-2")}>
+            <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
+            <Button type="submit">Save Client</Button>
+          </div>
+        </DialogFooter>
+      </form>
     </FormProvider>
   );
 
