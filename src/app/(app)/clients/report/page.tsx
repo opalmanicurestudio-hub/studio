@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -100,11 +99,13 @@ const ClientLogReportPage = () => {
     const [generationDate, setGenerationDate] = useState<Date | null>(null);
 
     useEffect(() => {
-        setGenerationDate(new Date());
-    }, []);
+        if (!isLoading) {
+            setGenerationDate(new Date());
+        }
+    }, [isLoading]);
 
     const reportData = useMemo(() => {
-        if (!clients || !appointments) {
+        if (!clients || clients.length === 0 || !appointments) {
             return {
                 totalActiveClients: 0,
                 newClientsThisMonth: 0,
@@ -225,6 +226,41 @@ const ClientLogReportPage = () => {
 
     const handlePrint = () => {
         window.print();
+    }
+
+    if (!isLoading && (!clients || clients.length === 0)) {
+        return (
+            <div className="flex min-h-screen w-full flex-col print:hidden">
+                <AppHeader title="Client Log Report" />
+                <main className="flex-1 p-4 md:p-8 space-y-6">
+                    <div className="flex items-center justify-between">
+                        <Button variant="outline" size="sm" asChild>
+                            <Link href="/clients">
+                                <ArrowLeft className="h-4 w-4 mr-2" />
+                                Back to Client Log
+                            </Link>
+                        </Button>
+                    </div>
+                    <Card className="text-center py-20 px-6 mt-8">
+                         <div className='flex justify-center mb-6'>
+                            <div className='w-20 h-20 bg-muted rounded-full flex items-center justify-center'>
+                                <Users className='w-10 h-10 text-muted-foreground' />
+                            </div>
+                        </div>
+                        <h2 className="text-2xl font-semibold">Your Client Report is Waiting</h2>
+                        <p className="text-muted-foreground max-w-lg mx-auto mt-2 mb-6">
+                            Once you add clients and complete appointments, this report will come to life with valuable insights about your business, including your top clients, retention rates, and more.
+                        </p>
+                        <Button asChild>
+                            <Link href="/clients">
+                                <UserPlus className="mr-2 h-4 w-4" />
+                                Add Your First Client
+                            </Link>
+                        </Button>
+                    </Card>
+                </main>
+            </div>
+        );
     }
 
     return (
