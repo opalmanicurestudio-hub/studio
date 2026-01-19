@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useRef } from 'react';
@@ -8,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
-import { ArrowLeft, Printer, BarChart, DollarSign, Package, Store, Hammer, Recycle, TrendingUp, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Printer, BarChart, DollarSign, Package, Store, Hammer, Recycle, TrendingUp, AlertTriangle, Download } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { format, isPast, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -21,6 +20,36 @@ const InventoryReportPage = () => {
 
     const handlePrint = () => {
         window.print();
+    };
+
+    const handleExport = () => {
+        const headers = ['Product Name', 'Category', 'Type', 'Current Stock', 'Cost/Unit', 'Stock Value'];
+        
+        const data = inventory.map(item => [
+            `"${item.name.replace(/"/g, '""')}"`, // Handle quotes in name
+            item.category,
+            item.type,
+            item.totalStock.toString(),
+            (item.costPerUnit || 0).toFixed(2),
+            ((item.totalStock || 0) * (item.costPerUnit || 0)).toFixed(2)
+        ]);
+
+        const csvContent = [
+            headers.join(','),
+            ...data.map(row => row.join(','))
+        ].join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        if (link.href) {
+            URL.revokeObjectURL(link.href);
+        }
+        const url = URL.createObjectURL(blob);
+        link.href = url;
+        link.setAttribute('download', `inventory-stock-details_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     };
 
     const stats = useMemo(() => {
@@ -99,10 +128,16 @@ const InventoryReportPage = () => {
                             Back to Inventory
                         </Link>
                     </Button>
-                    <Button variant="outline" size="sm" onClick={handlePrint}>
-                        <Printer className="h-4 w-4 mr-2" />
-                        Print Report
-                    </Button>
+                    <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" onClick={handleExport}>
+                            <Download className="h-4 w-4 mr-2" />
+                            Export CSV
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={handlePrint}>
+                            <Printer className="h-4 w-4 mr-2" />
+                            Print Report
+                        </Button>
+                    </div>
                 </div>
 
                 <div className="max-w-5xl mx-auto space-y-8" ref={reportRef}>
