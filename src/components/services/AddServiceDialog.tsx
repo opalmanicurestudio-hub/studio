@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -62,7 +63,8 @@ const serviceSchema = z.object({
     equipment: z.array(z.any()).optional(),
     addOns: z.array(z.any()).optional(),
     
-    depositType: z.enum(['none', 'deposit', 'full']),
+    depositType: z.enum(['none', 'deposit', 'full', 'breakeven']),
+    depositSubType: z.enum(['flat', 'percentage']).optional(),
     depositAmount: z.coerce.number().optional(),
     
     price: z.coerce.number().optional(),
@@ -118,6 +120,13 @@ const AddServiceForm = ({
     const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
     const [isEquipmentSelectorOpen, setIsEquipmentSelectorOpen] = useState(false);
     const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
+
+    useEffect(() => {
+        if (depositType === 'breakeven') {
+            setValue('depositAmount', breakEvenCost, { shouldValidate: true });
+            setValue('depositSubType', 'flat', { shouldValidate: true });
+        }
+    }, [depositType, breakEvenCost, setValue]);
 
     const handleProductSelect = (products: InventoryItem[]) => {
       const productsWithQuantity = products.map(p => {
@@ -241,9 +250,37 @@ const AddServiceForm = ({
                     {!isAddon && (
                         <div className="space-y-4 pt-4 border-t">
                             <Label>Deposit Requirement</Label>
-                            <Controller name="depositType" control={control} defaultValue="none" render={({ field }) => (<RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-3 gap-2"><div><RadioGroupItem value="none" id="none" className="peer sr-only" /><Label htmlFor="none" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">None</Label></div><div><RadioGroupItem value="deposit" id="deposit" className="peer sr-only" /><Label htmlFor="deposit" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Deposit</Label></div><div><RadioGroupItem value="full" id="full" className="peer sr-only" /><Label htmlFor="full" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Pay in Full</Label></div></RadioGroup>)}/>
-                            {depositType === 'deposit' && (
-                                <Card className="bg-background"><CardContent className="p-4 space-y-2"><div className="space-y-2"><Label>Deposit Type</Label><Controller name="depositSubType" control={control} render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue placeholder="Select deposit type" /></SelectTrigger><SelectContent><SelectItem value="flat">Flat Rate</SelectItem><SelectItem value="percentage">Percentage</SelectItem></SelectContent></Select>)}/></div><div className="space-y-2"><Label>Deposit Amount</Label><Controller name="depositAmount" control={control} render={({ field }) => (<div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input type="number" placeholder="25.00" {...field} className="pl-8"/></div>)} /></div></CardContent></Card>
+                            <Controller name="depositType" control={control} defaultValue="none" render={({ field }) => (
+                                <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-4">
+                                    <div><RadioGroupItem value="none" id="none" className="peer sr-only" /><Label htmlFor="none" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">None</Label></div>
+                                    <div><RadioGroupItem value="deposit" id="deposit" className="peer sr-only" /><Label htmlFor="deposit" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Deposit</Label></div>
+                                    <div><RadioGroupItem value="breakeven" id="breakeven" className="peer sr-only" /><Label htmlFor="breakeven" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Breakeven<span className="text-xs text-muted-foreground font-normal mt-1">${breakEvenCost.toFixed(2)}</span></Label></div>
+                                    <div><RadioGroupItem value="full" id="full" className="peer sr-only" /><Label htmlFor="full" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Pay in Full</Label></div>
+                                </RadioGroup>
+                            )}/>
+                            {['deposit', 'breakeven'].includes(depositType) && (
+                                <Card className="bg-background"><CardContent className="p-4 space-y-4">
+                                    {depositType === 'deposit' && (
+                                    <div className="space-y-2">
+                                        <Label>Deposit Type</Label>
+                                        <Controller name="depositSubType" control={control} render={({ field }) => (
+                                        <Select onValueChange={field.onChange} value={field.value}>
+                                            <SelectTrigger><SelectValue placeholder="Select deposit type" /></SelectTrigger>
+                                            <SelectContent><SelectItem value="flat">Flat Rate</SelectItem><SelectItem value="percentage">Percentage</SelectItem></SelectContent>
+                                        </Select>
+                                        )}/>
+                                    </div>
+                                    )}
+                                    <div className="space-y-2">
+                                        <Label>Deposit Amount</Label>
+                                        <Controller name="depositAmount" control={control} render={({ field }) => (
+                                        <div className="relative">
+                                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                            <Input type="number" placeholder="25.00" {...field} className="pl-8" disabled={depositType === 'breakeven'}/>
+                                        </div>
+                                        )} />
+                                    </div>
+                                </CardContent></Card>
                             )}
                         </div>
                     )}
@@ -372,6 +409,9 @@ export const AddServiceDialog = ({
         isPrivate: data.isPrivate,
         confirmationMessage: data.confirmationMessage,
         requiredFormIds: data.requiredFormIds,
+        depositType: data.depositType,
+        depositSubType: data.depositSubType,
+        depositAmount: data.depositAmount
       };
       
       onServiceAdded(newService);

@@ -115,6 +115,9 @@ export type Service = {
   confirmationMessage?: string;
   requiredFormIds?: string[];
   status?: 'active' | 'archived';
+  depositType?: 'none' | 'deposit' | 'full' | 'breakeven';
+  depositSubType?: 'flat' | 'percentage';
+  depositAmount?: number;
 };
 
 export type Batch = {
@@ -380,6 +383,7 @@ export const services: Service[] = [
         inventory.find(i => i.id === 'inv-7')!
     ],
     isPrivate: false,
+    depositType: 'none',
   },
   { 
     id: 'svc-2', 
@@ -394,6 +398,7 @@ export const services: Service[] = [
     margin: 94.1,
     imageUrl: 'https://picsum.photos/seed/haircut/200/200',
     isPrivate: true,
+    depositType: 'none',
   },
    { 
     id: 'svc-3', 
@@ -408,6 +413,7 @@ export const services: Service[] = [
     margin: 86.0,
     imageUrl: 'https://picsum.photos/seed/haircolor/200/200',
     isPrivate: false,
+    depositType: 'none',
   },
   { 
     id: 'svc-4', 
@@ -421,6 +427,7 @@ export const services: Service[] = [
     margin: 87.5,
     imageUrl: 'https://picsum.photos/seed/facial/200/200',
     isPrivate: false,
+    depositType: 'none',
   },
   { 
     id: 'svc-5', 
@@ -435,6 +442,7 @@ export const services: Service[] = [
     margin: 85.7,
     imageUrl: 'https://picsum.photos/seed/balayage/200/200',
     isPrivate: false,
+    depositType: 'none',
   },
   { 
     id: 'svc-6', 
@@ -449,6 +457,7 @@ export const services: Service[] = [
     margin: 96.0,
     imageUrl: 'https://picsum.photos/seed/menscut/200/200',
     isPrivate: false,
+    depositType: 'none',
   },
   { 
     id: 'svc-7', 
@@ -464,6 +473,7 @@ export const services: Service[] = [
     margin: 87.4,
     imageUrl: 'https://picsum.photos/seed/gelx/200/200',
     isPrivate: false,
+    depositType: 'none',
   },
   { 
     id: 'svc-8', 
@@ -477,6 +487,7 @@ export const services: Service[] = [
     margin: 94.0,
     imageUrl: 'https://picsum.photos/seed/eyebrow/200/200',
     isPrivate: false,
+    depositType: 'none',
   },
   { 
     id: 'svc-9', 
@@ -491,6 +502,7 @@ export const services: Service[] = [
     margin: 83.3,
     imageUrl: 'https://picsum.photos/seed/root-touchup/200/200',
     isPrivate: false,
+    depositType: 'none',
   },
   { 
     id: 'svc-10', 
@@ -504,6 +516,7 @@ export const services: Service[] = [
     margin: 86.7,
     imageUrl: 'https://picsum.photos/seed/toner/200/200',
     isPrivate: false,
+    depositType: 'none',
   },
   { 
     id: 'svc-11', 
@@ -517,6 +530,7 @@ export const services: Service[] = [
     margin: 91.7,
     imageUrl: 'https://picsum.photos/seed/blowout/200/200',
     isPrivate: false,
+    depositType: 'none',
   },
   { 
     id: 'svc-12', 
@@ -531,6 +545,7 @@ export const services: Service[] = [
     imageUrl: 'https://picsum.photos/seed/updo/200/200',
     isPrivate: false,
     status: 'archived',
+    depositType: 'none',
   },
   { 
     id: 'svc-addon-1', 
