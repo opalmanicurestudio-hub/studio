@@ -225,8 +225,11 @@ const ClientLogReportPage = () => {
                                 <CardTitle>Client Lifecycle Breakdown</CardTitle>
                                 <CardDescription>A snapshot of your client base by engagement.</CardDescription>
                             </CardHeader>
-                            <CardContent>
-                                 <ChartContainer config={lifecycleChartConfig} className="mx-auto aspect-square h-[250px]">
+                            <CardContent className="print:flex print:justify-center">
+                                 <ChartContainer 
+                                    config={lifecycleChartConfig} 
+                                    className="mx-auto aspect-square h-[250px] print:h-[200px] print:w-[200px] print:mx-0"
+                                >
                                     <PieChart>
                                         <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
                                         <Pie data={lifecycleChartData} dataKey="value" nameKey="name" innerRadius={60} strokeWidth={5}>
@@ -341,13 +344,7 @@ const ClientLogReportPage = () => {
                         width: 100%;
                       }
                       #lifecycle-chart-card {
-                        break-inside: avoid; /* Prevent card from splitting across pages */
-                      }
-                      #lifecycle-chart-card .recharts-responsive-container,
-                      #lifecycle-chart-card .recharts-wrapper,
-                      #lifecycle-chart-card svg.recharts-surface {
-                        width: 100% !important;
-                        height: 250px !important;
+                        break-inside: avoid;
                       }
                     }
                 `}</style>
