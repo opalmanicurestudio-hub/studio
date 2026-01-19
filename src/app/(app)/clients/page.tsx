@@ -36,6 +36,7 @@ import { Label } from '@/components/ui/label';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { nanoid } from 'nanoid';
 
 
 const ClientCard = ({ client, isSelected, onSelect }: { client: Client, isSelected: boolean, onSelect: () => void }) => {
@@ -168,6 +169,24 @@ export default function ClientsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 8;
   
+  const handleAddClient = (data: Partial<Client>) => {
+    const newClient: Client = {
+      id: `cli-${nanoid()}`,
+      name: data.name || 'Unnamed Client',
+      email: data.email || '',
+      phone: data.phone || '',
+      avatarUrl: data.avatarUrl || '',
+      lifetimeValue: 0,
+      lastAppointment: new Date().toISOString(),
+      status: 'active',
+      ...data,
+    };
+    setClients(prev => [...prev, newClient]);
+    toast({
+      title: "Client Added",
+      description: `${newClient.name} has been added to your client list.`,
+    })
+  }
 
   const handleItemSelect = useCallback((itemId: string) => {
     setSelectedItems(prev => {
@@ -515,7 +534,7 @@ export default function ClientsPage() {
 
       </main>
 
-      <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients} />
+      <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients} onSave={handleAddClient} />
       <MergeClientsDialog 
         open={isMergeClientsOpen} 
         onOpenChange={setIsMergeClientsOpen} 
@@ -555,4 +574,5 @@ export default function ClientsPage() {
     
 
     
+
 

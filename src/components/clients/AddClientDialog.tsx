@@ -2,7 +2,7 @@
 
 'use client';
 
-import React, { useState, KeyboardEvent } from 'react';
+import React, { useState, KeyboardEvent, useEffect } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
@@ -46,6 +46,39 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ShieldAlert, AlertTriangle, Ear, Upload, CalendarIcon, PlusCircle, Trash2, User, Home, Gift } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Client } from '@/lib/data';
+import { useForm, FormProvider, Controller, useFormContext } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { ImageUpload } from '../shared/ImageUpload';
+import { format } from 'date-fns';
+
+const clientSchema = z.object({
+  name: z.string().min(1, 'Name is required.'),
+  email: z.string().email('Invalid email address.').optional().or(z.literal('')),
+  phone: z.string().optional(),
+  avatarUrl: z.string().optional(),
+  medicalNotes: z.string().optional(),
+  allergyNotes: z.string().optional(),
+  sensoryNeeds: z.string().optional(),
+  notes: z.string().optional(),
+  birthday: z.date().optional(),
+  address: z.object({
+    street: z.string().optional(),
+    city: z.string().optional(),
+    state: z.string().optional(),
+    zip: z.string().optional(),
+    country: z.string().optional(),
+  }).optional(),
+  emergencyContact: z.object({
+      name: z.string().optional(),
+      relationship: z.string().optional(),
+      phone: z.string().optional(),
+  }).optional(),
+  referralSource: z.string().optional(),
+});
+
+type ClientFormData = z.infer<typeof clientSchema>;
+
 
 const ClientIntelCategory = ({
   title,
@@ -155,7 +188,7 @@ const ClientIntelAccordion = () => (
 
 
 const AddClientForm = ({ clients }: { clients: Client[] }) => {
-    const [date, setDate] = useState<Date>();
+    const { register, control, formState: { errors } } = useFormContext<ClientFormData>();
     const [referralSource, setReferralSource] = useState<string>('');
     const [tags, setTags] = useState<string[]>([]);
     const [tagInput, setTagInput] = useState('');
@@ -188,46 +221,62 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                 {/* Section 1: Basic Info */}
                 <div className="space-y-4">
                     <h3 className="text-lg font-medium">Basic Information</h3>
-                    <div className="flex flex-col items-center space-y-4">
-                         <Avatar className="w-24 h-24 text-lg">
-                            <AvatarImage src="" alt="Client Avatar" />
-                            <AvatarFallback><Upload className="h-8 w-8 text-muted-foreground" /></AvatarFallback>
-                        </Avatar>
-                        <Button variant="outline">Upload Photo</Button>
+                     <div className="flex flex-col items-center space-y-4">
+                        <Controller
+                            name="avatarUrl"
+                            control={control}
+                            render={({ field }) => (
+                                <>
+                                <Avatar className="w-24 h-24 text-lg">
+                                    <AvatarImage src={field.value || undefined} alt="Client Avatar" />
+                                    <AvatarFallback><Upload className="h-8 w-8 text-muted-foreground" /></AvatarFallback>
+                                </Avatar>
+                                <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} />
+                                </>
+                            )}
+                        />
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                          <div className="space-y-2">
                             <Label htmlFor="full-name">Full Name</Label>
-                            <Input id="full-name" placeholder="e.g., Jane Doe" required />
+                            <Input id="full-name" placeholder="e.g., Jane Doe" {...register('name')} />
+                            {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="email">Email</Label>
-                            <Input id="email" type="email" placeholder="e.g., jane.doe@example.com" required />
+                            <Input id="email" type="email" placeholder="e.g., jane.doe@example.com" {...register('email')} />
+                            {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
                         </div>
                     </div>
                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
                             <Label htmlFor="phone">Phone Number</Label>
-                            <Input id="phone" type="tel" placeholder="e.g., +1 202-555-0198" />
+                            <Input id="phone" type="tel" placeholder="e.g., +1 202-555-0198" {...register('phone')} />
                         </div>
                          <div className="space-y-2">
                             <Label htmlFor="birthday">Birthday</Label>
-                             <Popover>
-                                <PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), "w-full justify-start text-left font-normal", !date && "text-muted-foreground")}>
-                                  <span className="flex items-center">
-                                    <CalendarIcon className="mr-2 h-4 w-4" />
-                                    {date ? date.toLocaleDateString() : "Pick a date"}
-                                  </span>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0">
-                                <Calendar
-                                    mode="single"
-                                    selected={date}
-                                    onSelect={setDate}
-                                    initialFocus
-                                />
-                                </PopoverContent>
-                            </Popover>
+                             <Controller
+                                name="birthday"
+                                control={control}
+                                render={({ field }) => (
+                                    <Popover>
+                                        <PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), "w-full justify-start text-left font-normal", !field.value && "text-muted-foreground")}>
+                                        <span className="flex items-center">
+                                            <CalendarIcon className="mr-2 h-4 w-4" />
+                                            {field.value ? format(field.value, 'PPP') : "Pick a date"}
+                                        </span>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-auto p-0">
+                                        <Calendar
+                                            mode="single"
+                                            selected={field.value}
+                                            onSelect={field.onChange}
+                                            initialFocus
+                                        />
+                                        </PopoverContent>
+                                    </Popover>
+                                )}
+                            />
                         </div>
                     </div>
                 </div>
@@ -236,15 +285,15 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                     <h3 className="text-lg font-medium flex items-center gap-2"><Home className="w-5 h-5"/>Address</h3>
                     <div className="space-y-2">
                         <Label htmlFor="street">Street Address</Label>
-                        <Input id="street" placeholder="123 Main St" />
+                        <Input id="street" placeholder="123 Main St" {...register('address.street')}/>
                     </div>
                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <Input placeholder="City" />
-                        <Input placeholder="State / Province" />
+                        <Input placeholder="City" {...register('address.city')} />
+                        <Input placeholder="State / Province" {...register('address.state')} />
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                         <Input placeholder="ZIP / Postal Code" />
-                        <Input placeholder="Country" />
+                         <Input placeholder="ZIP / Postal Code" {...register('address.zip')} />
+                        <Input placeholder="Country" {...register('address.country')} />
                     </div>
                 </div>
 
@@ -253,16 +302,16 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                          <div className="space-y-2">
                             <Label htmlFor="emergency-name">Contact Name</Label>
-                            <Input id="emergency-name" placeholder="e.g., John Smith" />
+                            <Input id="emergency-name" placeholder="e.g., John Smith" {...register('emergencyContact.name')} />
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="emergency-phone">Contact Phone</Label>
-                            <Input id="emergency-phone" type="tel" placeholder="e.g., +1 310-555-0187" />
+                            <Input id="emergency-phone" type="tel" placeholder="e.g., +1 310-555-0187" {...register('emergencyContact.phone')} />
                         </div>
                     </div>
                      <div className="space-y-2">
                         <Label htmlFor="emergency-relationship">Relationship</Label>
-                        <Input id="emergency-relationship" placeholder="e.g., Spouse, Parent, Sibling" />
+                        <Input id="emergency-relationship" placeholder="e.g., Spouse, Parent, Sibling" {...register('emergencyContact.relationship')} />
                     </div>
                 </div>
 
@@ -305,17 +354,23 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                     </div>
                     <div className="space-y-2">
                         <Label htmlFor="referral-source">Referral Source</Label>
-                        <Select onValueChange={setReferralSource}>
-                            <SelectTrigger id="referral-source">
-                                <SelectValue placeholder="How did they find you?" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="social-media">Social Media</SelectItem>
-                                <SelectItem value="online-search">Online Search</SelectItem>
-                                <SelectItem value="client-referral">Client Referral</SelectItem>
-                                <SelectItem value="walk-in">Walk-in</SelectItem>
-                            </SelectContent>
-                        </Select>
+                         <Controller
+                            name="referralSource"
+                            control={control}
+                            render={({ field }) => (
+                                <Select onValueChange={(value) => { field.onChange(value); setReferralSource(value); }} value={field.value}>
+                                    <SelectTrigger id="referral-source">
+                                        <SelectValue placeholder="How did they find you?" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="social-media">Social Media</SelectItem>
+                                        <SelectItem value="online-search">Online Search</SelectItem>
+                                        <SelectItem value="client-referral">Client Referral</SelectItem>
+                                        <SelectItem value="walk-in">Walk-in</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            )}
+                        />
                     </div>
                     {referralSource === 'client-referral' && (
                         <div className="space-y-2">
@@ -365,7 +420,13 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                          <AccordionItem value="other" className="border rounded-lg">
                             <AccordionTrigger className="p-3 text-base font-semibold">Other Notes</AccordionTrigger>
                             <AccordionContent className="p-4">
-                                <Textarea placeholder="Any other relevant details, preferences, or notes." />
+                                 <Controller
+                                    name="notes"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <Textarea placeholder="Any other relevant details, preferences, or notes." {...field}/>
+                                    )}
+                                />
                             </AccordionContent>
                         </AccordionItem>
                     </Accordion>
@@ -375,27 +436,59 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
     )
 }
 
-export const AddClientDialog = ({ open, onOpenChange, clients }: { open: boolean, onOpenChange: (open: boolean) => void, clients: Client[] }) => {
+export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open: boolean, onOpenChange: (open: boolean) => void, clients: Client[], onSave: (data: Partial<Client>) => void }) => {
   const isMobile = useIsMobile();
+  const methods = useForm<ClientFormData>({
+    resolver: zodResolver(clientSchema),
+    defaultValues: {
+      name: '',
+      email: '',
+      phone: '',
+    },
+  });
+  
+  const { handleSubmit, reset } = methods;
 
+  useEffect(() => {
+    if(open) {
+        reset();
+    }
+  }, [open, reset]);
+
+  const handleSaveSubmit = (data: ClientFormData) => {
+    onSave(data);
+    onOpenChange(false);
+  };
+  
+  const formId = "add-client-form";
   const title = "Add New Client";
   const description = "Capture all the important details for your new client.";
+
+  const FormContent = (
+    <FormProvider {...methods}>
+        <form id={formId} onSubmit={handleSubmit(handleSaveSubmit)} className="h-full flex flex-col">
+            <div className="flex-1 min-h-0">
+                 <AddClientForm clients={clients} />
+            </div>
+            <div className="p-4 border-t">
+                <SheetFooter className="grid grid-cols-2 gap-2">
+                    <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full" type="button">Cancel</Button>
+                    <Button type="submit" className="w-full">Save Client</Button>
+                </SheetFooter>
+            </div>
+        </form>
+    </FormProvider>
+  );
 
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95dvh] flex flex-col p-0">
+        <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
           <SheetHeader className="text-left p-4">
             <SheetTitle>{title}</SheetTitle>
             <SheetDescription>{description}</SheetDescription>
           </SheetHeader>
-          <div className="flex-1 min-h-0">
-            <AddClientForm clients={clients} />
-          </div>
-          <SheetFooter className="p-4 border-t flex flex-row gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full">Cancel</Button>
-            <Button type="submit" className="w-full">Save Client</Button>
-          </SheetFooter>
+          {FormContent}
         </SheetContent>
       </Sheet>
     );
@@ -403,16 +496,22 @@ export const AddClientDialog = ({ open, onOpenChange, clients }: { open: boolean
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
+      <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col p-0">
+        <DialogHeader className="p-6 pb-0">
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <AddClientForm clients={clients} />
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type="submit">Save Client</Button>
-        </DialogFooter>
+        <FormProvider {...methods}>
+            <form id="desktop-add-client-form" onSubmit={handleSubmit(handleSaveSubmit)} className="flex-1 min-h-0 flex flex-col">
+                <div className="flex-1 min-h-0">
+                    <AddClientForm clients={clients} />
+                </div>
+                 <DialogFooter className="p-6 pt-4 border-t">
+                    <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
+                    <Button type="submit">Save Client</Button>
+                </DialogFooter>
+            </form>
+        </FormProvider>
       </DialogContent>
     </Dialog>
   );
