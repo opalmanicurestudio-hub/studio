@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, KeyboardEvent, useEffect } from 'react';
@@ -267,14 +268,14 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
             {/* Section 1: Basic Info */}
             <div className="space-y-4">
                 <h3 className="text-lg font-medium">Basic Information</h3>
-                 <div className="flex flex-col items-center space-y-4">
+                 <div className="flex flex-row items-center justify-center gap-4">
                     <Controller
                         name="avatarUrl"
                         control={control}
                         render={({ field }) => (
                             <>
                             <Avatar className="w-24 h-24 text-lg">
-                                <AvatarImage src={field.value || undefined} alt="Client Avatar" />
+                                <AvatarImage src={field.value || undefined} alt="Client Avatar" className="object-cover" />
                                 <AvatarFallback><Upload className="h-8 w-8 text-muted-foreground" /></AvatarFallback>
                             </Avatar>
                             <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} />
