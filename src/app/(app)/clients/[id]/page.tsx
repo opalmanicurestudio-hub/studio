@@ -49,7 +49,7 @@ type ClientPhoto = {
 };
 
 const ClientIntelBanner = ({ client }: { client: Client }) => {
-    const hasIntel = client.medicalNotes || client.allergyNotes || client.sensoryNeeds || client.intel?.hasIncidents;
+    const hasIntel = client.intel?.hasIncidents || client.medicalNotes || client.allergyNotes || client.sensoryNeeds;
     if (!hasIntel) return null;
 
     return (
@@ -141,7 +141,7 @@ const AppointmentHistoryCard = ({
         <div className="flex justify-between items-center text-sm pt-3 border-t">
           <span className="text-muted-foreground">Total</span>
           <span className="font-semibold text-lg">
-            ${appointment.service?.price.toFixed(2) || '0.00'}
+            ${(appointment.service?.price || 0).toFixed(2)}
           </span>
         </div>
       </CardContent>
@@ -278,10 +278,18 @@ export default function ClientDetailPage() {
                         Back to Clients
                     </Link>
                 </Button>
-                 <Button variant="outline" size="sm" onClick={() => setIsEditClientOpen(true)}>
-                    <Edit className="h-4 w-4 mr-2" />
-                    Edit Profile
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" asChild>
+                        <Link href={`/clients/${client.id}/report`}>
+                            <FileText className="h-4 w-4 mr-2" />
+                            Generate Report
+                        </Link>
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => setIsEditClientOpen(true)}>
+                        <Edit className="h-4 w-4 mr-2" />
+                        Edit Profile
+                    </Button>
+                </div>
             </div>
             
             <Card>

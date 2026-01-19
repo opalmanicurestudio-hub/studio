@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Search, FileDown, UserPlus, Merge, Users, ShieldPlus, AlertTriangle, Ear, ShieldAlert, BadgeInfo, Ban } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Search, FileDown, UserPlus, Merge, Users, ShieldPlus, AlertTriangle, Ear, ShieldAlert, BadgeInfo, Ban, FileText } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -84,7 +84,9 @@ const ClientCard = ({ client, isSelected, onSelect }: { client: Client, isSelect
                                 <Link href={`/clients/${client.id}`}>View/Edit Details</Link>
                             </DropdownMenuItem>
                             <DropdownMenuItem>Book Appointment</DropdownMenuItem>
-                            <DropdownMenuItem>Generate Report</DropdownMenuItem>
+                            <DropdownMenuItem asChild>
+                                <Link href={`/clients/${client.id}/report`}><FileText className="mr-2 h-4 w-4"/>Generate Report</Link>
+                            </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
                 </div>
@@ -550,3 +552,4 @@ export default function ClientsPage() {
     
 
     
+
