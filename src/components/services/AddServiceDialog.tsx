@@ -326,14 +326,45 @@ export const AddServiceDialog = ({
   const methods = useForm<ServiceFormData>({
     resolver: zodResolver(serviceSchema),
     defaultValues: {
+      name: '',
+      type: 'service',
+      category: '',
+      duration: '',
+      padBefore: '',
+      padAfter: '',
+      description: '',
+      imageUrl: '',
       isPrivate: false,
       isAddon: false,
       products: [],
       equipment: [],
       addOns: [],
+      totalPurchaseCost: '',
+      numUnits: '',
+      shippingCost: '',
+      taxCost: '',
+      discounts: '',
+      costingMethod: 'uses',
+      containerSize: '',
+      containerUnit: undefined,
+      usesPerContainer: '',
+      restockingMarkup: '',
+      msrp: '',
+      markdownPrice: '',
+      supplier: '',
+      sku: '',
+      purchaseLink: '',
+      reorderPoint: '',
+      initialStock: '',
+      expirationDate: undefined,
+      primaryLocationId: undefined,
       depositType: 'none',
+      depositSubType: undefined,
+      depositAmount: '',
       price: 0,
-    }
+      confirmationMessage: '',
+      requiredFormIds: [],
+    },
   });
 
   const { watch } = methods;
@@ -341,7 +372,7 @@ export const AddServiceDialog = ({
   const { duration, padBefore, padAfter, products, equipment } = values;
   const [tmhr, setTmhr] = useState(0);
 
-  const { inventory, consentForms } = useInventory();
+  const { inventory } = useInventory();
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -351,7 +382,46 @@ export const AddServiceDialog = ({
 
   useEffect(() => {
     if (open) {
-      methods.reset({ isAddon: false, isPrivate: false, depositType: 'none', price: 0, products: [], equipment: [], addOns: [] });
+      methods.reset({
+        name: '',
+        type: 'service',
+        category: '',
+        duration: '',
+        padBefore: '',
+        padAfter: '',
+        description: '',
+        imageUrl: '',
+        isPrivate: false,
+        isAddon: false,
+        products: [],
+        equipment: [],
+        addOns: [],
+        totalPurchaseCost: '',
+        numUnits: '',
+        shippingCost: '',
+        taxCost: '',
+        discounts: '',
+        costingMethod: 'uses',
+        containerSize: '',
+        containerUnit: undefined,
+        usesPerContainer: '',
+        restockingMarkup: '',
+        msrp: '',
+        markdownPrice: '',
+        supplier: '',
+        sku: '',
+        purchaseLink: '',
+        reorderPoint: '',
+        initialStock: '',
+        expirationDate: undefined,
+        primaryLocationId: undefined,
+        depositType: 'none',
+        depositSubType: undefined,
+        depositAmount: '',
+        price: 0,
+        confirmationMessage: '',
+        requiredFormIds: [],
+      });
     }
   }, [open, methods]);
 
@@ -378,11 +448,6 @@ export const AddServiceDialog = ({
   
   const handleOpenChange = (isOpen: boolean) => {
     onOpenChange(isOpen);
-    if (!isOpen) {
-        setTimeout(() => {
-            methods.reset();
-        }, 300);
-    }
   }
 
   const onSubmit = (data: ServiceFormData) => {
