@@ -311,15 +311,15 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUp
                         <TabsContent value="performance" className="mt-4">
                             <div className='grid grid-cols-3 gap-2'>
                                 <div className='text-center p-2 rounded-md bg-background'>
-                                    <p className='text-xs text-muted-foreground">Bookings</p>
+                                    <p className="text-xs text-muted-foreground">Bookings</p>
                                     <p className='font-bold text-lg'>{performance.totalBookings}</p>
                                 </div>
                                 <div className='text-center p-2 rounded-md bg-background'>
-                                    <p className='text-xs text-muted-foreground">Revenue</p>
+                                    <p className="text-xs text-muted-foreground">Revenue</p>
                                     <p className='font-bold text-base'>${performance.totalRevenue.toFixed(2)}</p>
                                 </div>
                                 <div className='text-center p-2 rounded-md bg-background'>
-                                    <p className='text-xs text-muted-foreground">Clients</p>
+                                    <p className="text-xs text-muted-foreground">Clients</p>
                                     <p className='font-bold text-lg'>{performance.uniqueClients}</p>
                                 </div>
                             </div>
@@ -701,5 +701,3 @@ export default function ServicesPage() {
     </div>
   );
 }
-
-    
