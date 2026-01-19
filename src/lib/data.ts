@@ -41,7 +41,12 @@ export type Client = {
   lifetimeValue: number;
   lastAppointment: string;
   status?: 'active' | 'archived';
-  notes?: string;
+  notes?: {
+    goals?: string;
+    routine?: string;
+    history?: string;
+    general?: string;
+  };
   customFormulas?: CustomFormula[];
   medicalNotes?: string;
   allergyNotes?: string;
@@ -292,7 +297,9 @@ export const clients: Client[] = [
     lifetimeValue: 2450.75, 
     lastAppointment: '2024-07-19T10:00:00.000Z',
     birthday: '1990-05-15',
-    notes: "Prefers sitting near the window.",
+    notes: {
+        general: "Prefers sitting near the window."
+    },
     customFormulas: [
       {
         name: 'Standard Root Touch-up',

@@ -56,7 +56,12 @@ const clientSchema = z.object({
   medicalNotes: z.string().optional(),
   allergyNotes: z.string().optional(),
   sensoryNeeds: z.string().optional(),
-  notes: z.string().optional(),
+  notes: z.object({
+    goals: z.string().optional(),
+    routine: z.string().optional(),
+    history: z.string().optional(),
+    general: z.string().optional()
+  }).optional(),
   birthday: z.date().optional(),
   address: z.object({
     street: z.string().optional(),
@@ -379,35 +384,29 @@ const EditClientForm = ({ client }: { client: Client }) => {
 
         <div className="space-y-4">
             <h3 className="text-lg font-medium">Consultation Notes</h3>
-             <Accordion type="multiple" className="w-full space-y-2">
+            <Accordion type="multiple" className="w-full space-y-2" defaultValue={['goals', 'routine', 'history', 'general']}>
                 <AccordionItem value="goals" className="border rounded-lg">
                     <AccordionTrigger className="p-3 text-base font-semibold">Client Goals</AccordionTrigger>
                     <AccordionContent className="p-4">
-                        <Textarea placeholder="What is the client hoping to achieve today and in the long term?" />
+                        <Textarea placeholder="What is the client hoping to achieve today and in the long term?" {...register('notes.goals')} />
                     </AccordionContent>
                 </AccordionItem>
-                <AccordionItem value="routine" className="border rounded-lg">
+                 <AccordionItem value="routine" className="border rounded-lg">
                     <AccordionTrigger className="p-3 text-base font-semibold">Current Routine & Products</AccordionTrigger>
                     <AccordionContent className="p-4">
-                        <Textarea placeholder="What products are they currently using? What is their daily maintenance routine?" />
+                        <Textarea placeholder="What products are they currently using? What is their daily maintenance routine?" {...register('notes.routine')} />
                     </AccordionContent>
                 </AccordionItem>
                 <AccordionItem value="history" className="border rounded-lg">
                     <AccordionTrigger className="p-3 text-base font-semibold">Past Service History</AccordionTrigger>
                     <AccordionContent className="p-4">
-                        <Textarea placeholder="Any good or bad experiences with this type of service in the past? What did they like or dislike?" />
+                        <Textarea placeholder="Any good or bad experiences with this type of service in the past? What did they like or dislike?" {...register('notes.history')} />
                     </AccordionContent>
                 </AccordionItem>
                 <AccordionItem value="other" className="border rounded-lg">
                     <AccordionTrigger className="p-3 text-base font-semibold">Other Notes</AccordionTrigger>
                     <AccordionContent className="p-4">
-                        <Controller
-                            name="notes"
-                            control={control}
-                            render={({ field }) => (
-                                <Textarea placeholder="Any other relevant details, preferences, or notes." {...field}/>
-                            )}
-                        />
+                        <Textarea placeholder="Any other relevant details, preferences, or notes." {...register('notes.general')} />
                     </AccordionContent>
                 </AccordionItem>
             </Accordion>
@@ -443,7 +442,7 @@ export const EditClientDialog = ({
         medicalNotes: client.medicalNotes || '',
         allergyNotes: client.allergyNotes || '',
         sensoryNeeds: client.sensoryNeeds || '',
-        notes: client.notes || '',
+        notes: client.notes || {},
         address: client.address || {},
         emergencyContact: client.emergencyContact || {},
       });

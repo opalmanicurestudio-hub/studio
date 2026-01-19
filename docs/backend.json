@@ -148,6 +148,28 @@
                 "phone": { "type": "string" }
             }
         },
+        "notes": {
+          "type": "object",
+          "description": "Consultation and general notes about the client.",
+          "properties": {
+            "goals": {
+              "type": "string",
+              "description": "Client's goals for their service."
+            },
+            "routine": {
+              "type": "string",
+              "description": "Client's current at-home routine and products used."
+            },
+            "history": {
+              "type": "string",
+              "description": "Client's past service history and experiences."
+            },
+            "general": {
+              "type": "string",
+              "description": "General miscellaneous notes about the client."
+            }
+          }
+        },
         "referralCode": {
             "type": "string",
             "description": "Unique, customizable code for the client to share."

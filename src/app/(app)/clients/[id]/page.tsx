@@ -381,8 +381,32 @@ export default function ClientDetailPage() {
                                     </TabsContent>
                                     <TabsContent value="notes" className="m-0">
                                         <CardContent className="p-4 space-y-4">
-                                            <Textarea placeholder="General client notes..." defaultValue={client.notes || ""}/>
-                                            <Button>Save Note</Button>
+                                            <Accordion type="multiple" defaultValue={['goals', 'routine', 'history', 'general']} className="w-full space-y-2">
+                                                <AccordionItem value="goals" className="border-b-0">
+                                                    <AccordionTrigger className="p-3 bg-muted/50 rounded-md hover:no-underline text-base font-semibold">Client Goals</AccordionTrigger>
+                                                    <AccordionContent className="p-4 border rounded-b-md">
+                                                        <p className="text-sm text-muted-foreground whitespace-pre-wrap">{client.notes?.goals || 'No goals noted.'}</p>
+                                                    </AccordionContent>
+                                                </AccordionItem>
+                                                <AccordionItem value="routine" className="border-b-0">
+                                                    <AccordionTrigger className="p-3 bg-muted/50 rounded-md hover:no-underline text-base font-semibold">Current Routine & Products</AccordionTrigger>
+                                                    <AccordionContent className="p-4 border rounded-b-md">
+                                                        <p className="text-sm text-muted-foreground whitespace-pre-wrap">{client.notes?.routine || 'No routine noted.'}</p>
+                                                    </AccordionContent>
+                                                </AccordionItem>
+                                                <AccordionItem value="history" className="border-b-0">
+                                                    <AccordionTrigger className="p-3 bg-muted/50 rounded-md hover:no-underline text-base font-semibold">Past Service History</AccordionTrigger>
+                                                    <AccordionContent className="p-4 border rounded-b-md">
+                                                        <p className="text-sm text-muted-foreground whitespace-pre-wrap">{client.notes?.history || 'No history noted.'}</p>
+                                                    </AccordionContent>
+                                                </AccordionItem>
+                                                <AccordionItem value="general" className="border-b-0">
+                                                    <AccordionTrigger className="p-3 bg-muted/50 rounded-md hover:no-underline text-base font-semibold">Other Notes</AccordionTrigger>
+                                                    <AccordionContent className="p-4 border rounded-b-md">
+                                                        <p className="text-sm text-muted-foreground whitespace-pre-wrap">{client.notes?.general || 'No other notes.'}</p>
+                                                    </AccordionContent>
+                                                </AccordionItem>
+                                            </Accordion>
                                         </CardContent>
                                     </TabsContent>
                                 </Tabs>
