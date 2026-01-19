@@ -466,6 +466,30 @@ export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open:
   const DialogOrSheet = isMobile ? Sheet : Dialog;
   const DialogOrSheetContent = isMobile ? SheetContent : DialogContent;
 
+  const FormBody = (
+    <FormProvider {...methods}>
+        <form id={formId} onSubmit={handleSubmit(handleSaveSubmit)} className="flex-1 flex flex-col min-h-0">
+             <SheetHeader className={isMobile ? "p-4 border-b flex-shrink-0 text-left" : "p-6 pb-4 flex-shrink-0 border-b"}>
+                <SheetTitle>{title}</SheetTitle>
+                <SheetDescription>{description}</SheetDescription>
+            </SheetHeader>
+
+            <ScrollArea className="flex-1">
+                <div className="p-6">
+                    <AddClientForm clients={clients} />
+                </div>
+            </ScrollArea>
+             
+            <SheetFooter className={cn("flex-shrink-0", isMobile ? "p-4 border-t" : "p-6 border-t")}>
+                <div className={cn("flex w-full", isMobile ? "grid grid-cols-2 gap-2" : "justify-end gap-2")}>
+                    <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
+                    <Button type="submit">Save Client</Button>
+                </div>
+            </SheetFooter>
+        </form>
+    </FormProvider>
+  );
+
   return (
     <DialogOrSheet open={open} onOpenChange={onOpenChange}>
       <DialogOrSheetContent
@@ -476,25 +500,7 @@ export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open:
             : "max-w-3xl max-h-[90vh] flex flex-col p-0"
         }
       >
-        <FormProvider {...methods}>
-          <form id={formId} onSubmit={handleSubmit(handleSaveSubmit)} className="flex flex-col h-full">
-            <SheetHeader className={isMobile ? "p-4 border-b flex-shrink-0 text-left" : "p-6 pb-4 flex-shrink-0 border-b"}>
-              <SheetTitle>{title}</SheetTitle>
-              <SheetDescription>{description}</SheetDescription>
-            </SheetHeader>
-            <ScrollArea className="flex-1 min-h-0">
-              <div className={isMobile ? "p-4" : "p-6"}>
-                <AddClientForm clients={clients} />
-              </div>
-            </ScrollArea>
-            <SheetFooter className={cn("flex-shrink-0", isMobile ? "p-4 border-t" : "p-6 border-t")}>
-              <div className={cn("flex w-full", isMobile ? "grid grid-cols-2 gap-2" : "justify-end gap-2")}>
-                  <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
-                  <Button type="submit">Save Client</Button>
-              </div>
-            </SheetFooter>
-          </form>
-        </FormProvider>
+        {FormBody}
       </DialogOrSheetContent>
     </DialogOrSheet>
   );
