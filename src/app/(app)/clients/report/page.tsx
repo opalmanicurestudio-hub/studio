@@ -5,15 +5,18 @@ import React, { useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowLeft, Users, UserPlus, Repeat, DollarSign, Crown, UserCheck, UserX, Gift } from 'lucide-react';
+import { ArrowLeft, Users, UserPlus, Repeat, DollarSign, Crown, UserCheck, UserX, Gift, Download } from 'lucide-react';
 import Link from 'next/link';
 import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { subMonths, isAfter, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns';
+import { subMonths, isAfter, startOfMonth, endOfMonth, isWithinInterval, format } from 'date-fns';
 import { Client } from '@/lib/data';
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
+import { PieChart, Pie, Cell, Tooltip } from 'recharts';
+
 
 const ClientList = ({ clients }: { clients: Client[] }) => (
     <div className="space-y-3">
@@ -86,6 +89,16 @@ const ClientLogReportPage = () => {
             .slice(0, 5)
             .map(([name, count]) => ({ name, count }));
 
+        const clientLifecycle = {
+            new: newClients.filter(c => !atRiskClients.some(ar => ar.id === c.id)).length,
+            returning: activeClients.filter(c => 
+                !newClients.some(nc => nc.id === c.id) && 
+                !atRiskClients.some(ar => ar.id === c.id)
+            ).length,
+            atRisk: atRiskClients.length,
+        };
+
+
         return {
             totalActiveClients: activeClients.length,
             newClientsThisMonth,
@@ -96,8 +109,46 @@ const ClientLogReportPage = () => {
             atRiskClients,
             top10Ltv,
             topReferrers,
+            clientLifecycle
         };
     }, [clients, appointments]);
+
+    const handleExport = (clientList: Client[], filename: string) => {
+        const headers = ['Name', 'Email', 'Phone', 'Lifetime Value', 'Last Seen'];
+        const clientData = clientList.map(client => [
+          client.name,
+          client.email,
+          client.phone,
+          client.lifetimeValue.toString(),
+          format(new Date(client.lastAppointment), 'yyyy-MM-dd')
+        ]);
+
+        const csvContent = [
+          headers.join(','),
+          ...clientData.map(row => row.join(','))
+        ].join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.href = url;
+        link.setAttribute('download', `${filename}_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    const lifecycleChartData = [
+        { name: 'New', value: reportData.clientLifecycle.new, fill: 'var(--color-new)' },
+        { name: 'Returning', value: reportData.clientLifecycle.returning, fill: 'var(--color-returning)' },
+        { name: 'At Risk', value: reportData.clientLifecycle.atRisk, fill: 'var(--color-atRisk)' },
+    ];
+    
+    const lifecycleChartConfig = {
+        new: { label: 'New', color: 'hsl(var(--chart-3))' },
+        returning: { label: 'Returning', color: 'hsl(var(--chart-1))' },
+        atRisk: { label: 'At Risk', color: 'hsl(var(--chart-5))' },
+    };
 
     return (
         <div className="flex min-h-screen w-full flex-col">
@@ -152,6 +203,24 @@ const ClientLogReportPage = () => {
                 </div>
 
                 <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                     <Card>
+                        <CardHeader>
+                            <CardTitle>Client Lifecycle Breakdown</CardTitle>
+                            <CardDescription>A snapshot of your client base by engagement.</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                             <ChartContainer config={lifecycleChartConfig} className="mx-auto aspect-square h-[250px]">
+                                <PieChart>
+                                    <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
+                                    <Pie data={lifecycleChartData} dataKey="value" nameKey="name" innerRadius={60} strokeWidth={5}>
+                                        {lifecycleChartData.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={entry.fill} />
+                                        ))}
+                                    </Pie>
+                                </PieChart>
+                            </ChartContainer>
+                        </CardContent>
+                    </Card>
                     <Card className="lg:col-span-2">
                         <CardHeader>
                             <CardTitle>Client Segments</CardTitle>
@@ -165,26 +234,35 @@ const ClientLogReportPage = () => {
                                     <TabsTrigger value="at-risk"><UserX className="w-4 h-4 mr-2" />At Risk</TabsTrigger>
                                 </TabsList>
                                 <TabsContent value="vip" className="mt-4">
-                                    <p className="text-sm text-muted-foreground mb-4">Your top 10% of clients by lifetime value.</p>
+                                    <div className="flex justify-between items-center mb-4">
+                                        <p className="text-sm text-muted-foreground">Your top 10% of clients by lifetime value.</p>
+                                        <Button variant="outline" size="sm" onClick={() => handleExport(reportData.vipClients, 'vip-clients')}><Download className="w-4 h-4 mr-2"/>Export</Button>
+                                    </div>
                                     <ClientList clients={reportData.vipClients} />
                                 </TabsContent>
                                 <TabsContent value="new" className="mt-4">
-                                     <p className="text-sm text-muted-foreground mb-4">Clients who have only had one appointment.</p>
+                                    <div className="flex justify-between items-center mb-4">
+                                        <p className="text-sm text-muted-foreground">Clients who have only had one appointment.</p>
+                                        <Button variant="outline" size="sm" onClick={() => handleExport(reportData.newClients, 'new-clients')}><Download className="w-4 h-4 mr-2"/>Export</Button>
+                                    </div>
                                      <ClientList clients={reportData.newClients} />
                                 </TabsContent>
                                 <TabsContent value="at-risk" className="mt-4">
-                                     <p className="text-sm text-muted-foreground mb-4">Clients not seen in the last 3 months.</p>
+                                    <div className="flex justify-between items-center mb-4">
+                                        <p className="text-sm text-muted-foreground">Clients not seen in the last 3 months.</p>
+                                        <Button variant="outline" size="sm" onClick={() => handleExport(reportData.atRiskClients, 'at-risk-clients')}><Download className="w-4 h-4 mr-2"/>Export</Button>
+                                    </div>
                                      <ClientList clients={reportData.atRiskClients} />
                                 </TabsContent>
                             </Tabs>
                         </CardContent>
                     </Card>
 
-                    <Card>
+                    <Card className="lg:col-span-3">
                          <CardHeader>
                             <CardTitle>Leaderboards</CardTitle>
                         </CardHeader>
-                        <CardContent className="space-y-6">
+                        <CardContent className="grid gap-6 md:grid-cols-2">
                             <div>
                                 <h4 className="font-semibold text-sm mb-2 flex items-center gap-2"><Crown className="w-4 h-4 text-amber-500" />Top 10 by Lifetime Value</h4>
                                 <Table>
