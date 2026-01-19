@@ -462,58 +462,40 @@ export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open:
   const formId = "add-client-form";
   const title = "Add New Client";
   const description = "Capture all the important details for your new client.";
-
-  if (isMobile) {
-    return (
-      <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
-          <SheetHeader className="p-4 border-b text-left">
-            <SheetTitle>{title}</SheetTitle>
-            <SheetDescription>{description}</SheetDescription>
-          </SheetHeader>
-            <FormProvider {...methods}>
-                <form id={formId} onSubmit={handleSubmit(handleSaveSubmit)} className="flex-1 flex flex-col min-h-0">
-                    <ScrollArea className="flex-1">
-                        <div className="p-4">
-                            <AddClientForm clients={clients} />
-                        </div>
-                    </ScrollArea>
-                    <div className="p-4 border-t bg-background">
-                        <SheetFooter>
-                            <div className="grid grid-cols-2 gap-2 w-full">
-                                <Button variant="outline" onClick={() => onOpenChange(false)} type="button" className="w-full">Cancel</Button>
-                                <Button type="submit" className="w-full">Save Client</Button>
-                            </div>
-                        </SheetFooter>
-                    </div>
-                </form>
-            </FormProvider>
-        </SheetContent>
-      </Sheet>
-    );
-  }
+  
+  const DialogOrSheet = isMobile ? Sheet : Dialog;
+  const DialogOrSheetContent = isMobile ? SheetContent : DialogContent;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col p-0">
-        <DialogHeader className="p-6 pb-4">
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
+    <DialogOrSheet open={open} onOpenChange={onOpenChange}>
+      <DialogOrSheetContent
+        side={isMobile ? 'bottom' : undefined}
+        className={
+          isMobile
+            ? "h-[95vh] flex flex-col p-0"
+            : "max-w-3xl max-h-[90vh] flex flex-col p-0"
+        }
+      >
         <FormProvider {...methods}>
-            <form id="desktop-add-client-form" onSubmit={handleSubmit(handleSaveSubmit)} className="flex-1 min-h-0 flex flex-col">
-                <ScrollArea className="flex-1">
-                     <div className="px-6">
-                        <AddClientForm clients={clients} />
-                    </div>
-                </ScrollArea>
-                 <DialogFooter className="p-6 pt-4 border-t">
-                    <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
-                    <Button type="submit">Save Client</Button>
-                </DialogFooter>
-            </form>
+          <form id={formId} onSubmit={handleSubmit(handleSaveSubmit)} className="flex flex-col h-full">
+            <SheetHeader className={isMobile ? "p-4 border-b flex-shrink-0 text-left" : "p-6 pb-4 flex-shrink-0 border-b"}>
+              <SheetTitle>{title}</SheetTitle>
+              <SheetDescription>{description}</SheetDescription>
+            </SheetHeader>
+            <ScrollArea className="flex-1">
+              <div className={isMobile ? "p-4" : "p-6"}>
+                <AddClientForm clients={clients} />
+              </div>
+            </ScrollArea>
+            <SheetFooter className={cn("flex-shrink-0", isMobile ? "p-4 border-t" : "p-6 border-t")}>
+              <div className={cn("flex w-full", isMobile ? "grid grid-cols-2 gap-2" : "justify-end gap-2")}>
+                  <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
+                  <Button type="submit">Save Client</Button>
+              </div>
+            </SheetFooter>
+          </form>
         </FormProvider>
-      </DialogContent>
-    </Dialog>
+      </DialogOrSheetContent>
+    </DialogOrSheet>
   );
 };
