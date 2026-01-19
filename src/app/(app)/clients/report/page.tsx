@@ -1,277 +1,117 @@
+
 'use client';
 
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowLeft, Users, UserPlus, Repeat, DollarSign, Crown, UserCheck, UserX, Gift, Download, Printer } from 'lucide-react';
+import { notFound, useParams } from 'next/navigation';
 import Link from 'next/link';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { subMonths, isAfter, startOfMonth, endOfMonth, isWithinInterval, format } from 'date-fns';
-import { Client, type Appointment } from '@/lib/data';
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
-import { PieChart, Pie, Cell, Tooltip } from 'recharts';
-import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
-import { collection } from 'firebase/firestore';
+import { ArrowLeft, Printer, Sparkles, Loader, User, Calendar, DollarSign, AlertTriangle, FileText, FlaskConical, Gift } from 'lucide-react';
+import { useInventory } from '@/context/InventoryContext';
+import { format, formatDistanceToNow } from 'date-fns';
+import { Separator } from '@/components/ui/separator';
+import { generateClientReport } from '@/ai/flows/generate-client-report';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import type { Client, Appointment, Service } from '@/lib/data';
+import { cn } from '@/lib/utils';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { ClientOnly } from '@/components/shared/ClientOnly';
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
+import { Cell, Pie, PieChart } from 'recharts';
 
-
-const ClientList = ({ clients, isLoading }: { clients: Client[], isLoading?: boolean }) => {
-    if (isLoading) {
-        return (
-            <div className="space-y-3">
-                {[...Array(3)].map((_, i) => (
-                    <div key={i} className="flex items-center gap-3 p-2 bg-muted/50 rounded-md">
-                        <Skeleton className="h-9 w-9 rounded-full" />
-                        <div className="flex-1 space-y-1.5">
-                            <Skeleton className="h-4 w-2/4" />
-                            <Skeleton className="h-3 w-3/4" />
-                        </div>
-                        <div className="text-right">
-                           <Skeleton className="h-4 w-16" />
-                           <Skeleton className="h-3 w-8 mt-1" />
-                        </div>
-                    </div>
-                ))}
-            </div>
-        )
-    }
-    
-    if (clients.length === 0) {
-        return <p className="text-sm text-center text-muted-foreground p-4">No clients in this segment.</p>
-    }
-
-    return (
-        <div className="space-y-3">
-            {clients.map(client => (
-                <div key={client.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
-                    <div className="flex items-center gap-3">
-                        <Avatar className="h-9 w-9">
-                            <AvatarImage src={client.avatarUrl} alt={client.name} />
-                            <AvatarFallback>{client.name.charAt(0)}</AvatarFallback>
-                        </Avatar>
-                        <div>
-                            <Link href={`/clients/${client.id}`} className="font-semibold text-sm hover:underline">{client.name}</Link>
-                            <p className="text-xs text-muted-foreground">{client.email}</p>
-                        </div>
-                    </div>
-                    <div className="text-right">
-                        <p className="font-mono text-sm">${client.lifetimeValue.toFixed(2)}</p>
-                        <p className="text-xs text-muted-foreground">LTV</p>
-                    </div>
-                </div>
-            ))}
-        </div>
-    );
-}
-
-
-const ClientLogReportPage = () => {
-    const { firestore, user, isUserLoading } = useFirebase();
-    const tenantId = 'tenant-abc';
-    
-    const clientsQuery = useMemoFirebase(() => {
-        if (!firestore || !user) return null;
-        return collection(firestore, 'tenants', tenantId, 'clients');
-    }, [firestore, user, tenantId]);
-
-    const appointmentsQuery = useMemoFirebase(() => {
-        if (!firestore || !user) return null;
-        return collection(firestore, 'tenants', tenantId, 'appointments');
-    }, [firestore, user, tenantId]);
-
-    const { data: clients, isLoading: clientsLoading } = useCollection<Client>(clientsQuery);
-    const { data: rawAppointments, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
-
-    const appointments = useMemo(() => {
-        if (!rawAppointments) return [];
-        return rawAppointments.map(apt => ({
-            ...apt,
-            startTime: apt.startTime ? new Date(apt.startTime) : new Date(),
-            endTime: apt.endTime ? new Date(apt.endTime) : new Date(),
-        }));
-    }, [rawAppointments]);
-
-    const isLoading = isUserLoading || clientsLoading || appointmentsLoading;
+const ClientReportPage = () => {
+    const params = useParams<{ id: string }>();
+    const { clients, appointments, services } = useInventory();
+    const [aiSummary, setAiSummary] = useState<{ summary: string; talkingPoints: string[] } | null>(null);
+    const [isPageLoading, setIsPageLoading] = useState(true);
+    const [isLoadingAi, setIsLoadingAi] = useState(false);
+    const [aiError, setAiError] = useState<string | null>(null);
     const [generationDate, setGenerationDate] = useState<Date | null>(null);
 
+    const client = useMemo(() => clients.find((c) => c.id === params.id), [clients, params.id]);
+    
+    const clientAppointments = useMemo(() => {
+        if (!client) return [];
+        return appointments
+            .filter(apt => apt.clientId === client.id)
+            .sort((a,b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+    }, [client, appointments]);
+
     useEffect(() => {
-        if (!isLoading) {
+        if (client) {
+            setIsPageLoading(false);
             setGenerationDate(new Date());
         }
-    }, [isLoading]);
+    }, [client]);
 
-    const reportData = useMemo(() => {
-        if (!clients || clients.length === 0 || !appointments) {
-            return {
-                totalActiveClients: 0,
-                newClientsThisMonth: 0,
-                retentionRate: 0,
-                averageLTV: 0,
-                vipClients: [],
-                newClients: [],
-                atRiskClients: [],
-                top10Ltv: [],
-                topReferrers: [],
-                clientLifecycle: { newClients: 0, returningClients: 0, atRiskClients: 0 }
-            };
+    const handleGenerateReport = async () => {
+        if (!client) return;
+
+        setIsLoadingAi(true);
+        setAiError(null);
+        setAiSummary(null);
+
+        try {
+            const firstAppointment = clientAppointments.length > 0 ? clientAppointments[clientAppointments.length - 1].startTime : new Date();
+
+            const report = await generateClientReport({
+                clientName: client.name,
+                totalAppointments: clientAppointments.filter(a => a.status === 'completed').length,
+                lifetimeValue: client.lifetimeValue,
+                lastSeen: formatDistanceToNow(new Date(client.lastAppointment), { addSuffix: true }),
+                memberSince: format(new Date(firstAppointment), 'MMMM yyyy'),
+                hasIncidents: !!client.intel?.hasIncidents,
+                hasAllergies: !!client.allergyNotes,
+                hasMedicalNotes: !!client.medicalNotes,
+                clientNotes: JSON.stringify(client.notes),
+            });
+            setAiSummary(report);
+        } catch (error: any) {
+            console.error("Failed to generate AI report:", error);
+            setAiError("Failed to generate summary. You may have exceeded your API quota. Please try again later.");
+        } finally {
+            setIsLoadingAi(false);
         }
-
-        const activeClients = clients.filter(c => c.status !== 'archived');
-        const now = new Date();
-        const threeMonthsAgo = subMonths(now, 3);
-        const currentMonthInterval = { start: startOfMonth(now), end: endOfMonth(now) };
-
-        const clientAppointmentCounts = activeClients.reduce((acc, client) => {
-            acc[client.id] = appointments.filter(apt => apt.clientId === client.id).length;
-            return acc;
-        }, {} as Record<string, number>);
-
-        const newClientsThisMonth = activeClients.filter(client => {
-            const firstAppointment = appointments
-                .filter(apt => apt.clientId === client.id)
-                .sort((a,b) => a.startTime.getTime() - b.startTime.getTime())[0];
-            return firstAppointment && isWithinInterval(firstAppointment.startTime, currentMonthInterval);
-        }).length;
-        
-        const returningClientsCount = activeClients.filter(c => (clientAppointmentCounts[c.id] || 0) > 1).length;
-        const retentionRate = activeClients.length > 0 ? (returningClientsCount / activeClients.length) * 100 : 0;
-        
-        const averageLTV = activeClients.length > 0 ? activeClients.reduce((acc, c) => acc + c.lifetimeValue, 0) / activeClients.length : 0;
-        
-        const sortedByLtv = [...activeClients].sort((a, b) => b.lifetimeValue - a.lifetimeValue);
-        const vipClientCount = Math.ceil(sortedByLtv.length * 0.1);
-        const vipClients = sortedByLtv.slice(0, vipClientCount);
-
-        const newClients = activeClients.filter(c => (clientAppointmentCounts[c.id] || 0) <= 1);
-        const atRiskClients = activeClients.filter(c => isAfter(threeMonthsAgo, new Date(c.lastAppointment)));
-        
-        const top10Ltv = sortedByLtv.slice(0, 10);
-        
-        const referralCounts = activeClients.reduce((acc, client) => {
-            if (client.referredBy) {
-                acc[client.referredBy] = (acc[client.referredBy] || 0) + 1;
-            }
-            return acc;
-        }, {} as Record<string, number>);
-        
-        const topReferrers = Object.entries(referralCounts)
-            .sort(([, a], [, b]) => b - a)
-            .slice(0, 5)
-            .map(([name, count]) => ({ name, count }));
-
-        const clientLifecycle = {
-            newClients: newClients.filter(c => !atRiskClients.some(ar => ar.id === c.id)).length,
-            returningClients: activeClients.filter(c => 
-                !newClients.some(nc => nc.id === c.id) && 
-                !atRiskClients.some(ar => ar.id === c.id)
-            ).length,
-            atRiskClients: atRiskClients.length,
-        };
-
-
-        return {
-            totalActiveClients: activeClients.length,
-            newClientsThisMonth,
-            retentionRate,
-            averageLTV,
-            vipClients,
-            newClients,
-            atRiskClients,
-            top10Ltv,
-            topReferrers,
-            clientLifecycle
-        };
-    }, [clients, appointments]);
-
-    const handleExport = (clientList: Client[], filename: string) => {
-        const headers = ['Name', 'Email', 'Phone', 'Lifetime Value', 'Last Seen'];
-        const clientData = clientList.map(client => [
-          client.name,
-          client.email,
-          client.phone,
-          client.lifetimeValue.toString(),
-          format(new Date(client.lastAppointment), 'yyyy-MM-dd')
-        ]);
-
-        const csvContent = [
-          headers.join(','),
-          ...clientData.map(row => row.join(','))
-        ].join('\n');
-
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        const url = URL.createObjectURL(blob);
-        link.href = url;
-        link.setAttribute('download', `${filename}_${new Date().toISOString().split('T')[0]}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
     };
 
-    const lifecycleChartData = [
-        { name: 'newClients', value: reportData.clientLifecycle.newClients, fill: 'var(--color-newClients)' },
-        { name: 'returningClients', value: reportData.clientLifecycle.returningClients, fill: 'var(--color-returningClients)' },
-        { name: 'atRiskClients', value: reportData.clientLifecycle.atRiskClients, fill: 'var(--color-atRiskClients)' },
-    ];
+    if (isPageLoading) {
+      return (
+        <div className="flex min-h-screen w-full flex-col bg-muted/40">
+          <AppHeader title="Client Report" />
+          <main className="flex-1 p-4 md:p-8 flex justify-center items-center">
+            <Loader className="h-8 w-8 animate-spin" />
+          </main>
+        </div>
+      );
+    }
+
+    if (!client) {
+        return notFound();
+    }
     
-    const lifecycleChartConfig = {
-        newClients: { label: 'New', color: 'hsl(var(--chart-3))' },
-        returningClients: { label: 'Returning', color: 'hsl(var(--chart-1))' },
-        atRiskClients: { label: 'At Risk', color: 'hsl(var(--chart-5))' },
-    };
-
     const handlePrint = () => {
         window.print();
-    }
+    };
 
-    if (!isLoading && (!clients || clients.length === 0)) {
-        return (
-            <div className="flex min-h-screen w-full flex-col print:hidden">
-                <AppHeader title="Client Log Report" />
-                <main className="flex-1 p-4 md:p-8 space-y-6">
-                    <div className="flex items-center justify-between">
-                        <Button variant="outline" size="sm" asChild>
-                            <Link href="/clients">
-                                <ArrowLeft className="h-4 w-4 mr-2" />
-                                Back to Client Log
-                            </Link>
-                        </Button>
-                    </div>
-                    <Card className="text-center py-20 px-6 mt-8">
-                         <div className='flex justify-center mb-6'>
-                            <div className='w-20 h-20 bg-muted rounded-full flex items-center justify-center'>
-                                <Users className='w-10 h-10 text-muted-foreground' />
-                            </div>
-                        </div>
-                        <h2 className="text-2xl font-semibold">Your Client Report is Waiting</h2>
-                        <p className="text-muted-foreground max-w-lg mx-auto mt-2 mb-6">
-                            Once you add clients and complete appointments, this report will come to life with valuable insights about your business, including your top clients, retention rates, and more.
-                        </p>
-                        <Button asChild>
-                            <Link href="/clients">
-                                <UserPlus className="mr-2 h-4 w-4" />
-                                Add Your First Client
-                            </Link>
-                        </Button>
-                    </Card>
-                </main>
-            </div>
-        );
-    }
+    const statusConfig = {
+        completed: 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300',
+        confirmed: 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300',
+        cancelled: 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300',
+        deposit_pending: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300',
+    };
 
     return (
-        <div className="flex min-h-screen w-full flex-col print:bg-white">
-            <AppHeader title="Client Log Report" />
+        <div className="flex min-h-screen w-full flex-col bg-muted/40 print:bg-white">
+            <AppHeader title="Client Report" />
             <main className="flex-1 p-4 md:p-8 space-y-6">
                 <div className="flex items-center justify-between print:hidden">
                     <Button variant="outline" size="sm" asChild>
-                        <Link href="/clients">
+                        <Link href={`/clients/${client.id}`}>
                             <ArrowLeft className="h-4 w-4 mr-2" />
-                            Back to Client Log
+                            Back to Profile
                         </Link>
                     </Button>
                     <Button variant="outline" size="sm" onClick={handlePrint}>
@@ -280,195 +120,188 @@ const ClientLogReportPage = () => {
                     </Button>
                 </div>
 
-                <div id="print-area" className="max-w-4xl mx-auto bg-card p-8 rounded-lg border shadow-sm print:shadow-none print:p-0">
-                    <div className="flex justify-between items-center mb-8">
-                        <h1 className="text-3xl font-bold">Client Log Report</h1>
-                        <div className="text-sm text-muted-foreground text-right">
+                <div id="print-area" className="max-w-4xl mx-auto bg-card p-8 rounded-lg shadow-sm print:shadow-none print:p-0">
+                    <div className="flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-4 sm:gap-6 mb-8">
+                        <Avatar className="w-24 h-24 text-xl border mx-auto sm:mx-0">
+                            <AvatarImage src={client.avatarUrl} alt={client.name} />
+                            <AvatarFallback>{client.name.substring(0, 2)}</AvatarFallback>
+                        </Avatar>
+                        <div className="space-y-1 flex-1">
+                            <h1 className="text-3xl font-bold">{client.name}</h1>
+                            <p className="text-muted-foreground">{client.email}</p>
+                            <p className="text-muted-foreground">{client.phone}</p>
+                        </div>
+                         <div className="text-sm text-muted-foreground text-center sm:text-right">
                              <p>Report Generated:</p>
-                             {generationDate ? <p>{format(generationDate, 'MMM d, yyyy')}</p> : <Skeleton className="h-4 w-24" />}
+                             {generationDate ? <p>{format(generationDate, 'MMM d, yyyy')}</p> : <Skeleton className="h-4 w-24"/>}
                          </div>
                     </div>
                     
-                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 print:grid-cols-4 mb-8">
+                    <Card className="bg-primary/5 border-primary/20">
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2 text-primary">
+                                <Sparkles className="h-5 w-5" /> AI-Powered Summary
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            {isLoadingAi ? (
+                                <div className="space-y-4">
+                                    <div className="space-y-2">
+                                        <Skeleton className="h-4 w-full" />
+                                        <Skeleton className="h-4 w-5/6" />
+                                    </div>
+                                    <Separator />
+                                    <div className="space-y-2">
+                                        <Skeleton className="h-4 w-1/2" />
+                                        <Skeleton className="h-4 w-2/3" />
+                                    </div>
+                                </div>
+                            ) : aiError ? (
+                                <Alert variant="destructive">
+                                    <AlertTriangle className="h-4 w-4" />
+                                    <AlertTitle>Error Generating Report</AlertTitle>
+                                    <AlertDescription>
+                                        {aiError}
+                                        <Button variant="link" onClick={handleGenerateReport} className="p-0 h-auto mt-2">Try Again</Button>
+                                    </AlertDescription>
+                                </Alert>
+                            ) : aiSummary ? (
+                                <>
+                                    <p className="text-sm">{aiSummary.summary}</p>
+                                    <Separator />
+                                    <h4 className="font-semibold">Talking Points</h4>
+                                    <ul className="list-disc list-inside space-y-1 text-sm">
+                                        {aiSummary.talkingPoints.map((point, index) => (
+                                            <li key={index}>{point}</li>
+                                        ))}
+                                    </ul>
+                                    <Button variant="ghost" size="sm" onClick={handleGenerateReport} className="w-full mt-2">
+                                        <Sparkles className="w-4 h-4 mr-2" /> Regenerate
+                                    </Button>
+                                </>
+                            ) : (
+                                <div className="text-center p-4">
+                                    <p className="text-sm text-muted-foreground mb-4">Generate an AI summary and talking points for this client.</p>
+                                    <Button onClick={handleGenerateReport}>
+                                        <Sparkles className="w-4 h-4 mr-2" />
+                                        Generate Report
+                                    </Button>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                    <div className="grid md:grid-cols-3 gap-6 my-8">
                         <Card>
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium">Total Active Clients</CardTitle>
-                                <Users className="h-4 w-4 text-muted-foreground" />
-                            </CardHeader>
-                            <CardContent>
-                                {isLoading ? <Skeleton className="h-8 w-20" /> : <div className="text-2xl font-bold">{reportData.totalActiveClients}</div>}
+                            <CardHeader className="pb-2"><CardTitle className="text-base font-medium flex items-center gap-2"><DollarSign/>Financials</CardTitle></CardHeader>
+                            <CardContent className="space-y-1 text-sm">
+                                <div className="flex justify-between"><span>Lifetime Value:</span> <span className="font-semibold">${client.lifetimeValue.toFixed(2)}</span></div>
+                                <div className="flex justify-between"><span>Avg. Spend/Apt:</span> <span className="font-semibold">${(client.lifetimeValue / (clientAppointments.length || 1)).toFixed(2)}</span></div>
                             </CardContent>
                         </Card>
-                        <Card>
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium">New Clients (This Month)</CardTitle>
-                                <UserPlus className="h-4 w-4 text-muted-foreground" />
-                            </CardHeader>
-                            <CardContent>
-                                {isLoading ? <Skeleton className="h-8 w-20" /> : <div className="text-2xl font-bold">+{reportData.newClientsThisMonth}</div>}
+                         <Card>
+                            <CardHeader className="pb-2"><CardTitle className="text-base font-medium flex items-center gap-2"><Calendar/>Activity</CardTitle></CardHeader>
+                            <CardContent className="space-y-1 text-sm">
+                                <div className="flex justify-between"><span>Total Appointments:</span> <span className="font-semibold">{clientAppointments.length}</span></div>
+                                <div className="flex justify-between"><span>Last Seen:</span> <span className="font-semibold">{formatDistanceToNow(new Date(client.lastAppointment), { addSuffix: true })}</span></div>
                             </CardContent>
                         </Card>
-                        <Card>
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium">Client Retention Rate</CardTitle>
-                                <Repeat className="h-4 w-4 text-muted-foreground" />
-                            </CardHeader>
-                            <CardContent>
-                                {isLoading ? <Skeleton className="h-8 w-20" /> : <div className="text-2xl font-bold">{reportData.retentionRate.toFixed(0)}%</div>}
-                            </CardContent>
-                        </Card>
-                        <Card>
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium">Average LTV</CardTitle>
-                                <DollarSign className="h-4 w-4 text-muted-foreground" />
-                            </CardHeader>
-                            <CardContent>
-                                {isLoading ? <Skeleton className="h-8 w-28" /> : <div className="text-2xl font-bold">${reportData.averageLTV.toFixed(2)}</div>}
+                         <Card>
+                            <CardHeader className="pb-2"><CardTitle className="text-base font-medium flex items-center gap-2"><AlertTriangle/>Alerts</CardTitle></CardHeader>
+                            <CardContent className="space-y-1 text-sm">
+                                <div className="flex justify-between"><span>Medical Notes:</span> <Badge variant={client.medicalNotes ? 'destructive' : 'secondary'}>{client.medicalNotes ? 'Yes' : 'No'}</Badge></div>
+                                <div className="flex justify-between"><span>Allergies:</span> <Badge variant={client.allergyNotes ? 'destructive' : 'secondary'}>{client.allergyNotes ? 'Yes' : 'No'}</Badge></div>
+                                <div className="flex justify-between"><span>Incidents:</span> <Badge variant={client.intel?.hasIncidents ? 'destructive' : 'secondary'}>{client.intel?.hasIncidents ? 'Yes' : 'No'}</Badge></div>
                             </CardContent>
                         </Card>
                     </div>
+                    
+                    <div className="space-y-6">
+                        <div>
+                            <h2 className="text-xl font-semibold mb-4">Appointment History</h2>
+                            <div className="border rounded-lg">
+                                {clientAppointments.slice(0, 5).map((apt, index) => {
+                                    const service = services.find(s => s.id === apt.serviceId);
+                                    return (
+                                        <div key={apt.id} className={`p-4 ${index < 4 ? 'border-b' : ''}`}>
+                                            <div className="flex justify-between items-center">
+                                                <div>
+                                                    <p className="font-semibold">{service?.name || 'Unknown Service'}</p>
+                                                    <p className="text-sm text-muted-foreground">{format(new Date(apt.startTime), 'MMMM d, yyyy')}</p>
+                                                </div>
+                                                <Badge
+                                                    variant="secondary"
+                                                    className={cn(
+                                                        'capitalize',
+                                                        statusConfig[apt.status as keyof typeof statusConfig] || 'bg-gray-100 text-gray-800'
+                                                    )}
+                                                    >
+                                                    {apt.status.replace('_', ' ')}
+                                                </Badge>
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                                {clientAppointments.length === 0 && <p className="p-4 text-center text-muted-foreground">No appointment history.</p>}
+                            </div>
+                        </div>
 
-                    <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 print:grid-cols-3">
-                         <Card id="lifecycle-chart-card">
-                            <CardHeader>
-                                <CardTitle>Client Lifecycle Breakdown</CardTitle>
-                                <CardDescription>A snapshot of your client base by engagement.</CardDescription>
-                            </CardHeader>
-                            <CardContent className="print:flex print:flex-col print:items-center">
-                                {isLoading ? <Skeleton className="mx-auto aspect-square h-[250px] rounded-full" /> : (
-                                 <ChartContainer 
-                                    config={lifecycleChartConfig} 
-                                    className="mx-auto aspect-square h-[250px] print:h-[200px] print:w-[200px]"
-                                >
-                                    <PieChart>
-                                        <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-                                        <Pie data={lifecycleChartData} dataKey="value" nameKey="name" innerRadius={60} strokeWidth={5}>
-                                            {lifecycleChartData.map((entry, index) => (
-                                                <Cell key={`cell-${index}`} fill={entry.fill} />
+                         <div>
+                            <h2 className="text-xl font-semibold mb-4">Saved Formulas</h2>
+                            <div className="space-y-4">
+                                {(client.customFormulas || []).map((formula, index) => (
+                                    <Card key={index}>
+                                        <CardHeader className="pb-2">
+                                            <CardTitle className="text-base flex items-center gap-2"><FlaskConical className="w-4 h-4 text-primary"/>{formula.name}</CardTitle>
+                                        </CardHeader>
+                                        <CardContent className="space-y-2">
+                                            {formula.items.map((item, itemIndex) => (
+                                                <div key={itemIndex} className="text-sm p-2 bg-muted/50 rounded-md">
+                                                    <p>{item.quantityUsed}{item.unit} {item.productName}</p>
+                                                    {item.note && <p className="text-xs text-muted-foreground pl-4">&ndash; {item.note}</p>}
+                                                </div>
                                             ))}
-                                        </Pie>
-                                    </PieChart>
-                                </ChartContainer>
-                                )}
-                                <div className="flex items-center justify-center gap-4 text-sm mt-4">
-                                    {isLoading ? <Skeleton className="h-4 w-full"/> : Object.entries(lifecycleChartConfig).map(([key, config]) => (
-                                        <div key={key} className="flex items-center gap-1.5">
-                                            <span
-                                                className="w-2.5 h-2.5 rounded-full"
-                                                style={{ backgroundColor: config.color }}
-                                            />
-                                            <span>{config.label}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </CardContent>
-                        </Card>
-                        <Card className="lg:col-span-2 print:col-span-2">
-                            <CardHeader>
-                                <CardTitle>Client Segments</CardTitle>
-                                <CardDescription>Grouped lists of your most important client segments.</CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <Tabs defaultValue="vip">
-                                    <TabsList className="grid w-full grid-cols-3 print:hidden">
-                                        <TabsTrigger value="vip"><Crown className="w-4 h-4 mr-2" />VIPs</TabsTrigger>
-                                        <TabsTrigger value="new"><UserCheck className="w-4 h-4 mr-2" />New</TabsTrigger>
-                                        <TabsTrigger value="at-risk"><UserX className="w-4 h-4 mr-2" />At Risk</TabsTrigger>
-                                    </TabsList>
-                                    <TabsContent value="vip" className="mt-4">
-                                        <div className="flex justify-between items-center mb-4 print:hidden">
-                                            <p className="text-sm text-muted-foreground">Your top 10% of clients by lifetime value.</p>
-                                            <Button variant="outline" size="sm" onClick={() => handleExport(reportData.vipClients, 'vip-clients')} disabled={isLoading}><Download className="w-4 h-4 mr-2"/>Export</Button>
-                                        </div>
-                                        <h3 className="text-lg font-semibold mb-2 hidden print:block">VIP Clients</h3>
-                                        <ClientList clients={reportData.vipClients} isLoading={isLoading} />
-                                    </TabsContent>
-                                    <TabsContent value="new" className="mt-4">
-                                        <div className="flex justify-between items-center mb-4 print:hidden">
-                                            <p className="text-sm text-muted-foreground">Clients who have only had one appointment.</p>
-                                            <Button variant="outline" size="sm" onClick={() => handleExport(reportData.newClients, 'new-clients')} disabled={isLoading}><Download className="w-4 h-4 mr-2"/>Export</Button>
-                                        </div>
-                                        <h3 className="text-lg font-semibold mb-2 hidden print:block">New Clients</h3>
-                                         <ClientList clients={reportData.newClients} isLoading={isLoading} />
-                                    </TabsContent>
-                                    <TabsContent value="at-risk" className="mt-4">
-                                        <div className="flex justify-between items-center mb-4 print:hidden">
-                                            <p className="text-sm text-muted-foreground">Clients not seen in the last 3 months.</p>
-                                            <Button variant="outline" size="sm" onClick={() => handleExport(reportData.atRiskClients, 'at-risk-clients')} disabled={isLoading}><Download className="w-4 h-4 mr-2"/>Export</Button>
-                                        </div>
-                                        <h3 className="text-lg font-semibold mb-2 hidden print:block">At-Risk Clients</h3>
-                                         <ClientList clients={reportData.atRiskClients} isLoading={isLoading}/>
-                                    </TabsContent>
-                                </Tabs>
-                            </CardContent>
-                        </Card>
+                                        </CardContent>
+                                    </Card>
+                                ))}
+                                {(!client.customFormulas || client.customFormulas.length === 0) && <p className="text-center text-muted-foreground">No custom formulas saved.</p>}
+                            </div>
+                        </div>
 
-                        <Card className="lg:col-span-3 print:col-span-3">
-                             <CardHeader>
-                                <CardTitle>Leaderboards</CardTitle>
-                            </CardHeader>
-                            <CardContent className="grid gap-6 md:grid-cols-2">
-                                <div>
-                                    <h4 className="font-semibold text-sm mb-2 flex items-center gap-2"><Crown className="w-4 h-4 text-amber-500" />Top 10 by Lifetime Value</h4>
-                                    {isLoading ? (
-                                        <div className="space-y-2">
-                                            {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}
+                        <div>
+                            <h2 className="text-xl font-semibold mb-4">Referrals &amp; Loyalty</h2>
+                            <Card>
+                                <CardContent className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="space-y-4">
+                                        <div className="p-4 rounded-lg bg-muted/50">
+                                            <div className="text-sm text-muted-foreground flex items-center gap-2"><Gift className="h-4 w-4"/>Wallet Balance</div>
+                                            <div className="text-2xl font-bold text-primary">${(client.walletCredit || 0).toFixed(2)}</div>
                                         </div>
-                                    ) : (
-                                        <Table>
-                                            <TableHeader>
-                                                <TableRow>
-                                                    <TableHead>Client</TableHead>
-                                                    <TableHead className="text-right">LTV</TableHead>
-                                                </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                                {reportData.top10Ltv.map(client => (
-                                                    <TableRow key={client.id}>
-                                                        <TableCell className="font-medium">{client.name}</TableCell>
-                                                        <TableCell className="text-right font-mono">${client.lifetimeValue.toFixed(2)}</TableCell>
-                                                    </TableRow>
-                                                ))}
-                                            </TableBody>
-                                        </Table>
-                                    )}
-                                </div>
-                                <div>
-                                    <h4 className="font-semibold text-sm mb-2 flex items-center gap-2"><Gift className="w-4 h-4 text-primary" />Top 5 Referrers</h4>
-                                     {isLoading ? (
-                                        <div className="space-y-2">
-                                            {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}
+                                        <div className="p-4 rounded-lg bg-muted/50">
+                                            <div className="text-sm text-muted-foreground">Referred By</div>
+                                            <div className="text-lg font-semibold">{client.referredBy || 'N/A'}</div>
                                         </div>
-                                    ) : (
-                                        <Table>
-                                            <TableHeader>
-                                                <TableRow>
-                                                    <TableHead>Referrer</TableHead>
-                                                    <TableHead className="text-right">Referrals</TableHead>
-                                                </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                                {reportData.topReferrers.map(referrer => (
-                                                    <TableRow key={referrer.name}>
-                                                        <TableCell className="font-medium">{referrer.name}</TableCell>
-                                                        <TableCell className="text-right">{referrer.count}</TableCell>
-                                                    </TableRow>
+                                    </div>
+                                    <div className="space-y-4">
+                                        <h4 className="font-medium">Successful Referrals ({client.successfulReferrals?.length || 0})</h4>
+                                        {client.successfulReferrals && client.successfulReferrals.length > 0 ? (
+                                            <div className="space-y-2 text-sm">
+                                                {client.successfulReferrals.map((name, index) => (
+                                                    <p key={index} className="p-2 bg-muted/50 rounded-md">{name}</p>
                                                 ))}
-                                            </TableBody>
-                                        </Table>
-                                    )}
-                                </div>
-                            </CardContent>
-                        </Card>
+                                            </div>
+                                        ) : (
+                                            <p className="text-sm text-muted-foreground">No successful referrals yet.</p>
+                                        )}
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        </div>
                     </div>
                 </div>
 
                 <style jsx global>{`
                     @media print {
-                      body {
-                        -webkit-print-color-adjust: exact !important;
-                        print-color-adjust: exact !important;
-                      }
                       body * {
                         visibility: hidden;
                       }
@@ -480,7 +313,6 @@ const ClientLogReportPage = () => {
                         left: 0;
                         top: 0;
                         width: 100%;
-                        border: 1px solid hsl(240 5% 18%);
                       }
                       #lifecycle-chart-card {
                         break-inside: avoid;
@@ -500,6 +332,8 @@ const ClientLogReportPage = () => {
             </main>
         </div>
     );
-};
+}
 
-export default ClientLogReportPage;
+export default ClientReportPage;
+
+    

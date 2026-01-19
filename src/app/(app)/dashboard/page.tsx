@@ -46,6 +46,7 @@ import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
 import { collection, query, where, Timestamp } from 'firebase/firestore';
 import { startOfDay, endOfDay, subDays, format as formatDate, startOfWeek } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
+import { ClientOnly } from '@/components/shared/ClientOnly';
 
 const barChartConfig = {
   profit: {
@@ -333,30 +334,32 @@ export default function DashboardPage() {
               <CardDescription>Your profit over the last 7 days.</CardDescription>
             </CardHeader>
             <CardContent className="pl-2">
-              <ChartContainer config={barChartConfig} className="h-[300px] w-full">
-                {isLoading ? <Skeleton className="w-full h-full" /> : (
-                    <BarChart accessibilityLayer data={barChartData}>
-                    <CartesianGrid vertical={false} />
-                    <XAxis
-                        dataKey="day"
-                        tickLine={false}
-                        tickMargin={10}
-                        axisLine={false}
-                    />
-                    <YAxis
-                        tickLine={false}
-                        axisLine={false}
-                        tickMargin={10}
-                        tickFormatter={(value) => `$${value}`}
-                    />
-                    <ChartTooltip
-                        cursor={false}
-                        content={<ChartTooltipContent />}
-                    />
-                    <Bar dataKey="profit" fill="var(--color-profit)" radius={8} />
-                    </BarChart>
-                )}
-              </ChartContainer>
+              <ClientOnly>
+                <ChartContainer config={barChartConfig} className="h-[300px] w-full">
+                  {isLoading ? <Skeleton className="w-full h-full" /> : (
+                      <BarChart accessibilityLayer data={barChartData}>
+                      <CartesianGrid vertical={false} />
+                      <XAxis
+                          dataKey="day"
+                          tickLine={false}
+                          tickMargin={10}
+                          axisLine={false}
+                      />
+                      <YAxis
+                          tickLine={false}
+                          axisLine={false}
+                          tickMargin={10}
+                          tickFormatter={(value) => `$${"$"}{value}`}
+                      />
+                      <ChartTooltip
+                          cursor={false}
+                          content={<ChartTooltipContent />}
+                      />
+                      <Bar dataKey="profit" fill="var(--color-profit)" radius={8} />
+                      </BarChart>
+                  )}
+                </ChartContainer>
+              </ClientOnly>
             </CardContent>
           </Card>
            <Card className="lg:col-span-2">
@@ -365,22 +368,24 @@ export default function DashboardPage() {
               <CardDescription>All-time revenue from services vs. retail.</CardDescription>
             </CardHeader>
             <CardContent className="flex-1 pb-0">
-              <ChartContainer
-                config={pieChartConfig}
-                className="mx-auto aspect-square h-[250px]"
-              >
-                <PieChart>
-                  <ChartTooltip
-                    cursor={false}
-                    content={<ChartTooltipContent hideLabel />}
-                  />
-                  <Pie data={revenueBreakdown} dataKey="value" nameKey="name" innerRadius={60}>
-                     {revenueBreakdown.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} />
-                     ))}
-                  </Pie>
-                </PieChart>
-              </ChartContainer>
+              <ClientOnly>
+                <ChartContainer
+                  config={pieChartConfig}
+                  className="mx-auto aspect-square h-[250px]"
+                >
+                  <PieChart>
+                    <ChartTooltip
+                      cursor={false}
+                      content={<ChartTooltipContent hideLabel />}
+                    />
+                    <Pie data={revenueBreakdown} dataKey="value" nameKey="name" innerRadius={60}>
+                      {revenueBreakdown.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.fill} />
+                      ))}
+                    </Pie>
+                  </PieChart>
+                </ChartContainer>
+              </ClientOnly>
             </CardContent>
             <CardFooter className="flex-col gap-2 text-sm">
                 <div className="flex w-full items-center gap-2 font-medium leading-none">

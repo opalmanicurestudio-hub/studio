@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -63,7 +62,7 @@ const ClientCard = ({ client, isSelected, onSelect }: { client: Client, isSelect
                         />
                     </div>
                      <Avatar className="w-16 h-16 border">
-                        <AvatarImage src={client.avatarUrl} alt={client.name} data-ai-hint="person portrait" />
+                        <AvatarImage src={client.avatarUrl} alt={client.name} data-ai-hint="person portrait" className="object-cover"/>
                         <AvatarFallback>{client.name.charAt(0)}</AvatarFallback>
                     </Avatar>
                     <div className="flex-1 min-w-0">
@@ -460,9 +459,9 @@ export default function ClientsPage() {
   };
 
   return (
-    <ClientOnly>
-      <div className="flex min-h-screen w-full flex-col">
-        <AppHeader title="Client Log" />
+    <div className="flex min-h-screen w-full flex-col">
+      <AppHeader title="Client Log" />
+      <ClientOnly>
         <main className="flex-1 p-4 md:p-8">
           <div className="grid lg:grid-cols-[1fr,300px] gap-8 items-start">
               <div className="space-y-6">
@@ -609,8 +608,9 @@ export default function ClientsPage() {
                   </AlertDialogFooter>
               </AlertDialogContent>
           </AlertDialog>
-
-      </div>
-    </ClientOnly>
+      </ClientOnly>
+    </div>
   );
 }
+
+    

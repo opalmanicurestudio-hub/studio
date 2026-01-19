@@ -87,6 +87,8 @@ export function AppHeader({ title }: AppHeaderProps) {
                   )}
               </DropdownMenuContent>
           </DropdownMenu>
+        </ClientOnly>
+        <ClientOnly>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-10 w-10 rounded-full">
@@ -123,3 +125,5 @@ export function AppHeader({ title }: AppHeaderProps) {
     </header>
   );
 }
+
+    
