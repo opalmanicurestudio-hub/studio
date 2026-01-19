@@ -36,7 +36,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetDescription, SheetTitle } from '../ui/sheet';
-import { ScrollArea } from '../ui/scroll-area';
 import { BrowseConsentFormsDialog } from './BrowseConsentFormsDialog';
 
 const serviceSchema = z.object({
@@ -72,13 +71,11 @@ const EditServiceForm = ({
     onNewCategory,
     breakEvenCost,
     onScanClick,
-    locations
 }: { 
     categories: string[];
     onNewCategory: (category: string) => void;
     breakEvenCost: number;
     onScanClick: () => void;
-    locations: any[];
 }) => {
     const { register, control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
@@ -356,7 +353,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         
-        <ScrollArea className="flex-1 min-h-0">
+        <div className="flex-1 min-h-0 overflow-y-auto">
           <div className="px-6 py-4">
               <EditServiceForm 
                  categories={categories}
@@ -367,7 +364,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
                  onAddLocationClick={() => {}}
               />
           </div>
-        </ScrollArea>
+        </div>
         
         <DialogFooter className={isMobile ? "p-4 border-t" : "p-6 border-t"}>
           <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>

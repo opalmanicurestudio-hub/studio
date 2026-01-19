@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Progress } from '@/components/ui/progress';
 import {
   Select,
   SelectContent,
@@ -45,7 +46,6 @@ import { SelectEquipmentDialog } from './SelectEquipmentDialog';
 import { SelectAddOnsDialog } from './SelectAddOnsDialog';
 import { BrowseConsentFormsDialog } from './BrowseConsentFormsDialog';
 import { Switch } from '../ui/switch';
-import { ScrollArea } from '../ui/scroll-area';
 
 const serviceSchema = z.object({
     name: z.string().min(1, 'Service name is required'),
@@ -76,16 +76,12 @@ const AddServiceForm = ({
     categories, 
     onNewCategory,
     breakEvenCost,
-    onScanClick,
-    onAddLocationClick,
-    locations
+    onScanClick
 }: { 
     categories: string[];
     onNewCategory: (category: string) => void;
     breakEvenCost: number;
     onScanClick: () => void;
-    onAddLocationClick: () => void;
-    locations: Location[];
 }) => {
     const { register, control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
@@ -237,17 +233,19 @@ const AddServiceForm = ({
 export const AddServiceDialog = ({
     open,
     onOpenChange,
+    initialType,
     categories,
     onNewCategory,
     onServiceAdded,
-    locations
 }: { 
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialType: 'professional' | 'retail';
   categories: string[];
   onNewCategory: (category: string) => void;
   onServiceAdded: (service: Service) => void;
   locations: Location[];
+  onAddLocationClick: () => void;
 }) => {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const { toast } = useToast();
@@ -358,18 +356,16 @@ export const AddServiceDialog = ({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <ScrollArea className="flex-1 min-h-0">
-          <div className="px-6 py-4">
-              <AddServiceForm 
-                categories={categories}
-                onNewCategory={onNewCategory}
-                onScanClick={() => setIsScannerOpen(true)}
-                locations={[]}
-                breakEvenCost={breakEvenCost}
-                onAddLocationClick={() => {}}
-              />
-          </div>
-        </ScrollArea>
+        <div className="flex-1 min-h-0 overflow-y-auto">
+            <div className="px-6 py-4">
+                <AddServiceForm 
+                    categories={categories}
+                    onNewCategory={onNewCategory}
+                    onScanClick={() => setIsScannerOpen(true)}
+                    breakEvenCost={breakEvenCost}
+                />
+            </div>
+        </div>
         <DialogFooter className={isMobile ? "p-4 border-t" : "p-6 border-t"}>
           <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
           <Button type="submit" form={formId}>Save Service</Button>
