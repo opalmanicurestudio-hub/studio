@@ -482,7 +482,7 @@ export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open:
               <SheetTitle>{title}</SheetTitle>
               <SheetDescription>{description}</SheetDescription>
             </SheetHeader>
-            <ScrollArea className="flex-1">
+            <ScrollArea className="flex-1 min-h-0">
               <div className={isMobile ? "p-4" : "p-6"}>
                 <AddClientForm clients={clients} />
               </div>
