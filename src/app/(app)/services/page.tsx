@@ -354,12 +354,12 @@ const ServiceCategory = ({ title, services, onEditServiceOpen, tmhr, appointment
                     <ServiceCard 
                         key={service.id} 
                         service={service} 
-                        onEditServiceOpen={onEditServiceOpen} 
+                        onEditServiceOpen={handleOpenEditService} 
                         tmhr={tmhr} 
                         appointments={appointments} 
                         onPriceUpdate={onPriceUpdate}
                         isSelected={selectedItems.has(service.id)}
-                        onSelect={() => onSelectItem(service.id)}
+                        onSelectItem={onSelectItem}
                     />
                 ))}
             </div>
@@ -559,10 +559,15 @@ export default function ServicesPage() {
                 <h1 className="text-3xl font-bold">Service Library</h1>
                 <p className="text-muted-foreground">Your menu builder and profitability calculator.</p>
             </div>
-            <Button onClick={() => setIsAddServiceDialogOpen(true)}>
-                <PlusCircle className="mr-2 h-4 w-4" />
-                New Service
-            </Button>
+            <div className="flex items-center gap-2">
+                <Button variant="outline" asChild>
+                    <Link href="/services/report"><BarChart className="mr-2 h-4 w-4" />View Report</Link>
+                </Button>
+                <Button onClick={() => setIsAddServiceDialogOpen(true)}>
+                    <PlusCircle className="mr-2 h-4 w-4" />
+                    New Service
+                </Button>
+            </div>
         </div>
         <Card className="mb-6">
             <CardContent className="p-4 flex flex-col sm:flex-row items-center gap-4">
@@ -696,5 +701,3 @@ export default function ServicesPage() {
     </div>
   );
 }
-
-    
