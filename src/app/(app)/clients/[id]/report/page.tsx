@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -17,12 +16,15 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import type { Client, Appointment, Service } from '@/lib/data';
 import { cn } from '@/lib/utils';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 const ClientReportPage = () => {
     const params = useParams<{ id: string }>();
     const { clients, appointments, services } = useInventory();
     const [aiSummary, setAiSummary] = useState<{ summary: string; talkingPoints: string[] } | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
+    const [isPageLoading, setIsPageLoading] = useState(true);
+    const [isLoadingAi, setIsLoadingAi] = useState(false);
+    const [aiError, setAiError] = useState<string | null>(null);
     const [generationDate, setGenerationDate] = useState<Date | null>(null);
 
     const client = useMemo(() => clients.find((c) => c.id === params.id), [clients, params.id]);
@@ -35,39 +37,52 @@ const ClientReportPage = () => {
     }, [client, appointments]);
 
     useEffect(() => {
-        if (!isLoading) {
+        if (client) {
+            setIsPageLoading(false);
             setGenerationDate(new Date());
         }
-    }, [isLoading]);
+    }, [client]);
 
-    useEffect(() => {
-        if (client) {
-            const fetchReport = async () => {
-                setIsLoading(true);
-                try {
-                    const firstAppointment = clientAppointments.length > 0 ? clientAppointments[clientAppointments.length - 1].startTime : new Date();
+    const handleGenerateReport = async () => {
+        if (!client) return;
 
-                    const report = await generateClientReport({
-                        clientName: client.name,
-                        totalAppointments: clientAppointments.filter(a => a.status === 'completed').length,
-                        lifetimeValue: client.lifetimeValue,
-                        lastSeen: formatDistanceToNow(new Date(client.lastAppointment), { addSuffix: true }),
-                        memberSince: format(new Date(firstAppointment), 'MMMM yyyy'),
-                        hasIncidents: !!client.intel?.hasIncidents,
-                        hasAllergies: !!client.allergyNotes,
-                        hasMedicalNotes: !!client.medicalNotes,
-                        clientNotes: client.notes
-                    });
-                    setAiSummary(report);
-                } catch (error) {
-                    console.error("Failed to generate AI report:", error);
-                } finally {
-                    setIsLoading(false);
-                }
-            };
-            fetchReport();
+        setIsLoadingAi(true);
+        setAiError(null);
+        setAiSummary(null);
+
+        try {
+            const firstAppointment = clientAppointments.length > 0 ? clientAppointments[clientAppointments.length - 1].startTime : new Date();
+
+            const report = await generateClientReport({
+                clientName: client.name,
+                totalAppointments: clientAppointments.filter(a => a.status === 'completed').length,
+                lifetimeValue: client.lifetimeValue,
+                lastSeen: formatDistanceToNow(new Date(client.lastAppointment), { addSuffix: true }),
+                memberSince: format(new Date(firstAppointment), 'MMMM yyyy'),
+                hasIncidents: !!client.intel?.hasIncidents,
+                hasAllergies: !!client.allergyNotes,
+                hasMedicalNotes: !!client.medicalNotes,
+                clientNotes: client.notes
+            });
+            setAiSummary(report);
+        } catch (error: any) {
+            console.error("Failed to generate AI report:", error);
+            setAiError("Failed to generate summary. You may have exceeded your API quota. Please try again later.");
+        } finally {
+            setIsLoadingAi(false);
         }
-    }, [client, clientAppointments]);
+    };
+
+    if (isPageLoading) {
+      return (
+        <div className="flex min-h-screen w-full flex-col bg-muted/40">
+          <AppHeader title="Client Report" />
+          <main className="flex-1 p-4 md:p-8 flex justify-center items-center">
+            <Loader className="h-8 w-8 animate-spin" />
+          </main>
+        </div>
+      );
+    }
 
     if (!client) {
         return notFound();
@@ -125,34 +140,50 @@ const ClientReportPage = () => {
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-4">
-                            {isLoading ? (
-                                <div className="space-y-2">
-                                    <Skeleton className="h-4 w-full" />
-                                    <Skeleton className="h-4 w-5/6" />
-                                    <Skeleton className="h-4 w-3/4" />
+                            {isLoadingAi ? (
+                                <div className="space-y-4">
+                                    <div className="space-y-2">
+                                        <Skeleton className="h-4 w-full" />
+                                        <Skeleton className="h-4 w-5/6" />
+                                    </div>
+                                    <Separator />
+                                    <div className="space-y-2">
+                                        <Skeleton className="h-4 w-1/2" />
+                                        <Skeleton className="h-4 w-2/3" />
+                                    </div>
                                 </div>
+                            ) : aiError ? (
+                                <Alert variant="destructive">
+                                    <AlertTriangle className="h-4 w-4" />
+                                    <AlertTitle>Error Generating Report</AlertTitle>
+                                    <AlertDescription>
+                                        {aiError}
+                                        <Button variant="link" onClick={handleGenerateReport} className="p-0 h-auto mt-2">Try Again</Button>
+                                    </AlertDescription>
+                                </Alert>
                             ) : aiSummary ? (
-                                <p className="text-sm">{aiSummary.summary}</p>
+                                <>
+                                    <p className="text-sm">{aiSummary.summary}</p>
+                                    <Separator />
+                                    <h4 className="font-semibold">Talking Points</h4>
+                                    <ul className="list-disc list-inside space-y-1 text-sm">
+                                        {aiSummary.talkingPoints.map((point, index) => (
+                                            <li key={index}>{point}</li>
+                                        ))}
+                                    </ul>
+                                    <Button variant="ghost" size="sm" onClick={handleGenerateReport} className="w-full mt-2">
+                                        <Sparkles className="w-4 h-4 mr-2" /> Regenerate
+                                    </Button>
+                                </>
                             ) : (
-                                <p className="text-sm text-destructive">Could not generate AI summary.</p>
+                                <div className="text-center p-4">
+                                    <p className="text-sm text-muted-foreground mb-4">Generate an AI summary and talking points for this client.</p>
+                                    <Button onClick={handleGenerateReport}>
+                                        <Sparkles className="w-4 h-4 mr-2" />
+                                        Generate Report
+                                    </Button>
+                                </div>
                             )}
-                            
-                            <Separator />
-                            
-                             <h4 className="font-semibold">Talking Points</h4>
-                             {isLoading ? (
-                                 <div className="space-y-2">
-                                     <Skeleton className="h-4 w-1/2" />
-                                     <Skeleton className="h-4 w-2/3" />
-                                     <Skeleton className="h-4 w-1/2" />
-                                 </div>
-                             ) : aiSummary ? (
-                                 <ul className="list-disc list-inside space-y-1 text-sm">
-                                    {aiSummary.talkingPoints.map((point, index) => (
-                                        <li key={index}>{point}</li>
-                                    ))}
-                                 </ul>
-                             ) : null}
                         </CardContent>
                     </Card>
 
