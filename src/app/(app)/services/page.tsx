@@ -354,7 +354,7 @@ const ServiceCategory = ({ title, services, onEditServiceOpen, tmhr, appointment
                     <ServiceCard 
                         key={service.id} 
                         service={service} 
-                        onEditServiceOpen={handleOpenEditService} 
+                        onEditServiceOpen={onEditServiceOpen} 
                         tmhr={tmhr} 
                         appointments={appointments} 
                         onPriceUpdate={onPriceUpdate}
@@ -696,3 +696,5 @@ export default function ServicesPage() {
     </div>
   );
 }
+
+    
