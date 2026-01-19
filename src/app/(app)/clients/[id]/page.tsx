@@ -14,7 +14,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy } from 'lucide-react';
-import { clients as initialClients, appointments, services, inventory, type CustomFormula, Client, type Incident } from '@/lib/data';
+import { appointments, services, inventory, type CustomFormula, Client, type Incident } from '@/lib/data';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -41,6 +41,7 @@ import Image from 'next/image';
 import { EditClientDialog } from '@/components/clients/EditClientDialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useInventory } from '@/context/InventoryContext';
 
 
 type ClientPhoto = {
@@ -151,7 +152,7 @@ const AppointmentHistoryCard = ({
 
 export default function ClientDetailPage() {
   const params = useParams<{ id: string }>();
-  const [clients, setClients] = useState<Client[]>(initialClients);
+  const { clients, setClients } = useInventory();
   const client = clients.find((c) => c.id === params.id);
   const { toast } = useToast();
   const [isAddFormulaOpen, setIsAddFormulaOpen] = useState(false);
@@ -522,4 +523,5 @@ export default function ClientDetailPage() {
         </Dialog>
     </div>
   );
-}
+
+    
