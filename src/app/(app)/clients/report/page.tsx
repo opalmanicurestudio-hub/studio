@@ -90,12 +90,12 @@ const ClientLogReportPage = () => {
             .map(([name, count]) => ({ name, count }));
 
         const clientLifecycle = {
-            new: newClients.filter(c => !atRiskClients.some(ar => ar.id === c.id)).length,
-            returning: activeClients.filter(c => 
+            newClients: newClients.filter(c => !atRiskClients.some(ar => ar.id === c.id)).length,
+            returningClients: activeClients.filter(c => 
                 !newClients.some(nc => nc.id === c.id) && 
                 !atRiskClients.some(ar => ar.id === c.id)
             ).length,
-            atRisk: atRiskClients.length,
+            atRiskClients: atRiskClients.length,
         };
 
 
@@ -139,15 +139,15 @@ const ClientLogReportPage = () => {
     };
 
     const lifecycleChartData = [
-        { name: 'New', value: reportData.clientLifecycle.new, fill: 'var(--color-new)' },
-        { name: 'Returning', value: reportData.clientLifecycle.returning, fill: 'var(--color-returning)' },
-        { name: 'At Risk', value: reportData.clientLifecycle.atRisk, fill: 'var(--color-atRisk)' },
+        { name: 'New', value: reportData.clientLifecycle.newClients, fill: 'var(--color-newClients)' },
+        { name: 'Returning', value: reportData.clientLifecycle.returningClients, fill: 'var(--color-returningClients)' },
+        { name: 'At Risk', value: reportData.clientLifecycle.atRiskClients, fill: 'var(--color-atRiskClients)' },
     ];
     
     const lifecycleChartConfig = {
-        new: { label: 'New', color: 'hsl(var(--chart-3))' },
-        returning: { label: 'Returning', color: 'hsl(var(--chart-1))' },
-        atRisk: { label: 'At Risk', color: 'hsl(var(--chart-5))' },
+        newClients: { label: 'New', color: 'hsl(var(--chart-3))' },
+        returningClients: { label: 'Returning', color: 'hsl(var(--chart-1))' },
+        atRiskClients: { label: 'At Risk', color: 'hsl(var(--chart-5))' },
     };
 
     const handlePrint = () => {
@@ -225,10 +225,10 @@ const ClientLogReportPage = () => {
                                 <CardTitle>Client Lifecycle Breakdown</CardTitle>
                                 <CardDescription>A snapshot of your client base by engagement.</CardDescription>
                             </CardHeader>
-                            <CardContent className="print:flex print:justify-center">
+                            <CardContent className="print:flex print:flex-col print:items-center">
                                  <ChartContainer 
                                     config={lifecycleChartConfig} 
-                                    className="mx-auto aspect-square h-[250px] print:h-[200px] print:w-[200px] print:mx-0"
+                                    className="mx-auto aspect-square h-[250px] print:h-[200px] print:w-[200px]"
                                 >
                                     <PieChart>
                                         <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
@@ -239,6 +239,17 @@ const ClientLogReportPage = () => {
                                         </Pie>
                                     </PieChart>
                                 </ChartContainer>
+                                <div className="flex items-center justify-center gap-4 text-sm mt-4">
+                                    {Object.entries(lifecycleChartConfig).map(([key, config]) => (
+                                        <div key={key} className="flex items-center gap-1.5">
+                                            <span
+                                                className="w-2.5 h-2.5 rounded-full"
+                                                style={{ backgroundColor: config.color }}
+                                            />
+                                            <span>{config.label}</span>
+                                        </div>
+                                    ))}
+                                </div>
                             </CardContent>
                         </Card>
                         <Card className="lg:col-span-2 print:col-span-2">
