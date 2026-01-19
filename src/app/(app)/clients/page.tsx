@@ -173,6 +173,9 @@ export default function ClientsPage() {
   const handleAddClient = (data: ClientFormData) => {
     const { referringClientId } = data;
     
+    const firstName = data.name.split(' ')[0].toUpperCase();
+    const referralCode = `${firstName}${nanoid(4)}`;
+
     const newClient: Client = {
       id: `cli-${nanoid()}`,
       name: data.name,
@@ -183,6 +186,7 @@ export default function ClientsPage() {
       lastAppointment: new Date().toISOString(),
       status: 'active',
       notes: data.notes,
+      referralCode: referralCode,
       birthday: data.birthday ? data.birthday.toISOString() : undefined,
       address: data.address,
       emergencyContact: data.emergencyContact,
