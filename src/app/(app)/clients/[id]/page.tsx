@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy } from 'lucide-react';
+import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy, Save } from 'lucide-react';
 import { appointments, services, inventory, type CustomFormula, Client, type Incident } from '@/lib/data';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
@@ -161,6 +161,9 @@ export default function ClientDetailPage() {
   const [photos, setPhotos] = useState<ClientPhoto[]>([]);
   const [selectedPhoto, setSelectedPhoto] = useState<ClientPhoto | null>(null);
 
+  const [editableReferralCode, setEditableReferralCode] = useState(client?.referralCode || '');
+  const [isCodeDirty, setIsCodeDirty] = useState(false);
+
   useEffect(() => {
     if (client) {
         const collectedPhotos: ClientPhoto[] = [];
@@ -176,6 +179,11 @@ export default function ClientDetailPage() {
         setPhotos(collectedPhotos);
     }
   }, [client]);
+
+  useEffect(() => {
+      setEditableReferralCode(client?.referralCode || '');
+      setIsCodeDirty(false);
+  }, [client?.referralCode]);
 
   if (!client) {
     notFound();
@@ -259,14 +267,53 @@ export default function ClientDetailPage() {
   };
   
   const handleCopyReferralCode = () => {
-    if (client.referralCode) {
-        navigator.clipboard.writeText(client.referralCode);
+    if (editableReferralCode) {
+        navigator.clipboard.writeText(editableReferralCode);
         toast({
             title: "Referral Code Copied",
             description: "The client's referral code has been copied to your clipboard.",
         })
     }
   }
+
+  const handleCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setEditableReferralCode(e.target.value);
+    setIsCodeDirty(e.target.value !== client.referralCode);
+  }
+
+  const handleSaveReferralCode = () => {
+      const trimmedCode = editableReferralCode.trim();
+      if (!trimmedCode) {
+          toast({
+              variant: "destructive",
+              title: "Invalid Code",
+              description: "Referral code cannot be empty.",
+          });
+          return;
+      }
+      
+      const isDuplicate = clients.some(c => c.id !== client.id && c.referralCode?.toLowerCase() === trimmedCode.toLowerCase());
+
+      if (isDuplicate) {
+          toast({
+              variant: "destructive",
+              title: "Duplicate Referral Code",
+              description: "This code is already in use by another client. Please choose a unique one.",
+          });
+          return;
+      }
+
+      setClients(prevClients =>
+        prevClients.map(c =>
+          c.id === client.id ? { ...c, referralCode: trimmedCode } : c
+        )
+      );
+      setIsCodeDirty(false);
+      toast({
+          title: "Referral Code Updated",
+          description: "The new referral code has been saved.",
+      });
+  };
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-muted/40">
@@ -436,8 +483,16 @@ export default function ClientDetailPage() {
                               <div className="space-y-2">
                                   <Label htmlFor="referral-code">Unique Referral Code</Label>
                                   <div className="grid grid-cols-[1fr,auto] gap-2">
-                                      <Input id="referral-code" value={client.referralCode} readOnly />
-                                      <Button variant="outline" onClick={handleCopyReferralCode}><Copy className="w-4 h-4 mr-2" /> Copy</Button>
+                                      <Input 
+                                          id="referral-code" 
+                                          value={editableReferralCode} 
+                                          onChange={handleCodeChange}
+                                      />
+                                      {isCodeDirty ? (
+                                          <Button onClick={handleSaveReferralCode}><Save className="w-4 h-4 mr-2" /> Save</Button>
+                                      ) : (
+                                          <Button variant="outline" onClick={handleCopyReferralCode}><Copy className="w-4 h-4 mr-2" /> Copy</Button>
+                                      )}
                                   </div>
                               </div>
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -549,3 +604,4 @@ export default function ClientDetailPage() {
   );
 
     
+
