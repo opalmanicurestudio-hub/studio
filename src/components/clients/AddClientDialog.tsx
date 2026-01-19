@@ -216,225 +216,224 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
 
 
     return (
-        <ScrollArea className="h-full">
-            <div className="space-y-8 px-4">
-                {/* Section 1: Basic Info */}
-                <div className="space-y-4">
-                    <h3 className="text-lg font-medium">Basic Information</h3>
-                     <div className="flex flex-col items-center space-y-4">
-                        <Controller
-                            name="avatarUrl"
-                            control={control}
-                            render={({ field }) => (
-                                <>
-                                <Avatar className="w-24 h-24 text-lg">
-                                    <AvatarImage src={field.value || undefined} alt="Client Avatar" />
-                                    <AvatarFallback><Upload className="h-8 w-8 text-muted-foreground" /></AvatarFallback>
-                                </Avatar>
-                                <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} />
-                                </>
-                            )}
-                        />
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                         <div className="space-y-2">
-                            <Label htmlFor="full-name">Full Name</Label>
-                            <Input id="full-name" placeholder="e.g., Jane Doe" {...register('name')} />
-                            {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="email">Email</Label>
-                            <Input id="email" type="email" placeholder="e.g., jane.doe@example.com" {...register('email')} />
-                            {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
-                        </div>
-                    </div>
-                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="phone">Phone Number</Label>
-                            <Input id="phone" type="tel" placeholder="e.g., +1 202-555-0198" {...register('phone')} />
-                        </div>
-                         <div className="space-y-2">
-                            <Label htmlFor="birthday">Birthday</Label>
-                             <Controller
-                                name="birthday"
-                                control={control}
-                                render={({ field }) => (
-                                    <Popover>
-                                        <PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), "w-full justify-start text-left font-normal", !field.value && "text-muted-foreground")}>
-                                        <span className="flex items-center">
-                                            <CalendarIcon className="mr-2 h-4 w-4" />
-                                            {field.value ? format(field.value, 'PPP') : "Pick a date"}
-                                        </span>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-auto p-0">
-                                        <Calendar
-                                            mode="single"
-                                            selected={field.value}
-                                            onSelect={field.onChange}
-                                            initialFocus
-                                        />
-                                        </PopoverContent>
-                                    </Popover>
-                                )}
-                            />
-                        </div>
-                    </div>
+        <div className="space-y-8">
+            {/* Section 1: Basic Info */}
+            <div className="space-y-4">
+                <h3 className="text-lg font-medium">Basic Information</h3>
+                 <div className="flex flex-col items-center space-y-4">
+                    <Controller
+                        name="avatarUrl"
+                        control={control}
+                        render={({ field }) => (
+                            <>
+                            <Avatar className="w-24 h-24 text-lg">
+                                <AvatarImage src={field.value || undefined} alt="Client Avatar" />
+                                <AvatarFallback><Upload className="h-8 w-8 text-muted-foreground" /></AvatarFallback>
+                            </Avatar>
+                            <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} />
+                            </>
+                        )}
+                    />
                 </div>
-
-                <div className="space-y-4">
-                    <h3 className="text-lg font-medium flex items-center gap-2"><Home className="w-5 h-5"/>Address</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                     <div className="space-y-2">
+                        <Label htmlFor="full-name">Full Name</Label>
+                        <Input id="full-name" placeholder="e.g., Jane Doe" {...register('name')} />
+                        {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+                    </div>
                     <div className="space-y-2">
-                        <Label htmlFor="street">Street Address</Label>
-                        <Input id="street" placeholder="123 Main St" {...register('address.street')}/>
-                    </div>
-                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <Input placeholder="City" {...register('address.city')} />
-                        <Input placeholder="State / Province" {...register('address.state')} />
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                         <Input placeholder="ZIP / Postal Code" {...register('address.zip')} />
-                        <Input placeholder="Country" {...register('address.country')} />
+                        <Label htmlFor="email">Email</Label>
+                        <Input id="email" type="email" placeholder="e.g., jane.doe@example.com" {...register('email')} />
+                        {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
                     </div>
                 </div>
-
-                <div className="space-y-4">
-                    <h3 className="text-lg font-medium flex items-center gap-2"><User className="w-5 h-5"/>Emergency Contact</h3>
-                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                         <div className="space-y-2">
-                            <Label htmlFor="emergency-name">Contact Name</Label>
-                            <Input id="emergency-name" placeholder="e.g., John Smith" {...register('emergencyContact.name')} />
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="emergency-phone">Contact Phone</Label>
-                            <Input id="emergency-phone" type="tel" placeholder="e.g., +1 310-555-0187" {...register('emergencyContact.phone')} />
-                        </div>
+                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                        <Label htmlFor="phone">Phone Number</Label>
+                        <Input id="phone" type="tel" placeholder="e.g., +1 202-555-0198" {...register('phone')} />
                     </div>
                      <div className="space-y-2">
-                        <Label htmlFor="emergency-relationship">Relationship</Label>
-                        <Input id="emergency-relationship" placeholder="e.g., Spouse, Parent, Sibling" {...register('emergencyContact.relationship')} />
-                    </div>
-                </div>
-
-                 {/* Section 2: Tags & Referral */}
-                 <div className="space-y-4">
-                    <h3 className="text-lg font-medium">Acquisition & Marketing</h3>
-                    <div className="space-y-2">
-                        <Label htmlFor="referral-code">Referral or Promo Code</Label>
-                        <div className="relative">
-                            <Gift className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input id="referral-code" placeholder="e.g., JANE10" className="pl-9" />
-                        </div>
-                    </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="custom-tags">Custom Tags</Label>
-                        <div className="flex items-center gap-2">
-                            <Input 
-                                id="custom-tags" 
-                                placeholder="Type a tag and press Enter..." 
-                                value={tagInput}
-                                onChange={(e) => setTagInput(e.target.value)}
-                                onKeyDown={handleTagInputKeyDown}
-                            />
-                            <Button type="button" onClick={handleAddTag}>Add</Button>
-                        </div>
-                        <div className="flex flex-wrap gap-2 pt-2">
-                            {tags.map(tag => (
-                                <Badge key={tag} variant="secondary">
-                                    {tag}
-                                    <button
-                                        type="button"
-                                        className="ml-1.5 -mr-0.5 rounded-full p-0.5 hover:bg-destructive/20"
-                                        onClick={() => removeTag(tag)}
-                                    >
-                                        <Trash2 className="h-3 w-3" />
-                                    </button>
-                                </Badge>
-                            ))}
-                        </div>
-                    </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="referral-source">Referral Source</Label>
+                        <Label htmlFor="birthday">Birthday</Label>
                          <Controller
-                            name="referralSource"
+                            name="birthday"
                             control={control}
                             render={({ field }) => (
-                                <Select onValueChange={(value) => { field.onChange(value); setReferralSource(value); }} value={field.value}>
-                                    <SelectTrigger id="referral-source">
-                                        <SelectValue placeholder="How did they find you?" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="social-media">Social Media</SelectItem>
-                                        <SelectItem value="online-search">Online Search</SelectItem>
-                                        <SelectItem value="client-referral">Client Referral</SelectItem>
-                                        <SelectItem value="walk-in">Walk-in</SelectItem>
-                                    </SelectContent>
-                                </Select>
+                                <Popover>
+                                    <PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), "w-full justify-start text-left font-normal", !field.value && "text-muted-foreground")}>
+                                    <span className="flex items-center">
+                                        <CalendarIcon className="mr-2 h-4 w-4" />
+                                        {field.value ? format(field.value, 'PPP') : "Pick a date"}
+                                    </span>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0">
+                                    <Calendar
+                                        mode="single"
+                                        selected={field.value}
+                                        onSelect={field.onChange}
+                                        initialFocus
+                                    />
+                                    </PopoverContent>
+                                </Popover>
                             )}
                         />
                     </div>
-                    {referralSource === 'client-referral' && (
-                        <div className="space-y-2">
-                            <Label htmlFor="referring-client">Referring Client</Label>
-                            <Select>
-                                <SelectTrigger id="referring-client">
-                                <SelectValue placeholder="Select referring client" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {clients.map(client => (
-                                        <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    )}
-                 </div>
-
-                 {/* Section 3: Client Intel */}
-                 <div className="space-y-4">
-                    <h3 className="text-lg font-medium">Client Intel</h3>
-                    <ClientIntelAccordion />
-                 </div>
-
-                {/* Section 4: Notes */}
-                <div className="space-y-4">
-                    <h3 className="text-lg font-medium">Initial Consultation Notes</h3>
-                    <Accordion type="multiple" className="w-full space-y-2">
-                        <AccordionItem value="goals" className="border rounded-lg">
-                            <AccordionTrigger className="p-3 text-base font-semibold">Client Goals</AccordionTrigger>
-                            <AccordionContent className="p-4">
-                                <Textarea placeholder="What is the client hoping to achieve today and in the long term?" />
-                            </AccordionContent>
-                        </AccordionItem>
-                        <AccordionItem value="routine" className="border rounded-lg">
-                            <AccordionTrigger className="p-3 text-base font-semibold">Current Routine & Products</AccordionTrigger>
-                            <AccordionContent className="p-4">
-                                <Textarea placeholder="What products are they currently using? What is their daily maintenance routine?" />
-                            </AccordionContent>
-                        </AccordionItem>
-                        <AccordionItem value="history" className="border rounded-lg">
-                            <AccordionTrigger className="p-3 text-base font-semibold">Past Service History</AccordionTrigger>
-                            <AccordionContent className="p-4">
-                                <Textarea placeholder="Any good or bad experiences with this type of service in the past? What did they like or dislike?" />
-                            </AccordionContent>
-                        </AccordionItem>
-                         <AccordionItem value="other" className="border rounded-lg">
-                            <AccordionTrigger className="p-3 text-base font-semibold">Other Notes</AccordionTrigger>
-                            <AccordionContent className="p-4">
-                                 <Controller
-                                    name="notes"
-                                    control={control}
-                                    render={({ field }) => (
-                                        <Textarea placeholder="Any other relevant details, preferences, or notes." {...field}/>
-                                    )}
-                                />
-                            </AccordionContent>
-                        </AccordionItem>
-                    </Accordion>
                 </div>
             </div>
-        </ScrollArea>
-    )
-}
+
+            <div className="space-y-4">
+                <h3 className="text-lg font-medium flex items-center gap-2"><Home className="w-5 h-5"/>Address</h3>
+                <div className="space-y-2">
+                    <Label htmlFor="street">Street Address</Label>
+                    <Input id="street" placeholder="123 Main St" {...register('address.street')}/>
+                </div>
+                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Input placeholder="City" {...register('address.city')} />
+                    <Input placeholder="State / Province" {...register('address.state')} />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                     <Input placeholder="ZIP / Postal Code" {...register('address.zip')} />
+                    <Input placeholder="Country" {...register('address.country')} />
+                </div>
+            </div>
+
+            <div className="space-y-4">
+                <h3 className="text-lg font-medium flex items-center gap-2"><User className="w-5 h-5"/>Emergency Contact</h3>
+                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                     <div className="space-y-2">
+                        <Label htmlFor="emergency-name">Contact Name</Label>
+                        <Input id="emergency-name" placeholder="e.g., John Smith" {...register('emergencyContact.name')} />
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="emergency-phone">Contact Phone</Label>
+                        <Input id="emergency-phone" type="tel" placeholder="e.g., +1 310-555-0187" {...register('emergencyContact.phone')} />
+                    </div>
+                </div>
+                 <div className="space-y-2">
+                    <Label htmlFor="emergency-relationship">Relationship</Label>
+                    <Input id="emergency-relationship" placeholder="e.g., Spouse, Parent, Sibling" {...register('emergencyContact.relationship')} />
+                </div>
+            </div>
+
+             {/* Section 2: Tags & Referral */}
+             <div className="space-y-4">
+                <h3 className="text-lg font-medium">Acquisition & Marketing</h3>
+                <div className="space-y-2">
+                    <Label htmlFor="referral-code">Referral or Promo Code</Label>
+                    <div className="relative">
+                        <Gift className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input id="referral-code" placeholder="e.g., JANE10" className="pl-9" />
+                    </div>
+                </div>
+                <div className="space-y-2">
+                    <Label htmlFor="custom-tags">Custom Tags</Label>
+                    <div className="flex items-center gap-2">
+                        <Input 
+                            id="custom-tags" 
+                            placeholder="Type a tag and press Enter..." 
+                            value={tagInput}
+                            onChange={(e) => setTagInput(e.target.value)}
+                            onKeyDown={handleTagInputKeyDown}
+                        />
+                        <Button type="button" onClick={handleAddTag}>Add</Button>
+                    </div>
+                    <div className="flex flex-wrap gap-2 pt-2">
+                        {tags.map(tag => (
+                            <Badge key={tag} variant="secondary">
+                                {tag}
+                                <button
+                                    type="button"
+                                    className="ml-1.5 -mr-0.5 rounded-full p-0.5 hover:bg-destructive/20"
+                                    onClick={() => removeTag(tag)}
+                                >
+                                    <Trash2 className="h-3 w-3" />
+                                </button>
+                            </Badge>
+                        ))}
+                    </div>
+                </div>
+                <div className="space-y-2">
+                    <Label htmlFor="referral-source">Referral Source</Label>
+                     <Controller
+                        name="referralSource"
+                        control={control}
+                        render={({ field }) => (
+                            <Select onValueChange={(value) => { field.onChange(value); setReferralSource(value); }} value={field.value}>
+                                <SelectTrigger id="referral-source">
+                                    <SelectValue placeholder="How did they find you?" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="social-media">Social Media</SelectItem>
+                                    <SelectItem value="online-search">Online Search</SelectItem>
+                                    <SelectItem value="client-referral">Client Referral</SelectItem>
+                                    <SelectItem value="walk-in">Walk-in</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        )}
+                    />
+                </div>
+                {referralSource === 'client-referral' && (
+                    <div className="space-y-2">
+                        <Label htmlFor="referring-client">Referring Client</Label>
+                        <Select>
+                            <SelectTrigger id="referring-client">
+                            <SelectValue placeholder="Select referring client" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {clients.map(client => (
+                                    <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                )}
+             </div>
+
+             {/* Section 3: Client Intel */}
+             <div className="space-y-4">
+                <h3 className="text-lg font-medium">Client Intel</h3>
+                <ClientIntelAccordion />
+             </div>
+
+            {/* Section 4: Notes */}
+            <div className="space-y-4">
+                <h3 className="text-lg font-medium">Initial Consultation Notes</h3>
+                <Accordion type="multiple" className="w-full space-y-2">
+                    <AccordionItem value="goals" className="border rounded-lg">
+                        <AccordionTrigger className="p-3 text-base font-semibold">Client Goals</AccordionTrigger>
+                        <AccordionContent className="p-4">
+                            <Textarea placeholder="What is the client hoping to achieve today and in the long term?" />
+                        </AccordionContent>
+                    </AccordionItem>
+                    <AccordionItem value="routine" className="border rounded-lg">
+                        <AccordionTrigger className="p-3 text-base font-semibold">Current Routine & Products</AccordionTrigger>
+                        <AccordionContent className="p-4">
+                            <Textarea placeholder="What products are they currently using? What is their daily maintenance routine?" />
+                        </AccordionContent>
+                    </AccordionItem>
+                    <AccordionItem value="history" className="border rounded-lg">
+                        <AccordionTrigger className="p-3 text-base font-semibold">Past Service History</AccordionTrigger>
+                        <AccordionContent className="p-4">
+                            <Textarea placeholder="Any good or bad experiences with this type of service in the past? What did they like or dislike?" />
+                        </AccordionContent>
+                    </AccordionItem>
+                     <AccordionItem value="other" className="border rounded-lg">
+                        <AccordionTrigger className="p-3 text-base font-semibold">Other Notes</AccordionTrigger>
+                        <AccordionContent className="p-4">
+                             <Controller
+                                name="notes"
+                                control={control}
+                                render={({ field }) => (
+                                    <Textarea placeholder="Any other relevant details, preferences, or notes." {...field}/>
+                                )}
+                            />
+                        </AccordionContent>
+                    </AccordionItem>
+                </Accordion>
+            </div>
+        </div>
+    );
+};
+
 
 export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open: boolean, onOpenChange: (open: boolean) => void, clients: Client[], onSave: (data: Partial<Client>) => void }) => {
   const isMobile = useIsMobile();
@@ -464,31 +463,31 @@ export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open:
   const title = "Add New Client";
   const description = "Capture all the important details for your new client.";
 
-  const FormContent = (
-    <FormProvider {...methods}>
-        <form id={formId} onSubmit={handleSubmit(handleSaveSubmit)} className="h-full flex flex-col">
-            <div className="flex-1 min-h-0">
-                 <AddClientForm clients={clients} />
-            </div>
-            <div className="p-4 border-t">
-                <SheetFooter className="grid grid-cols-2 gap-2">
-                    <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full" type="button">Cancel</Button>
-                    <Button type="submit" className="w-full">Save Client</Button>
-                </SheetFooter>
-            </div>
-        </form>
-    </FormProvider>
-  );
-
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
-          <SheetHeader className="text-left p-4">
+          <SheetHeader className="p-4 border-b text-left">
             <SheetTitle>{title}</SheetTitle>
             <SheetDescription>{description}</SheetDescription>
           </SheetHeader>
-          {FormContent}
+            <FormProvider {...methods}>
+                <form id={formId} onSubmit={handleSubmit(handleSaveSubmit)} className="flex-1 flex flex-col min-h-0">
+                    <ScrollArea className="flex-1">
+                        <div className="p-4">
+                            <AddClientForm clients={clients} />
+                        </div>
+                    </ScrollArea>
+                    <div className="p-4 border-t bg-background">
+                        <SheetFooter>
+                            <div className="grid grid-cols-2 gap-2 w-full">
+                                <Button variant="outline" onClick={() => onOpenChange(false)} type="button" className="w-full">Cancel</Button>
+                                <Button type="submit" className="w-full">Save Client</Button>
+                            </div>
+                        </SheetFooter>
+                    </div>
+                </form>
+            </FormProvider>
         </SheetContent>
       </Sheet>
     );
@@ -497,15 +496,17 @@ export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open:
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col p-0">
-        <DialogHeader className="p-6 pb-0">
+        <DialogHeader className="p-6 pb-4">
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <FormProvider {...methods}>
             <form id="desktop-add-client-form" onSubmit={handleSubmit(handleSaveSubmit)} className="flex-1 min-h-0 flex flex-col">
-                <div className="flex-1 min-h-0">
-                    <AddClientForm clients={clients} />
-                </div>
+                <ScrollArea className="flex-1">
+                     <div className="px-6">
+                        <AddClientForm clients={clients} />
+                    </div>
+                </ScrollArea>
                  <DialogFooter className="p-6 pt-4 border-t">
                     <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
                     <Button type="submit">Save Client</Button>
