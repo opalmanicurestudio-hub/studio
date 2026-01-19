@@ -56,9 +56,20 @@ const clientSchema = z.object({
   email: z.string().email('Invalid email address.').optional().or(z.literal('')),
   phone: z.string().optional(),
   avatarUrl: z.string().optional(),
-  medicalNotes: z.string().optional(),
-  allergyNotes: z.string().optional(),
-  sensoryNeeds: z.string().optional(),
+  intel: z.object({
+    medical: z.object({
+        flags: z.array(z.string()).optional(),
+        notes: z.string().optional()
+    }).optional(),
+    allergies: z.object({
+        flags: z.array(z.string()).optional(),
+        notes: z.string().optional()
+    }).optional(),
+    sensory: z.object({
+        flags: z.array(z.string()).optional(),
+        notes: z.string().optional()
+    }).optional()
+  }).optional(),
   notes: z.string().optional(),
   birthday: z.date().optional(),
   address: z.object({
@@ -84,14 +95,20 @@ const ClientIntelCategory = ({
   icon,
   color,
   predefinedItems,
+  categoryKey,
 }: {
   title: string;
   icon: React.ReactNode;
   color: string;
   predefinedItems: string[];
+  categoryKey: 'medical' | 'allergies' | 'sensory';
 }) => {
+  const { control, getValues, setValue } = useFormContext<ClientFormData>();
   const [customItems, setCustomItems] = useState<string[]>([]);
   const [inputValue, setInputValue] = useState('');
+
+  const flagsFieldName = `intel.${categoryKey}.flags` as const;
+  const notesFieldName = `intel.${categoryKey}.notes` as const;
 
   const handleAddItem = () => {
     if (inputValue.trim() && !customItems.includes(inputValue.trim())) {
@@ -111,6 +128,14 @@ const ClientIntelCategory = ({
     setCustomItems(customItems.filter(item => item !== itemToRemove));
   };
   
+  const handleFlagToggle = (item: string) => {
+    const currentFlags = getValues(flagsFieldName) || [];
+    const newFlags = currentFlags.includes(item)
+      ? currentFlags.filter(flag => flag !== item)
+      : [...currentFlags, item];
+    setValue(flagsFieldName, newFlags, { shouldDirty: true });
+  };
+  
   const colorClasses = {
       red: 'bg-red-500/5',
       amber: 'bg-amber-500/5',
@@ -126,14 +151,25 @@ const ClientIntelCategory = ({
         </div>
       </AccordionTrigger>
       <AccordionContent className="p-4 space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          {predefinedItems.map(item => (
-            <div key={item} className="flex items-center space-x-2">
-              <Checkbox id={`check-${title}-${item}`} />
-              <Label htmlFor={`check-${title}-${item}`}>{item}</Label>
+        <Controller
+          name={flagsFieldName}
+          control={control}
+          defaultValue={[]}
+          render={({ field }) => (
+            <div className="grid grid-cols-2 gap-4">
+              {predefinedItems.map(item => (
+                <div key={item} className="flex items-center space-x-2">
+                  <Checkbox
+                    id={`check-${title}-${item}`}
+                    checked={field.value?.includes(item)}
+                    onCheckedChange={() => handleFlagToggle(item)}
+                  />
+                  <Label htmlFor={`check-${title}-${item}`}>{item}</Label>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+        />
         <div className="space-y-2">
              <Label className="text-xs">Custom Fields</Label>
              <div className="flex gap-2">
@@ -156,7 +192,16 @@ const ClientIntelCategory = ({
                 ))}
             </div>
         </div>
-        <Textarea placeholder={`Add detailed ${title.toLowerCase()} notes...`} />
+        <Controller
+            name={notesFieldName}
+            control={control}
+            render={({ field }) => (
+                <Textarea 
+                    placeholder={`Add detailed ${title.toLowerCase()} notes...`} 
+                    {...field}
+                />
+            )}
+        />
       </AccordionContent>
     </AccordionItem>
   )
@@ -169,18 +214,21 @@ const ClientIntelAccordion = () => (
         icon={<ShieldAlert className="w-5 h-5 text-red-500" />}
         color="red"
         predefinedItems={['Pregnant', 'Pacemaker', 'Diabetes', 'High Blood Pressure']}
+        categoryKey="medical"
     />
     <ClientIntelCategory
         title="Allergies & Sensitivities"
         icon={<AlertTriangle className="w-5 h-5 text-amber-500" />}
         color="amber"
         predefinedItems={['Latex', 'Fragrance', 'Nuts', 'Aspirin']}
+        categoryKey="allergies"
     />
     <ClientIntelCategory
         title="Disabilities & Sensory Needs"
         icon={<Ear className="w-5 h-5 text-blue-500" />}
         color="blue"
         predefinedItems={['Wheelchair Access', 'Prefers Quiet', 'Sensory Sensitivities', 'Service Animal']}
+        categoryKey="sensory"
     />
   </Accordion>
 );
@@ -454,7 +502,24 @@ export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open:
   }, [open, reset]);
 
   const handleSaveSubmit = (data: ClientFormData) => {
-    onSave(data);
+    const transformedData: Partial<Client> = {
+      ...data,
+      medicalNotes: [
+          ...(data.intel?.medical?.flags || []),
+          data.intel?.medical?.notes || ''
+      ].filter(Boolean).join(', '),
+      allergyNotes: [
+          ...(data.intel?.allergies?.flags || []),
+          data.intel?.allergies?.notes || ''
+      ].filter(Boolean).join(', '),
+      sensoryNeeds: [
+          ...(data.intel?.sensory?.flags || []),
+          data.intel?.sensory?.notes || ''
+      ].filter(Boolean).join(', '),
+    };
+    delete (transformedData as any).intel;
+
+    onSave(transformedData);
     onOpenChange(false);
   };
   
