@@ -10,7 +10,7 @@
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
-export const GenerateClientReportInputSchema = z.object({
+const GenerateClientReportInputSchema = z.object({
   clientName: z.string().describe('The name of the client.'),
   totalAppointments: z.number().describe('Total number of completed appointments.'),
   lifetimeValue: z.number().describe('Total money spent by the client.'),
@@ -23,7 +23,7 @@ export const GenerateClientReportInputSchema = z.object({
 });
 export type GenerateClientReportInput = z.infer<typeof GenerateClientReportInputSchema>;
 
-export const GenerateClientReportOutputSchema = z.object({
+const GenerateClientReportOutputSchema = z.object({
   summary: z.string().describe('A concise, professional summary of the client. Highlight key information like their value, loyalty, and any important alerts.'),
   talkingPoints: z.array(z.string()).describe('Three conversational talking points or questions to engage the client during their next visit, based on their history and notes.'),
 });
