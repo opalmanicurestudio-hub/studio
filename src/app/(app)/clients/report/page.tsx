@@ -465,6 +465,10 @@ const ClientLogReportPage = () => {
 
                 <style jsx global>{`
                     @media print {
+                      body {
+                        -webkit-print-color-adjust: exact !important;
+                        print-color-adjust: exact !important;
+                      }
                       body * {
                         visibility: hidden;
                       }
@@ -476,6 +480,7 @@ const ClientLogReportPage = () => {
                         left: 0;
                         top: 0;
                         width: 100%;
+                        border: 1px solid hsl(240 5% 18%);
                       }
                       #lifecycle-chart-card {
                         break-inside: avoid;
