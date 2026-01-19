@@ -431,6 +431,9 @@ export default function ClientsPage() {
                                         </Button>
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent>
+                                        <DropdownMenuItem asChild>
+                                            <Link href="/clients/report"><FileText className="mr-2 h-4 w-4"/>View Full Report</Link>
+                                        </DropdownMenuItem>
                                         <DropdownMenuItem onClick={() => setIsMergeClientsOpen(true)}><Merge className="mr-2 h-4 w-4"/>Merge Duplicates</DropdownMenuItem>
                                         <DropdownMenuItem onClick={handleExport}><FileDown className="mr-2 h-4 w-4"/>Export List</DropdownMenuItem>
                                     </DropdownMenuContent>
