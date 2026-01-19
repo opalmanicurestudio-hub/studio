@@ -36,10 +36,9 @@ import { Label } from '@/components/ui/label';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog';
 
 
-const ClientCard = ({ client, isSelected, onSelect, onBookAppointment }: { client: Client, isSelected: boolean, onSelect: () => void, onBookAppointment: (client: Client) => void }) => {
+const ClientCard = ({ client, isSelected, onSelect }: { client: Client, isSelected: boolean, onSelect: () => void }) => {
     const { clients } = useInventory();
     const lastAppointment = useMemo(() => {
         if (!client.lastAppointment) return null;
@@ -84,7 +83,6 @@ const ClientCard = ({ client, isSelected, onSelect, onBookAppointment }: { clien
                              <DropdownMenuItem asChild>
                                 <Link href={`/clients/${client.id}`}>View/Edit Details</Link>
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => onBookAppointment(client)}>Book Appointment</DropdownMenuItem>
                             <DropdownMenuItem asChild>
                                 <Link href={`/clients/${client.id}/report`}><FileText className="mr-2 h-4 w-4"/>Generate Report</Link>
                             </DropdownMenuItem>
@@ -156,7 +154,7 @@ const EmptyState = ({ onAddClient }: { onAddClient: () => void }) => (
 
 
 export default function ClientsPage() {
-  const { clients, setClients, appointments, setAppointments, services } = useInventory();
+  const { clients, setClients, appointments } = useInventory();
   const [isAddClientOpen, setIsAddClientOpen] = useState(false);
   const [isMergeClientsOpen, setIsMergeClientsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -170,23 +168,6 @@ export default function ClientsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 8;
   
-  const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
-  const [selectedClientForBooking, setSelectedClientForBooking] = useState<Client | null>(null);
-
-  const handleBookAppointment = useCallback((client: Client) => {
-    setSelectedClientForBooking(client);
-    setIsAddAppointmentOpen(true);
-  }, []);
-
-  const handleAddAppointmentConfirm = useCallback((newAppointment: Omit<Appointment, 'id'>) => {
-    const newAptWithId = { ...newAppointment, id: `apt-${Date.now()}`, absorbedCost: 0 };
-    setAppointments(prev => [...(prev || []), newAptWithId].sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()));
-    toast({
-        title: "Appointment Booked",
-        description: `Appointment with ${clients.find(c => c.id === newAppointment.clientId)?.name} has been added.`
-    });
-    setIsAddAppointmentOpen(false);
-  }, [setAppointments, clients, toast]);
 
   const handleItemSelect = useCallback((itemId: string) => {
     setSelectedItems(prev => {
@@ -490,7 +471,6 @@ export default function ClientsPage() {
                                         client={client}
                                         isSelected={selectedItems.has(client.id)}
                                         onSelect={() => handleItemSelect(client.id)}
-                                        onBookAppointment={handleBookAppointment}
                                     />
                                 ))}
                             </div>
@@ -558,16 +538,6 @@ export default function ClientsPage() {
             </AlertDialogContent>
         </AlertDialog>
 
-        <AddAppointmentDialog
-            open={isAddAppointmentOpen}
-            onOpenChange={setIsAddAppointmentOpen}
-            clients={clients}
-            services={services}
-            appointments={appointments || []}
-            onConfirm={handleAddAppointmentConfirm}
-            initialClientId={selectedClientForBooking?.id}
-        />
-
     </div>
   );
 }
@@ -582,3 +552,4 @@ export default function ClientsPage() {
     
 
     
+
