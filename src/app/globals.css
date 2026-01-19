@@ -109,4 +109,39 @@ h1, h2, h3, h4, h5, h6 {
   ::-webkit-scrollbar-thumb:hover {
     background-color: hsl(var(--muted-foreground) / 0.5);
   }
+
+  /* Custom styles for react-phone-number-input to match ShadCN theme */
+  .PhoneInputCountry {
+    @apply pl-3 pr-2;
+  }
+
+  .PhoneInputCountryIcon {
+    @apply rounded-sm shadow-sm;
+    box-shadow: 0 0 0 1px hsl(var(--border));
+  }
+
+  .PhoneInputCountrySelectArrow {
+    @apply w-4 h-4 text-muted-foreground ml-2 opacity-75;
+  }
+
+  /* This is the country dropdown menu, it is rendered in a portal */
+  .PhoneInputCountrySelect {
+    @apply bg-popover text-popover-foreground border border-border shadow-md rounded-md;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    padding: 0.25rem;
+  }
+
+  .PhoneInputCountrySelect-option {
+    @apply cursor-pointer rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground;
+  }
+
+  .PhoneInputCountrySelect-option--selected,
+  .PhoneInputCountrySelect-option--focused {
+    @apply bg-accent text-accent-foreground;
+  }
+
+  .PhoneInputCountrySelect-option .PhoneInputCountrySelect-option-name,
+  .PhoneInputCountrySelect-option .PhoneInputCountrySelect-option-dial-code {
+      @apply text-popover-foreground;
+  }
 }

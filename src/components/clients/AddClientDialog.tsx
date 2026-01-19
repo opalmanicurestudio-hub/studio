@@ -51,6 +51,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { ImageUpload } from '../shared/ImageUpload';
 import { format } from 'date-fns';
+import { PhoneInput } from '../ui/phone-input';
 
 const clientSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
@@ -302,10 +303,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                     </div>
                 </div>
                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                        <Label htmlFor="phone">Phone Number</Label>
-                        <Input id="phone" type="tel" placeholder="e.g., +1 202-555-0198" {...register('phone')} />
-                    </div>
+                    <PhoneInput name="phone" label="Phone Number" placeholder="e.g., (555) 123-4567" />
                      <div className="space-y-2">
                         <Label htmlFor="birthday">Birthday</Label>
                          <Controller
@@ -357,10 +355,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                         <Label htmlFor="emergency-name">Contact Name</Label>
                         <Input id="emergency-name" placeholder="e.g., John Smith" {...register('emergencyContact.name')} />
                     </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="emergency-phone">Contact Phone</Label>
-                        <Input id="emergency-phone" type="tel" placeholder="e.g., +1 310-555-0187" {...register('emergencyContact.phone')} />
-                    </div>
+                    <PhoneInput name="emergencyContact.phone" label="Contact Phone" />
                 </div>
                  <div className="space-y-2">
                     <Label htmlFor="emergency-relationship">Relationship</Label>

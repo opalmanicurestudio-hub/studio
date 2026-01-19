@@ -42,6 +42,7 @@ import { EditClientDialog } from '@/components/clients/EditClientDialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useInventory } from '@/context/InventoryContext';
+import { formatPhoneNumber } from 'react-phone-number-input';
 
 
 type ClientPhoto = {
@@ -355,7 +356,7 @@ export default function ClientDetailPage() {
                             </a>
                             <div className="flex items-center justify-center sm:justify-start gap-2">
                                 <Phone className="w-4 h-4 flex-shrink-0" />
-                                <span>{client.phone}</span>
+                                <span>{client.phone ? formatPhoneNumber(client.phone) : 'N/A'}</span>
                                 <div className="ml-auto flex items-center gap-1">
                                     <a href={`tel:${client.phone}`} className="p-1.5 rounded-md hover:bg-muted">
                                         <Phone className="w-4 h-4 text-primary" />
@@ -394,7 +395,7 @@ export default function ClientDetailPage() {
                                       <div className="space-y-1"><p className="text-sm font-medium text-muted-foreground">Birthday</p><p>{client.birthday ? format(new Date(client.birthday), 'MMMM d') : 'N/A'}</p></div>
                                       <div className="space-y-1"><p className="text-sm font-medium text-muted-foreground">Referral Source</p><p>{client.intel?.referralSource || 'N/A'}</p></div>
                                       {client.address && <div className="space-y-1 col-span-1 sm:col-span-2"><p className="text-sm font-medium text-muted-foreground flex items-center gap-2"><Home className="w-4 h-4"/>Address</p><p>{client.address.street}<br/>{client.address.city}, {client.address.state} {client.address.zip}</p></div>}
-                                      {client.emergencyContact && <div className="space-y-1 col-span-1 sm:col-span-2"><p className="text-sm font-medium text-muted-foreground flex items-center gap-2"><UserIcon className="w-4 h-4"/>Emergency Contact</p><p>{client.emergencyContact.name} ({client.emergencyContact.relationship})<br/>{client.emergencyContact.phone}</p></div>}
+                                      {client.emergencyContact && <div className="space-y-1 col-span-1 sm:col-span-2"><p className="text-sm font-medium text-muted-foreground flex items-center gap-2"><UserIcon className="w-4 h-4"/>Emergency Contact</p><p>{client.emergencyContact.name} ({client.emergencyContact.relationship})<br/>{client.emergencyContact.phone ? formatPhoneNumber(client.emergencyContact.phone) : 'N/A'}</p></div>}
                                   </CardContent>
                               </Card>
                                <Card>
@@ -604,4 +605,5 @@ export default function ClientDetailPage() {
   );
 
     
+
 

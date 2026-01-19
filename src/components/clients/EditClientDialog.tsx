@@ -46,6 +46,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Badge } from '../ui/badge';
 import { clients as allClients } from '@/lib/data';
 import { Checkbox } from '../ui/checkbox';
+import { PhoneInput } from '../ui/phone-input';
 
 
 const clientSchema = z.object({
@@ -231,11 +232,7 @@ const EditClientForm = ({ client }: { client: Client }) => {
                 </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                    <Label htmlFor="phone">Phone Number</Label>
-                    <Input id="phone" type="tel" {...register('phone')} />
-                    {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
-                </div>
+                <PhoneInput name="phone" label="Phone Number" />
                 <div className="space-y-2">
                     <Label htmlFor="birthday">Birthday</Label>
                     <Controller
@@ -287,10 +284,7 @@ const EditClientForm = ({ client }: { client: Client }) => {
                     <Label htmlFor="emergency-name">Contact Name</Label>
                     <Input id="emergency-name" {...register('emergencyContact.name')} />
                 </div>
-                <div className="space-y-2">
-                    <Label htmlFor="emergency-phone">Contact Phone</Label>
-                    <Input id="emergency-phone" type="tel" {...register('emergencyContact.phone')} />
-                </div>
+                <PhoneInput name="emergencyContact.phone" label="Contact Phone" />
             </div>
             <div className="space-y-2">
                 <Label htmlFor="emergency-relationship">Relationship</Label>
@@ -465,6 +459,7 @@ export const EditClientDialog = ({
         notes: client.notes || {},
         address: client.address || {},
         emergencyContact: client.emergencyContact || {},
+        birthday: client.birthday ? new Date(client.birthday) : undefined,
       });
     }
   }, [client, methods]);
