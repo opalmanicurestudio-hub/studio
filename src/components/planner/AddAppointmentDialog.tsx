@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -122,17 +123,23 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
     );
 };
 
+interface AddAppointmentFormProps {
+    clients: Client[];
+    services: Service[];
+    appointments: Appointment[];
+    onConfirm: (apt: Omit<Appointment, 'id'>) => void;
+    initialClientId?: string;
+    open: boolean;
+}
+
 const AddAppointmentForm = ({ 
     clients, 
     services,
     appointments,
-    onConfirm
-}: { 
-    clients: Client[], 
-    services: Service[],
-    appointments: Appointment[],
-    onConfirm: (apt: Omit<Appointment, 'id'>) => void
-}) => {
+    onConfirm,
+    initialClientId,
+    open,
+}: AddAppointmentFormProps) => {
     const [selectedClientId, setSelectedClientId] = useState<string>('');
     const [selectedServiceId, setSelectedServiceId] = useState<string>('');
     const [date, setDate] = useState<Date>(new Date());
@@ -142,6 +149,16 @@ const AddAppointmentForm = ({
 
     const [isOverlapping, setIsOverlapping] = useState(false);
     const [showConfirmation, setShowConfirmation] = useState(false);
+    
+    useEffect(() => {
+        if(open) {
+            setSelectedClientId(initialClientId || '');
+            setSelectedServiceId('');
+            setDate(new Date());
+            setStartTime('');
+            setSelectedAddOns([]);
+        }
+    }, [open, initialClientId])
 
     const selectedService = useMemo(() => services.find(s => s.id === selectedServiceId), [services, selectedServiceId]);
 
@@ -228,7 +245,7 @@ const AddAppointmentForm = ({
                         <div className="space-y-2">
                             <Label htmlFor="client">Client</Label>
                             <div className="flex gap-2">
-                                <Select onValueChange={setSelectedClientId}>
+                                <Select value={selectedClientId} onValueChange={setSelectedClientId}>
                                     <SelectTrigger id="client">
                                     <SelectValue placeholder="Select an existing client" />
                                     </SelectTrigger>
@@ -241,7 +258,7 @@ const AddAppointmentForm = ({
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="service">Service</Label>
-                            <Select onValueChange={setSelectedServiceId}>
+                            <Select value={selectedServiceId} onValueChange={setSelectedServiceId}>
                                 <SelectTrigger id="service">
                                 <SelectValue placeholder="Select a service" />
                                 </SelectTrigger>
@@ -340,13 +357,23 @@ const AddAppointmentForm = ({
     )
 }
 
-export const AddAppointmentDialog = ({ open, onOpenChange, clients, services, appointments, onConfirm }: { open: boolean, onOpenChange: (open: boolean) => void, clients: Client[], services: Service[], appointments: Appointment[], onConfirm: (apt: Omit<Appointment, 'id'>) => void }) => {
+interface AddAppointmentDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  clients: Client[];
+  services: Service[];
+  appointments: Appointment[];
+  onConfirm: (apt: Omit<Appointment, 'id'>) => void;
+  initialClientId?: string;
+}
+
+export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, clients, services, appointments, onConfirm, initialClientId }) => {
   const isMobile = useIsMobile();
 
   const title = "New Appointment";
   const description = "Book a new appointment for a client.";
   
-  const FormContent = <AddAppointmentForm clients={clients} services={services} appointments={appointments} onConfirm={onConfirm} />;
+  const FormContent = <AddAppointmentForm clients={clients} services={services} appointments={appointments} onConfirm={onConfirm} initialClientId={initialClientId} open={open} />;
 
   if (isMobile) {
     return (
