@@ -44,7 +44,6 @@ import { BrowseProductsDialog } from './BrowseProductsDialog';
 import { SelectEquipmentDialog } from './SelectEquipmentDialog';
 import { SelectAddOnsDialog } from './SelectAddOnsDialog';
 import { BrowseConsentFormsDialog } from './BrowseConsentFormsDialog';
-import { cn } from '@/lib/utils';
 import { Switch } from '../ui/switch';
 import { ScrollArea } from '../ui/scroll-area';
 
@@ -64,7 +63,6 @@ const serviceSchema = z.object({
     addOns: z.array(z.any()).optional(),
     
     depositType: z.enum(['none', 'deposit', 'full']),
-    depositSubType: z.string().optional(),
     depositAmount: z.coerce.number().optional(),
     
     price: z.coerce.number().optional(),
@@ -118,7 +116,6 @@ const AddServiceForm = ({
     const selectedAddOns = watch('addOns') || [];
     const isAddon = watch('isAddon');
     const depositType = watch('depositType');
-    const depositSubType = watch('depositSubType');
 
     const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
     const [isEquipmentSelectorOpen, setIsEquipmentSelectorOpen] = useState(false);
@@ -172,8 +169,8 @@ const AddServiceForm = ({
                     {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}</div>
                     <div className="grid grid-cols-3 gap-4">
                         <div className="space-y-2"><Label htmlFor="duration">Duration (min)</Label><Input id="duration" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>{errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}</div>
-                        <div className="space-y-2"><Label htmlFor="pad-before">Pad Before (min)</Label><Input id="pad-before" type="number" placeholder="e.g., 0" {...register('padBefore', { valueAsNumber: true })} /></div>
-                        <div className="space-y-2"><Label htmlFor="pad-after">Pad After (min)</Label><Input id="pad-after" type="number" placeholder="e.g., 15" {...register('padAfter', { valueAsNumber: true })} /></div>
+                        <div className="space-y-2"><Label htmlFor="pad-before">Pad Before (min)</Label><Input id="pad-before" type="number" placeholder="e.g., 0" {...register('padBefore')} /></div>
+                        <div className="space-y-2"><Label htmlFor="pad-after">Pad After (min)</Label><Input id="pad-after" type="number" placeholder="e.g., 15" {...register('padAfter')} /></div>
                     </div>
                     <div className="space-y-2"><Label htmlFor="description">Description</Label><Textarea id="description" placeholder="Describe the service for your booking page..." {...register('description')} /></div>
                     <div className="space-y-2"><Label>Service Image</Label><Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/></div>
@@ -211,10 +208,7 @@ const AddServiceForm = ({
                             <Label>Deposit Requirement</Label>
                             <Controller name="depositType" control={control} defaultValue="none" render={({ field }) => (<RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-3 gap-2"><div><RadioGroupItem value="none" id="none" className="peer sr-only" /><Label htmlFor="none" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">None</Label></div><div><RadioGroupItem value="deposit" id="deposit" className="peer sr-only" /><Label htmlFor="deposit" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Deposit</Label></div><div><RadioGroupItem value="full" id="full" className="peer sr-only" /><Label htmlFor="full" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Pay in Full</Label></div></RadioGroup>)}/>
                             {depositType === 'deposit' && (
-                                <Card className="bg-background"><CardContent className="p-4 space-y-4">
-                                <div className="space-y-2"><Label>Deposit Type</Label><Controller name="depositSubType" control={control} render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue placeholder="Select deposit type" /></SelectTrigger><SelectContent><SelectItem value="flat">Flat Rate</SelectItem><SelectItem value="percentage">Percentage</SelectItem><SelectItem value="break-even">Break-Even Cost</SelectItem></SelectContent></Select>)}/></div>
-                                <div className="space-y-2"><Label>Deposit Amount</Label><Controller name="depositAmount" control={control} render={({ field }) => { const isBreakEven = depositSubType === 'break-even'; const isPercentage = depositSubType === 'percentage'; let displayValue: string | number = field.value || ''; if (isBreakEven && typeof field.value === 'number') { displayValue = field.value.toFixed(2); } return (<div className="relative">{!isPercentage && (<DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />)}<Input type={isBreakEven ? "text" : "number"} placeholder={isPercentage ? '%' : '25.00'} {...field} value={displayValue} onChange={e => { if (!isBreakEven) { field.onChange(parseFloat(e.target.value) || 0) } }} readOnly={isBreakEven} className={!isPercentage ? "pl-8" : ""} />{isPercentage && (<span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>)}</div>)}} /></div>
-                                </CardContent></Card>
+                                <Card className="bg-background"><CardContent className="p-4 space-y-2"><div className="space-y-2"><Label>Deposit Type</Label><Controller name="depositSubType" control={control} render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue placeholder="Select deposit type" /></SelectTrigger><SelectContent><SelectItem value="flat">Flat Rate</SelectItem><SelectItem value="percentage">Percentage</SelectItem></SelectContent></Select>)}/></div><div className="space-y-2"><Label>Deposit Amount</Label><Controller name="depositAmount" control={control} render={({ field }) => (<div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input type="number" placeholder="25.00" {...field} className="pl-8"/></div>)} /></div></CardContent></Card>
                             )}
                         </div>
                     )}

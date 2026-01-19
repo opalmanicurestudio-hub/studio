@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { PlusCircle, Package, Hammer, Trash2, QrCode, Check, AlertTriangle, DollarSign } from 'lucide-react';
+import { PlusCircle, Package, Hammer, Trash2, QrCode, Check, DollarSign } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -35,10 +35,9 @@ import { useForm, FormProvider, useFormContext, Controller } from 'react-hook-fo
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { Sheet, SheetContent } from '../ui/sheet';
+import { Sheet, SheetContent, SheetHeader, SheetDescription, SheetTitle } from '../ui/sheet';
 import { ScrollArea } from '../ui/scroll-area';
 import { BrowseConsentFormsDialog } from './BrowseConsentFormsDialog';
-import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
 
 const serviceSchema = z.object({
     id: z.string(),
@@ -110,7 +109,6 @@ const EditServiceForm = ({
     const selectedAddOns = watch('addOns') || [];
     const isAddon = watch('isAddon');
     const depositType = watch('depositType');
-    const depositSubType = watch('depositSubType');
 
     const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
     const [isEquipmentSelectorOpen, setIsEquipmentSelectorOpen] = useState(false);
@@ -150,8 +148,7 @@ const EditServiceForm = ({
     
     return (
     <>
-        <div className="grid gap-6 py-4">
-            {/* Basics */}
+        <div className="space-y-6">
             <Card>
                 <CardHeader><CardTitle>Basics</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
@@ -159,21 +156,20 @@ const EditServiceForm = ({
                         <div className='space-y-1'><Label htmlFor="is-addon-edit">Is this an Add-on Service?</Label><p className='text-sm text-muted-foreground'>Add-ons can be appended to primary services.</p></div>
                         <Controller name="isAddon" control={control} render={({ field }) => ( <Switch id="is-addon-edit" checked={field.value} onCheckedChange={field.onChange} /> )}/>
                     </div>
-                    <div className="space-y-2"><Label htmlFor="service-name">Name</Label><Input id="service-name" placeholder="e.g., Signature Haircut" {...register('name')} />{errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}</div>
-                    <div className="space-y-2"><Label htmlFor="category">Category</Label>
+                    <div className="space-y-2"><Label htmlFor="service-name-edit">Name</Label><Input id="service-name-edit" placeholder="e.g., Signature Haircut" {...register('name')} />{errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}</div>
+                    <div className="space-y-2"><Label htmlFor="category-edit">Category</Label>
                     {isAddingCategory ? ( <div className="flex gap-2"><Input placeholder="Enter new category name..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()} /><Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button></div> ) : ( <div className="flex gap-2"><Controller name="category" control={control} render={({ field }) => ( <Select onValueChange={field.onChange} value={field.value}> <SelectTrigger> <SelectValue placeholder="Select a category" /> </SelectTrigger> <SelectContent> {categories.map(cat => ( <SelectItem key={cat} value={cat}>{cat}</SelectItem> ))} </SelectContent> </Select> )}/> <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"> <PlusCircle className="h-4 w-4" /> </Button> </div> )}
                     {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}</div>
                     <div className="grid grid-cols-3 gap-4">
-                        <div className="space-y-2"><Label htmlFor="duration">Duration (min)</Label><Input id="duration" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>{errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}</div>
-                        <div className="space-y-2"><Label htmlFor="pad-before">Pad Before (min)</Label><Input id="pad-before" type="number" placeholder="e.g., 0" {...register('padBefore', { valueAsNumber: true })} /></div>
-                        <div className="space-y-2"><Label htmlFor="pad-after">Pad After (min)</Label><Input id="pad-after" type="number" placeholder="e.g., 15" {...register('padAfter', { valueAsNumber: true })} /></div>
+                        <div className="space-y-2"><Label htmlFor="duration-edit">Duration (min)</Label><Input id="duration-edit" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>{errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}</div>
+                        <div className="space-y-2"><Label htmlFor="pad-before-edit">Pad Before (min)</Label><Input id="pad-before-edit" type="number" placeholder="e.g., 0" {...register('padBefore', { valueAsNumber: true })} /></div>
+                        <div className="space-y-2"><Label htmlFor="pad-after-edit">Pad After (min)</Label><Input id="pad-after-edit" type="number" placeholder="e.g., 15" {...register('padAfter', { valueAsNumber: true })} /></div>
                     </div>
-                    <div className="space-y-2"><Label htmlFor="description">Description</Label><Textarea id="description" placeholder="Describe the service for your booking page..." {...register('description')} /></div>
+                    <div className="space-y-2"><Label htmlFor="description-edit">Description</Label><Textarea id="description-edit" placeholder="Describe the service for your booking page..." {...register('description')} /></div>
                     <div className="space-y-2"><Label>Service Image</Label><Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} /> )}/></div>
                 </CardContent>
             </Card>
 
-            {/* Formula */}
             <Card>
                 <CardHeader><CardTitle>Formula</CardTitle></CardHeader>
                  <CardContent className="space-y-6">
@@ -189,11 +185,10 @@ const EditServiceForm = ({
                 </CardContent>
             </Card>
 
-            {/* Pricing & Booking */}
              <Card>
                 <CardHeader><CardTitle>Pricing & Booking</CardTitle></CardHeader>
                 <CardContent className="space-y-6">
-                    <div className="space-y-2"><Label htmlFor="final-price">Final Price</Label><div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input id="final-price" type="number" placeholder="100.00" {...register('price', { valueAsNumber: true })} className="pl-8"/></div></div>
+                    <div className="space-y-2"><Label htmlFor="final-price-edit">Final Price</Label><div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input id="final-price-edit" type="number" placeholder="100.00" {...register('price', { valueAsNumber: true })} className="pl-8"/></div></div>
                     <Card className="bg-muted/50"><CardContent className="p-4 space-y-4">
                         <h4 className="font-semibold text-center">Profitability Preview</h4>
                         <div className="flex justify-between items-center"><p className="text-sm text-muted-foreground">Break-Even Cost:</p><p className="font-mono text-destructive">${breakEvenCost.toFixed(2)}</p></div>
@@ -206,17 +201,13 @@ const EditServiceForm = ({
                             <Label>Deposit Requirement</Label>
                             <Controller name="depositType" control={control} defaultValue="none" render={({ field }) => (<RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-3 gap-2"><div><RadioGroupItem value="none" id="none-edit" className="peer sr-only" /><Label htmlFor="none-edit" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">None</Label></div><div><RadioGroupItem value="deposit" id="deposit-edit" className="peer sr-only" /><Label htmlFor="deposit-edit" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Deposit</Label></div><div><RadioGroupItem value="full" id="full-edit" className="peer sr-only" /><Label htmlFor="full-edit" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Pay in Full</Label></div></RadioGroup>)}/>
                             {depositType === 'deposit' && (
-                                <Card className="bg-background"><CardContent className="p-4 space-y-4">
-                                <div className="space-y-2"><Label>Deposit Type</Label><Controller name="depositSubType" control={control} render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue placeholder="Select deposit type" /></SelectTrigger><SelectContent><SelectItem value="flat">Flat Rate</SelectItem><SelectItem value="percentage">Percentage</SelectItem><SelectItem value="break-even">Break-Even Cost</SelectItem></SelectContent></Select>)}/></div>
-                                <div className="space-y-2"><Label>Deposit Amount</Label><Controller name="depositAmount" control={control} render={({ field }) => { const isBreakEven = depositSubType === 'break-even'; const isPercentage = depositSubType === 'percentage'; let displayValue: string | number = field.value || ''; if (isBreakEven && typeof field.value === 'number') { displayValue = field.value.toFixed(2); } return (<div className="relative">{!isPercentage && (<DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />)}<Input type={isBreakEven ? "text" : "number"} placeholder={isPercentage ? '%' : '25.00'} {...field} value={displayValue} onChange={e => { if (!isBreakEven) { field.onChange(parseFloat(e.target.value) || 0) } }} readOnly={isBreakEven} className={!isPercentage ? "pl-8" : ""} />{isPercentage && (<span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>)}</div>)}} /></div>
-                                </CardContent></Card>
+                                <Card className="bg-background"><CardContent className="p-4 space-y-2"><div className="space-y-2"><Label>Deposit Type</Label><Controller name="depositSubType" control={control} render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger><SelectValue placeholder="Select deposit type" /></SelectTrigger><SelectContent><SelectItem value="flat">Flat Rate</SelectItem><SelectItem value="percentage">Percentage</SelectItem></SelectContent></Select>)}/></div><div className="space-y-2"><Label>Deposit Amount</Label><Controller name="depositAmount" control={control} render={({ field }) => (<div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input type="number" placeholder="25.00" {...field} className="pl-8"/></div>)} /></div></CardContent></Card>
                             )}
                         </div>
                     )}
                 </CardContent>
              </Card>
 
-             {/* Visibility & Confirmation */}
              <Card>
                  <CardHeader><CardTitle>Visibility & Confirmation</CardTitle></CardHeader>
                  <CardContent className="space-y-4">
@@ -228,7 +219,6 @@ const EditServiceForm = ({
                  </CardContent>
              </Card>
         </div>
-
         <BrowseProductsDialog open={isProductBrowserOpen} onOpenChange={setIsProductBrowserOpen} onSelect={handleProductSelect} allProducts={inventory.filter(i => i.type === 'professional' || i.type === 'retail')} initialSelected={selectedProducts} />
         <SelectEquipmentDialog open={isEquipmentSelectorOpen} onOpenChange={setIsEquipmentSelectorOpen} onSelect={handleEquipmentSelect} allEquipment={inventory.filter(i => i.type === 'equipment')} initialSelected={selectedEquipment} />
         <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={handleAddOnSelect} allAddOns={allServices.filter(s => s.type === 'addon')} initialSelected={selectedAddOns} />
@@ -255,7 +245,6 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
     onNewCategory,
 }) => {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
   const { toast } = useToast();
   const isMobile = useIsMobile();
   
@@ -361,7 +350,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
 
   const formBody = (
     <FormProvider {...methods}>
-      <form id={formId} className="flex flex-col flex-1 min-h-0">
+      <form id={formId} onSubmit={methods.handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
         <DialogHeader className={isMobile ? "p-4 border-b text-left" : "p-6 pb-4"}>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
@@ -382,7 +371,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
         
         <DialogFooter className={isMobile ? "p-4 border-t" : "p-6 border-t"}>
           <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
-          <Button type="button" onClick={methods.handleSubmit(onSubmit)}>Save Changes</Button>
+          <Button type="submit" form={formId}>Save Changes</Button>
         </DialogFooter>
       </form>
     </FormProvider>
