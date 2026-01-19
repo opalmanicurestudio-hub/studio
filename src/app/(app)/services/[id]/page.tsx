@@ -23,6 +23,7 @@ import { notFound, useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
+import { Input } from '@/components/ui/input';
 
 const ProfitAnalysisCard = ({ service, tmhr, onPriceUpdate }: { service: Service; tmhr: number; onPriceUpdate: (newPrice: number) => void; }) => {
     const [testPrice, setTestPrice] = useState(service.price);
@@ -67,16 +68,24 @@ const ProfitAnalysisCard = ({ service, tmhr, onPriceUpdate }: { service: Service
       <CardContent className="space-y-4">
         <div className="space-y-2">
             <div className="flex justify-between items-baseline">
-            <Label htmlFor={`price-slider-${service.id}`}>Test Price</Label>
-            <span className="font-semibold text-primary text-2xl">${testPrice.toFixed(2)}</span>
+                <Label htmlFor={`price-slider-${service.id}`}>Test Price</Label>
+                <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                    <Input
+                        type="number"
+                        value={testPrice}
+                        onChange={(e) => setTestPrice(Number(e.target.value) || 0)}
+                        className="w-32 h-auto bg-transparent border-0 p-0 pl-9 text-2xl font-bold text-primary text-right focus-visible:ring-0 focus-visible:ring-offset-0"
+                    />
+                </div>
             </div>
             <Slider
-            id={`price-slider-${service.id}`}
-            min={0}
-            max={service.price * 2 + 50}
-            step={1}
-            value={[testPrice]}
-            onValueChange={(value) => setTestPrice(value[0])}
+                id={`price-slider-${service.id}`}
+                min={0}
+                max={Math.max(service.price * 2 + 50, testPrice + 50)}
+                step={1}
+                value={[testPrice]}
+                onValueChange={(value) => setTestPrice(value[0])}
             />
         </div>
         <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/50 p-2">

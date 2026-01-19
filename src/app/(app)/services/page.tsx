@@ -80,14 +80,23 @@ const InlineProfitTester = ({ service, tmhr, onPriceUpdate }: { service: Service
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <div className="flex justify-between items-baseline">
+        <div className="flex justify-between items-center">
           <Label htmlFor={`price-slider-${service.id}`}>Test Price</Label>
-          <span className="font-semibold text-primary">${testPrice.toFixed(2)}</span>
+          <div className="relative w-24">
+            <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              id={`price-input-${service.id}`}
+              type="number"
+              value={testPrice}
+              onChange={(e) => setTestPrice(Number(e.target.value) || 0)}
+              className="h-8 pl-7 text-right font-semibold text-primary bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
+            />
+          </div>
         </div>
         <Slider
           id={`price-slider-${service.id}`}
           min={0}
-          max={service.price * 2 + 50}
+          max={Math.max(service.price * 2 + 50, testPrice + 50)}
           step={1}
           value={[testPrice]}
           onValueChange={(value) => setTestPrice(value[0])}
@@ -345,7 +354,7 @@ const ServiceCategory = ({ title, services, onEditServiceOpen, tmhr, appointment
                     <ServiceCard 
                         key={service.id} 
                         service={service} 
-                        onEditServiceOpen={onEditServiceOpen} 
+                        onEditServiceOpen={handleOpenEditService} 
                         tmhr={tmhr} 
                         appointments={appointments} 
                         onPriceUpdate={onPriceUpdate}
