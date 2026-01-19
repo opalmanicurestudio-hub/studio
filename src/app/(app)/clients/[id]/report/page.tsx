@@ -16,12 +16,14 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import type { Client, Appointment, Service } from '@/lib/data';
+import { cn } from '@/lib/utils';
 
 const ClientReportPage = () => {
     const params = useParams<{ id: string }>();
     const { clients, appointments, services } = useInventory();
     const [aiSummary, setAiSummary] = useState<{ summary: string; talkingPoints: string[] } | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [generationDate, setGenerationDate] = useState<Date | null>(null);
 
     const client = useMemo(() => clients.find((c) => c.id === params.id), [clients, params.id]);
     
@@ -31,6 +33,12 @@ const ClientReportPage = () => {
             .filter(apt => apt.clientId === client.id)
             .sort((a,b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
     }, [client, appointments]);
+
+    useEffect(() => {
+        if (!isLoading) {
+            setGenerationDate(new Date());
+        }
+    }, [isLoading]);
 
     useEffect(() => {
         if (client) {
@@ -69,6 +77,13 @@ const ClientReportPage = () => {
         window.print();
     };
 
+    const statusConfig = {
+        completed: 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300',
+        confirmed: 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300',
+        cancelled: 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300',
+        deposit_pending: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300',
+    };
+
     return (
         <div className="flex min-h-screen w-full flex-col bg-muted/40 print:bg-white">
             <AppHeader title="Client Report" />
@@ -99,7 +114,7 @@ const ClientReportPage = () => {
                         </div>
                          <div className="text-sm text-muted-foreground text-center sm:text-right">
                              <p>Report Generated:</p>
-                             <p>{format(new Date(), 'MMM d, yyyy')}</p>
+                             {generationDate ? <p>{format(generationDate, 'MMM d, yyyy')}</p> : <Skeleton className="h-4 w-24"/>}
                          </div>
                     </div>
                     
@@ -179,7 +194,15 @@ const ClientReportPage = () => {
                                                     <p className="font-semibold">{service?.name || 'Unknown Service'}</p>
                                                     <p className="text-sm text-muted-foreground">{format(new Date(apt.startTime), 'MMMM d, yyyy')}</p>
                                                 </div>
-                                                <Badge variant={apt.status === 'completed' ? 'default' : 'secondary'} className={apt.status === 'completed' ? 'bg-green-100 text-green-800' : ''}>{apt.status}</Badge>
+                                                <Badge
+                                                    variant="secondary"
+                                                    className={cn(
+                                                        'capitalize',
+                                                        statusConfig[apt.status as keyof typeof statusConfig] || 'bg-gray-100 text-gray-800'
+                                                    )}
+                                                    >
+                                                    {apt.status.replace('_', ' ')}
+                                                </Badge>
                                             </div>
                                         </div>
                                     )
@@ -255,6 +278,19 @@ const ClientReportPage = () => {
                         left: 0;
                         top: 0;
                         width: 100%;
+                      }
+                      #lifecycle-chart-card {
+                        break-inside: avoid;
+                      }
+                      #lifecycle-chart-card > div {
+                          display: flex !important;
+                          justify-content: center !important;
+                          flex-direction: column !important;
+                          align-items: center !important;
+                      }
+                      #lifecycle-chart-card .recharts-responsive-container {
+                          width: 200px !important;
+                          height: 200px !important;
                       }
                     }
                 `}</style>
