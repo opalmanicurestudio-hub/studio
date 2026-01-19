@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useRef } from 'react';
@@ -11,7 +12,7 @@ import { ArrowLeft, Printer, BarChart, DollarSign, Package, Store, Hammer, Recyc
 import { useInventory } from '@/context/InventoryContext';
 import { format, isPast, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { InventoryItem } from '@/lib/data';
+import { type InventoryItem } from '@/lib/data';
 
 // Component for the report page
 const InventoryReportPage = () => {
@@ -118,9 +119,9 @@ const InventoryReportPage = () => {
 
 
     return (
-        <div className="flex min-h-screen w-full flex-col bg-muted/40 print:bg-white" id="print-area">
+        <div className="flex min-h-screen w-full flex-col bg-muted/40 print:bg-white">
             <AppHeader title="Inventory Report" />
-            <main className="flex-1 p-4 md:p-8 space-y-6">
+            <main className="flex-1 p-4 md:p-8 space-y-6 print:p-4">
                 <div className="flex items-center justify-between print:hidden">
                     <Button variant="outline" size="sm" asChild>
                         <Link href="/inventory">
@@ -140,34 +141,34 @@ const InventoryReportPage = () => {
                     </div>
                 </div>
 
-                <div className="max-w-5xl mx-auto space-y-8" ref={reportRef}>
+                <div className="max-w-5xl mx-auto space-y-8" id="print-area" ref={reportRef}>
                     <header className="space-y-2">
                         <h1 className="text-3xl font-bold">Inventory Report</h1>
                         <p className="text-muted-foreground">Generated on {format(new Date(), 'MMMM d, yyyy')}</p>
                     </header>
 
                     {/* KPIs */}
-                    <Card>
+                    <Card className="print:shadow-none print:border-gray-300">
                         <CardHeader><CardTitle>Inventory Snapshot</CardTitle></CardHeader>
                         <CardContent className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                            <div className="p-3 bg-primary/10 rounded-lg text-center">
-                                <div className="text-sm font-medium text-primary">Total Value</div>
-                                <div className="text-2xl font-bold text-primary">${stats.totalValue.toFixed(2)}</div>
+                            <div className="p-3 bg-primary/10 rounded-lg text-center print:bg-transparent">
+                                <div className="text-sm font-medium text-primary print:text-black">Total Value</div>
+                                <div className="text-2xl font-bold text-primary print:text-black">${stats.totalValue.toFixed(2)}</div>
                             </div>
-                            <div className="p-3 bg-muted/50 rounded-lg text-center">
-                                <div className="text-sm text-muted-foreground flex items-center justify-center gap-2"><Package className="w-4 h-4"/>Professional</div>
+                            <div className="p-3 bg-muted/50 rounded-lg text-center print:bg-transparent">
+                                <div className="text-sm text-muted-foreground flex items-center justify-center gap-2 print:text-black"><Package className="w-4 h-4"/>Professional</div>
                                 <div className="text-lg font-bold">${stats.professionalValue.toFixed(2)}</div>
                             </div>
-                            <div className="p-3 bg-muted/50 rounded-lg text-center">
-                                <div className="text-sm text-muted-foreground flex items-center justify-center gap-2"><Store className="w-4 h-4"/>Retail</div>
+                            <div className="p-3 bg-muted/50 rounded-lg text-center print:bg-transparent">
+                                <div className="text-sm text-muted-foreground flex items-center justify-center gap-2 print:text-black"><Store className="w-4 h-4"/>Retail</div>
                                 <div className="text-lg font-bold">${stats.retailValue.toFixed(2)}</div>
                             </div>
-                            <div className="p-3 bg-muted/50 rounded-lg text-center">
-                                <div className="text-sm text-muted-foreground flex items-center justify-center gap-2"><Hammer className="w-4 h-4"/>Equipment</div>
+                            <div className="p-3 bg-muted/50 rounded-lg text-center print:bg-transparent">
+                                <div className="text-sm text-muted-foreground flex items-center justify-center gap-2 print:text-black"><Hammer className="w-4 h-4"/>Equipment</div>
                                 <div className="text-lg font-bold">${stats.equipmentValue.toFixed(2)}</div>
                             </div>
-                             <div className="p-3 bg-muted/50 rounded-lg text-center">
-                                <div className="text-sm text-muted-foreground">Total SKUs</div>
+                             <div className="p-3 bg-muted/50 rounded-lg text-center print:bg-transparent">
+                                <div className="text-sm text-muted-foreground print:text-black">Total SKUs</div>
                                 <div className="text-lg font-bold">{stats.totalSKUs}</div>
                             </div>
                         </CardContent>
@@ -175,7 +176,7 @@ const InventoryReportPage = () => {
 
                     {/* Alerts */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <Card>
+                        <Card className="print:shadow-none print:border-gray-300">
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2"><AlertTriangle className="text-destructive"/>Low Stock Alerts</CardTitle>
                             </CardHeader>
@@ -188,7 +189,7 @@ const InventoryReportPage = () => {
                                 ) : <p className="text-sm text-muted-foreground text-center py-4">No items are low on stock.</p>}
                             </CardContent>
                         </Card>
-                         <Card>
+                         <Card className="print:shadow-none print:border-gray-300">
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2"><AlertTriangle className="text-destructive"/>Expired Stock</CardTitle>
                             </CardHeader>
@@ -204,7 +205,7 @@ const InventoryReportPage = () => {
                     </div>
 
                     {/* Stock Details */}
-                    <Card>
+                    <Card className="print:shadow-none print:border-gray-300">
                         <CardHeader><CardTitle>Full Inventory Stock Details</CardTitle></CardHeader>
                         <CardContent>
                             <Table>
@@ -233,7 +234,7 @@ const InventoryReportPage = () => {
                     </Card>
                     
                     {/* Retail Performance */}
-                    <Card>
+                    <Card className="print:shadow-none print:border-gray-300">
                         <CardHeader><CardTitle>Retail Performance</CardTitle></CardHeader>
                         <CardContent>
                             <Table>
@@ -252,7 +253,7 @@ const InventoryReportPage = () => {
                     </Card>
                     
                      {/* Professional Usage */}
-                    <Card>
+                    <Card className="print:shadow-none print:border-gray-300">
                         <CardHeader><CardTitle>Professional Product Usage</CardTitle><CardDescription>Top 10 most used products in completed services.</CardDescription></CardHeader>
                         <CardContent>
                              <Table>
@@ -292,3 +293,4 @@ const InventoryReportPage = () => {
 }
 
 export default InventoryReportPage;
+    

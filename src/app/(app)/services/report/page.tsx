@@ -10,8 +10,9 @@ import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 import { ArrowLeft, Printer, BarChart, DollarSign, TrendingUp, Star } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
-import { type Service } from '@/lib/data';
+import { format, isPast, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { type Service } from '@/lib/data';
 
 const ServiceReportPage = () => {
     const { services, appointments } = useInventory();
@@ -56,9 +57,9 @@ const ServiceReportPage = () => {
     };
 
     return (
-        <div className="flex min-h-screen w-full flex-col bg-muted/40 print:bg-white" id="print-area">
+        <div className="flex min-h-screen w-full flex-col bg-muted/40 print:bg-white">
             <AppHeader title="Services Performance Report" />
-            <main className="flex-1 p-4 md:p-8 space-y-6">
+            <main className="flex-1 p-4 md:p-8 space-y-6 print:p-4">
                 <div className="flex items-center justify-between print:hidden">
                     <Button variant="outline" size="sm" asChild>
                         <Link href="/services">
@@ -72,15 +73,15 @@ const ServiceReportPage = () => {
                     </Button>
                 </div>
 
-                <div className="max-w-5xl mx-auto space-y-8">
+                <div id="print-area" className="max-w-5xl mx-auto space-y-8">
                     <header className="space-y-2">
                         <h1 className="text-3xl font-bold">Services Performance Report</h1>
-                        <p className="text-muted-foreground">An overview of how your services are performing.</p>
+                        <p className="text-muted-foreground">Generated on {format(new Date(), 'MMMM d, yyyy')}</p>
                     </header>
 
                     {/* KPIs */}
                     <div className="grid gap-4 sm:grid-cols-3">
-                        <Card>
+                        <Card className="print:shadow-none print:border-gray-300">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
                                 <DollarSign className="h-4 w-4 text-muted-foreground" />
@@ -90,7 +91,7 @@ const ServiceReportPage = () => {
                                 <p className="text-xs text-muted-foreground">From all completed services</p>
                             </CardContent>
                         </Card>
-                         <Card>
+                         <Card className="print:shadow-none print:border-gray-300">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-sm font-medium">Most Profitable</CardTitle>
                                 <TrendingUp className="h-4 w-4 text-muted-foreground" />
@@ -100,7 +101,7 @@ const ServiceReportPage = () => {
                                 <p className="text-xs text-muted-foreground">Highest profit per service</p>
                             </CardContent>
                         </Card>
-                         <Card>
+                         <Card className="print:shadow-none print:border-gray-300">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-sm font-medium">Most Booked</CardTitle>
                                 <Star className="h-4 w-4 text-muted-foreground" />
@@ -113,7 +114,7 @@ const ServiceReportPage = () => {
                     </div>
 
                     {/* Service Details Table */}
-                    <Card>
+                    <Card className="print:shadow-none print:border-gray-300">
                         <CardHeader><CardTitle>Service Breakdown</CardTitle></CardHeader>
                         <CardContent>
                             <Table>
@@ -167,3 +168,4 @@ const ServiceReportPage = () => {
 }
 
 export default ServiceReportPage;
+    
