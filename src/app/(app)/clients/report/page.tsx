@@ -220,7 +220,7 @@ const ClientLogReportPage = () => {
                     </div>
 
                     <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 print:grid-cols-3">
-                         <Card>
+                         <Card id="lifecycle-chart-card">
                             <CardHeader>
                                 <CardTitle>Client Lifecycle Breakdown</CardTitle>
                                 <CardDescription>A snapshot of your client base by engagement.</CardDescription>
@@ -339,6 +339,10 @@ const ClientLogReportPage = () => {
                         left: 0;
                         top: 0;
                         width: 100%;
+                      }
+                      #lifecycle-chart-card .recharts-responsive-container {
+                        width: 100% !important;
+                        height: 250px !important;
                       }
                     }
                 `}</style>
