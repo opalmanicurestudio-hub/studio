@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -55,7 +54,7 @@ const InlineProfitTester = ({ service, tmhr, onPriceUpdate }: { service: Service
     const totalDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
     const timeCost = (totalDuration / 60) * tmhr;
     
-    const productCost = (service.products || []).reduce((acc, p) => acc + (p.costPerUnit || 0), 0);
+    const productCost = (service.products || []).reduce((acc, p) => acc + ((p.costPerUnit || 0) * (p.quantityUsed || 1)), 0);
     const equipmentDepreciation = (service.equipment || []).reduce((acc, eq) => {
         const lifespanInMinutes = (eq.lifespanYears || 5) * 365 * 8 * 60; // Assuming 8hr work day
         const costPerMinute = (eq.costPerUnit || 0) / lifespanInMinutes;
@@ -125,7 +124,7 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
 
     const productCosts = (service.products || []).map(p => ({
       ...p,
-      cost: p.costPerUnit || 0,
+      cost: (p.costPerUnit || 0) * (p.quantityUsed || 1),
       location: 'Back Room - Shelf A' // Mock location
     }));
 
@@ -466,7 +465,7 @@ export default function ServicesPage() {
         if (s.id === serviceId) {
              const breakEvenCost = s.cost;
              const newProfit = newPrice - breakEvenCost;
-             const newMargin = newPrice > 0 ? (newProfit / price) * 100 : 0;
+             const newMargin = newPrice > 0 ? (newProfit / newPrice) * 100 : 0;
             return {
                 ...s,
                 price: newPrice,
@@ -688,6 +687,3 @@ export default function ServicesPage() {
     </div>
   );
 }
-
-
-
