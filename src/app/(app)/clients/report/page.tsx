@@ -7,43 +7,96 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ArrowLeft, Users, UserPlus, Repeat, DollarSign, Crown, UserCheck, UserX, Gift, Download, Printer } from 'lucide-react';
 import Link from 'next/link';
-import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { subMonths, isAfter, startOfMonth, endOfMonth, isWithinInterval, format } from 'date-fns';
-import { Client } from '@/lib/data';
+import { Client, type Appointment } from '@/lib/data';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { PieChart, Pie, Cell, Tooltip } from 'recharts';
+import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
+import { collection } from 'firebase/firestore';
+import { Skeleton } from '@/components/ui/skeleton';
 
 
-const ClientList = ({ clients }: { clients: Client[] }) => (
-    <div className="space-y-3">
-        {clients.map(client => (
-            <div key={client.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
-                <div className="flex items-center gap-3">
-                    <Avatar className="h-9 w-9">
-                        <AvatarImage src={client.avatarUrl} alt={client.name} />
-                        <AvatarFallback>{client.name.charAt(0)}</AvatarFallback>
-                    </Avatar>
-                    <div>
-                        <Link href={`/clients/${client.id}`} className="font-semibold text-sm hover:underline">{client.name}</Link>
-                        <p className="text-xs text-muted-foreground">{client.email}</p>
+const ClientList = ({ clients, isLoading }: { clients: Client[], isLoading?: boolean }) => {
+    if (isLoading) {
+        return (
+            <div className="space-y-3">
+                {[...Array(3)].map((_, i) => (
+                    <div key={i} className="flex items-center gap-3 p-2 bg-muted/50 rounded-md">
+                        <Skeleton className="h-9 w-9 rounded-full" />
+                        <div className="flex-1 space-y-1.5">
+                            <Skeleton className="h-4 w-2/4" />
+                            <Skeleton className="h-3 w-3/4" />
+                        </div>
+                        <div className="text-right">
+                           <Skeleton className="h-4 w-16" />
+                           <Skeleton className="h-3 w-8 mt-1" />
+                        </div>
+                    </div>
+                ))}
+            </div>
+        )
+    }
+    
+    if (clients.length === 0) {
+        return <p className="text-sm text-center text-muted-foreground p-4">No clients in this segment.</p>
+    }
+
+    return (
+        <div className="space-y-3">
+            {clients.map(client => (
+                <div key={client.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+                    <div className="flex items-center gap-3">
+                        <Avatar className="h-9 w-9">
+                            <AvatarImage src={client.avatarUrl} alt={client.name} />
+                            <AvatarFallback>{client.name.charAt(0)}</AvatarFallback>
+                        </Avatar>
+                        <div>
+                            <Link href={`/clients/${client.id}`} className="font-semibold text-sm hover:underline">{client.name}</Link>
+                            <p className="text-xs text-muted-foreground">{client.email}</p>
+                        </div>
+                    </div>
+                    <div className="text-right">
+                        <p className="font-mono text-sm">${client.lifetimeValue.toFixed(2)}</p>
+                        <p className="text-xs text-muted-foreground">LTV</p>
                     </div>
                 </div>
-                <div className="text-right">
-                    <p className="font-mono text-sm">${client.lifetimeValue.toFixed(2)}</p>
-                    <p className="text-xs text-muted-foreground">LTV</p>
-                </div>
-            </div>
-        ))}
-    </div>
-);
+            ))}
+        </div>
+    );
+}
 
 
 const ClientLogReportPage = () => {
-    const { clients, appointments } = useInventory();
+    const { firestore, user, isUserLoading } = useFirebase();
+    const tenantId = 'tenant-abc';
+    
+    const clientsQuery = useMemoFirebase(() => {
+        if (!firestore || !user) return null;
+        return collection(firestore, 'tenants', tenantId, 'clients');
+    }, [firestore, user, tenantId]);
+
+    const appointmentsQuery = useMemoFirebase(() => {
+        if (!firestore || !user) return null;
+        return collection(firestore, 'tenants', tenantId, 'appointments');
+    }, [firestore, user, tenantId]);
+
+    const { data: clients, isLoading: clientsLoading } = useCollection<Client>(clientsQuery);
+    const { data: rawAppointments, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
+
+    const appointments = useMemo(() => {
+        if (!rawAppointments) return [];
+        return rawAppointments.map(apt => ({
+            ...apt,
+            startTime: apt.startTime ? new Date(apt.startTime) : new Date(),
+            endTime: apt.endTime ? new Date(apt.endTime) : new Date(),
+        }));
+    }, [rawAppointments]);
+
+    const isLoading = isUserLoading || clientsLoading || appointmentsLoading;
     const [generationDate, setGenerationDate] = useState<Date | null>(null);
 
     useEffect(() => {
@@ -51,6 +104,21 @@ const ClientLogReportPage = () => {
     }, []);
 
     const reportData = useMemo(() => {
+        if (!clients || !appointments) {
+            return {
+                totalActiveClients: 0,
+                newClientsThisMonth: 0,
+                retentionRate: 0,
+                averageLTV: 0,
+                vipClients: [],
+                newClients: [],
+                atRiskClients: [],
+                top10Ltv: [],
+                topReferrers: [],
+                clientLifecycle: { newClients: 0, returningClients: 0, atRiskClients: 0 }
+            };
+        }
+
         const activeClients = clients.filter(c => c.status !== 'archived');
         const now = new Date();
         const threeMonthsAgo = subMonths(now, 3);
@@ -144,9 +212,9 @@ const ClientLogReportPage = () => {
     };
 
     const lifecycleChartData = [
-        { name: 'New', value: reportData.clientLifecycle.newClients, fill: 'var(--color-newClients)' },
-        { name: 'Returning', value: reportData.clientLifecycle.returningClients, fill: 'var(--color-returningClients)' },
-        { name: 'At Risk', value: reportData.clientLifecycle.atRiskClients, fill: 'var(--color-atRiskClients)' },
+        { name: 'newClients', value: reportData.clientLifecycle.newClients, fill: 'var(--color-newClients)' },
+        { name: 'returningClients', value: reportData.clientLifecycle.returningClients, fill: 'var(--color-returningClients)' },
+        { name: 'atRiskClients', value: reportData.clientLifecycle.atRiskClients, fill: 'var(--color-atRiskClients)' },
     ];
     
     const lifecycleChartConfig = {
@@ -181,7 +249,7 @@ const ClientLogReportPage = () => {
                         <h1 className="text-3xl font-bold">Client Log Report</h1>
                         <div className="text-sm text-muted-foreground text-right">
                              <p>Report Generated:</p>
-                             <p>{generationDate ? format(generationDate, 'MMM d, yyyy') : '...'}</p>
+                             {generationDate ? <p>{format(generationDate, 'MMM d, yyyy')}</p> : <Skeleton className="h-4 w-24" />}
                          </div>
                     </div>
                     
@@ -192,7 +260,7 @@ const ClientLogReportPage = () => {
                                 <Users className="h-4 w-4 text-muted-foreground" />
                             </CardHeader>
                             <CardContent>
-                                <div className="text-2xl font-bold">{reportData.totalActiveClients}</div>
+                                {isLoading ? <Skeleton className="h-8 w-20" /> : <div className="text-2xl font-bold">{reportData.totalActiveClients}</div>}
                             </CardContent>
                         </Card>
                         <Card>
@@ -201,7 +269,7 @@ const ClientLogReportPage = () => {
                                 <UserPlus className="h-4 w-4 text-muted-foreground" />
                             </CardHeader>
                             <CardContent>
-                                <div className="text-2xl font-bold">+{reportData.newClientsThisMonth}</div>
+                                {isLoading ? <Skeleton className="h-8 w-20" /> : <div className="text-2xl font-bold">+{reportData.newClientsThisMonth}</div>}
                             </CardContent>
                         </Card>
                         <Card>
@@ -210,7 +278,7 @@ const ClientLogReportPage = () => {
                                 <Repeat className="h-4 w-4 text-muted-foreground" />
                             </CardHeader>
                             <CardContent>
-                                <div className="text-2xl font-bold">{reportData.retentionRate.toFixed(0)}%</div>
+                                {isLoading ? <Skeleton className="h-8 w-20" /> : <div className="text-2xl font-bold">{reportData.retentionRate.toFixed(0)}%</div>}
                             </CardContent>
                         </Card>
                         <Card>
@@ -219,7 +287,7 @@ const ClientLogReportPage = () => {
                                 <DollarSign className="h-4 w-4 text-muted-foreground" />
                             </CardHeader>
                             <CardContent>
-                                <div className="text-2xl font-bold">${reportData.averageLTV.toFixed(2)}</div>
+                                {isLoading ? <Skeleton className="h-8 w-28" /> : <div className="text-2xl font-bold">${reportData.averageLTV.toFixed(2)}</div>}
                             </CardContent>
                         </Card>
                     </div>
@@ -231,6 +299,7 @@ const ClientLogReportPage = () => {
                                 <CardDescription>A snapshot of your client base by engagement.</CardDescription>
                             </CardHeader>
                             <CardContent className="print:flex print:flex-col print:items-center">
+                                {isLoading ? <Skeleton className="mx-auto aspect-square h-[250px] rounded-full" /> : (
                                  <ChartContainer 
                                     config={lifecycleChartConfig} 
                                     className="mx-auto aspect-square h-[250px] print:h-[200px] print:w-[200px]"
@@ -244,8 +313,9 @@ const ClientLogReportPage = () => {
                                         </Pie>
                                     </PieChart>
                                 </ChartContainer>
+                                )}
                                 <div className="flex items-center justify-center gap-4 text-sm mt-4">
-                                    {Object.entries(lifecycleChartConfig).map(([key, config]) => (
+                                    {isLoading ? <Skeleton className="h-4 w-full"/> : Object.entries(lifecycleChartConfig).map(([key, config]) => (
                                         <div key={key} className="flex items-center gap-1.5">
                                             <span
                                                 className="w-2.5 h-2.5 rounded-full"
@@ -272,26 +342,26 @@ const ClientLogReportPage = () => {
                                     <TabsContent value="vip" className="mt-4">
                                         <div className="flex justify-between items-center mb-4 print:hidden">
                                             <p className="text-sm text-muted-foreground">Your top 10% of clients by lifetime value.</p>
-                                            <Button variant="outline" size="sm" onClick={() => handleExport(reportData.vipClients, 'vip-clients')}><Download className="w-4 h-4 mr-2"/>Export</Button>
+                                            <Button variant="outline" size="sm" onClick={() => handleExport(reportData.vipClients, 'vip-clients')} disabled={isLoading}><Download className="w-4 h-4 mr-2"/>Export</Button>
                                         </div>
                                         <h3 className="text-lg font-semibold mb-2 hidden print:block">VIP Clients</h3>
-                                        <ClientList clients={reportData.vipClients} />
+                                        <ClientList clients={reportData.vipClients} isLoading={isLoading} />
                                     </TabsContent>
                                     <TabsContent value="new" className="mt-4">
                                         <div className="flex justify-between items-center mb-4 print:hidden">
                                             <p className="text-sm text-muted-foreground">Clients who have only had one appointment.</p>
-                                            <Button variant="outline" size="sm" onClick={() => handleExport(reportData.newClients, 'new-clients')}><Download className="w-4 h-4 mr-2"/>Export</Button>
+                                            <Button variant="outline" size="sm" onClick={() => handleExport(reportData.newClients, 'new-clients')} disabled={isLoading}><Download className="w-4 h-4 mr-2"/>Export</Button>
                                         </div>
                                         <h3 className="text-lg font-semibold mb-2 hidden print:block">New Clients</h3>
-                                         <ClientList clients={reportData.newClients} />
+                                         <ClientList clients={reportData.newClients} isLoading={isLoading} />
                                     </TabsContent>
                                     <TabsContent value="at-risk" className="mt-4">
                                         <div className="flex justify-between items-center mb-4 print:hidden">
                                             <p className="text-sm text-muted-foreground">Clients not seen in the last 3 months.</p>
-                                            <Button variant="outline" size="sm" onClick={() => handleExport(reportData.atRiskClients, 'at-risk-clients')}><Download className="w-4 h-4 mr-2"/>Export</Button>
+                                            <Button variant="outline" size="sm" onClick={() => handleExport(reportData.atRiskClients, 'at-risk-clients')} disabled={isLoading}><Download className="w-4 h-4 mr-2"/>Export</Button>
                                         </div>
                                         <h3 className="text-lg font-semibold mb-2 hidden print:block">At-Risk Clients</h3>
-                                         <ClientList clients={reportData.atRiskClients} />
+                                         <ClientList clients={reportData.atRiskClients} isLoading={isLoading}/>
                                     </TabsContent>
                                 </Tabs>
                             </CardContent>
@@ -304,41 +374,53 @@ const ClientLogReportPage = () => {
                             <CardContent className="grid gap-6 md:grid-cols-2">
                                 <div>
                                     <h4 className="font-semibold text-sm mb-2 flex items-center gap-2"><Crown className="w-4 h-4 text-amber-500" />Top 10 by Lifetime Value</h4>
-                                    <Table>
-                                        <TableHeader>
-                                            <TableRow>
-                                                <TableHead>Client</TableHead>
-                                                <TableHead className="text-right">LTV</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {reportData.top10Ltv.map(client => (
-                                                <TableRow key={client.id}>
-                                                    <TableCell className="font-medium">{client.name}</TableCell>
-                                                    <TableCell className="text-right font-mono">${client.lifetimeValue.toFixed(2)}</TableCell>
+                                    {isLoading ? (
+                                        <div className="space-y-2">
+                                            {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}
+                                        </div>
+                                    ) : (
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow>
+                                                    <TableHead>Client</TableHead>
+                                                    <TableHead className="text-right">LTV</TableHead>
                                                 </TableRow>
-                                            ))}
-                                        </TableBody>
-                                    </Table>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {reportData.top10Ltv.map(client => (
+                                                    <TableRow key={client.id}>
+                                                        <TableCell className="font-medium">{client.name}</TableCell>
+                                                        <TableCell className="text-right font-mono">${client.lifetimeValue.toFixed(2)}</TableCell>
+                                                    </TableRow>
+                                                ))}
+                                            </TableBody>
+                                        </Table>
+                                    )}
                                 </div>
                                 <div>
                                     <h4 className="font-semibold text-sm mb-2 flex items-center gap-2"><Gift className="w-4 h-4 text-primary" />Top 5 Referrers</h4>
-                                    <Table>
-                                        <TableHeader>
-                                            <TableRow>
-                                                <TableHead>Referrer</TableHead>
-                                                <TableHead className="text-right">Referrals</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {reportData.topReferrers.map(referrer => (
-                                                <TableRow key={referrer.name}>
-                                                    <TableCell className="font-medium">{referrer.name}</TableCell>
-                                                    <TableCell className="text-right">{referrer.count}</TableCell>
+                                     {isLoading ? (
+                                        <div className="space-y-2">
+                                            {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}
+                                        </div>
+                                    ) : (
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow>
+                                                    <TableHead>Referrer</TableHead>
+                                                    <TableHead className="text-right">Referrals</TableHead>
                                                 </TableRow>
-                                            ))}
-                                        </TableBody>
-                                    </Table>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {reportData.topReferrers.map(referrer => (
+                                                    <TableRow key={referrer.name}>
+                                                        <TableCell className="font-medium">{referrer.name}</TableCell>
+                                                        <TableCell className="text-right">{referrer.count}</TableCell>
+                                                    </TableRow>
+                                                ))}
+                                            </TableBody>
+                                        </Table>
+                                    )}
                                 </div>
                             </CardContent>
                         </Card>
