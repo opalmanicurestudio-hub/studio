@@ -183,7 +183,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
 
 
     return (
-        <ScrollArea className="h-[70vh]">
+        <ScrollArea className="h-full">
             <div className="space-y-8 px-4">
                 {/* Section 1: Basic Info */}
                 <div className="space-y-4">
@@ -389,11 +389,11 @@ export const AddClientDialog = ({ open, onOpenChange, clients }: { open: boolean
             <SheetTitle>{title}</SheetTitle>
             <SheetDescription>{description}</SheetDescription>
           </SheetHeader>
-          <div className="p-4 flex-1 min-h-0">
+          <div className="flex-1 min-h-0">
             <AddClientForm clients={clients} />
           </div>
-          <SheetFooter className="p-4 border-t">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <SheetFooter className="p-4 border-t flex flex-row gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full">Cancel</Button>
             <Button type="submit" className="w-full">Save Client</Button>
           </SheetFooter>
         </SheetContent>
