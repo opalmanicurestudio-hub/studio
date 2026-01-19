@@ -34,18 +34,19 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { type InventoryItem, type Location } from '@/lib/data';
+import { type InventoryItem, type Location, type ConsentForm } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { useForm, FormProvider, useFormContext, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Check, PlusCircle, QrCode, DollarSign, Package, Hammer, Trash2 } from 'lucide-react';
-import { inventory, services as allServices, type Service, consentForms } from '@/lib/data';
+import { services as allServices, type Service } from '@/lib/data';
 import { BrowseProductsDialog } from './BrowseProductsDialog';
 import { SelectEquipmentDialog } from './SelectEquipmentDialog';
 import { SelectAddOnsDialog } from './SelectAddOnsDialog';
 import { BrowseConsentFormsDialog } from './BrowseConsentFormsDialog';
 import { Switch } from '../ui/switch';
+import { useInventory } from '@/context/InventoryContext';
 
 const serviceSchema = z.object({
     name: z.string().min(1, 'Service name is required'),
@@ -83,6 +84,7 @@ const AddServiceForm = ({
     breakEvenCost: number;
     onScanClick: () => void;
 }) => {
+    const { inventory } = useInventory();
     const { register, control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
@@ -90,6 +92,7 @@ const AddServiceForm = ({
     const requiredFormIds = watch('requiredFormIds') || [];
     const [isConsentFormBrowserOpen, setIsConsentFormBrowserOpen] = useState(false);
     
+    const { consentForms } = useInventory();
     const requiredForms = consentForms.filter(f => requiredFormIds.includes(f.id));
 
     const handleRemoveForm = (formId: string) => {
@@ -118,8 +121,15 @@ const AddServiceForm = ({
     const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
 
     const handleProductSelect = (products: InventoryItem[]) => {
-        setValue('products', products, { shouldDirty: true, shouldTouch: true });
-        setIsProductBrowserOpen(false);
+      const productsWithQuantity = products.map(p => {
+        const existing = selectedProducts.find((sp: any) => sp.id === p.id);
+        return {
+            ...p,
+            quantityUsed: existing?.quantityUsed || 1, // Keep existing quantity or default to 1
+        };
+      });
+      setValue('products', productsWithQuantity, { shouldDirty: true, shouldTouch: true });
+      setIsProductBrowserOpen(false);
     };
     
     const handleEquipmentSelect = (equipment: InventoryItem[]) => {
@@ -133,15 +143,16 @@ const AddServiceForm = ({
     };
 
     const removeProduct = (productId: string) => {
-        setValue('products', selectedProducts.filter(p => p.id !== productId), { shouldDirty: true, shouldTouch: true });
+      const newProducts = selectedProducts.filter((p: any) => p.id !== productId);
+      setValue('products', newProducts, { shouldDirty: true, shouldTouch: true });
     };
 
     const removeEquipment = (equipmentId: string) => {
-        setValue('equipment', selectedEquipment.filter(e => e.id !== equipmentId), { shouldDirty: true, shouldTouch: true });
+        setValue('equipment', selectedEquipment.filter((e: any) => e.id !== equipmentId), { shouldDirty: true, shouldTouch: true });
     };
     
     const removeAddOn = (addOnId: string) => {
-        setValue('addOns', selectedAddOns.filter(a => a.id !== addOnId), { shouldDirty: true, shouldTouch: true });
+        setValue('addOns', selectedAddOns.filter((a: any) => a.id !== addOnId), { shouldDirty: true, shouldTouch: true });
     };
 
     const price = watch('price');
@@ -161,7 +172,7 @@ const AddServiceForm = ({
                     </div>
                     <div className="space-y-2"><Label htmlFor="service-name">Name</Label><Input id="service-name" placeholder="e.g., Signature Haircut" {...register('name')} />{errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}</div>
                     <div className="space-y-2"><Label htmlFor="category">Category</Label>
-                    {isAddingCategory ? ( <div className="flex gap-2"> <Input placeholder="Enter new category name..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()} /> <Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button> </div> ) : ( <div className="flex gap-2"> <Controller name="category" control={control} render={({ field }) => ( <Select onValueChange={field.onChange} value={field.value}> <SelectTrigger> <SelectValue placeholder="Select a category" /> </SelectTrigger> <SelectContent> {categories.map(cat => ( <SelectItem key={cat} value={cat}>{cat}</SelectItem> ))} </SelectContent> </Select> )}/> <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"> <PlusCircle className="h-4 w-4" /> </Button> </div> )}
+                    {isAddingCategory ? ( <div className="flex gap-2"> <Input placeholder="Enter new category name..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()} /> <Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button> </div> ) : ( <div className="flex gap-2"> <Controller name="category" control={control} render={({ field }) => ( <Select onValueChange={field.onChange} value={field.value}> <SelectTrigger> <SelectValue placeholder="Select a category" /> </SelectTrigger> <SelectContent> {categories.map(cat => ( <SelectItem key={cat} value={cat}>{cat}</SelectItem> ))} </SelectContent> </Select> )}/> <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"> <PlusCircle className="h-4 w-4" /> </Button> d> )}
                     {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}</div>
                     <div className="grid grid-cols-3 gap-4">
                         <div className="space-y-2"><Label htmlFor="duration">Duration (min)</Label><Input id="duration" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>{errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}</div>
@@ -177,13 +188,42 @@ const AddServiceForm = ({
                 <CardHeader><CardTitle>Formula</CardTitle></CardHeader>
                  <CardContent className="space-y-6">
                     <div className="space-y-2"><div className='flex items-center gap-2'><Package className="w-5 h-5 text-primary" /><Label className="text-base font-semibold">Product Formula</Label></div>
-                    {selectedProducts.length > 0 ? (<Card><CardContent className="p-2 space-y-2">{selectedProducts.map(product => (<div key={product.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50"><span className="text-sm font-medium">{product.name}</span><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeProduct(product.id)}><Trash2 className="h-4 w-4" /></Button></div>))}</CardContent></Card>) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No products added yet.</CardContent></Card>)}
+                    {selectedProducts.length > 0 ? (<Card><CardContent className="p-2 space-y-2">{selectedProducts.map((product: any, index: number) => {
+                      const inventoryItem = inventory.find(i => i.id === product.id);
+                      const unit = inventoryItem?.costingMethod === 'uses' 
+                        ? (inventoryItem.useUnit || 'uses') 
+                        : (inventoryItem?.unit || 'unit');
+                        
+                      return (
+                        <div key={product.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50 gap-2">
+                          <span className="text-sm font-medium flex-1 truncate pr-2">{product.name}</span>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              type="number"
+                              value={product.quantityUsed || ''}
+                              onChange={(e) => {
+                                const newQuantity = parseFloat(e.target.value) || 0;
+                                const updatedProducts = [...selectedProducts];
+                                updatedProducts[index] = { ...product, quantityUsed: newQuantity };
+                                setValue('products', updatedProducts, { shouldDirty: true });
+                              }}
+                              className="w-20 h-8 text-center"
+                              step="0.1"
+                            />
+                            <span className="text-xs text-muted-foreground w-10 truncate">{unit}</span>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive flex-shrink-0" onClick={() => removeProduct(product.id)}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      )
+                    })}</CardContent></Card>) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No products added yet.</CardContent></Card>)}
                     <div className='flex gap-2'><Button variant="outline" onClick={() => setIsProductBrowserOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Browse Library</Button><Button variant="outline" onClick={onScanClick} type="button"><QrCode className="mr-2 h-4 w-4" /> Scan to Add</Button></div></div>
                     <div className="space-y-2"><div className='flex items-center gap-2'><Hammer className="w-5 h-5 text-primary" /><Label className="text-base font-semibold">Equipment Used</Label></div>
-                    {selectedEquipment.length > 0 ? (<Card><CardContent className="p-2 space-y-2">{selectedEquipment.map(item => (<div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50"><span className="text-sm font-medium">{item.name}</span><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeEquipment(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}</CardContent></Card>) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No equipment added.</CardContent></Card>)}
+                    {selectedEquipment.length > 0 ? (<Card><CardContent className="p-2 space-y-2">{selectedEquipment.map((item: any) => (<div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50"><span className="text-sm font-medium">{item.name}</span><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeEquipment(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}</CardContent></Card>) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No equipment added.</CardContent></Card>)}
                     <Button variant="outline" onClick={() => setIsEquipmentSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Equipment</Button></div>
                     {!isAddon && (<div className="space-y-2"><div className='flex items-center gap-2'><PlusCircle className="w-5 h-5 text-primary" /><Label className="text-base font-semibold">Compatible Add-ons</Label></div>
-                    {selectedAddOns.length > 0 ? (<Card><CardContent className="p-2 space-y-2">{selectedAddOns.map(item => (<div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50"><span className="text-sm font-medium">{item.name}</span><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}</CardContent></Card>) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No add-ons selected.</CardContent></Card>)}
+                    {selectedAddOns.length > 0 ? (<Card><CardContent className="p-2 space-y-2">{selectedAddOns.map((item: any) => (<div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50"><span className="text-sm font-medium">{item.name}</span><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}</CardContent></Card>) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No add-ons selected.</CardContent></Card>)}
                     <Button variant="outline" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button></div>)}
                 </CardContent>
             </Card>
@@ -222,9 +262,9 @@ const AddServiceForm = ({
                  </CardContent>
              </Card>
         </div>
-        <BrowseProductsDialog open={isProductBrowserOpen} onOpenChange={setIsProductBrowserOpen} onSelect={handleProductSelect} allProducts={inventory.filter(i => i.type === 'professional' || i.type === 'retail')} initialSelected={selectedProducts} />
-        <SelectEquipmentDialog open={isEquipmentSelectorOpen} onOpenChange={setIsEquipmentSelectorOpen} onSelect={handleEquipmentSelect} allEquipment={inventory.filter(i => i.type === 'equipment')} initialSelected={selectedEquipment} />
-        <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={handleAddOnSelect} allAddOns={allServices.filter(s => s.type === 'addon')} initialSelected={selectedAddOns} />
+        <BrowseProductsDialog open={isProductBrowserOpen} onOpenChange={setIsProductBrowserOpen} onSelect={handleProductSelect} allProducts={inventory.filter(i => i.type === 'professional' || i.type === 'retail')} initialSelected={selectedProducts as InventoryItem[]} />
+        <SelectEquipmentDialog open={isEquipmentSelectorOpen} onOpenChange={setIsEquipmentSelectorOpen} onSelect={handleEquipmentSelect} allEquipment={inventory.filter(i => i.type === 'equipment')} initialSelected={selectedEquipment as InventoryItem[]} />
+        <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={handleAddOnSelect} allAddOns={allServices.filter(s => s.type === 'addon')} initialSelected={selectedAddOns as Service[]} />
         <BrowseConsentFormsDialog open={isConsentFormBrowserOpen} onOpenChange={setIsConsentFormBrowserOpen} onSelect={(forms) => { setValue('requiredFormIds', forms.map(f => f.id), { shouldDirty: true }); }} allForms={consentForms} initialSelected={requiredForms} />
     </>
     );
@@ -233,19 +273,15 @@ const AddServiceForm = ({
 export const AddServiceDialog = ({
     open,
     onOpenChange,
-    initialType,
     categories,
     onNewCategory,
     onServiceAdded,
 }: { 
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  initialType: 'professional' | 'retail';
   categories: string[];
   onNewCategory: (category: string) => void;
   onServiceAdded: (service: Service) => void;
-  locations: Location[];
-  onAddLocationClick: () => void;
 }) => {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const { toast } = useToast();
@@ -266,8 +302,10 @@ export const AddServiceDialog = ({
 
   const { watch } = methods;
   const values = watch();
-  const { duration, padBefore, padAfter, products, equipment, price } = values;
+  const { duration, padBefore, padAfter, products, equipment } = values;
   const [tmhr, setTmhr] = useState(0);
+
+  const { inventory, consentForms } = useInventory();
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -287,7 +325,8 @@ export const AddServiceDialog = ({
 
       const productCost = (products || []).reduce((acc: number, p: any) => {
           const product = inventory.find(i => i.id === p.id);
-          return acc + (product?.costPerUnit || 0);
+          const quantity = p.quantityUsed || 1;
+          return acc + ((product?.costPerUnit || 0) * quantity);
       }, 0);
 
       const equipmentDepreciation = (equipment || []).reduce((acc: any, eq: any) => {
@@ -299,7 +338,7 @@ export const AddServiceDialog = ({
       }, 0);
 
       return timeCost + productCost + equipmentDepreciation;
-  }, [duration, padBefore, padAfter, products, equipment, tmhr]);
+  }, [duration, padBefore, padAfter, products, equipment, tmhr, inventory]);
   
   const handleOpenChange = (isOpen: boolean) => {
     onOpenChange(isOpen);
