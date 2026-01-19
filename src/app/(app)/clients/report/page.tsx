@@ -340,7 +340,12 @@ const ClientLogReportPage = () => {
                         top: 0;
                         width: 100%;
                       }
-                      #lifecycle-chart-card .recharts-responsive-container {
+                      #lifecycle-chart-card {
+                        break-inside: avoid; /* Prevent card from splitting across pages */
+                      }
+                      #lifecycle-chart-card .recharts-responsive-container,
+                      #lifecycle-chart-card .recharts-wrapper,
+                      #lifecycle-chart-card svg.recharts-surface {
                         width: 100% !important;
                         height: 250px !important;
                       }
