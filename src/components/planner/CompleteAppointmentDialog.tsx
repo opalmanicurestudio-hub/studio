@@ -454,7 +454,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                       <Separator />
                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                           <h4 className="font-medium">Product Formula</h4>
-                          {client.customFormulas &amp;&amp; client.customFormulas.length > 0 &amp;&amp; (
+                          {client.customFormulas && client.customFormulas.length > 0 && (
                             <div className="w-full sm:w-auto sm:min-w-[200px]">
                                 <Select onValueChange={handleApplyClientFormula}>
                                     <SelectTrigger>
@@ -474,26 +474,34 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                           <p>Currently applying: <span className="font-semibold text-foreground">{formulaName}</span></p>
                         </div>
                       <div className="space-y-2 text-sm">
-                          {editableFormula.map((item) => (
-                              <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md">
-                                  <div>
-                                      <p className="font-medium">{item.name}</p>
-                                      <p className="text-xs text-muted-foreground">Cost: ${(item.costPerUnit || 0).toFixed(2)}/{item.unit}</p>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                      <Input
-                                          type="number"
-                                          value={item.quantity}
-                                          onChange={(e) => handleQuantityChange(item.id, parseFloat(e.target.value) || 0)}
-                                          className="w-20 h-8 text-center"
-                                      />
-                                      <span className="w-8 text-muted-foreground">{item.unit}</span>
-                                      <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveProduct(item.id)}>
-                                          <Trash2 className="h-4 w-4" />
-                                      </Button>
-                                  </div>
-                              </div>
-                          ))}
+                          {editableFormula.map((item, index) => {
+                             const inventoryItem = inventory.find(i => i.id === item.id);
+                             const unit = inventoryItem?.costingMethod === 'uses' 
+                               ? (inventoryItem.useUnit || 'uses') 
+                               : (inventoryItem?.unit || 'unit');
+                                
+                             return (
+                               <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md gap-2">
+                                   <div>
+                                       <p className="font-medium">{item.name}</p>
+                                       <p className="text-xs text-muted-foreground">Cost: ${(item.costPerUnit || 0).toFixed(2)}/{unit}</p>
+                                   </div>
+                                   <div className="flex items-center gap-2">
+                                       <Input
+                                           type="number"
+                                           value={item.quantity}
+                                           onChange={(e) => handleQuantityChange(item.id, parseFloat(e.target.value) || 0)}
+                                           className="w-20 h-8 text-center"
+                                           step="0.1"
+                                       />
+                                       <span className="w-8 text-muted-foreground truncate">{unit}</span>
+                                       <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive flex-shrink-0" onClick={() => handleRemoveProduct(item.id)}>
+                                           <Trash2 className="h-4 w-4" />
+                                       </Button>
+                                   </div>
+                               </div>
+                             )
+                          })}
                       </div>
                       <div className='flex gap-2'>
                         <Button variant="outline" size="sm" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Browse Library</Button>
@@ -580,7 +588,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                             ))}
                         </div>
                         
-                        {tipAmount > 0 &amp;&amp; (
+                        {tipAmount > 0 && (
                             <div className="space-y-2 pt-4 border-t">
                                 <Label>Tip Allocation</Label>
                                 <div className="space-y-3">
@@ -603,7 +611,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                                 </div>
                                 <div className="flex justify-between text-xs font-medium pt-2">
                                     <Button variant="link" size="xs" className="p-0 h-auto" onClick={splitTipEvenly}>Split Evenly</Button>
-                                    <span>Remaining: <span className={remainingTip &lt; 0 ? 'text-destructive' : ''}>${remainingTip.toFixed(2)}</span></span>
+                                    <span>Remaining: <span className={remainingTip < 0 ? 'text-destructive' : ''}>${remainingTip.toFixed(2)}</span></span>
                                 </div>
                             </div>
                         )}
@@ -618,7 +626,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                     <Switch checked={logIncident} onCheckedChange={setLogIncident} />
                   </div>
                 </CardHeader>
-                {logIncident &amp;&amp; (
+                {logIncident && (
                   <CardContent>
                      <FormProvider {...incidentMethods}>
                         <LogIncidentForm />
@@ -646,7 +654,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                         ))}
                         <div className='flex justify-between'><span>Retail:</span><span>${retailTotal.toFixed(2)}</span></div>
                         
-                        {additionalCharge > 0 &amp;&amp; (
+                        {additionalCharge > 0 && (
                              <div className='flex justify-between items-center p-3 my-2 -mx-3 rounded-lg bg-amber-500/10'>
                                 <div className="space-y-1">
                                     <Label htmlFor="apply-charges" className="font-medium text-amber-900 dark:text-amber-300">Apply Additional Charges?</Label>
@@ -664,7 +672,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                                 </div>
                             </div>
                         )}
-                        {discount > 0 &amp;&amp; (
+                        {discount > 0 && (
                             <div className='flex justify-between text-primary font-semibold'>
                                 <span>Referral Discount:</span>
                                 <span>-${discount.toFixed(2)}</span>
@@ -686,8 +694,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                           <p className="text-5xl font-bold text-primary">${grandTotal.toFixed(2)}</p>
                       </div>
 
-                      {absorbedCost > 0 &amp;&amp; (
-                          <Alert variant="destructive" className="bg-orange-500/5 border-orange-500/30 text-orange-800 dark:text-orange-300 [&gt;svg]:text-orange-500">
+                      {absorbedCost > 0 && (
+                          <Alert variant="destructive" className="bg-orange-500/5 border-orange-500/30 text-orange-800 dark:text-orange-300 [&>svg]:text-orange-500">
                               <AlertCircle className="h-4 w-4" />
                               <AlertTitle>Absorbed Cost</AlertTitle>
                               <AlertDescription>
@@ -724,7 +732,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                                       </div>
                                   </div>
                               </div>
-                               {changeDue > 0 &amp;&amp; (
+                               {changeDue > 0 && (
                                 <Button variant="secondary" className="w-full" onClick={handleKeepTheChange}>
                                     <Coins className="w-4 h-4 mr-2" /> Keep the Change as Tip
                                 </Button>
@@ -792,7 +800,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div className="w-2/3 h-1/2 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
             </div>
-            {hasCameraPermission === false &amp;&amp; (
+            {hasCameraPermission === false && (
                 <Alert variant="destructive" className="mt-4">
                     <AlertTriangle className="h-4 w-4" />
                     <AlertTitle>Camera Access Required</AlertTitle>
@@ -810,3 +818,5 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     </>
   );
 };
+
+    
