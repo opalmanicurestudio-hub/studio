@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Users, Calendar as CalendarIcon, FlaskConical } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Users, Calendar as CalendarIcon, FlaskConical, AlertTriangle } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,63 +32,86 @@ import { Separator } from '@/components/ui/separator';
 import { DateRange } from 'react-day-picker';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { format, subDays, startOfDay, endOfDay } from 'date-fns';
+import { format, subDays, startOfDay, endOfDay, parseISO, isPast, differenceInDays } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
-const StaffCard = ({ member, stats }: { member: Staff, stats: any }) => (
-  <Card className="text-center flex flex-col">
-    <CardContent className="p-6 pb-4">
-      <Avatar className="w-24 h-24 mx-auto mb-4">
-        <AvatarImage src={member.avatarUrl} alt={member.name} data-ai-hint="person portrait" />
-        <AvatarFallback>{member.name.substring(0, 2)}</AvatarFallback>
-      </Avatar>
-      <h3 className="text-lg font-semibold">{member.name}</h3>
-      <p className="text-sm text-muted-foreground">{member.email}</p>
-      <Badge variant={member.role === 'admin' ? 'default' : 'secondary'} className="mt-4 capitalize">
-        {member.role}
-      </Badge>
-    </CardContent>
-    <Separator />
-     <CardContent className="p-4">
-        <div className="grid grid-cols-2 gap-4 text-center">
-            <div>
-                <p className="text-xs text-muted-foreground">Earnings</p>
-                <p className="text-xl font-bold">${stats.earnings.toFixed(2)}</p>
-            </div>
-            <div>
-                <p className="text-xs text-muted-foreground">Tips</p>
-                <p className="text-xl font-bold">${stats.tips.toFixed(2)}</p>
-            </div>
-             <div className="col-span-2 border-t pt-4">
-                <p className="text-xs text-muted-foreground">Avg. Service Duration</p>
-                <p className="text-lg font-semibold">{stats.avgDuration} min</p>
-            </div>
-             <div className="col-span-2 border-t pt-4">
-                <p className="text-xs text-muted-foreground flex items-center justify-center gap-1"><FlaskConical className="w-3 h-3"/>Product Consumption</p>
-                <p className="text-lg font-semibold">${stats.consumptionValue.toFixed(2)}</p>
-            </div>
-        </div>
-    </CardContent>
-    <CardFooter className="p-2 border-t mt-auto">
-      <ClientOnly>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="w-full">
-              <MoreHorizontal className="w-4 h-4 mr-2" />
-              Manage
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem>Edit Profile</DropdownMenuItem>
-            <DropdownMenuItem>Change Role</DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-destructive">Remove from Team</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </ClientOnly>
-    </CardFooter>
-  </Card>
-);
+const StaffCard = ({ member, stats }: { member: Staff, stats: any }) => {
+    const licenseExpiry = member.compliance?.licenseExpiry ? parseISO(member.compliance.licenseExpiry) : null;
+    const daysUntilExpiry = licenseExpiry ? differenceInDays(licenseExpiry, new Date()) : null;
+    const isExpired = licenseExpiry ? isPast(licenseExpiry) : false;
+    const isExpiringSoon = daysUntilExpiry !== null && daysUntilExpiry <= 30 && !isExpired;
+    
+    return (
+        <Card className="text-center flex flex-col">
+            <CardContent className="p-6 pb-4">
+            <Avatar className="w-24 h-24 mx-auto mb-4">
+                <AvatarImage src={member.avatarUrl} alt={member.name} data-ai-hint="person portrait" />
+                <AvatarFallback>{member.name.substring(0, 2)}</AvatarFallback>
+            </Avatar>
+            <h3 className="text-lg font-semibold">{member.name}</h3>
+            <p className="text-sm text-muted-foreground">{member.email}</p>
+            <Badge variant={member.role === 'admin' ? 'default' : 'secondary'} className="mt-4 capitalize">
+                {member.role}
+            </Badge>
+
+            {(isExpired || isExpiringSoon) && (
+                <Alert variant="destructive" className="mt-4 text-left">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>
+                        {isExpired ? 'License Expired' : 'License Expiring Soon'}
+                    </AlertTitle>
+                    <AlertDescription className="text-xs">
+                        {isExpired 
+                        ? `Expired on ${format(licenseExpiry!, 'MMM d, yyyy')}.`
+                        : `Expires in ${daysUntilExpiry} days on ${format(licenseExpiry!, 'MMM d, yyyy')}.`
+                        }
+                    </AlertDescription>
+                </Alert>
+            )}
+            </CardContent>
+            <Separator />
+            <CardContent className="p-4">
+                <div className="grid grid-cols-2 gap-4 text-center">
+                    <div>
+                        <p className="text-xs text-muted-foreground">Earnings</p>
+                        <p className="text-xl font-bold">${stats.earnings.toFixed(2)}</p>
+                    </div>
+                    <div>
+                        <p className="text-xs text-muted-foreground">Tips</p>
+                        <p className="text-xl font-bold">${stats.tips.toFixed(2)}</p>
+                    </div>
+                    <div className="col-span-2 border-t pt-4">
+                        <p className="text-xs text-muted-foreground">Avg. Service Duration</p>
+                        <p className="text-lg font-semibold">{stats.avgDuration} min</p>
+                    </div>
+                    <div className="col-span-2 border-t pt-4">
+                        <p className="text-xs text-muted-foreground flex items-center justify-center gap-1"><FlaskConical className="w-3 h-3"/>Product Consumption</p>
+                        <p className="text-lg font-semibold">${stats.consumptionValue.toFixed(2)}</p>
+                    </div>
+                </div>
+            </CardContent>
+            <CardFooter className="p-2 border-t mt-auto">
+            <ClientOnly>
+                <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" className="w-full">
+                    <MoreHorizontal className="w-4 h-4 mr-2" />
+                    Manage
+                    </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                    <DropdownMenuItem>Edit Profile</DropdownMenuItem>
+                    <DropdownMenuItem>Change Role</DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem className="text-destructive">Remove from Team</DropdownMenuItem>
+                </DropdownMenuContent>
+                </DropdownMenu>
+            </ClientOnly>
+            </CardFooter>
+        </Card>
+    )
+};
 
 
 export default function StaffPage() {
