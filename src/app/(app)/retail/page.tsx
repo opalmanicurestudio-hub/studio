@@ -333,7 +333,7 @@ const CartContent = ({
                 <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                     <Label>Amount Tendered</Label>
-                    <div className="p-4 text-2xl font-bold text-center bg-background rounded-md border">
+                    <div className='p-4 text-2xl font-bold text-center bg-background rounded-md border'>
                         ${amountTendered.toFixed(2)}
                     </div>
                     </div>
@@ -846,56 +846,56 @@ export default function RetailPage() {
       <main className="flex-1 overflow-hidden">
         <div className="grid lg:grid-cols-3 h-full">
           <div className="lg:col-span-2 flex flex-col h-full">
-            <div className="p-4 border-b">
-              <Tabs value={activeTab} onValueChange={setActiveTab}>
-                <div className="flex items-center gap-4">
-                  <TabsList>
-                    <TabsTrigger value="products">Products</TabsTrigger>
-                    <TabsTrigger value="memberships">Memberships</TabsTrigger>
-                    <TabsTrigger value="packages">Packages</TabsTrigger>
-                  </TabsList>
-                  <div className="relative flex-1">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input placeholder="Search items..." className="pl-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                  </div>
-                  <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
-                      <QrCode className="h-4 w-4" />
-                      <span className="sr-only">Scan</span>
-                  </Button>
+             <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col h-full">
+                <div className="p-4 border-b">
+                    <div className="flex items-center gap-4">
+                        <TabsList>
+                            <TabsTrigger value="products">Products</TabsTrigger>
+                            <TabsTrigger value="memberships">Memberships</TabsTrigger>
+                            <TabsTrigger value="packages">Packages</TabsTrigger>
+                        </TabsList>
+                        <div className="relative flex-1">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input placeholder="Search items..." className="pl-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                        </div>
+                        <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
+                            <QrCode className="h-4 w-4" />
+                            <span className="sr-only">Scan</span>
+                        </Button>
+                    </div>
                 </div>
-              </Tabs>
-            </div>
-            <ScrollArea className="flex-1">
-              <TabsContent value="products" className="m-0">
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
-                      {retailProducts.map(product => (
-                          <Card key={product.id} onClick={() => addToCart(product, 'product')} className="cursor-pointer hover:shadow-lg transition-shadow">
-                              <CardContent className="p-2 space-y-2">
-                                  <div className="aspect-square bg-muted rounded-md overflow-hidden">
-                                       <Image src={product.imageUrl || `https://picsum.photos/seed/inv${product.id}/200/200`} alt={product.name} width={200} height={200} className="object-cover h-full w-full" />
-                                  </div>
-                                  <h3 className="text-sm font-medium leading-tight truncate">{product.name}</h3>
-                                  <p className="text-sm font-semibold">${(product.costPerUnit || 0 * 1.75).toFixed(2)}</p>
-                              </CardContent>
-                          </Card>
-                      ))}
-                  </div>
-              </TabsContent>
-               <TabsContent value="memberships" className="m-0">
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
-                      {memberships.map(membership => (
-                          <MembershipProductCard key={membership.id} membership={membership} onClick={() => addToCart(membership, 'membership')} />
-                      ))}
-                  </div>
-              </TabsContent>
-              <TabsContent value="packages" className="m-0">
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
-                      {packages.map(pack => (
-                          <PackageProductCard key={pack.id} pack={pack} onClick={() => addToCart(pack, 'package')} />
-                      ))}
-                  </div>
-              </TabsContent>
-            </ScrollArea>
+                <ScrollArea className="flex-1">
+                <TabsContent value="products" className="m-0">
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
+                        {retailProducts.map(product => (
+                            <Card key={product.id} onClick={() => addToCart(product, 'product')} className="cursor-pointer hover:shadow-lg transition-shadow">
+                                <CardContent className="p-2 space-y-2">
+                                    <div className="aspect-square bg-muted rounded-md overflow-hidden">
+                                        <Image src={product.imageUrl || `https://picsum.photos/seed/inv${product.id}/200/200`} alt={product.name} width={200} height={200} className="object-cover h-full w-full" />
+                                    </div>
+                                    <h3 className="text-sm font-medium leading-tight truncate">{product.name}</h3>
+                                    <p className="text-sm font-semibold">${(product.costPerUnit || 0 * 1.75).toFixed(2)}</p>
+                                </CardContent>
+                            </Card>
+                        ))}
+                    </div>
+                </TabsContent>
+                <TabsContent value="memberships" className="m-0">
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
+                        {memberships.map(membership => (
+                            <MembershipProductCard key={membership.id} membership={membership} onClick={() => addToCart(membership, 'membership')} />
+                        ))}
+                    </div>
+                </TabsContent>
+                <TabsContent value="packages" className="m-0">
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
+                        {packages.map(pack => (
+                            <PackageProductCard key={pack.id} pack={pack} onClick={() => addToCart(pack, 'package')} />
+                        ))}
+                    </div>
+                </TabsContent>
+                </ScrollArea>
+            </Tabs>
           </div>
 
           {/* Cart & Checkout */}
@@ -994,7 +994,7 @@ export default function RetailPage() {
           </DialogHeader>
           <div className="p-4 relative">
              <video ref={videoRef} className="w-full aspect-square rounded-md bg-muted" autoPlay muted playsInline />
-             <div className="absolute inset-4 flex items-center justify-center pointer-events-none">
+             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div className="w-2/3 h-1/2 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
             </div>
             {hasCameraPermission === false && (
