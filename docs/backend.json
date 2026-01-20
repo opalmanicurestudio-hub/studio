@@ -64,6 +64,7 @@
         "name": { "type": "string" },
         "email": { "type": "string", "format": "email" },
         "phone": { "type": "string" },
+        "avatarUrl": { "type": "string", "format": "uri" },
         "role": { "type": "string", "enum": ["admin", "staff"] },
         "payStructure": { "type": "string", "enum": ["commission", "hourly", "salary"] },
         "commissionRate": { "type": "number", "description": "Commission rate as a percentage (e.g., 40 for 40%)." },
@@ -95,9 +96,27 @@
             "type": "array",
             "description": "A list of skills the staff member possesses, used for smart assignment.",
             "items": { "type": "string" }
+        },
+        "services": {
+            "type": "array",
+            "description": "A list of service IDs the staff member is qualified to perform.",
+            "items": { "type": "string" }
         }
       },
       "required": ["id", "tenantId", "name", "email", "role", "payStructure"]
+    },
+    "ActivityLog": {
+        "title": "Activity Log",
+        "description": "An immutable record of staff activity like clock-in/out and breaks.",
+        "type": "object",
+        "properties": {
+            "id": { "type": "string" },
+            "staffId": { "type": "string" },
+            "type": { "type": "string", "enum": ["clock_in", "clock_out", "break_start", "break_end"] },
+            "timestamp": { "type": "string", "format": "date-time" },
+            "durationMinutes": { "type": "number", "description": "Duration of the event in minutes (e.g., for breaks)." }
+        },
+        "required": ["id", "staffId", "type", "timestamp"]
     },
     "Service": {
       "title": "Service",
@@ -535,6 +554,12 @@
         "$ref": "#/entities/Staff"
       },
       "description": "Staff members belonging to a specific tenant."
+    },
+    "/tenants/{tenantId}/activityLogs/{logId}": {
+        "schema": {
+            "$ref": "#/entities/ActivityLog"
+        },
+        "description": "Immutable log of all staff activities for a tenant."
     },
     "/tenants/{tenantId}/services/{serviceId}": {
       "schema": {

@@ -172,9 +172,10 @@ service cloud.firestore {
      * @path /tenants/{tenantId}/staff/{staffId}
      */
     match /tenants/{tenantId}/staff/{staffId} {
-      // Allow any user to manage staff for prototyping purposes.
-      // In production, this should be restricted to owners/admins.
-      allow read, write: if true;
+      allow get, list: if isTenantOwner(tenantId) || isStaff(tenantId);
+      allow create: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
+      allow update: if (isTenantOwner(tenantId) || isTenantAdmin(tenantId)) || (request.auth.uid == staffId);
+      allow delete: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
     }
 
     /**
@@ -282,7 +283,6 @@ service cloud.firestore {
     /**
      * @description Rules for financial transactions. This data is private.
      * @path /tenants/{tenantId}/transactions/{transactionId}
-     * @principle Enforces strict data privacy for a tenant's financial records.
      */
     match /tenants/{tenantId}/transactions/{transactionId} {
         allow read, write: if isSignedIn();
@@ -296,7 +296,14 @@ service cloud.firestore {
     match /tenants/{tenantId}/stockCorrections/{correctionId} {
         allow read, write: if isTenantOwner(tenantId) || isStaff(tenantId);
     }
+
+    /**
+     * @description Rules for activity logs. Logs are immutable.
+     * @path /tenants/{tenantId}/activityLogs/{logId}
+     */
+    match /tenants/{tenantId}/activityLogs/{logId} {
+      allow read, create: if isTenantOwner(tenantId) || isStaff(tenantId);
+      allow update, delete: if false;
+    }
   }
 }
-
-    
