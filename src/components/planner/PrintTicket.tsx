@@ -124,7 +124,7 @@ export const PrintTicket: React.FC<PrintTicketProps> = ({ data }) => {
              <div>
                 <h2 className="text-lg font-semibold mb-2">Client Notes</h2>
                 <div className="p-3 bg-gray-100 rounded-md print:bg-gray-50">
-                    <p className="text-gray-700">{client.notes}</p>
+                    <p className="text-gray-700">{client.notes.general || 'No general notes.'}</p>
                 </div>
             </div>
         )}

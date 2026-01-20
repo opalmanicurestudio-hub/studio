@@ -1084,9 +1084,6 @@ export default function PlannerPage() {
         </DialogContent>
       </Dialog>
       
-      <div id="print-ticket-area" className="hidden print:block">
-        {ticketToPrint && <PrintTicket data={ticketToPrint} />}
-      </div>
       <Dialog open={!!ticketToPrint} onOpenChange={(open) => !open && setTicketToPrint(null)}>
         <DialogContent className="max-w-md print-content">
           <DialogHeader className="print:hidden">
@@ -1104,9 +1101,14 @@ export default function PlannerPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+        <div id="print-ticket-area" className="hidden">
+            {ticketToPrint && <PrintTicket data={ticketToPrint} />}
+        </div>
     </div>
   );
 }
+
 
 
 

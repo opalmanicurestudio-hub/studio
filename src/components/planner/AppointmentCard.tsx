@@ -392,7 +392,7 @@ export function AppointmentCard({
                         </DropdownMenuSubContent>
                     </DropdownMenuPortal>
                 </DropdownMenuSub>
-                 <DropdownMenuItem onClick={() => onPrintReceipt(appointment)} disabled={appointment.status !== 'completed'}>
+                 <DropdownMenuItem onClick={() => onPrintReceipt({} as any)} disabled={appointment.status !== 'completed'}>
                     <Printer className="mr-2" /> Print Receipt
                 </DropdownMenuItem>
                 <Separator />

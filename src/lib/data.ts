@@ -1,4 +1,5 @@
 
+
 import { BillDefinition, billDefinitions, billInstances, transactions } from './financial-data';
 import { addDays, subDays, setHours, setMinutes, startOfDay } from 'date-fns';
 import { nanoid } from 'nanoid';
@@ -326,6 +327,16 @@ export type ConsentForm = {
   isPasswordProtected: boolean;
   notifyOnEdit: boolean;
   fields?: FormField[];
+};
+
+export type TicketData = {
+  business: {
+    name: string;
+    phone: string;
+  };
+  client: Client;
+  appointment: Appointment;
+  service: Service;
 };
 
 
