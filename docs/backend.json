@@ -1,3 +1,4 @@
+
 {
   "entities": {
     "User": {
@@ -442,6 +443,10 @@
         "tipAmount": {
             "type": "number",
             "description": "The tip amount included in this transaction."
+        },
+        "appointmentId": {
+            "type": "string",
+            "description": "The ID of the appointment this transaction is associated with."
         }
       },
       "required": ["id", "date", "description", "type", "context", "category", "amount", "paymentMethod"]

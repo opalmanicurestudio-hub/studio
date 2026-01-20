@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
@@ -68,7 +69,7 @@ interface CompleteAppointmentDialogProps {
     service: Service | undefined;
   };
   onConfirmCheckout: (data: CheckoutData) => void;
-  onSendToFrontDesk: (appointmentId: string, checkoutState: AppointmentCheckoutState) => void;
+  onSendToFrontDesk?: (appointmentId: string, checkoutState: AppointmentCheckoutState) => void;
 }
 
 export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps> = ({
@@ -444,7 +445,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   };
 
   const handleSendToFrontDesk = () => {
-    if (!client || !service) return;
+    if (!client || !service || !onSendToFrontDesk) return;
 
     const currentCheckoutState: AppointmentCheckoutState = {
         formula: editableFormula,
@@ -520,7 +521,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
             : "sm:max-w-4xl max-h-[90vh] flex flex-col p-0"
         )}>
            <DialogHeader className="p-6 pb-4 border-b flex-shrink-0">
-            <DialogTitle>Complete Appointment &amp; Checkout</DialogTitle>
+            <DialogTitle>Complete Appointment & Checkout</DialogTitle>
             <DialogDescription>
               Confirm products used, add retail sales, and finalize the appointment.
             </DialogDescription>
@@ -777,6 +778,34 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                           </Alert>
                       )}
 
+                       {tipAmount > 0 && (
+                            <div className="space-y-2 pt-4 border-t">
+                                <Label>Tip Allocation</Label>
+                                <div className="space-y-3">
+                                    {involvedStaff.map(staffMember => (
+                                        <div key={staffMember.id} className="flex items-center justify-between">
+                                            <Label htmlFor={`tip-${staffMember.id}`} className="text-sm">{staffMember.name}</Label>
+                                            <div className="relative w-28">
+                                                <DollarSignIcon className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                                <Input
+                                                    id={`tip-${staffMember.id}`}
+                                                    type="number"
+                                                    value={tipAllocations[staffMember.id] || ''}
+                                                    onChange={(e) => handleTipAllocation(staffMember.id, e.target.value)}
+                                                    placeholder="0.00"
+                                                    className="h-8 text-right pr-2 pl-7"
+                                                />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="flex justify-between text-xs font-medium pt-2">
+                                    <Button variant="link" size="xs" className="p-0 h-auto" onClick={splitTipEvenly}>Split Evenly</Button>
+                                    <span>Remaining: <span className={remainingTip < 0 ? 'text-destructive' : ''}>${remainingTip.toFixed(2)}</span></span>
+                                </div>
+                            </div>
+                        )}
+
                       <Tabs value={paymentTab} onValueChange={setPaymentTab} className="w-full">
                           <TabsList className="grid w-full grid-cols-3">
                               <TabsTrigger value="card"><CreditCard className="w-4 h-4 mr-2"/>Card</TabsTrigger>
@@ -826,41 +855,13 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                                <Button variant="outline" className="w-full" size="lg">Record Manual Payment (Venmo, etc.)</Button>
                           </TabsContent>
                       </Tabs>
-
-                       {tipAmount > 0 && (
-                            <div className="space-y-2 pt-4 border-t">
-                                <Label>Tip Allocation</Label>
-                                <div className="space-y-3">
-                                    {involvedStaff.map(staffMember => (
-                                        <div key={staffMember.id} className="flex items-center justify-between">
-                                            <Label htmlFor={`tip-${staffMember.id}`} className="text-sm">{staffMember.name}</Label>
-                                            <div className="relative w-28">
-                                                <DollarSignIcon className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                                <Input
-                                                    id={`tip-${staffMember.id}`}
-                                                    type="number"
-                                                    value={tipAllocations[staffMember.id] || ''}
-                                                    onChange={(e) => handleTipAllocation(staffMember.id, e.target.value)}
-                                                    placeholder="0.00"
-                                                    className="h-8 text-right pr-2 pl-7"
-                                                />
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                                <div className="flex justify-between text-xs font-medium pt-2">
-                                    <Button variant="link" size="xs" className="p-0 h-auto" onClick={splitTipEvenly}>Split Evenly</Button>
-                                    <span>Remaining: <span className={remainingTip < 0 ? 'text-destructive' : ''}>${remainingTip.toFixed(2)}</span></span>
-                                </div>
-                            </div>
-                        )}
                   </CardContent>
               </Card>
             </div>
           </div>
           <DialogFooter className="print:hidden p-6 pt-4 border-t flex-shrink-0">
             <div className="flex flex-col sm:flex-row sm:justify-end gap-2 w-full">
-                <Button variant="secondary" onClick={handleSendToFrontDesk}>Send to Front Desk</Button>
+                {onSendToFrontDesk && <Button variant="secondary" onClick={handleSendToFrontDesk}>Send to Front Desk</Button>}
                 <div className="flex-1" />
                 <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
                 <Button onClick={handleCompleteAppointment} disabled={warnings.length > 0}>

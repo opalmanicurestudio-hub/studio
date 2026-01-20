@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -23,7 +24,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import { useInventory } from '@/context/InventoryContext';
-import { type Staff, type Appointment, type Service } from '@/lib/data';
+import { type Staff, type Appointment, type Service, type Transaction } from '@/lib/data';
 import { AddStaffDialog } from '@/components/staff/AddStaffDialog';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { nanoid } from 'nanoid';
@@ -349,6 +350,7 @@ export default function StaffPage() {
         staffMember={selectedStaffMember}
         transactions={transactionsForSelectedStaff}
         services={services}
+        appointments={appointments}
       />
     </div>
   );

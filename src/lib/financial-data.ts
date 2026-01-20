@@ -43,6 +43,7 @@ export type Transaction = {
   reversalOf?: string; // ID of the transaction this entry is reversing
   staffId?: string;
   tipAmount?: number;
+  appointmentId?: string;
 };
 
 
@@ -104,6 +105,7 @@ export const transactions: Transaction[] = [
     hasReceipt: true,
     staffId: 'staff-1',
     tipAmount: 9.00,
+    appointmentId: 'apt-0',
   },
   {
     id: 'txn-2',
@@ -158,6 +160,7 @@ export const transactions: Transaction[] = [
     hasReceipt: true,
     staffId: 'staff-2',
     tipAmount: 70.00,
+    appointmentId: 'apt-5',
   },
   {
     id: 'txn-6',
