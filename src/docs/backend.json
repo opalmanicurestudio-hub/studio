@@ -53,6 +53,22 @@
         "userId"
       ]
     },
+    "Staff": {
+      "title": "Staff",
+      "type": "object",
+      "description": "Represents a staff member of a tenant.",
+      "properties": {
+        "id": { "type": "string" },
+        "tenantId": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["admin", "staff"] },
+        "payStructure": { "type": "string", "enum": ["commission", "hourly", "salary"] },
+        "commissionRate": { "type": "number", "description": "Commission rate as a percentage (e.g., 40 for 40%)." },
+        "hourlyRate": { "type": "number", "description": "Hourly pay rate." }
+      },
+      "required": ["id", "tenantId", "name", "email", "role", "payStructure"]
+    },
     "Service": {
       "title": "Service",
       "type": "object",
@@ -148,6 +164,28 @@
                 "phone": { "type": "string" }
             }
         },
+        "notes": {
+          "type": "object",
+          "description": "Consultation and general notes about the client.",
+          "properties": {
+            "goals": {
+              "type": "string",
+              "description": "Client's goals for their service."
+            },
+            "routine": {
+              "type": "string",
+              "description": "Client's current at-home routine and products used."
+            },
+            "history": {
+              "type": "string",
+              "description": "Client's past service history and experiences."
+            },
+            "general": {
+              "type": "string",
+              "description": "General miscellaneous notes about the client."
+            }
+          }
+        },
         "referralCode": {
             "type": "string",
             "description": "Unique, customizable code for the client to share."
@@ -185,6 +223,10 @@
         },
         "serviceId": {
           "type": "string"
+        },
+        "staffId": {
+          "type": "string",
+          "description": "The ID of the staff member performing the appointment."
         },
         "startTime": {
           "type": "string",
@@ -326,10 +368,6 @@
         },
         "hasReceipt": {
           "type": "boolean"
-        },
-        "reversalOf": {
-          "type": "string",
-          "description": "The ID of the transaction this entry is reversing."
         }
       },
       "required": ["id", "date", "description", "type", "context", "category", "amount", "paymentMethod"]
@@ -406,6 +444,12 @@
         "$ref": "#/entities/Tenant"
       },
       "description": "Stores tenant (business) profiles. All business-specific data is nested under this."
+    },
+    "/tenants/{tenantId}/staff/{staffId}": {
+      "schema": {
+        "$ref": "#/entities/Staff"
+      },
+      "description": "Staff members belonging to a specific tenant."
     },
     "/tenants/{tenantId}/services/{serviceId}": {
       "schema": {

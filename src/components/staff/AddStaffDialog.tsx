@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React from 'react';
@@ -29,7 +30,22 @@ const addStaffSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
   email: z.string().email('A valid email is required.'),
   role: z.enum(['admin', 'staff']),
+  payStructure: z.enum(['commission', 'hourly', 'salary']),
+  commissionRate: z.coerce.number().min(0).max(100).optional(),
+  hourlyRate: z.coerce.number().min(0).optional(),
+}).refine(data => {
+    if (data.payStructure === 'commission') {
+        return data.commissionRate !== undefined && data.commissionRate !== null;
+    }
+    if (data.payStructure === 'hourly') {
+        return data.hourlyRate !== undefined && data.hourlyRate !== null;
+    }
+    return true;
+}, {
+    message: "A rate is required for this pay structure.",
+    path: ["commissionRate"], // This is an approximation, ideally we'd show the error on the correct field
 });
+
 
 type AddStaffFormData = z.infer<typeof addStaffSchema>;
 
@@ -48,6 +64,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
     control,
     handleSubmit,
     reset,
+    watch,
     formState: { errors },
   } = useForm<AddStaffFormData>({
     resolver: zodResolver(addStaffSchema),
@@ -55,8 +72,12 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
       name: '',
       email: '',
       role: 'staff',
+      payStructure: 'commission',
+      commissionRate: 40,
     },
   });
+
+  const payStructure = watch('payStructure');
 
   const handleSave = (data: AddStaffFormData) => {
     onSave(data);
@@ -115,6 +136,52 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
               </div>
             )}
           />
+           <Controller
+            name="payStructure"
+            control={control}
+            render={({ field }) => (
+                <div className="space-y-2">
+                <Label htmlFor="payStructure">Pay Structure</Label>
+                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <SelectTrigger id="payStructure">
+                        <SelectValue placeholder="Select a pay structure" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="commission">Commission</SelectItem>
+                        <SelectItem value="hourly">Hourly</SelectItem>
+                        <SelectItem value="salary">Salary</SelectItem>
+                    </SelectContent>
+                </Select>
+                {errors.payStructure && <p className="text-sm text-destructive">{errors.payStructure.message}</p>}
+                </div>
+            )}
+        />
+        {payStructure === 'commission' && (
+            <Controller
+                name="commissionRate"
+                control={control}
+                render={({ field }) => (
+                <div className="space-y-2">
+                    <Label htmlFor="commissionRate">Commission Rate (%)</Label>
+                    <Input id="commissionRate" type="number" placeholder="e.g., 40" {...field} />
+                    {errors.commissionRate && <p className="text-sm text-destructive">{errors.commissionRate.message}</p>}
+                </div>
+                )}
+            />
+        )}
+        {payStructure === 'hourly' && (
+            <Controller
+                name="hourlyRate"
+                control={control}
+                render={({ field }) => (
+                <div className="space-y-2">
+                    <Label htmlFor="hourlyRate">Hourly Rate ($)</Label>
+                    <Input id="hourlyRate" type="number" placeholder="e.g., 25" {...field} />
+                    {errors.hourlyRate && <p className="text-sm text-destructive">{errors.hourlyRate.message}</p>}
+                </div>
+                )}
+            />
+        )}
         </form>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

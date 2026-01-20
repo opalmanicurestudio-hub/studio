@@ -1,7 +1,8 @@
 
+
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -23,14 +24,15 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import { useInventory } from '@/context/InventoryContext';
-import { type Staff } from '@/lib/data';
+import { type Staff, type Appointment, type Service } from '@/lib/data';
 import { AddStaffDialog } from '@/components/staff/AddStaffDialog';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { nanoid } from 'nanoid';
+import { Separator } from '@/components/ui/separator';
 
-const StaffCard = ({ member }: { member: Staff }) => (
-  <Card className="text-center">
-    <CardContent className="p-6">
+const StaffCard = ({ member, stats }: { member: Staff, stats: any }) => (
+  <Card className="text-center flex flex-col">
+    <CardContent className="p-6 pb-4">
       <Avatar className="w-24 h-24 mx-auto mb-4">
         <AvatarImage src={member.avatarUrl} alt={member.name} data-ai-hint="person portrait" />
         <AvatarFallback>{member.name.substring(0, 2)}</AvatarFallback>
@@ -41,7 +43,24 @@ const StaffCard = ({ member }: { member: Staff }) => (
         {member.role}
       </Badge>
     </CardContent>
-    <CardFooter className="p-2 border-t">
+    <Separator />
+     <CardContent className="p-4">
+        <div className="grid grid-cols-2 gap-4 text-center">
+            <div>
+                <p className="text-xs text-muted-foreground">Earnings (MTD)</p>
+                <p className="text-xl font-bold">${stats.earnings.toFixed(2)}</p>
+            </div>
+            <div>
+                <p className="text-xs text-muted-foreground">Tips (MTD)</p>
+                <p className="text-xl font-bold">${stats.tips.toFixed(2)}</p>
+            </div>
+             <div className="col-span-2 border-t pt-4">
+                <p className="text-xs text-muted-foreground">Avg. Service Duration</p>
+                <p className="text-lg font-semibold">{stats.avgDuration} min</p>
+            </div>
+        </div>
+    </CardContent>
+    <CardFooter className="p-2 border-t mt-auto">
       <ClientOnly>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -64,8 +83,46 @@ const StaffCard = ({ member }: { member: Staff }) => (
 
 
 export default function StaffPage() {
-  const { staff, setStaff } = useInventory();
+  const { staff, setStaff, appointments, services, transactions } = useInventory();
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
+
+  const staffWithStats = useMemo(() => {
+    if (!staff || !appointments || !services) return [];
+
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    return staff.map(member => {
+        const staffAppointments = appointments.filter(a => a.staffId === member.id && a.status === 'completed' && a.startTime >= startOfMonth);
+        
+        const earnings = staffAppointments.reduce((acc, apt) => {
+            const service = services.find(s => s.id === apt.serviceId);
+            if (service && member.payStructure === 'commission') {
+                return acc + (service.price * (member.commissionRate / 100));
+            }
+            return acc;
+        }, 0);
+
+        // This is mock data, as tip tracking is not yet fully implemented.
+        const tips = staffAppointments.length * 15; 
+
+        const totalDuration = staffAppointments.reduce((acc, apt) => {
+            const service = services.find(s => s.id === apt.serviceId);
+            return acc + (service?.duration || 0);
+        }, 0);
+
+        const avgDuration = staffAppointments.length > 0 ? Math.round(totalDuration / staffAppointments.length) : 0;
+
+        return {
+            ...member,
+            stats: {
+                earnings,
+                tips,
+                avgDuration,
+            }
+        };
+    });
+  }, [staff, appointments, services]);
 
   const handleAddStaff = (newStaffData: Omit<Staff, 'id' | 'avatarUrl'>) => {
     const newStaff: Staff = {
@@ -92,8 +149,8 @@ export default function StaffPage() {
 
         {staff.length > 0 ? (
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {staff.map((member) => (
-              <StaffCard key={member.id} member={member} />
+            {staffWithStats.map((member) => (
+              <StaffCard key={member.id} member={member} stats={member.stats} />
             ))}
           </div>
         ) : (
@@ -114,4 +171,3 @@ export default function StaffPage() {
     </div>
   );
 }
-    

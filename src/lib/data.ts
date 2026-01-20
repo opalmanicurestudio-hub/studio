@@ -38,6 +38,9 @@ export type Staff = {
   email: string;
   role: 'admin' | 'staff';
   avatarUrl: string;
+  payStructure: 'commission' | 'hourly' | 'salary';
+  commissionRate: number; // as a percentage, e.g., 40 for 40%
+  hourlyRate?: number;
 };
 
 export type Client = {
@@ -360,8 +363,8 @@ export const clients: Client[] = [
 ];
 
 export const staff: Staff[] = [
-  { id: 'staff-1', name: 'Brenda Barnes', email: 'brenda@example.com', role: 'staff', avatarUrl: 'https://picsum.photos/seed/staff1/100' },
-  { id: 'staff-2', name: 'Carlos Reyes', email: 'carlos@example.com', role: 'admin', avatarUrl: 'https://picsum.photos/seed/staff2/100' },
+  { id: 'staff-1', name: 'Brenda Barnes', email: 'brenda@example.com', role: 'staff', avatarUrl: 'https://picsum.photos/seed/staff1/100', payStructure: 'commission', commissionRate: 45 },
+  { id: 'staff-2', name: 'Carlos Reyes', email: 'carlos@example.com', role: 'admin', avatarUrl: 'https://picsum.photos/seed/staff2/100', payStructure: 'salary', commissionRate: 0, hourlyRate: 0 },
 ];
 
 export const inventory: InventoryItem[] = [
