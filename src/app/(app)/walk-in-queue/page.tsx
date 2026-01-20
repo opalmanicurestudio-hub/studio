@@ -23,6 +23,8 @@ import Link from 'next/link';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { PrintWalkInTicket, WalkInTicketData } from '@/components/walk-in/PrintWalkInTicket';
 import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { cn } from '@/lib/utils';
 
 const Timer = ({ startTime }: { startTime: string }) => {
     const [elapsed, setElapsed] = useState('');
@@ -42,24 +44,32 @@ const StaffStatusCard = ({ staffMember, onStatusChange }: { staffMember: Staff, 
   const statusConfig = {
     idle: { label: 'Idle', color: 'bg-green-500' },
     busy: { label: 'Busy', color: 'bg-red-500' },
+    onBreak: { label: 'On Break', color: 'bg-yellow-500' },
   };
 
+  const currentStatus = staffMember.onBreak ? 'onBreak' : staffMember.status || 'idle';
+  const { label, color } = statusConfig[currentStatus];
+
   return (
-    <Card>
-      <CardContent className="p-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <User className="h-10 w-10 text-muted-foreground" />
-            <span className={`absolute bottom-0 right-0 block h-3 w-3 rounded-full ${statusConfig[staffMember.status || 'idle'].color} ring-2 ring-card`} />
+    <Card className="text-center">
+      <CardContent className="p-4 flex flex-col items-center gap-3">
+        <div className="relative">
+          <Avatar className="w-20 h-20">
+              <AvatarImage src={staffMember.avatarUrl} alt={staffMember.name} />
+              <AvatarFallback>{staffMember.name.substring(0, 2)}</AvatarFallback>
+          </Avatar>
+          <div className="absolute bottom-1 right-1 flex h-4 w-4">
+              <span className={cn("absolute inline-flex h-full w-full rounded-full opacity-75", currentStatus === 'idle' && 'animate-ping', color)}></span>
+              <span className={cn("relative inline-flex rounded-full h-4 w-4", color)}></span>
           </div>
-          <div>
-            <p className="font-semibold">{staffMember.name}</p>
-            <p className="text-sm text-muted-foreground capitalize">{staffMember.onBreak ? 'On Break' : statusConfig[staffMember.status || 'idle'].label}</p>
-          </div>
+        </div>
+        <div>
+          <p className="font-semibold">{staffMember.name}</p>
+          <p className="text-sm text-muted-foreground capitalize">{label}</p>
         </div>
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm">Manage</Button>
+                <Button variant="ghost" size="sm" className="mt-2">Manage</Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent>
                 <DropdownMenuItem onClick={() => onStatusChange(staffMember.id, { onBreak: !staffMember.onBreak })}>
