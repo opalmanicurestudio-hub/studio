@@ -25,6 +25,8 @@ import { Badge } from '@/components/ui/badge';
 import { useInventory } from '@/context/InventoryContext';
 import { type Staff } from '@/lib/data';
 import { AddStaffDialog } from '@/components/staff/AddStaffDialog';
+import { ClientOnly } from '@/components/shared/ClientOnly';
+import { nanoid } from 'nanoid';
 
 const StaffCard = ({ member }: { member: Staff }) => (
   <Card className="text-center">
@@ -40,20 +42,22 @@ const StaffCard = ({ member }: { member: Staff }) => (
       </Badge>
     </CardContent>
     <CardFooter className="p-2 border-t">
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" className="w-full">
-            <MoreHorizontal className="w-4 h-4 mr-2" />
-            Manage
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem>Edit Profile</DropdownMenuItem>
-          <DropdownMenuItem>Change Role</DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem className="text-destructive">Remove from Team</DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <ClientOnly>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className="w-full">
+              <MoreHorizontal className="w-4 h-4 mr-2" />
+              Manage
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem>Edit Profile</DropdownMenuItem>
+            <DropdownMenuItem>Change Role</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="text-destructive">Remove from Team</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </ClientOnly>
     </CardFooter>
   </Card>
 );
@@ -66,8 +70,8 @@ export default function StaffPage() {
   const handleAddStaff = (newStaffData: Omit<Staff, 'id' | 'avatarUrl'>) => {
     const newStaff: Staff = {
       ...newStaffData,
-      id: `staff-${Date.now()}`,
-      avatarUrl: `https://picsum.photos/seed/${Math.random()}/100`,
+      id: `staff-${nanoid()}`,
+      avatarUrl: `https://picsum.photos/seed/${nanoid()}/100`,
     };
     setStaff(prev => [...prev, newStaff]);
   };
@@ -110,3 +114,4 @@ export default function StaffPage() {
     </div>
   );
 }
+    
