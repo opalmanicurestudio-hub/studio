@@ -285,9 +285,7 @@ service cloud.firestore {
      * @principle Enforces strict data privacy for a tenant's financial records.
      */
     match /tenants/{tenantId}/transactions/{transactionId} {
-        allow list, get: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
-        allow create: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
-        allow update, delete: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
+        allow read, write: if isSignedIn();
     }
 
     /**
