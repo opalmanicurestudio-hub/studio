@@ -44,6 +44,7 @@ import { User, Wallet, CalendarIcon, Shield, FileText } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { buttonVariants } from '../ui/button';
+import { nanoid } from 'nanoid';
 
 const addStaffSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
@@ -196,16 +197,16 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
                 </DialogDescription>
             </DialogHeader>
              <FormProvider {...methods}>
-                <form id="add-staff-form-comprehensive" onSubmit={handleSubmit(handleSave)} className="flex-1 overflow-hidden">
-                    <ScrollArea className="h-full px-6 py-4">
+                <form id="add-staff-form-comprehensive" onSubmit={handleSubmit(handleSave)} className="flex-1 flex flex-col overflow-hidden">
+                    <div className="flex-1 overflow-y-auto px-6 py-4">
                         <AddStaffForm />
-                    </ScrollArea>
+                    </div>
+                    <DialogFooter className="p-6 pt-4 border-t">
+                        <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                        <Button type="submit">Save & Send Invite</Button>
+                    </DialogFooter>
                 </form>
              </FormProvider>
-            <DialogFooter className="p-6 pt-4 border-t">
-                <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                <Button type="submit" form="add-staff-form-comprehensive">Save & Send Invite</Button>
-            </DialogFooter>
         </ContentComponent>
     </DialogComponent>
   );
