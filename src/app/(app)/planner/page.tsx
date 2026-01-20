@@ -131,6 +131,7 @@ const DayTimeline = ({
     const START_HOUR = 0; // Start at midnight
     const hours = Array.from({ length: 24 - START_HOUR }, (_, i) => i + START_HOUR);
     const [tmhr, setTmhr] = useState(0);
+    const scrollViewportRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
       if (typeof window !== 'undefined') {
@@ -138,6 +139,21 @@ const DayTimeline = ({
         setTmhr(parseFloat(storedTmhr || '50'));
       }
     }, []);
+
+    useEffect(() => {
+        if (isToday(date) && scrollViewportRef.current) {
+            const now = new Date();
+            const startOfDayWithOffset = setHours(startOfDay(now), START_HOUR);
+            const minutesFromStart = differenceInMinutes(now, startOfDayWithOffset);
+            
+            const scrollPosition = (minutesFromStart * (160 / 60)) - (scrollViewportRef.current.clientHeight / 4);
+
+            scrollViewportRef.current.scrollTo({
+                top: Math.max(0, scrollPosition),
+                behavior: 'smooth'
+            });
+        }
+    }, [date, START_HOUR]);
 
     const staffSchedules = useMemo(() => {
         return staff.map(staffMember => {
@@ -250,7 +266,7 @@ const DayTimeline = ({
                 ))}
             </div>
             
-            <ScrollArea className="flex-1">
+            <ScrollArea className="flex-1" viewportRef={scrollViewportRef}>
                 <div className="relative grid" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(256px, 1fr))` }}>
                     {/* Background Grid Lines */}
                     {Array.from({ length: staff.length }).map((_, index) => (
@@ -329,7 +345,7 @@ const WeeklyKpiSheet = ({ open, onOpenChange, kpis, isMobile }: { open: boolean,
                         </CardContent>
                     </Card>
                      <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
                             <CardTitle className="text-sm font-medium">Net Profit</CardTitle>
                             <DollarSign className="h-4 w-4 text-muted-foreground" />
                         </CardHeader>
@@ -339,7 +355,7 @@ const WeeklyKpiSheet = ({ open, onOpenChange, kpis, isMobile }: { open: boolean,
                         </CardContent>
                     </Card>
                     <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
                             <CardTitle className="text-sm font-medium">Absorbed Costs</CardTitle>
                             <DollarSign className="h-4 w-4 text-muted-foreground" />
                         </CardHeader>
@@ -1012,6 +1028,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
