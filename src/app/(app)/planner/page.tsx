@@ -59,6 +59,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { LogPaymentDialog } from '@/components/bills/LogPaymentDialog';
 import { PickingListDialog } from '@/components/planner/PickingListDialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 
 
 const DayTimeline = ({ 
@@ -465,6 +467,14 @@ export default function PlannerPage() {
   const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
   const [ticketToPrint, setTicketToPrint] = useState<TicketData | null>(null);
   
+  const [mobileSelectedStaffId, setMobileSelectedStaffId] = useState<string>('');
+
+  useEffect(() => {
+    if (staff && staff.length > 0 && !mobileSelectedStaffId) {
+      setMobileSelectedStaffId(staff[0].id);
+    }
+  }, [staff, mobileSelectedStaffId]);
+
   // --- Data Fetching ---
   const billDefinitionsQuery = useMemoFirebase(() => {
     if (isUserLoading || !user || !firestore) return null;
@@ -611,6 +621,23 @@ export default function PlannerPage() {
 
     return map;
   }, [currentDate, appointments, events, staff]);
+
+  const staffToDisplay = useMemo(() => {
+    if (isMobile) {
+        if (!mobileSelectedStaffId) return [];
+        const selected = staff.find(s => s.id === mobileSelectedStaffId);
+        return selected ? [selected] : [];
+    }
+    return staff;
+  }, [isMobile, mobileSelectedStaffId, staff]);
+
+  const itemsToDisplay = useMemo(() => {
+      if (isMobile) {
+          if (!mobileSelectedStaffId || !itemsByStaff.has(mobileSelectedStaffId)) return new Map();
+          return new Map([[mobileSelectedStaffId, itemsByStaff.get(mobileSelectedStaffId)!]]);
+      }
+      return itemsByStaff;
+  }, [isMobile, mobileSelectedStaffId, itemsByStaff]);
 
 
   const handleCompleteClick = (appointment: Appointment) => {
@@ -940,10 +967,23 @@ export default function PlannerPage() {
       </div>
 
       <main className="flex-1 flex flex-col min-h-0">
+          {isMobile && staff.length > 1 && (
+            <div className="p-4 border-b">
+              <Label htmlFor="staff-selector">Viewing Schedule For</Label>
+              <Select value={mobileSelectedStaffId} onValueChange={setMobileSelectedStaffId}>
+                <SelectTrigger id="staff-selector" className="mt-1">
+                  <SelectValue placeholder="Select a staff member" />
+                </SelectTrigger>
+                <SelectContent>
+                  {staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <DayTimeline 
               date={currentDate} 
-              staff={staff}
-              itemsByStaff={itemsByStaff}
+              staff={staffToDisplay}
+              itemsByStaff={itemsToDisplay}
               onCompleteClick={handleCompleteClick} 
               onUpdateStatus={handleUpdateStatus} 
               onDeleteAppointment={handleDeleteAppointment} 
@@ -1078,13 +1118,3 @@ export default function PlannerPage() {
   );
 }
 
-
-
-
-
-
-
-
-
-
-    
