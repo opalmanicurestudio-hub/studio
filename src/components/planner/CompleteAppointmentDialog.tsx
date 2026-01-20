@@ -618,12 +618,15 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
               </Card>
           </div>
           </ScrollArea>
-          <DialogFooter className="print:hidden">
-            <Button variant="secondary" onClick={handleSendToDesk}>Send to Front Desk</Button>
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button onClick={handleCompleteAppointment} disabled={warnings.some(w => w.includes('Insufficient stock'))}>
-              Complete & Charge
-            </Button>
+          <DialogFooter className="print:hidden pt-4 border-t">
+            <div className="flex flex-col sm:flex-row sm:justify-end gap-2 w-full">
+                <Button variant="secondary" onClick={handleSendToDesk}>Send to Front Desk</Button>
+                <div className="flex-1" />
+                <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                <Button onClick={handleCompleteAppointment} disabled={warnings.some(w => w.includes('Insufficient stock'))}>
+                  Complete & Charge
+                </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

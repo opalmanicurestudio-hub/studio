@@ -724,6 +724,16 @@ export const appointments: Appointment[] = [
   { id: 'apt-0', clientId: 'cli-4', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 8), 0), endTime: setMinutes(setHours(startOfDay(today), 8), 50), status: 'completed', absorbedCost: 0, staffId: 'staff-1', isWalkIn: false },
   { id: 'apt-1', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today,1)), 9), 30), endTime: setMinutes(setHours(startOfDay(subDays(today,1)), 10), 20), status: 'confirmed', inspirationPhotoUrl: 'https://images.unsplash.com/photo-1596796242339-3c368369b139?w=400', absorbedCost: 0 },
   { id: 'apt-2', clientId: 'cli-2', serviceId: 'svc-7', startTime: setMinutes(setHours(startOfDay(today), 11), 0), endTime: setMinutes(setHours(startOfDay(today), 12), 30), status: 'completed', addOnIds: ['svc-addon-1'], absorbedCost: 0, staffId: 'staff-2' },
+  { 
+    id: 'apt-walkin-test', 
+    clientId: 'cli-2', // Marcus Holloway
+    serviceId: 'svc-6', // Men's Haircut
+    startTime: setMinutes(setHours(startOfDay(today), 13), 0), 
+    endTime: setMinutes(setHours(startOfDay(today), 13), 45), 
+    status: 'ready_for_checkout',
+    isWalkIn: true, 
+    staffId: 'staff-1' 
+  },
   { id: 'apt-6', clientId: 'cli-2', serviceId: 'svc-7', startTime: setMinutes(setHours(startOfDay(today), 14), 0), endTime: setMinutes(setHours(startOfDay(today), 15), 30), status: 'confirmed', absorbedCost: 0, staffId: 'staff-1' },
   { id: 'apt-3', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 15), 0), endTime: setMinutes(setHours(startOfDay(today), 15), 50), status: 'confirmed', absorbedCost: 0 },
   { id: 'apt-5', clientId: 'cli-5', serviceId: 'svc-4', startTime: setMinutes(setHours(startOfDay(today), 16), 0), endTime: setMinutes(setHours(startOfDay(today), 17), 15), status: 'confirmed', absorbedCost: 0, staffId: 'staff-2' },
