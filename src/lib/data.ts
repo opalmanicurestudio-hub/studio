@@ -1,4 +1,5 @@
 
+
 import { BillDefinition, billDefinitions, billInstances, transactions } from './financial-data';
 import { addDays, subDays, setHours, setMinutes, startOfDay, parseISO } from 'date-fns';
 import { nanoid } from 'nanoid';
@@ -57,7 +58,6 @@ export type Staff = {
   status?: 'idle' | 'busy';
   onBreak?: boolean;
   lastServedTimestamp?: string;
-  skillSet?: string[];
   breakStartTime?: string; // ISO date string
 };
 

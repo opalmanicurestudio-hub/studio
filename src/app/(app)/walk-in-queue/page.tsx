@@ -10,7 +10,7 @@ import { User, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHo
 import { useInventory } from '@/context/InventoryContext';
 import { useCollection, useFirebase, updateDocumentNonBlocking, useMemoFirebase } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
-import type { WalkIn, Staff, Appointment, Service } from '@/lib/data';
+import type { WalkIn, Staff, Appointment, Service, ActivityLog } from '@/lib/data';
 import { formatDistanceToNowStrict, parseISO, addMinutes, differenceInMinutes } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -25,6 +25,7 @@ import { PrintWalkInTicket, WalkInTicketData } from '@/components/walk-in/PrintW
 import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
+import { nanoid } from 'nanoid';
 
 const Timer = ({ startTime }: { startTime: string }) => {
     const [elapsed, setElapsed] = useState('');
@@ -175,7 +176,7 @@ const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange, onPrin
 
 
 export default function WalkInQueuePage() {
-  const { services, clients, setAppointments, walkIns: allWalkIns, staff: allStaff } = useInventory();
+  const { services, clients, setAppointments, walkIns: allWalkIns, staff: allStaff, setStaff, setActivityLogs } = useInventory();
   const { firestore, user } = useFirebase();
   const tenantId = 'tenant-abc';
   const [ticketToPrint, setTicketToPrint] = useState<WalkIn | null>(null);
@@ -210,8 +211,44 @@ export default function WalkInQueuePage() {
 
   const handleStaffStatusChange = (staffId: string, statusUpdate: Partial<Staff>) => {
     if (!firestore) return;
+    
+    const staffMember = staff?.find(s => s.id === staffId);
+    if (!staffMember) return;
+
+    let finalUpdate = { ...statusUpdate };
+    
+    // Check if 'onBreak' is being toggled
+    if (statusUpdate.hasOwnProperty('onBreak')) {
+        if (statusUpdate.onBreak === true) { // Starting a break
+            finalUpdate.breakStartTime = new Date().toISOString();
+            const newLog: ActivityLog = {
+                id: `log-${nanoid()}`,
+                staffId,
+                type: 'break_start',
+                timestamp: finalUpdate.breakStartTime,
+            };
+            setActivityLogs(prev => [...prev, newLog]);
+
+        } else if (statusUpdate.onBreak === false && staffMember.onBreak && staffMember.breakStartTime) { // Ending a break
+            const breakStart = parseISO(staffMember.breakStartTime);
+            const breakEnd = new Date();
+            const durationMinutes = differenceInMinutes(breakEnd, breakStart);
+            
+            const newLog: ActivityLog = {
+                id: `log-${nanoid()}`,
+                staffId,
+                type: 'break_end',
+                timestamp: breakEnd.toISOString(),
+                durationMinutes,
+            };
+            setActivityLogs(prev => [...prev, newLog]);
+            finalUpdate.breakStartTime = undefined; 
+        }
+    }
+
     const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
-    updateDocumentNonBlocking(staffDocRef, statusUpdate);
+    updateDocumentNonBlocking(staffDocRef, finalUpdate);
+    setStaff(prevStaff => prevStaff.map(s => s.id === staffId ? { ...s, ...finalUpdate } : s));
   }
   
   const handleWalkInStatusChange = (walkInId: string, staffId: string, status: WalkIn['status']) => {

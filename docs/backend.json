@@ -1,4 +1,5 @@
 
+
 {
   "entities": {
     "User": {
@@ -87,6 +88,7 @@
         },
         "active": { "type": "boolean", "description": "Whether the staff member is currently active and schedulable." },
         "onBreak": { "type": "boolean", "description": "Whether the staff member is currently on a break." },
+        "breakStartTime": { "type": "string", "format": "date-time", "description": "The timestamp of when the staff member started their current break." },
         "status": { "type": "string", "enum": ["idle", "busy"], "description": "The current working status of the staff member." },
         "lastServedTimestamp": { "type": "string", "format": "date-time", "description": "The timestamp of when the staff member last completed a service." },
         "skillSet": {
@@ -269,6 +271,10 @@
         "endTime": {
           "type": "string",
           "format": "date-time"
+        },
+        "isWalkIn": {
+            "type": "boolean",
+            "description": "True if the appointment was created from the walk-in queue."
         },
         "actualStartTime": {
             "type": "string",
