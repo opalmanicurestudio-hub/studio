@@ -12,7 +12,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { SidebarTrigger } from '@/components/ui/sidebar';
-import { Bell, LifeBuoy, LogOut, Settings, User, PackageX, Calendar, Landmark, Check, X, ShieldAlert } from 'lucide-react';
+import { Bell, LifeBuoy, LogOut, Settings, User, PackageX, Calendar, Landmark, Check, X, ShieldAlert, CreditCard } from 'lucide-react';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { useState, useMemo, useEffect } from 'react';
 import { Badge } from '../ui/badge';
@@ -152,9 +152,17 @@ export function AppHeader({ title }: AppHeaderProps) {
                 <User />
                 <span>Profile</span>
               </DropdownMenuItem>
-              <DropdownMenuItem>
-                <Settings />
-                <span>Settings</span>
+              <DropdownMenuItem asChild>
+                <Link href="/settings">
+                  <Settings />
+                  <span>Settings</span>
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/subscriptions">
+                  <CreditCard />
+                  <span>Billing</span>
+                </Link>
               </DropdownMenuItem>
               <DropdownMenuItem>
                 <LifeBuoy />
@@ -172,4 +180,3 @@ export function AppHeader({ title }: AppHeaderProps) {
     </header>
   );
 }
-    

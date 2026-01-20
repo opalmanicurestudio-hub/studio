@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Check, Loader } from 'lucide-react';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, where, doc } from 'firebase/firestore';
@@ -17,6 +17,7 @@ export default function SubscriptionsPage() {
     const router = useRouter();
     const { toast } = useToast();
     const [isSubscribing, setIsSubscribing] = useState(false);
+    const [isCancelling, setIsCancelling] = useState(false);
 
     const tenantQuery = useMemoFirebase(() => {
         if (!user || !firestore) return null;
@@ -55,7 +56,82 @@ export default function SubscriptionsPage() {
         }
     };
     
+    const handleCancelSubscription = async () => {
+        if (!tenant || !firestore) return;
+
+        setIsCancelling(true);
+        try {
+            const tenantRef = doc(firestore, 'tenants', tenant.id);
+            await updateDocumentNonBlocking(tenantRef, {
+                subscriptionStatus: 'inactive',
+                subscriptionTier: 'none'
+            });
+
+            toast({
+                title: 'Subscription Cancelled',
+                description: "We're sorry to see you go. Your subscription has been cancelled.",
+            });
+            
+        } catch (error) {
+             console.error(error);
+            toast({
+                variant: 'destructive',
+                title: 'Cancellation Failed',
+                description: 'Could not cancel your subscription. Please try again.',
+            });
+        } finally {
+            setIsCancelling(false);
+        }
+    };
+    
     const isLoading = isUserLoading || isTenantLoading;
+
+    if (isLoading) {
+        return (
+            <div className="flex min-h-screen w-full flex-col items-center justify-center bg-muted/40 p-4">
+                <Loader className="h-8 w-8 animate-spin" />
+            </div>
+        );
+    }
+    
+    if (tenant && tenant.subscriptionStatus === 'active') {
+        return (
+             <div className="flex min-h-screen w-full flex-col items-center justify-center bg-muted/40 p-4">
+                <Card className="w-full max-w-md">
+                    <CardHeader>
+                        <CardTitle>Manage Your Subscription</CardTitle>
+                        <CardDescription>
+                            Thank you for being a Pro member, {user?.displayName || 'user'}!
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <Card className="border-primary">
+                            <CardHeader>
+                                <CardTitle>Pro Plan</CardTitle>
+                                <div className="flex items-baseline gap-2">
+                                    <span className="text-4xl font-bold">$49</span>
+                                    <span className="text-muted-foreground">/ month</span>
+                                </div>
+                            </CardHeader>
+                            <CardContent>
+                                <p className="text-sm text-muted-foreground">Your subscription is currently active.</p>
+                            </CardContent>
+                            <CardFooter>
+                                <Button variant="destructive" className="w-full" onClick={handleCancelSubscription} disabled={isCancelling}>
+                                    {isCancelling ? <Loader className="animate-spin" /> : 'Cancel Subscription'}
+                                </Button>
+                            </CardFooter>
+                        </Card>
+                    </CardContent>
+                     <CardFooter>
+                        <Button variant="outline" className="w-full" asChild>
+                            <Link href="/dashboard">Back to Dashboard</Link>
+                        </Button>
+                    </CardFooter>
+                </Card>
+            </div>
+        )
+    }
 
     return (
         <div className="flex min-h-screen w-full flex-col items-center justify-center bg-muted/40 p-4">

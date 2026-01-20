@@ -55,12 +55,6 @@ export function AuthGuard({ children }: { children: ReactNode }) {
             router.replace(subscriptionRoute);
             return;
         }
-        
-        // ...and has an active subscription but is on the subscription page...
-        if (tenant && tenant.subscriptionStatus === 'active' && isSubscriptionRoute) {
-            router.replace('/dashboard');
-            return;
-        }
     }
 
   }, [user, isUserLoading, tenant, isTenantLoading, router, pathname]);
