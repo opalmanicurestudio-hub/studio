@@ -358,7 +358,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
               Confirm products used, add retail sales, and finalize the appointment.
             </DialogDescription>
           </DialogHeader>
-          <ScrollArea className="flex-1 min-h-0">
+          <div className="flex-1 min-h-0 overflow-y-auto">
             <div className="py-4 px-6 space-y-6">
               <Card>
                   <CardContent className="p-4 flex items-center gap-4">
@@ -632,7 +632,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                   </CardContent>
               </Card>
           </div>
-          </ScrollArea>
+          </div>
           <DialogFooter className="print:hidden p-6 pt-4 border-t">
             <div className="flex flex-col sm:flex-row sm:justify-end gap-2 w-full">
                 <Button variant="secondary" onClick={handleSendToFrontDesk}>Send to Front Desk</Button>
