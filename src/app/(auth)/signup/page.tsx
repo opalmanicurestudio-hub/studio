@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -54,7 +55,7 @@ export default function SignupPage() {
         displayName: data.name
       });
       
-      // onAuthStateChanged in the AuthGuard will handle the redirect.
+      router.push('/dashboard');
     } catch (error: any) {
       let description = 'An unexpected error occurred. Please try again.';
       if (error.code === 'auth/email-already-in-use') {

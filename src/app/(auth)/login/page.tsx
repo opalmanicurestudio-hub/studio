@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -47,7 +48,7 @@ export default function LoginPage() {
     const auth = getAuth();
     try {
       await signInWithEmailAndPassword(auth, data.email, data.password);
-      // onAuthStateChanged in the AuthGuard will handle the redirect.
+      router.push('/dashboard');
     } catch (error: any) {
       toast({
         variant: 'destructive',
