@@ -87,16 +87,24 @@ const WaitingCustomerCard = ({ walkIn, services }: { walkIn: WalkIn, services: a
 
 export default function WalkInQueuePage() {
   const { services } = useInventory();
-  const { firestore } = useFirebase();
+  const { firestore, user } = useFirebase();
   const tenantId = 'tenant-abc';
   
-  const staffQuery = useMemoFirebase(() => firestore ? collection(firestore, 'tenants', tenantId, 'staff') : null, [firestore, tenantId]);
-  const walkInQuery = useMemoFirebase(() => firestore ? collection(firestore, 'tenants', tenantId, 'walkIns') : null, [firestore, tenantId]);
+  const staffQuery = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    return collection(firestore, 'tenants', tenantId, 'staff');
+  }, [firestore, user, tenantId]);
+  
+  const walkInQuery = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    return collection(firestore, 'tenants', tenantId, 'walkIns');
+  }, [firestore, user, tenantId]);
 
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
   const { data: walkIns, isLoading: walkInsLoading } = useCollection<WalkIn>(walkInQuery);
 
   const waitingQueue = useMemo(() => {
+    if (!walkIns) return [];
     return (walkIns || []).filter(w => w.status === 'waiting').sort((a,b) => parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
   }, [walkIns]);
 
