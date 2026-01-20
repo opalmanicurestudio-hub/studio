@@ -36,11 +36,24 @@ export type Staff = {
   id: string;
   name: string;
   email: string;
+  phone?: string;
   role: 'admin' | 'staff';
   avatarUrl: string;
   payStructure: 'commission' | 'hourly' | 'salary';
   commissionRate: number; // as a percentage, e.g., 40 for 40%
   hourlyRate?: number;
+  emergencyContact?: {
+    name: string;
+    relationship: string;
+    phone: string;
+  };
+  availabilityNotes?: string;
+  preferences?: string;
+  compliance?: {
+    licenseNumber?: string;
+    licenseExpiry?: string; // ISO Date
+    documentUrl?: string;
+  };
 };
 
 export type Client = {

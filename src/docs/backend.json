@@ -62,10 +62,29 @@
         "tenantId": { "type": "string" },
         "name": { "type": "string" },
         "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
         "role": { "type": "string", "enum": ["admin", "staff"] },
         "payStructure": { "type": "string", "enum": ["commission", "hourly", "salary"] },
         "commissionRate": { "type": "number", "description": "Commission rate as a percentage (e.g., 40 for 40%)." },
-        "hourlyRate": { "type": "number", "description": "Hourly pay rate." }
+        "hourlyRate": { "type": "number", "description": "Hourly pay rate." },
+        "emergencyContact": {
+            "type": "object",
+            "properties": {
+                "name": { "type": "string" },
+                "relationship": { "type": "string" },
+                "phone": { "type": "string" }
+            }
+        },
+        "availabilityNotes": { "type": "string" },
+        "preferences": { "type": "string" },
+        "compliance": {
+            "type": "object",
+            "properties": {
+                "licenseNumber": { "type": "string" },
+                "licenseExpiry": { "type": "string", "format": "date" },
+                "documentUrl": { "type": "string", "format": "uri" }
+            }
+        }
       },
       "required": ["id", "tenantId", "name", "email", "role", "payStructure"]
     },
