@@ -22,6 +22,9 @@ import { Loader } from 'lucide-react';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { getAuth, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import Link from 'next/link';
+import { getFirestore, doc } from 'firebase/firestore';
+import { setDocumentNonBlocking } from '@/firebase';
+import { nanoid } from 'nanoid';
 
 const signupSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters.'),
@@ -50,11 +53,25 @@ export default function SignupPage() {
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, data.email, data.password);
       
-      // Update user's profile with their name
       await updateProfile(userCredential.user, {
         displayName: data.name
       });
       
+      // Create a corresponding tenant document
+      const db = getFirestore();
+      const tenantId = nanoid();
+      const tenantDocRef = doc(db, "tenants", tenantId);
+      
+      const newTenant = {
+        id: tenantId,
+        name: `${data.name}'s Business`,
+        userId: userCredential.user.uid,
+        subscriptionStatus: "inactive",
+        subscriptionTier: "none"
+      };
+
+      setDocumentNonBlocking(tenantDocRef, newTenant, {});
+
       router.push('/dashboard');
     } catch (error: any) {
       let description = 'An unexpected error occurred. Please try again.';

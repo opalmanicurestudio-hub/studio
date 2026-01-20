@@ -46,12 +46,24 @@
         "userId": {
           "type": "string",
           "description": "The ID of the user who owns this tenant."
+        },
+        "subscriptionStatus": {
+            "type": "string",
+            "enum": ["active", "inactive", "trialing", "past_due", "canceled"],
+            "description": "The current subscription status of the tenant."
+        },
+        "subscriptionTier": {
+            "type": "string",
+            "enum": ["none", "pro"],
+            "description": "The subscription tier of the tenant."
         }
       },
       "required": [
         "id",
         "name",
-        "userId"
+        "userId",
+        "subscriptionStatus",
+        "subscriptionTier"
       ]
     },
     "Staff": {
