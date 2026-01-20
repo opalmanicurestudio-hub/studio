@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -11,7 +9,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { useCollection, useFirebase, updateDocumentNonBlocking, useMemoFirebase } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
 import type { WalkIn, Staff, Appointment } from '@/lib/data';
-import { formatDistanceToNow, parseISO, addMinutes } from 'date-fns';
+import { formatDistanceToNowStrict, parseISO, addMinutes, differenceInMinutes } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
@@ -23,6 +21,20 @@ import Link from 'next/link';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { PrintWalkInTicket, WalkInTicketData } from '@/components/walk-in/PrintWalkInTicket';
 import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
+
+const Timer = ({ startTime }: { startTime: string }) => {
+    const [elapsed, setElapsed] = useState('');
+
+    useEffect(() => {
+        const timer = setInterval(() => {
+            const duration = formatDistanceToNowStrict(parseISO(startTime));
+            setElapsed(duration);
+        }, 1000);
+        return () => clearInterval(timer);
+    }, [startTime]);
+
+    return <span>{elapsed}</span>;
+};
 
 const StaffStatusCard = ({ staffMember, onStatusChange }: { staffMember: Staff, onStatusChange: (staffId: string, status: Partial<Staff>) => void }) => {
   const statusConfig = {
@@ -72,7 +84,7 @@ const WaitingCustomerCard = ({ walkIn, services, onPrintTicket }: { walkIn: Walk
                 <div className="flex justify-between items-start">
                     <div>
                         <p className="font-bold text-xl">{walkIn.customerName}</p>
-                        <p className="text-sm text-muted-foreground">Checked in {formatDistanceToNow(parseISO(walkIn.checkInTime), { addSuffix: true })}</p>
+                        <p className="text-sm text-muted-foreground">Checked in <Timer startTime={walkIn.checkInTime} /> ago</p>
                     </div>
                     <div className="flex items-center gap-2">
                         <Badge variant="secondary">{walkIn.status}</Badge>
@@ -103,6 +115,8 @@ const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange, onPrin
     const walkInServices = services.filter(s => walkIn.serviceIds.includes(s.id));
     const assignedStaff = staff.find(s => s.id === walkIn.assignedStaffId);
     
+    const waitTime = walkIn.serviceStartTime ? differenceInMinutes(parseISO(walkIn.serviceStartTime), parseISO(walkIn.checkInTime)) : null;
+
     return (
         <Card className="bg-primary/5 border-primary/20">
             <CardContent className="p-4">
@@ -110,6 +124,7 @@ const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange, onPrin
                     <div>
                         <p className="font-bold text-xl">{walkIn.customerName}</p>
                         <p className="text-sm text-primary">Assigned to: {assignedStaff?.name || 'N/A'}</p>
+                        {waitTime !== null && <p className="text-xs text-muted-foreground">Waited {waitTime} minutes</p>}
                     </div>
                     <div className="flex items-center gap-2">
                         <Badge className="bg-primary hover:bg-primary/90 text-primary-foreground capitalize">{walkIn.status}</Badge>
@@ -184,7 +199,13 @@ export default function WalkInQueuePage() {
   const handleWalkInStatusChange = (walkInId: string, staffId: string, status: WalkIn['status']) => {
     if (!firestore) return;
     const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkins', walkInId);
-    updateDocumentNonBlocking(walkInDocRef, { status });
+    
+    let update: Partial<WalkIn> = { status };
+    if (status === 'servicing') {
+        update.serviceStartTime = new Date().toISOString();
+    }
+    
+    updateDocumentNonBlocking(walkInDocRef, update);
 
     // If completed or skipped, make staff idle again
     if ((status === 'completed' || status === 'skipped') && staffId) {
@@ -205,8 +226,8 @@ export default function WalkInQueuePage() {
       clientId: walkIn.clientId || `walkin-${walkIn.customerName}`,
       serviceId: service.id,
       staffId: walkIn.assignedStaffId,
-      startTime: parseISO(walkIn.checkInTime),
-      endTime: addMinutes(parseISO(walkIn.checkInTime), walkIn.estimatedDuration),
+      startTime: parseISO(walkIn.serviceStartTime || walkIn.checkInTime),
+      endTime: addMinutes(parseISO(walkIn.serviceStartTime || walkIn.checkInTime), walkIn.estimatedDuration),
       status: 'confirmed', // Treat as confirmed for checkout
       isWalkIn: true,
       addOnIds: walkIn.serviceIds.slice(1),
@@ -292,7 +313,8 @@ export default function WalkInQueuePage() {
         if (customerToAssign && staffToAssign) {
             // Assign walk-in to staff
             const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkins', customerToAssign.id);
-            updateDocumentNonBlocking(walkInDocRef, { status: 'assigned', assignedStaffId: staffToAssign.id });
+            const now = new Date().toISOString();
+            updateDocumentNonBlocking(walkInDocRef, { status: 'assigned', assignedStaffId: staffToAssign.id, serviceStartTime: now });
 
             const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffToAssign.id);
             updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
@@ -300,9 +322,8 @@ export default function WalkInQueuePage() {
             // Planner Integration: Create appointment
             const service = services.find(s => s.id === customerToAssign!.serviceIds[0]);
             if (service) {
-                const now = new Date();
-                const appointmentStartTime = now;
-                const appointmentEndTime = addMinutes(now, service.duration);
+                const appointmentStartTime = parseISO(now);
+                const appointmentEndTime = addMinutes(appointmentStartTime, service.duration);
                 const newAppointment: Appointment = {
                     id: `apt-walkin-${customerToAssign.id}`,
                     clientId: customerToAssign.clientId || `walkin-${customerToAssign.id}`,

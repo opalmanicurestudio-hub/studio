@@ -33,6 +33,7 @@ import {
   Gift,
   Users2,
   ListChecks,
+  BarChart,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -75,6 +76,7 @@ const operationsNavItems = [
     { href: '/walk-in-queue', icon: ListChecks, label: 'Walk-in Queue' },
     { href: '/retail', icon: ShoppingCart, label: 'Retail' },
     { href: '/quotes', icon: FileText, label: 'Quotes' },
+    { href: '/reports', icon: BarChart, label: 'Reports' },
 ];
 
 const moneyNavItems = [
