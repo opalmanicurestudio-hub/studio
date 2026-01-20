@@ -275,28 +275,25 @@ const DayTimeline = ({
                 behavior: 'smooth'
             });
         }
-    }, [date]);
+    }, [date, staffToDisplay]); // Rerun when date or staff changes
 
     return (
         <div className="flex-1 relative overflow-auto" ref={scrollContainerRef}>
             <div className="grid grid-cols-[auto,1fr] min-w-max">
                 
-                {/* Headers and time labels are only shown on desktop */}
-                {!isMobile && (
-                    <>
-                        <div className="sticky top-0 left-0 z-30 bg-background h-14 border-b border-r" />
-                        <div className="sticky top-0 z-20 grid col-start-2 bg-background" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(250px, 1fr))` }}>
-                            {staff.map(staffMember => (
-                                <div key={staffMember.id} className="p-2 h-14 border-b border-r text-center flex items-center justify-center">
-                                    <div className="flex items-center justify-center gap-2 h-full">
-                                        <Avatar className="w-6 h-6"><AvatarImage src={staffMember.avatarUrl} /><AvatarFallback>{staffMember.name.charAt(0)}</AvatarFallback></Avatar>
-                                        <p className="font-semibold text-sm truncate">{staffMember.name}</p>
-                                    </div>
+                <div className="sticky top-0 z-30 bg-background h-14 border-b border-r grid" style={{ width: isMobile ? '40px' : '48px' }} />
+                <div className="sticky top-0 z-20 grid col-start-2 bg-background" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(${isMobile ? '0' : '250px'}, 1fr))` }}>
+                    {staff.map(staffMember => (
+                        <div key={staffMember.id} className="p-2 h-14 border-b border-r text-center flex items-center justify-center">
+                            {!isMobile && (
+                                <div className="flex items-center justify-center gap-2 h-full">
+                                    <Avatar className="w-6 h-6"><AvatarImage src={staffMember.avatarUrl} /><AvatarFallback>{staffMember.name.charAt(0)}</AvatarFallback></Avatar>
+                                    <p className="font-semibold text-sm truncate">{staffMember.name}</p>
                                 </div>
-                            ))}
+                            )}
                         </div>
-                    </>
-                )}
+                    ))}
+                </div>
                 
                 {/* Time labels column */}
                 <div className={cn("sticky left-0 z-10 bg-background", isMobile ? "w-10" : "w-12")}>
@@ -308,7 +305,7 @@ const DayTimeline = ({
                 </div>
 
                 {/* Main content grid */}
-                <div className="col-start-2 grid relative" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(${isMobile ? '0' : '250px'}, 1fr))` }}>
+                <div className="col-start-2 grid relative" style={{ gridTemplateColumns: `repeat(${staffToDisplay.length}, minmax(${isMobile ? '0' : '250px'}, 1fr))` }}>
                     {staffSchedules.map(({ staffMember, positionedItems }) => (
                         <div key={staffMember.id} className="relative border-r">
                             {/* Grid lines */}
@@ -441,7 +438,6 @@ const BillsDueSheet = ({ open, onOpenChange, billInstances, isMobile, onLogPayme
 export default function PlannerPage() {
   const isMobile = useIsMobile();
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
-  const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
   const [events, setEvents] = useState<Event[]>(initialEvents);
   
   const { 
@@ -449,6 +445,8 @@ export default function PlannerPage() {
     billDefinitions: mockDefinitions, 
     billInstances: mockInstances,
     staff,
+    appointments, 
+    setAppointments,
   } = useInventory();
   
   const { firestore, user, isUserLoading } = useFirebase();
@@ -909,31 +907,30 @@ export default function PlannerPage() {
     <div className="flex h-screen w-full flex-col">
       <AppHeaderClient title="Planner" />
       
-      <div className="flex flex-col gap-4 p-4 border-b">
-        <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
-             <div className="flex items-center gap-2">
-                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setIsKpiSheetOpen(true)}>
-                    <BarChart className="w-4 h-4" />
-                </Button>
-                <Button variant="outline" size="icon" className="h-8 w-8 relative" onClick={() => setIsBillsSheetOpen(true)}>
-                    <BellRing className={cn("h-4 w-4", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
-                        {dailyBillInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => setIsAddEventOpen(true)}>
-                    <PlusCircle className="mr-2 h-4 w-4" />
-                    Event
-                </Button>
-                <Button size="sm" onClick={() => setIsAddAppointmentOpen(true)}>
-                    <PlusCircle className="mr-2 h-4 w-4" />
-                    Appointment
-                </Button>
-            </div>
-        </div>
-         <div className="flex items-center justify-start gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-4 p-4 border-b">
+        <div className="flex items-center gap-2">
+            <h2 className="text-2xl font-semibold mr-2">{format(currentDate, 'MMMM yyyy')}</h2>
             <Button variant="outline" onClick={handlePrevWeek} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
             <Button variant="outline" onClick={handleNextWeek} size="icon" className="h-8 w-8"><ChevronRight /></Button>
             <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
+        </div>
+        <div className="flex items-center gap-2">
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setIsKpiSheetOpen(true)}>
+                <BarChart className="w-4 h-4" />
+            </Button>
+            <Button variant="outline" size="icon" className="h-8 w-8 relative" onClick={() => setIsBillsSheetOpen(true)}>
+                <BellRing className={cn("h-4 w-4", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
+                {dailyBillInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
+            </Button>
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button size="sm"><PlusCircle className="mr-2 h-4 w-4"/>Add New</Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                    <DropdownMenuItem onClick={() => setIsAddAppointmentOpen(true)}>Appointment</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setIsAddEventOpen(true)}>Event</DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
         </div>
       </div>
       
@@ -1110,6 +1107,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
