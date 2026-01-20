@@ -2,8 +2,8 @@
 
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import { format, differenceInMinutes, isPast } from 'date-fns';
+import React, { useState, useMemo, useEffect } from 'react';
+import { format, differenceInMinutes, isPast, parseISO, differenceInSeconds } from 'date-fns';
 import {
   ShieldPlus,
   AlertTriangle,
@@ -286,7 +286,39 @@ export function AppointmentCard({
 }: AppointmentCardProps) {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
+  const [elapsedTime, setElapsedTime] = useState<string | null>(null);
   const isMobile = useIsMobile();
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout | undefined;
+
+    if (appointment.status === 'servicing' && appointment.actualStartTime) {
+      const startTime = parseISO(appointment.actualStartTime as string);
+      timer = setInterval(() => {
+        const now = new Date();
+        const diffInSeconds = differenceInSeconds(now, startTime);
+        
+        const hours = Math.floor(diffInSeconds / 3600);
+        const minutes = Math.floor((diffInSeconds % 3600) / 60);
+        const seconds = diffInSeconds % 60;
+
+        if (hours > 0) {
+            setElapsedTime(`${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
+        } else {
+            setElapsedTime(`${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
+        }
+
+      }, 1000);
+    } else {
+      setElapsedTime(null);
+    }
+
+    return () => {
+      if (timer) {
+        clearInterval(timer);
+      }
+    };
+  }, [appointment.status, appointment.actualStartTime]);
 
   const addOnServices = useMemo(() => {
       return (appointment.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
@@ -329,11 +361,11 @@ export function AppointmentCard({
 
   const statusDisplay: { [key in Appointment['status']]: { text: string; className: string; bgClassName: string } } = {
     confirmed: { text: 'Confirmed', className: 'border-blue-500/30 text-blue-800 dark:text-blue-300', bgClassName: 'bg-blue-500/10' },
-    servicing: { text: 'In Service', className: 'border-yellow-500/30 text-yellow-800 dark:text-yellow-300', bgClassName: 'bg-yellow-500/10 animate-pulse' },
+    servicing: { text: 'In Service', className: 'border-yellow-500/30 text-yellow-800 dark:text-yellow-300', bgClassName: 'bg-yellow-500/10' },
     completed: { text: 'Completed', className: 'border-green-500/30 text-green-800 dark:text-green-300', bgClassName: 'bg-green-500/10' },
     cancelled: { text: 'Cancelled', className: 'border-red-500/30 text-red-800 dark:text-red-300', bgClassName: 'bg-red-500/10' },
     deposit_pending: { text: 'Awaiting Payment', className: 'border-pink-500/30 text-pink-800 dark:text-pink-300', bgClassName: 'bg-pink-500/10' },
-    ready_for_checkout: { text: 'Checkout', className: 'border-orange-500/30 text-orange-800 dark:text-orange-300', bgClassName: 'bg-orange-500/10 animate-pulse' },
+    ready_for_checkout: { text: 'Checkout', className: 'border-orange-500/30 text-orange-800 dark:text-orange-300 animate-pulse', bgClassName: 'bg-orange-500/10' },
   };
 
   const hasPadBefore = (service.padBefore || 0) > 0;
@@ -430,9 +462,14 @@ export function AppointmentCard({
             <div className="flex flex-col items-start">
                 <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[appointment.status]?.className, statusDisplay[appointment.status]?.bgClassName)}>
                    {appointment.status === 'ready_for_checkout' && <DollarSign className="w-3 h-3 mr-1" />}
+                   {appointment.status === 'servicing' && <Clock className="w-3 h-3 mr-1 animate-spin" />}
                    {statusDisplay[appointment.status]?.text}
                 </Badge>
-                <p className="text-[10px] text-muted-foreground">{format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
+                {appointment.status === 'servicing' && elapsedTime ? (
+                    <p className="font-mono text-sm font-semibold text-yellow-600 dark:text-yellow-400 mt-1">{elapsedTime}</p>
+                ) : (
+                    <p className="text-[10px] text-muted-foreground">{format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
+                )}
             </div>
              {appointment.status === 'confirmed' && (
                   <div className="rounded-full bg-primary text-primary-foreground p-1 hover:bg-primary/90">
