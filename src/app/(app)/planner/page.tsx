@@ -64,7 +64,7 @@ import { PickingListDialog } from '@/components/planner/PickingListDialog';
 const DayTimeline = ({ 
     date, 
     staff,
-    appointmentsByStaff,
+    itemsByStaff,
     onCompleteClick, 
     onUpdateStatus, 
     onDeleteAppointment, 
@@ -81,7 +81,7 @@ const DayTimeline = ({
 }: { 
     date: Date; 
     staff: Staff[];
-    appointmentsByStaff: Map<string, Appointment[]>;
+    itemsByStaff: Map<string, (Appointment | Event)[]>;
     onCompleteClick: (apt: Appointment) => void; 
     onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void; 
     onDeleteAppointment: (appointmentId: string) => void; 
@@ -110,11 +110,10 @@ const DayTimeline = ({
 
     const staffSchedules = useMemo(() => {
         return staff.map(staffMember => {
-            const staffAppointments = appointmentsByStaff.get(staffMember.id) || [];
+            const staffItems = itemsByStaff.get(staffMember.id) || [];
             
-            let layoutInfo = staffAppointments.map(item => ({
+            let layoutInfo = staffItems.map(item => ({
                 ...item,
-                itemType: 'appointment',
                 layout: { cols: 0, col: 0 }
             }));
             
@@ -158,7 +157,7 @@ const DayTimeline = ({
                 positionCluster(currentCluster);
             }
             
-            const positionedAppointments = layoutInfo.map(item => ({
+            const positionedItems = layoutInfo.map(item => ({
                 ...item,
                 layout: {
                     width: `${100 / item.layout.cols}%`,
@@ -166,9 +165,9 @@ const DayTimeline = ({
                 }
             }));
 
-            return { staffMember, positionedAppointments };
+            return { staffMember, positionedItems };
         });
-    }, [staff, appointmentsByStaff]);
+    }, [staff, itemsByStaff]);
 
     const renderAppointment = (item: any) => {
         const dayStart = setHours(startOfDay(date), START_HOUR);
@@ -207,6 +206,34 @@ const DayTimeline = ({
                 />
             </div>
         );
+    };
+
+    const renderEvent = (item: any) => {
+        const dayStart = setHours(startOfDay(date), START_HOUR);
+        const minutesFromStart = differenceInMinutes(item.startTime, dayStart);
+        
+        if (minutesFromStart < 0) return null;
+
+        const duration = differenceInMinutes(item.endTime, item.startTime);
+        const height = duration * (160/60);
+        const top = minutesFromStart * (160/60);
+
+        const style = { top: `${top}px`, height: `${height}px`, width: `calc(${item.layout.width} - 0.5rem)`, left: item.layout.left };
+
+        const eventTransactions = dailyTransactions?.filter(t => t.relatedEventId === item.id) || [];
+
+        return (
+             <div key={item.id} className="absolute pr-2 z-10" style={style}>
+                <EventCard
+                    event={item}
+                    transactions={eventTransactions}
+                    onChecklistItemToggle={onChecklistItemToggle}
+                    onUpdateEvent={onUpdateEvent}
+                    onEditEvent={onEditEvent}
+                    onAddTransaction={onAddTransaction}
+                />
+            </div>
+        )
     };
 
     const TimeIndicator = () => {
@@ -276,14 +303,21 @@ const DayTimeline = ({
 
                 {/* Main content grid */}
                 <div className="col-start-2 row-start-2 grid relative" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(250px, 1fr))` }}>
-                    {staffSchedules.map(({ staffMember, positionedAppointments }) => (
+                    {staffSchedules.map(({ staffMember, positionedItems }) => (
                         <div key={staffMember.id} className="relative border-r">
                             {/* Grid lines */}
                             {hours.map(hour => (
                                 <div key={hour} className="h-40 border-b border-dashed" />
                             ))}
-                            {/* Appointments */}
-                            {positionedAppointments.map(renderAppointment)}
+                            {/* Items */}
+                            {positionedItems.map(item => {
+                                if ((item as any).itemType === 'appointment') {
+                                    return renderAppointment(item);
+                                } else if ((item as any).itemType === 'event') {
+                                    return renderEvent(item);
+                                }
+                                return null;
+                            })}
                         </div>
                     ))}
 
@@ -536,26 +570,47 @@ export default function PlannerPage() {
     }
   }, [currentDate, appointments, weekStart, billDefinitions]);
   
-  const appointmentsByStaff = useMemo(() => {
-    const map = new Map<string, Appointment[]>();
+  const itemsByStaff = useMemo(() => {
+    const map = new Map<string, (Appointment | Event & { itemType: string })[]>();
     staff.forEach(s => map.set(s.id, []));
-    
+
+    // Process appointments
     appointments
-      .filter(apt => format(apt.startTime, 'yyyy-MM-dd') === format(currentDate, 'yyyy-MM-dd'))
+      .filter(apt => isSameDay(apt.startTime, currentDate))
       .forEach(apt => {
-        // Use default staff if none is assigned
         const staffId = apt.staffId || staff[0]?.id;
         if (staffId && map.has(staffId)) {
-          map.get(staffId)!.push(apt);
+          map.get(staffId)!.push({ ...apt, itemType: 'appointment' });
         }
       });
-    
-    map.forEach(staffAppointments => {
-        staffAppointments.sort((a,b) => a.startTime.getTime() - b.startTime.getTime())
+
+    // Process events
+    events
+      .filter(evt => isSameDay(evt.startTime, currentDate))
+      .forEach(evt => {
+          if (evt.staffId && map.has(evt.staffId)) {
+              // Event with specific staff
+              map.get(evt.staffId)!.push({ ...evt, itemType: 'event' });
+          } else if (evt.type === 'blocked' && !evt.staffId) {
+              // Block all staff
+              staff.forEach(s => {
+                  map.get(s.id)!.push({ ...evt, itemType: 'event' });
+              });
+          } else {
+              // Personal/Business event for the owner (first staff member)
+              const ownerId = staff[0]?.id;
+              if (ownerId) {
+                  map.get(ownerId)!.push({ ...evt, itemType: 'event' });
+              }
+          }
+      });
+
+    map.forEach(items => {
+        items.sort((a,b) => a.startTime.getTime() - b.startTime.getTime())
     });
 
     return map;
-  }, [currentDate, appointments, staff]);
+  }, [currentDate, appointments, events, staff]);
 
 
   const handleCompleteClick = (appointment: Appointment) => {
@@ -888,7 +943,7 @@ export default function PlannerPage() {
           <DayTimeline 
               date={currentDate} 
               staff={staff}
-              appointmentsByStaff={appointmentsByStaff}
+              itemsByStaff={itemsByStaff}
               onCompleteClick={handleCompleteClick} 
               onUpdateStatus={handleUpdateStatus} 
               onDeleteAppointment={handleDeleteAppointment} 
@@ -917,6 +972,7 @@ export default function PlannerPage() {
         onOpenChange={setIsAddAppointmentOpen}
         clients={clients}
         services={services}
+        staff={staff}
         appointments={appointments}
         onConfirm={handleAddAppointment}
       />
@@ -948,6 +1004,7 @@ export default function PlannerPage() {
         onConfirm={handleAddEvent}
         appointments={appointments}
         events={events}
+        staff={staff}
       />
        {selectedEvent && (
         <EditEventDialog

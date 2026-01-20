@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, KeyboardEvent, useEffect } from 'react';
@@ -46,25 +47,30 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { CalendarIcon, PlusCircle, Trash2, DollarSign, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { type Event, type EventChecklistItem, type Appointment } from '@/lib/data';
+import { type Event, type EventChecklistItem, type Appointment, type Staff } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping } from 'date-fns';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '../ui/checkbox';
+import { Switch } from '../ui/switch';
 
 const AddEventForm = ({
     onConfirm,
     appointments,
-    events
+    events,
+    staff
 }: {
     onConfirm: (event: Omit<Event, 'id'>) => void;
     appointments: Appointment[];
     events: Event[];
+    staff: Staff[];
 }) => {
     const [title, setTitle] = useState('');
     const [type, setType] = useState<'personal' | 'business' | 'blocked'>('business');
     const [date, setDate] = useState<Date>(new Date());
     const [startTime, setStartTime] = useState<string>('09:00');
     const [endTime, setEndTime] = useState<string>('10:00');
+    const [allDay, setAllDay] = useState(false);
+    const [staffId, setStaffId] = useState('');
     const [notes, setNotes] = useState('');
     const [location, setLocation] = useState('');
     const [checklist, setChecklist] = useState<Omit<EventChecklistItem, 'id'>[]>([]);
@@ -72,6 +78,13 @@ const AddEventForm = ({
 
     const [isOverlapping, setIsOverlapping] = useState(false);
     const [showConfirmation, setShowConfirmation] = useState(false);
+
+    useEffect(() => {
+        if (allDay) {
+            setStartTime('00:00');
+            setEndTime('23:59');
+        }
+    }, [allDay]);
 
     useEffect(() => {
         if (!date || !startTime || !endTime) {
@@ -144,16 +157,18 @@ const AddEventForm = ({
             type,
             startTime: startDateTime,
             endTime: endDateTime,
+            allDay,
             notes,
             location,
-            checklist: checklist.map((item, index) => ({...item, id: `cl-${Date.now()}-${index}`}))
+            checklist: checklist.map((item, index) => ({...item, id: `cl-${Date.now()}-${index}`})),
+            staffId: staffId ? staffId : undefined,
         };
         onConfirm(newEvent);
     }
     
     const handleSaveAttempt = () => {
         if (!title.trim()) return; // Basic validation
-        if (isOverlapping) {
+        if (isOverlapping && type === 'blocked') {
             setShowConfirmation(true);
         } else {
             confirmAndSubmit();
@@ -187,6 +202,19 @@ const AddEventForm = ({
                                 </div>
                             </RadioGroup>
                         </div>
+                         <div className="space-y-2">
+                            <Label htmlFor="staff-block">Assign to Staff</Label>
+                            <Select value={staffId} onValueChange={setStaffId}>
+                                <SelectTrigger id="staff-block">
+                                    <SelectValue placeholder={type === 'blocked' ? 'All Staff' : 'Optional'} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="">{type === 'blocked' ? 'All Staff' : 'None'}</SelectItem>
+                                    {staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                                </SelectContent>
+                            </Select>
+                            {type === 'blocked' && <p className="text-xs text-muted-foreground">Select a staff member to block only their schedule. Leave as "All Staff" to block everyone.</p>}
+                        </div>
                     </div>
 
                     <div className="space-y-4">
@@ -218,35 +246,41 @@ const AddEventForm = ({
                                 </PopoverContent>
                             </Popover>
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="start-time">Start Time</Label>
-                                <Select onValueChange={setStartTime} defaultValue={startTime}>
-                                    <SelectTrigger id="start-time">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {timeOptions.map(time => (
-                                            <SelectItem key={`start-${time}`} value={time}>{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="end-time">End Time</Label>
-                                <Select onValueChange={setEndTime} defaultValue={endTime}>
-                                    <SelectTrigger id="end-time">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {timeOptions.map(time => (
-                                            <SelectItem key={`end-${time}`} value={time}>{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
+                         <div className="flex items-center justify-between">
+                            <Label htmlFor="all-day">All Day Event</Label>
+                            <Switch id="all-day" checked={allDay} onCheckedChange={setAllDay} />
                         </div>
-                            {isOverlapping && (
+                        {!allDay && (
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="start-time">Start Time</Label>
+                                    <Select onValueChange={setStartTime} defaultValue={startTime}>
+                                        <SelectTrigger id="start-time">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {timeOptions.map(time => (
+                                                <SelectItem key={`start-${time}`} value={time}>{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="end-time">End Time</Label>
+                                    <Select onValueChange={setEndTime} defaultValue={endTime}>
+                                        <SelectTrigger id="end-time">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {timeOptions.map(time => (
+                                                <SelectItem key={`end-${time}`} value={time}>{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+                        )}
+                        {isOverlapping && type === 'blocked' && (
                             <Alert variant="destructive" className="mt-2">
                                 <AlertTriangle className="h-4 w-4" />
                                 <AlertTitle>Potential Double Booking</AlertTitle>
@@ -308,13 +342,13 @@ const AddEventForm = ({
     )
 }
 
-export const AddEventDialog = ({ open, onOpenChange, onConfirm, appointments, events }: { open: boolean, onOpenChange: (open: boolean) => void, onConfirm: (event: Omit<Event, 'id'>) => void, appointments: Appointment[], events: Event[] }) => {
+export const AddEventDialog = ({ open, onOpenChange, onConfirm, appointments, events, staff }: { open: boolean, onOpenChange: (open: boolean) => void, onConfirm: (event: Omit<Event, 'id'>) => void, appointments: Appointment[], events: Event[], staff: Staff[] }) => {
   const isMobile = useIsMobile();
 
   const title = "Add New Event";
   const description = "Add a personal or business event to your calendar.";
   
-  const FormContent = <AddEventForm onConfirm={onConfirm} appointments={appointments} events={events} />;
+  const FormContent = <AddEventForm onConfirm={onConfirm} appointments={appointments} events={events} staff={staff} />;
 
   if (isMobile) {
     return (

@@ -49,7 +49,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { CalendarIcon, PlusCircle, Trash2, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Client, Service, Appointment } from '@/lib/data';
+import { Client, Service, Appointment, Staff } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Card, CardContent } from '../ui/card';
@@ -126,6 +126,7 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
 interface AddAppointmentFormProps {
     clients: Client[];
     services: Service[];
+    staff: Staff[];
     appointments: Appointment[];
     onConfirm: (apt: Omit<Appointment, 'id'>) => void;
     initialClientId?: string;
@@ -135,6 +136,7 @@ interface AddAppointmentFormProps {
 const AddAppointmentForm = ({ 
     clients, 
     services,
+    staff,
     appointments,
     onConfirm,
     initialClientId,
@@ -142,6 +144,7 @@ const AddAppointmentForm = ({
 }: AddAppointmentFormProps) => {
     const [selectedClientId, setSelectedClientId] = useState<string>('');
     const [selectedServiceId, setSelectedServiceId] = useState<string>('');
+    const [selectedStaffId, setSelectedStaffId] = useState<string>('');
     const [date, setDate] = useState<Date>(new Date());
     const [startTime, setStartTime] = useState<string>('');
     const [selectedAddOns, setSelectedAddOns] = useState<Service[]>([]);
@@ -154,11 +157,12 @@ const AddAppointmentForm = ({
         if(open) {
             setSelectedClientId(initialClientId || '');
             setSelectedServiceId('');
+            setSelectedStaffId(staff[0]?.id || '');
             setDate(new Date());
             setStartTime('');
             setSelectedAddOns([]);
         }
-    }, [open, initialClientId])
+    }, [open, initialClientId, staff])
 
     const selectedService = useMemo(() => services.find(s => s.id === selectedServiceId), [services, selectedServiceId]);
 
@@ -212,6 +216,7 @@ const AddAppointmentForm = ({
         const newAppointment: Omit<Appointment, 'id'> = {
             clientId: selectedClientId,
             serviceId: selectedServiceId,
+            staffId: selectedStaffId,
             startTime: startDateTime,
             endTime: endDateTime,
             status: 'confirmed',
@@ -255,6 +260,17 @@ const AddAppointmentForm = ({
                                 </Select>
                                 <Button variant="outline" size="icon"><PlusCircle className="h-4 w-4" /></Button>
                             </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="staff">Staff Member</Label>
+                            <Select value={selectedStaffId} onValueChange={setSelectedStaffId}>
+                                <SelectTrigger id="staff">
+                                <SelectValue placeholder="Select a staff member" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                {staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                                </SelectContent>
+                            </Select>
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="service">Service</Label>
@@ -362,18 +378,19 @@ interface AddAppointmentDialogProps {
   onOpenChange: (open: boolean) => void;
   clients: Client[];
   services: Service[];
+  staff: Staff[];
   appointments: Appointment[];
   onConfirm: (apt: Omit<Appointment, 'id'>) => void;
   initialClientId?: string;
 }
 
-export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, clients, services, appointments, onConfirm, initialClientId }) => {
+export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, clients, services, staff, appointments, onConfirm, initialClientId }) => {
   const isMobile = useIsMobile();
 
   const title = "New Appointment";
   const description = "Book a new appointment for a client.";
   
-  const FormContent = <AddAppointmentForm clients={clients} services={services} appointments={appointments} onConfirm={onConfirm} initialClientId={initialClientId} open={open} />;
+  const FormContent = <AddAppointmentForm clients={clients} services={services} staff={staff} appointments={appointments} onConfirm={onConfirm} initialClientId={initialClientId} open={open} />;
 
   if (isMobile) {
     return (

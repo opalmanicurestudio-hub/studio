@@ -224,6 +224,8 @@ export type Event = {
   type: 'personal' | 'business' | 'blocked';
   startTime: Date;
   endTime: Date;
+  allDay?: boolean;
+  staffId?: string;
   notes?: string;
   location?: string;
   cost?: number;
