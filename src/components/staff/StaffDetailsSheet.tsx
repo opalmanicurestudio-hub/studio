@@ -1,4 +1,3 @@
-
 'use client';
 
 import React from 'react';
@@ -70,55 +69,96 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                     </CardContent>
                 </Card>
                 <Card>
-                <CardHeader>
-                    <CardTitle>Transaction History</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <Table>
-                    <TableHeader>
-                        <TableRow>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Description</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead className="text-right">Amount</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {transactions.length > 0 ? (
-                        transactions.map(t => (
-                            <TableRow key={t.id}>
-                            <TableCell>{format(new Date(t.date), 'MMM d, yyyy')}</TableCell>
-                            <TableCell>{t.description}</TableCell>
-                            <TableCell>
-                                <Badge
-                                variant={t.category === 'Tips' ? 'secondary' : 'outline'}
-                                className={
-                                    t.category === 'Tips' ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : ''
-                                }
-                                >
-                                {t.category}
-                                </Badge>
-                            </TableCell>
-                            <td className="text-right font-mono flex items-center justify-end gap-1">
-                                {t.type === 'income' ? (
-                                <TrendingUp className="h-4 w-4 text-green-500" />
-                                ) : (
-                                <DollarSign className="h-4 w-4 text-muted-foreground" />
-                                )}
-                                ${t.amount.toFixed(2)}
-                            </td>
-                            </TableRow>
-                        ))
-                        ) : (
-                        <TableRow>
-                            <TableCell colSpan={4} className="text-center h-24">
-                            No transactions in this period.
-                            </TableCell>
-                        </TableRow>
-                        )}
-                    </TableBody>
-                    </Table>
-                </CardContent>
+                    <CardHeader>
+                        <CardTitle>Transaction History</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        {/* Mobile view */}
+                        <div className="space-y-3 md:hidden">
+                            {transactions.length > 0 ? (
+                                transactions.map(t => (
+                                    <Card key={t.id}>
+                                        <CardContent className="p-3">
+                                            <div className="flex justify-between items-start">
+                                                <div className="space-y-1">
+                                                    <p className="font-medium">{t.description}</p>
+                                                    <p className="text-xs text-muted-foreground">{format(new Date(t.date), 'MMM d, yyyy')}</p>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="font-mono font-semibold flex items-center justify-end gap-1">
+                                                        {t.type === 'income' ? (
+                                                            <TrendingUp className="h-4 w-4 text-green-500" />
+                                                        ) : (
+                                                            <DollarSign className="h-4 w-4 text-muted-foreground" />
+                                                        )}
+                                                        ${t.amount.toFixed(2)}
+                                                    </p>
+                                                    <Badge
+                                                        variant={t.category === 'Tips' ? 'secondary' : 'outline'}
+                                                        className={`mt-1 text-xs ${t.category === 'Tips' ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : ''}`}
+                                                    >
+                                                        {t.category}
+                                                    </Badge>
+                                                </div>
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                ))
+                            ) : (
+                                <p className="text-center text-muted-foreground py-10">No transactions in this period.</p>
+                            )}
+                        </div>
+
+                        {/* Desktop view */}
+                        <div className="hidden md:block">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                    <TableHead>Date</TableHead>
+                                    <TableHead>Description</TableHead>
+                                    <TableHead>Type</TableHead>
+                                    <TableHead className="text-right">Amount</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {transactions.length > 0 ? (
+                                    transactions.map(t => (
+                                        <TableRow key={t.id}>
+                                        <TableCell>{format(new Date(t.date), 'MMM d, yyyy')}</TableCell>
+                                        <TableCell>{t.description}</TableCell>
+                                        <TableCell>
+                                            <Badge
+                                            variant={t.category === 'Tips' ? 'secondary' : 'outline'}
+                                            className={
+                                                t.category === 'Tips' ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : ''
+                                            }
+                                            >
+                                            {t.category}
+                                            </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-right font-mono">
+                                            <div className='flex items-center justify-end gap-1'>
+                                                {t.type === 'income' ? (
+                                                <TrendingUp className="h-4 w-4 text-green-500" />
+                                                ) : (
+                                                <DollarSign className="h-4 w-4 text-muted-foreground" />
+                                                )}
+                                                ${t.amount.toFixed(2)}
+                                            </div>
+                                        </TableCell>
+                                        </TableRow>
+                                    ))
+                                    ) : (
+                                    <TableRow>
+                                        <TableCell colSpan={4} className="text-center h-24">
+                                        No transactions in this period.
+                                        </TableCell>
+                                    </TableRow>
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </div>
+                    </CardContent>
                 </Card>
             </div>
         </ScrollArea>
