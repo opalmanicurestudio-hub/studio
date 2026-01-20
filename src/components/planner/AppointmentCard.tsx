@@ -36,6 +36,8 @@ import {
   Calendar,
   FileText as TicketIcon,
   Users,
+  Play,
+  Square
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -88,6 +90,8 @@ interface AppointmentCardProps {
   onPrintTicket: (data: Omit<TicketData, 'business'>) => void;
   onEdit: (appointment: Appointment) => void;
   onReschedule: (appointment: Appointment) => void;
+  onStartService: (appointmentId: string) => void;
+  onFinishService: (appointment: Appointment) => void;
 }
 
 const AppointmentDetails = ({
@@ -277,6 +281,8 @@ export function AppointmentCard({
   onPrintTicket,
   onEdit,
   onReschedule,
+  onStartService,
+  onFinishService,
 }: AppointmentCardProps) {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
@@ -323,6 +329,7 @@ export function AppointmentCard({
 
   const statusDisplay: { [key in Appointment['status']]: { text: string; className: string; bgClassName: string } } = {
     confirmed: { text: 'Confirmed', className: 'border-blue-500/30 text-blue-800 dark:text-blue-300', bgClassName: 'bg-blue-500/10' },
+    servicing: { text: 'In Service', className: 'border-yellow-500/30 text-yellow-800 dark:text-yellow-300', bgClassName: 'bg-yellow-500/10 animate-pulse' },
     completed: { text: 'Completed', className: 'border-green-500/30 text-green-800 dark:text-green-300', bgClassName: 'bg-green-500/10' },
     cancelled: { text: 'Cancelled', className: 'border-red-500/30 text-red-800 dark:text-red-300', bgClassName: 'bg-red-500/10' },
     deposit_pending: { text: 'Awaiting Payment', className: 'border-pink-500/30 text-pink-800 dark:text-pink-300', bgClassName: 'bg-pink-500/10' },
@@ -344,7 +351,11 @@ export function AppointmentCard({
         : service.name;
 
     const handleCardClick = () => {
-        if (appointment.status === 'confirmed' || appointment.status === 'ready_for_checkout') {
+        if (appointment.status === 'confirmed') {
+            onStartService(appointment.id);
+        } else if (appointment.status === 'servicing') {
+            onFinishService(appointment);
+        } else if (appointment.status === 'ready_for_checkout') {
             onCompleteClick(appointment);
         } else {
             setIsDetailsOpen(true);
@@ -423,6 +434,16 @@ export function AppointmentCard({
                 </Badge>
                 <p className="text-[10px] text-muted-foreground">{format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
             </div>
+             {appointment.status === 'confirmed' && (
+                  <div className="rounded-full bg-primary text-primary-foreground p-1 hover:bg-primary/90">
+                    <Play className="w-3 h-3 fill-current" />
+                  </div>
+              )}
+               {appointment.status === 'servicing' && (
+                  <div className="rounded-full bg-primary text-primary-foreground p-1 hover:bg-primary/90">
+                    <Square className="w-3 h-3 fill-current" />
+                  </div>
+              )}
         </div>
       </div>
     </div>
