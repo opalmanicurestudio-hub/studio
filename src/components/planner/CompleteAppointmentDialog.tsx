@@ -406,7 +406,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
             ? "h-[95vh] flex flex-col p-0"
             : "sm:max-w-4xl max-h-[90vh] flex flex-col p-0"
         )}>
-          <DialogHeader className="p-6 pb-4 border-b flex-shrink-0">
+           <DialogHeader className="p-6 pb-4 border-b flex-shrink-0">
             <DialogTitle>Complete Appointment &amp; Checkout</DialogTitle>
             <DialogDescription>
               Confirm products used, add retail sales, and finalize the appointment.
@@ -587,7 +587,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                   </CardHeader>
                   <CardContent className="space-y-4">
                        <div className="space-y-2">
-                            <Label>Service Performers</Label>
+                            <Label>Staff & Service Assignment</Label>
                             <div className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
                                 <span className="text-sm font-medium">{service.name}</span>
                                 <Select value={serviceStaffOverrides[service.id] || ''} onValueChange={(staffId) => handleStaffOverride(service.id, staffId)}>
@@ -647,46 +647,11 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                          <Separator className="my-2" />
                         <div className='flex justify-between font-semibold'><span>Subtotal:</span><span>${(subtotal - discount).toFixed(2)}</span></div>
                         <div className='flex justify-between'><span>Taxes (7%):</span><span>${mockTax.toFixed(2)}</span></div>
-                         <div className="flex justify-between text-sm items-center">
-                            <Label htmlFor="tip-amount">Tip</Label>
-                            <div className="relative w-24">
-                                <DollarSignIcon className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                <Input id="tip-amount" type="number" value={tipAmount || ''} onChange={(e) => setTipAmount(parseFloat(e.target.value) || 0)} className="h-8 text-right pr-2 pl-7" placeholder="0.00" />
-                            </div>
-                         </div>
                       </div>
-
-                       {tipAmount > 0 && (
-                            <div className="space-y-2 pt-4 border-t">
-                                <Label>Tip Allocation</Label>
-                                <div className="space-y-3">
-                                    {involvedStaff.map(staffMember => (
-                                        <div key={staffMember.id} className="flex items-center justify-between">
-                                            <Label htmlFor={`tip-${staffMember.id}`} className="text-sm">{staffMember.name}</Label>
-                                            <div className="relative w-28">
-                                                <DollarSignIcon className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                                <Input
-                                                    id={`tip-${staffMember.id}`}
-                                                    type="number"
-                                                    value={tipAllocations[staffMember.id] || ''}
-                                                    onChange={(e) => handleTipAllocation(staffMember.id, e.target.value)}
-                                                    placeholder="0.00"
-                                                    className="h-8 text-right pr-2 pl-7"
-                                                />
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                                <div className="flex justify-between text-xs font-medium pt-2">
-                                    <Button variant="link" size="xs" className="p-0 h-auto" onClick={splitTipEvenly}>Split Evenly</Button>
-                                    <span>Remaining: <span className={remainingTip < 0 ? 'text-destructive' : ''}>${remainingTip.toFixed(2)}</span></span>
-                                </div>
-                            </div>
-                        )}
-
+                      
                       <div className="p-4 rounded-lg bg-primary/10 text-center">
                           <p className="text-sm font-medium text-primary">Total Due</p>
-                          <p className="text-5xl font-bold text-primary">${grandTotal.toFixed(2)}</p>
+                          <p className="text-5xl font-bold text-primary">${(grandTotal - tipAmount).toFixed(2)}</p>
                       </div>
 
                       {absorbedCost > 0 && (
@@ -706,10 +671,13 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                               <TabsTrigger value="other"><Gift className="w-4 h-4 mr-2"/>Other</TabsTrigger>
                           </TabsList>
                           <TabsContent value="card" className="pt-4 space-y-4">
-                              <Button className="w-full" size="lg">Charge Card on File</Button>
-                              <div className="grid grid-cols-2 gap-4">
-                                  <Button variant="outline" className="w-full" size="lg">Launch Square</Button>
-                                  <Button variant="outline" className="w-full" size="lg">Launch Stripe</Button>
+                              <div className="space-y-2">
+                                <Label htmlFor="tip-amount">Tip Amount</Label>
+                                <div className="relative">
+                                    <DollarSignIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                    <Input id="tip-amount" type="number" value={tipAmount || ''} onChange={(e) => setTipAmount(parseFloat(e.target.value) || 0)} className="h-10 text-right pr-2 pl-7" placeholder="0.00" />
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-1">Enter tip after charging the client on your terminal.</p>
                               </div>
                           </TabsContent>
                           <TabsContent value="cash" className="pt-4 space-y-4">
@@ -745,6 +713,34 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                                <Button variant="outline" className="w-full" size="lg">Record Manual Payment (Venmo, etc.)</Button>
                           </TabsContent>
                       </Tabs>
+
+                       {tipAmount > 0 && (
+                            <div className="space-y-2 pt-4 border-t">
+                                <Label>Tip Allocation</Label>
+                                <div className="space-y-3">
+                                    {involvedStaff.map(staffMember => (
+                                        <div key={staffMember.id} className="flex items-center justify-between">
+                                            <Label htmlFor={`tip-${staffMember.id}`} className="text-sm">{staffMember.name}</Label>
+                                            <div className="relative w-28">
+                                                <DollarSignIcon className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                                <Input
+                                                    id={`tip-${staffMember.id}`}
+                                                    type="number"
+                                                    value={tipAllocations[staffMember.id] || ''}
+                                                    onChange={(e) => handleTipAllocation(staffMember.id, e.target.value)}
+                                                    placeholder="0.00"
+                                                    className="h-8 text-right pr-2 pl-7"
+                                                />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="flex justify-between text-xs font-medium pt-2">
+                                    <Button variant="link" size="xs" className="p-0 h-auto" onClick={splitTipEvenly}>Split Evenly</Button>
+                                    <span>Remaining: <span className={remainingTip < 0 ? 'text-destructive' : ''}>${remainingTip.toFixed(2)}</span></span>
+                                </div>
+                            </div>
+                        )}
                   </CardContent>
               </Card>
             </div>
@@ -755,7 +751,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                 <div className="flex-1" />
                 <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
                 <Button onClick={handleCompleteAppointment} disabled={warnings.some(w => w.includes('Insufficient stock'))}>
-                  Complete &amp; Charge
+                  Finalize & Record Sale
                 </Button>
             </div>
           </DialogFooter>
