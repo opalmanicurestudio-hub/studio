@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -37,10 +36,28 @@ import { cn } from '@/lib/utils';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 const StaffCard = ({ member, stats }: { member: Staff, stats: any }) => {
-    const licenseExpiry = member.compliance?.licenseExpiry ? parseISO(member.compliance.licenseExpiry) : null;
-    const daysUntilExpiry = licenseExpiry ? differenceInDays(licenseExpiry, new Date()) : null;
-    const isExpired = licenseExpiry ? isPast(licenseExpiry) : false;
-    const isExpiringSoon = daysUntilExpiry !== null && daysUntilExpiry <= 30 && !isExpired;
+    const [licenseInfo, setLicenseInfo] = useState<{
+        isExpired: boolean;
+        isExpiringSoon: boolean;
+        daysUntilExpiry: number | null;
+        expiryDate: Date | null;
+    } | null>(null);
+
+    useEffect(() => {
+        const licenseExpiry = member.compliance?.licenseExpiry ? parseISO(member.compliance.licenseExpiry) : null;
+        if (licenseExpiry) {
+            const daysUntil = differenceInDays(licenseExpiry, new Date());
+            const expired = isPast(licenseExpiry);
+            const expiringSoon = daysUntil <= 30 && !expired;
+
+            setLicenseInfo({
+                isExpired: expired,
+                isExpiringSoon: expiringSoon,
+                daysUntilExpiry: daysUntil,
+                expiryDate: licenseExpiry,
+            });
+        }
+    }, [member.compliance?.licenseExpiry]);
     
     return (
         <Card className="text-center flex flex-col">
@@ -55,16 +72,16 @@ const StaffCard = ({ member, stats }: { member: Staff, stats: any }) => {
                 {member.role}
             </Badge>
 
-            {(isExpired || isExpiringSoon) && (
+            {licenseInfo && (licenseInfo.isExpired || licenseInfo.isExpiringSoon) && (
                 <Alert variant="destructive" className="mt-4 text-left">
                     <AlertTriangle className="h-4 w-4" />
                     <AlertTitle>
-                        {isExpired ? 'License Expired' : 'License Expiring Soon'}
+                        {licenseInfo.isExpired ? 'License Expired' : 'License Expiring Soon'}
                     </AlertTitle>
                     <AlertDescription className="text-xs">
-                        {isExpired 
-                        ? `Expired on ${format(licenseExpiry!, 'MMM d, yyyy')}.`
-                        : `Expires in ${daysUntilExpiry} days on ${format(licenseExpiry!, 'MMM d, yyyy')}.`
+                        {licenseInfo.isExpired 
+                        ? `Expired on ${format(licenseInfo.expiryDate!, 'MMM d, yyyy')}.`
+                        : `Expires in ${licenseInfo.daysUntilExpiry} days on ${format(licenseInfo.expiryDate!, 'MMM d, yyyy')}.`
                         }
                     </AlertDescription>
                 </Alert>
