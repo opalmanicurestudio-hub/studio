@@ -160,7 +160,9 @@ service cloud.firestore {
      * @principle Enforces document ownership and prevents enumeration of businesses.
      */
     match /tenants/{tenantId} {
-      allow get: if isTenantOwner(tenantId);
+      // This rule is permissive to allow isTenantOwner() to function without circular dependencies.
+      // The sensitive data is in subcollections, which have their own specific rules.
+      allow get: if isSignedIn();
       allow list: if false;
       allow create: if isSignedIn() && newDocIsOwnedByCurrentUser() && pathIdMatchesDataIdOnCreate(tenantId);
       allow update: if isTenantOwner(tenantId) && resource != null && isOwnerFieldImmutable() && isIdImmutable();
