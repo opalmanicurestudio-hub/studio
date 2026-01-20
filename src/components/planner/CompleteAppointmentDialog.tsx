@@ -46,6 +46,18 @@ type EditableFormulaItem = {
     isCustom?: boolean; // Flag for items added on the fly
 };
 
+export type CheckoutData = {
+    updatedInventory: InventoryItem[];
+    newCorrections: StockCorrection[];
+    receiptData: Omit<ReceiptData, 'business'>;
+    incident?: IncidentFormData;
+    serviceStaffOverrides: Record<string, string>;
+    tipAllocations: Record<string, number>;
+    retailItems: EditableFormulaItem[];
+    addOns: Service[];
+    absorbedCost: number;
+    tipAmount: number;
+};
 
 interface CompleteAppointmentDialogProps {
   open: boolean;
@@ -55,7 +67,7 @@ interface CompleteAppointmentDialogProps {
     client: Client | undefined;
     service: Service | undefined;
   };
-  onConfirmCheckout: (updatedInventory: InventoryItem[], newCorrections: StockCorrection[], receiptData: Omit<ReceiptData, 'business'>, incident?: IncidentFormData) => void;
+  onConfirmCheckout: (data: CheckoutData) => void;
   onSendToFrontDesk: (appointmentId: string, checkoutState: AppointmentCheckoutState) => void;
 }
 
@@ -294,11 +306,100 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     const newCorrections: StockCorrection[] = [];
     let tempInventory = JSON.parse(JSON.stringify(inventory)) as InventoryItem[];
 
-    editableFormula.forEach(item => {
+    const allItemsToDeduct = [...editableFormula, ...retailItems];
+
+    allItemsToDeduct.forEach(item => {
+      const productIndex = tempInventory.findIndex(p => p.id === item.id);
+      if (productIndex === -1) {
+        warnings.push(`Product ${item.name} not found in inventory.`);
+        return;
+      }
+      
+      const product = tempInventory[productIndex];
+      let quantityToDeduct = item.quantity;
+      
+      if (!product.costingMethod) {
+          if (product.totalStock < quantityToDeduct) {
+             warnings.push(`Insufficient stock for ${product.name}. Required: ${quantityToDeduct}, Available: ${product.totalStock}`);
+             return;
+          }
+          product.totalStock -= quantityToDeduct;
+           newCorrections.push({
+                id: `sc-${appointment.id}-${item.id}-${Date.now()}`,
+                productId: item.id,
+                date: new Date().toISOString(),
+                change: -quantityToDeduct,
+                unit: product.unit || 'units',
+                reason: `Appointment #${appointment.id.slice(-4)}`
+            });
+            tempInventory[productIndex] = product;
+            return;
+      }
+
+      if (product.costingMethod === 'uses') {
+        const unit = product.useUnit || 'uses';
+        let currentUses = product.partialContainerUses || 0;
+        let totalStock = product.totalStock;
+        const usesPerContainer = product.estimatedUses || 1;
+        let totalAvailableUses = (totalStock * usesPerContainer) + currentUses;
+
+        if (totalAvailableUses < quantityToDeduct) {
+            warnings.push(`Insufficient stock for ${product.name}. Required: ${quantityToDeduct}, Available: ${totalAvailableUses}`);
+            return;
+        }
+
+        currentUses -= quantityToDeduct;
+        while(currentUses < 0 && totalStock > 0) {
+            totalStock -= 1;
+            currentUses += usesPerContainer;
+        }
+        product.totalStock = totalStock;
+        product.partialContainerUses = currentUses;
+
+        newCorrections.push({
+            id: `sc-${appointment.id}-${item.id}-${Date.now()}`,
+            productId: item.id,
+            date: new Date().toISOString(),
+            change: -quantityToDeduct,
+            unit: unit,
+            reason: `Appointment #${appointment.id.slice(-4)}`
+        });
+
+      } else if (product.costingMethod === 'size') {
+        const unit = product.unit || 'ml';
+        let currentSize = product.partialContainerSize || 0;
+        let totalStock = product.totalStock;
+        const sizePerContainer = product.size || 1;
+        let totalAvailableSize = (totalStock * sizePerContainer) + currentSize;
+
+        if (totalAvailableSize < quantityToDeduct) {
+            warnings.push(`Insufficient stock for ${product.name}. Required: ${quantityToDeduct}, Available: ${totalAvailableSize}`);
+            return;
+        }
+
+        currentSize -= quantityToDeduct;
+        while(currentSize < 0 && totalStock > 0) {
+            totalStock -= 1;
+            currentSize += sizePerContainer;
+        }
+        product.totalStock = totalStock;
+        product.partialContainerSize = currentSize;
+
+        newCorrections.push({
+            id: `sc-${appointment.id}-${item.id}-${Date.now()}`,
+            productId: item.id,
+            date: new Date().toISOString(),
+            change: -quantityToDeduct,
+            unit: unit,
+            reason: `Appointment #${appointment.id.slice(-4)}`
+        });
+      }
+
+      tempInventory[productIndex] = product;
     });
 
-    return { updatedInventory: tempInventory, displayCorrections: editableFormula, newCorrections, warnings };
-  }, [editableFormula, inventory, appointment.id]);
+    return { updatedInventory: tempInventory, newCorrections, warnings };
+  }, [editableFormula, retailItems, inventory, appointment.id]);
   
   const handleCompleteAppointment = async () => {
     let incidentData: IncidentFormData | undefined = undefined;
@@ -317,6 +418,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         clientName: client.name, date: appointment.endTime,
         items: [
             { name: service.name, quantity: 1, price: service.price },
+            ...selectedAddOns.map(s => ({ name: s.name, quantity: 1, price: s.price })),
             ...retailItems.map(item => {
                 const product = inventory.find(p => p.id === item.id);
                 const price = product?.costPerUnit ? product.costPerUnit * 1.75 : 0;
@@ -327,7 +429,18 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         subtotal: subtotal, tax: mockTax, tip: tipAmount, total: grandTotal,
         payment: { method: paymentTab, amountTendered: paymentTab === 'cash' ? amountTendered : grandTotal, changeDue: changeDue > 0 ? changeDue : 0 }
     };
-    onConfirmCheckout(updatedInventory, newCorrections, receiptData, incidentData);
+    onConfirmCheckout({
+      updatedInventory,
+      newCorrections,
+      receiptData,
+      incident: incidentData,
+      serviceStaffOverrides,
+      tipAllocations,
+      retailItems,
+      addOns: selectedAddOns,
+      absorbedCost,
+      tipAmount,
+    });
   };
 
   const handleSendToFrontDesk = () => {
@@ -523,7 +636,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                           {selectedAddOns.map((item) => (
                               <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md">
                                   <p className="font-medium">{item.name}</p>
-                                  <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => setSelectedAddOns(prev => prev.filter(s => s.id !== item.id))}>
+                                  <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}>
                                     <Trash2 className="h-4 w-4" />
                                   </Button>
                               </div>
@@ -587,7 +700,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                   </CardHeader>
                   <CardContent className="space-y-4">
                        <div className="space-y-2">
-                            <Label>Staff & Service Assignment</Label>
+                            <Label>Staff &amp; Service Assignment</Label>
                             <div className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
                                 <span className="text-sm font-medium">{service.name}</span>
                                 <Select value={serviceStaffOverrides[service.id] || ''} onValueChange={(staffId) => handleStaffOverride(service.id, staffId)}>
@@ -750,8 +863,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                 <Button variant="secondary" onClick={handleSendToFrontDesk}>Send to Front Desk</Button>
                 <div className="flex-1" />
                 <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                <Button onClick={handleCompleteAppointment} disabled={warnings.some(w => w.includes('Insufficient stock'))}>
-                  Finalize & Record Sale
+                <Button onClick={handleCompleteAppointment} disabled={warnings.length > 0}>
+                  Finalize &amp; Record Sale
                 </Button>
             </div>
           </DialogFooter>

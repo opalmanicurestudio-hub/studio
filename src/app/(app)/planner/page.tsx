@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
@@ -10,7 +9,7 @@ import { type Bill, type Transaction, type BillInstance, type BillDefinition } f
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping } from 'date-fns';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
-import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
+import { CompleteAppointmentDialog, type CheckoutData } from '@/components/planner/CompleteAppointmentDialog';
 import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
@@ -142,6 +141,7 @@ const DayTimeline = ({
                     }
                     if (!placed) {
                         columns.push([item]);
+                        item.layout.col = columns.length - 1;
                         item.layout.col = columns.length - 1;
                     }
                 }
@@ -730,14 +730,20 @@ export default function PlannerPage() {
     }
   };
 
-  const handleCheckout = (updatedInventory: any, newCorrections: any, receiptData: Omit<ReceiptData, 'business'>) => {
+  const handleCheckout = (data: CheckoutData) => {
     if (!selectedAppointment) return;
+    
+    const {
+      serviceStaffOverrides,
+      tipAllocations,
+      retailItems,
+      addOns,
+      absorbedCost,
+      receiptData,
+      newCorrections,
+      incident,
+    } = data;
 
-    // Create multiple transactions based on the checkout state
-    const { checkoutState } = selectedAppointment;
-    if (!checkoutState) return;
-
-    const { serviceStaffOverrides, tipAllocations, retailItems, addOns, absorbedCost } = checkoutState;
     const allPerformedServices = [services.find(s => s.id === selectedAppointment.serviceId), ...addOns].filter((s): s is Service => !!s);
     
     const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
@@ -782,20 +788,26 @@ export default function PlannerPage() {
 
     // 3. Retail Transactions
     if (retailItems.length > 0) {
-        const retailTotal = retailItems.reduce((acc, item) => acc + (item.costPerUnit * item.quantity), 0); // Note: using cost here, should be price.
-        const newTransaction: Omit<Transaction, 'id'> = {
-            date: new Date().toISOString(),
-            description: `Retail Sale (${retailItems.length} items)`,
-            clientOrVendor: clients.find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
-            type: 'income',
-            context: 'Business',
-            category: 'Retail',
-            amount: retailTotal,
-            paymentMethod: receiptData.payment.method,
-            hasReceipt: true,
-            staffId: selectedAppointment.staffId, // Or assign to a specific staff
-        };
-        addDocumentNonBlocking(transactionsRef, newTransaction);
+        const retailTotal = retailItems.reduce((acc, item) => {
+            const product = inventory.find(p => p.id === item.id);
+            const price = product?.costPerUnit ? product.costPerUnit * 1.75 : 0;
+            return acc + (item.quantity * price);
+        }, 0);
+        if (retailTotal > 0) {
+            const newTransaction: Omit<Transaction, 'id'> = {
+                date: new Date().toISOString(),
+                description: `Retail Sale (${retailItems.length} items)`,
+                clientOrVendor: clients.find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
+                type: 'income',
+                context: 'Business',
+                category: 'Retail',
+                amount: retailTotal,
+                paymentMethod: receiptData.payment.method,
+                hasReceipt: true,
+                staffId: selectedAppointment.staffId, // Or assign to a specific staff
+            };
+            addDocumentNonBlocking(transactionsRef, newTransaction);
+        }
     }
     
     // 4. Update stock corrections
@@ -806,6 +818,7 @@ export default function PlannerPage() {
         ...selectedAppointment, 
         status: 'completed' as const,
         absorbedCost: absorbedCost,
+        incident: incident,
     };
     setAppointments(prev => prev.map(apt => apt.id === selectedAppointment.id ? completedAppointment : apt));
     
@@ -1292,7 +1305,7 @@ export default function PlannerPage() {
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={confirmFinishService}>Finish & Await Checkout</AlertDialogAction>
+                    <AlertDialogAction onClick={confirmFinishService}>Finish &amp; Await Checkout</AlertDialogAction>
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>
@@ -1316,4 +1329,5 @@ export default function PlannerPage() {
 
 
     
+
 
