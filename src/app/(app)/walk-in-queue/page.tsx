@@ -10,7 +10,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { useCollection, useFirebase, updateDocumentNonBlocking, useMemoFirebase } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
 import type { WalkIn, Staff, Appointment, Service, ActivityLog } from '@/lib/data';
-import { formatDistanceToNowStrict, parseISO, addMinutes, differenceInMinutes } from 'date-fns';
+import { formatDistanceToNowStrict, parseISO, addMinutes, differenceInMinutes, differenceInSeconds } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
@@ -144,6 +144,38 @@ const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange, onPrin
     
     const waitTime = walkIn.serviceStartTime ? differenceInMinutes(parseISO(walkIn.serviceStartTime), parseISO(walkIn.checkInTime)) : null;
 
+    const [elapsedTime, setElapsedTime] = useState<string | null>(null);
+
+    useEffect(() => {
+        let timer: NodeJS.Timeout | undefined;
+
+        if (walkIn.status === 'servicing' && walkIn.serviceStartTime) {
+            const startTime = parseISO(walkIn.serviceStartTime);
+            timer = setInterval(() => {
+                const now = new Date();
+                const diffInSeconds = differenceInSeconds(now, startTime);
+                
+                const hours = Math.floor(diffInSeconds / 3600);
+                const minutes = Math.floor((diffInSeconds % 3600) / 60);
+                const seconds = diffInSeconds % 60;
+
+                if (hours > 0) {
+                    setElapsedTime(`${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
+                } else {
+                    setElapsedTime(`${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
+                }
+            }, 1000);
+        } else {
+            setElapsedTime(null);
+        }
+
+        return () => {
+            if (timer) {
+                clearInterval(timer);
+            }
+        };
+    }, [walkIn.status, walkIn.serviceStartTime]);
+
     return (
         <Card className="bg-primary/5 border-primary/20">
             <CardContent className="p-4">
@@ -153,18 +185,26 @@ const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange, onPrin
                         <p className="text-sm text-primary">Assigned to: {assignedStaff?.name || 'N/A'}</p>
                         {waitTime !== null && <p className="text-xs text-muted-foreground">Waited {waitTime} minutes</p>}
                     </div>
-                    <div className="flex items-center gap-2">
-                        <Badge className="bg-primary hover:bg-primary/90 text-primary-foreground capitalize">{walkIn.status}</Badge>
-                         <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8 -mr-2"><MoreHorizontal className="h-4 w-4" /></Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent>
-                                <DropdownMenuItem onClick={() => onPrintTicket(walkIn)}>
-                                    <Printer className="mr-2 h-4 w-4"/>Print Ticket
-                                </DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
+                    <div className="flex flex-col items-end gap-1">
+                        <div className="flex items-center gap-2">
+                             <Badge className="bg-primary hover:bg-primary/90 text-primary-foreground capitalize flex items-center gap-1">
+                                {walkIn.status === 'servicing' && <Clock className="h-3 w-3" />}
+                                {walkIn.status}
+                            </Badge>
+                             <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 -mr-2"><MoreHorizontal className="h-4 w-4" /></Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent>
+                                    <DropdownMenuItem onClick={() => onPrintTicket(walkIn)}>
+                                        <Printer className="mr-2 h-4 w-4"/>Print Ticket
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        </div>
+                        {walkIn.status === 'servicing' && elapsedTime && (
+                            <p className="font-mono text-sm font-semibold text-primary">{elapsedTime}</p>
+                        )}
                     </div>
                 </div>
                 <div className="mt-4 space-y-2">
@@ -647,7 +687,7 @@ export default function WalkInQueuePage() {
             </Card>
              <Card>
                 <CardHeader>
-                    <CardTitle>Assigned & In-Progress ({servicingQueue.length})</CardTitle>
+                    <CardTitle>Assigned &amp; In-Progress ({servicingQueue.length})</CardTitle>
                     <CardDescription>Customers currently being serviced.</CardDescription>
                 </CardHeader>
                  <CardContent className="space-y-4">
