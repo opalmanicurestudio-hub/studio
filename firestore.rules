@@ -172,9 +172,9 @@ service cloud.firestore {
      * @path /tenants/{tenantId}/staff/{staffId}
      */
     match /tenants/{tenantId}/staff/{staffId} {
-      // Allow any authenticated user to manage staff for prototyping purposes.
+      // Allow any user to manage staff for prototyping purposes.
       // In production, this should be restricted to owners/admins.
-      allow read, write: if isSignedIn();
+      allow read, write: if true;
     }
 
     /**
