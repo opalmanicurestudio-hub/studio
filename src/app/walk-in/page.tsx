@@ -63,17 +63,6 @@ export default function WalkInPage() {
 
   const mainServices = useMemo(() => services.filter(s => s.type === 'service'), [services]);
   const addOnServices = useMemo(() => services.filter(s => s.type === 'addon'), [services]);
-  
-  const compatibleAddOns = useMemo(() => {
-    if (selectedServices.length === 0) return [];
-    
-    const selectedMainServices = selectedServices.filter(s => s.type === 'service');
-    if (selectedMainServices.length === 0) return [];
-
-    const allCompatibleIds = new Set(selectedMainServices.flatMap(s => s.compatibleAddOnIds || []));
-    
-    return addOnServices.filter(addOn => allCompatibleIds.has(addOn.id));
-  }, [selectedServices, addOnServices]);
 
   const handleServiceToggle = (service: Service) => {
     setSelectedServices(prev =>
@@ -172,29 +161,38 @@ export default function WalkInPage() {
                         <AccordionItem value="main-services">
                             <AccordionTrigger>Main Services</AccordionTrigger>
                             <AccordionContent className="space-y-2 pt-2">
-                                {mainServices.map(service => (
-                                    <label key={service.id} htmlFor={service.id} className="flex items-center space-x-4 p-4 rounded-lg border has-[:checked]:border-primary has-[:checked]:bg-primary/5 transition-all cursor-pointer">
-                                        <Checkbox id={service.id} checked={selectedServices.some(s => s.id === service.id)} onCheckedChange={() => handleServiceToggle(service)} className="h-6 w-6" />
-                                        <div className="flex-1">
-                                            <span className="font-medium">{service.name}</span>
-                                            <p className="text-xs text-muted-foreground">{service.duration} min &middot; ${service.price.toFixed(2)}</p>
+                                {mainServices.map(service => {
+                                    const isSelected = selectedServices.some(s => s.id === service.id);
+                                    const compatibleAddons = addOnServices.filter(addOn => service.compatibleAddOnIds?.includes(addOn.id));
+                                    
+                                    return (
+                                        <div key={service.id} className="border rounded-lg has-[:checked]:border-primary has-[:checked]:bg-primary/5 transition-all">
+                                            <label htmlFor={service.id} className="flex items-center space-x-4 p-4 cursor-pointer">
+                                                <Checkbox id={service.id} checked={isSelected} onCheckedChange={() => handleServiceToggle(service)} className="h-6 w-6" />
+                                                <div className="flex-1">
+                                                    <span className="font-medium">{service.name}</span>
+                                                    <p className="text-xs text-muted-foreground">{service.duration} min &middot; ${service.price.toFixed(2)}</p>
+                                                </div>
+                                            </label>
+                                            {isSelected && compatibleAddons.length > 0 && (
+                                                <div className="p-4 pt-0 pl-14">
+                                                    <h4 className="text-sm font-semibold mb-2">Compatible Add-ons</h4>
+                                                    <div className="space-y-2">
+                                                        {compatibleAddons.map(addon => (
+                                                            <label key={addon.id} htmlFor={addon.id} className="flex items-center space-x-3 p-3 rounded-md bg-background cursor-pointer hover:bg-muted/50">
+                                                                <Checkbox id={addon.id} checked={selectedServices.some(s => s.id === addon.id)} onCheckedChange={() => handleServiceToggle(addon)} />
+                                                                <div className="flex-1">
+                                                                    <span className="font-medium text-sm">{addon.name}</span>
+                                                                    <p className="text-xs text-muted-foreground">{addon.duration} min &middot; ${addon.price.toFixed(2)}</p>
+                                                                </div>
+                                                            </label>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
-                                    </label>
-                                ))}
-                            </AccordionContent>
-                        </AccordionItem>
-                        <AccordionItem value="add-ons" disabled={selectedServices.filter(s => s.type === 'service').length === 0}>
-                            <AccordionTrigger>Compatible Add-ons</AccordionTrigger>
-                            <AccordionContent className="space-y-2 pt-2">
-                               {compatibleAddOns.length > 0 ? compatibleAddOns.map(service => (
-                                    <label key={service.id} htmlFor={service.id} className="flex items-center space-x-4 p-4 rounded-lg border has-[:checked]:border-primary has-[:checked]:bg-primary/5 transition-all cursor-pointer">
-                                        <Checkbox id={service.id} checked={selectedServices.some(s => s.id === service.id)} onCheckedChange={() => handleServiceToggle(service)} className="h-6 w-6" />
-                                        <div className="flex-1">
-                                            <span className="font-medium">{service.name}</span>
-                                            <p className="text-xs text-muted-foreground">{service.duration} min &middot; ${service.price.toFixed(2)}</p>
-                                        </div>
-                                    </label>
-                               )) : <p className="text-sm text-center text-muted-foreground p-4">No compatible add-ons for selected service(s).</p>}
+                                    )
+                                })}
                             </AccordionContent>
                         </AccordionItem>
                     </Accordion>

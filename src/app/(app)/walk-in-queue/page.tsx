@@ -1,11 +1,11 @@
 
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { User, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon } from 'lucide-react';
+import { User, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { useCollection, useFirebase, updateDocumentNonBlocking, useMemoFirebase } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
@@ -47,10 +47,10 @@ const StaffStatusCard = ({ staffMember, onStatusChange }: { staffMember: Staff, 
                 <DropdownMenuItem onClick={() => onStatusChange(staffMember.id, { onBreak: !staffMember.onBreak })}>
                     {staffMember.onBreak ? 'End Break' : 'Take Break'}
                 </DropdownMenuItem>
-                <DropdownMenuItem disabled={staffMember.status === 'busy'}>
+                <DropdownMenuItem onClick={() => onStatusChange(staffMember.id, { status: 'idle' })} disabled={staffMember.status === 'idle'}>
                    Force Idle
                 </DropdownMenuItem>
-                 <DropdownMenuItem disabled={staffMember.status === 'idle'}>
+                 <DropdownMenuItem onClick={() => onStatusChange(staffMember.id, { status: 'busy' })} disabled={staffMember.status === 'busy'}>
                    Force Busy
                 </DropdownMenuItem>
             </DropdownMenuContent>
@@ -78,13 +78,39 @@ const WaitingCustomerCard = ({ walkIn, services }: { walkIn: WalkIn, services: a
                         {walkInServices.map(s => <li key={s.id}>{s.name}</li>)}
                     </ul>
                 </div>
-                <div className="mt-4 border-t pt-4 flex justify-end">
-                    <Button>Assign Staff</Button>
-                </div>
             </CardContent>
         </Card>
     );
 };
+
+const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange }: { walkIn: WalkIn, services: any[], staff: Staff[], onStatusChange: (walkInId: string, staffId: string, status: WalkIn['status']) => void }) => {
+    const walkInServices = services.filter(s => walkIn.serviceIds.includes(s.id));
+    const assignedStaff = staff.find(s => s.id === walkIn.assignedStaffId);
+    
+    return (
+        <Card className="bg-primary/5 border-primary/20">
+            <CardContent className="p-4">
+                <div className="flex justify-between items-start">
+                    <div>
+                        <p className="font-bold text-xl">{walkIn.customerName}</p>
+                        <p className="text-sm text-primary">Assigned to: {assignedStaff?.name || 'N/A'}</p>
+                    </div>
+                    <Badge className="bg-primary hover:bg-primary/90 text-primary-foreground capitalize">{walkIn.status}</Badge>
+                </div>
+                <div className="mt-4 space-y-2">
+                    <p className="font-semibold text-sm">Services:</p>
+                    <ul className="list-disc list-inside text-sm text-muted-foreground">
+                        {walkInServices.map(s => <li key={s.id}>{s.name}</li>)}
+                    </ul>
+                </div>
+                 <div className="mt-4 border-t pt-4 flex justify-end gap-2">
+                    <Button variant="outline" size="sm" onClick={() => onStatusChange(walkIn.id, assignedStaff?.id || '', 'skipped')}>Mark as Skipped</Button>
+                    <Button size="sm" onClick={() => onStatusChange(walkIn.id, assignedStaff?.id || '', 'completed')}>Mark as Completed</Button>
+                </div>
+            </CardContent>
+        </Card>
+    )
+}
 
 
 export default function WalkInQueuePage() {
@@ -109,12 +135,84 @@ export default function WalkInQueuePage() {
     if (!walkIns) return [];
     return (walkIns || []).filter(w => w.status === 'waiting').sort((a,b) => parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
   }, [walkIns]);
+  
+  const servicingQueue = useMemo(() => {
+    if (!walkIns) return [];
+    return (walkIns || []).filter(w => w.status === 'assigned' || w.status === 'servicing').sort((a,b) => parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
+  }, [walkIns]);
 
   const handleStaffStatusChange = (staffId: string, statusUpdate: Partial<Staff>) => {
     if (!firestore) return;
     const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
     updateDocumentNonBlocking(staffDocRef, statusUpdate);
   }
+  
+  const handleWalkInStatusChange = (walkInId: string, staffId: string, status: WalkIn['status']) => {
+    if (!firestore) return;
+    const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+    updateDocumentNonBlocking(walkInDocRef, { status });
+
+    // If completed or skipped, make staff idle again
+    if ((status === 'completed' || status === 'skipped') && staffId) {
+        const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
+        updateDocumentNonBlocking(staffDocRef, { 
+            status: 'idle',
+            lastServedTimestamp: new Date().toISOString(),
+        });
+    }
+  }
+
+    // Smart Assignment Logic
+    useEffect(() => {
+        if (staffLoading || walkInsLoading || !staff || !walkIns || !firestore) {
+            return;
+        }
+
+        const idleStaff = staff.filter(s => s.status === 'idle' && !s.onBreak);
+        if (idleStaff.length === 0) {
+            return; // No one is available to take a client.
+        }
+
+        const waitingCustomers = walkIns.filter(w => w.status === 'waiting').sort((a, b) => parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
+        if (waitingCustomers.length === 0) {
+            return; // No customers waiting.
+        }
+
+        // Attempt to assign the first customer who can be served.
+        for (const customer of waitingCustomers) {
+            // Find staff who have ALL the required skills for this customer's services
+            const eligibleStaff = idleStaff.filter(s => 
+                (customer.requiredSkills || []).every(skill => (s.skillSet || []).includes(skill))
+            );
+
+            if (eligibleStaff.length > 0) {
+                // We have staff who can serve this customer. Now, pick the best one.
+                // "Best" is defined as the one who has been idle the longest (oldest lastServedTimestamp).
+                const bestStaff = eligibleStaff.sort((a,b) => 
+                    (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - 
+                    (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0)
+                )[0];
+                
+                // Assign this customer to this staff member
+                const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', customer.id);
+                updateDocumentNonBlocking(walkInDocRef, {
+                    status: 'assigned',
+                    assignedStaffId: bestStaff.id,
+                });
+
+                const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', bestStaff.id);
+                updateDocumentNonBlocking(staffDocRef, {
+                    status: 'busy',
+                });
+
+                // We've made an assignment, so we break the loop to process one assignment at a time.
+                // The useEffect will re-run when the data changes, handling the next assignment if possible.
+                break;
+            }
+        }
+
+  }, [staff, walkIns, staffLoading, walkInsLoading, firestore, tenantId]);
+
 
   return (
     <div className="flex h-screen w-full flex-col">
@@ -143,7 +241,7 @@ export default function WalkInQueuePage() {
             </Card>
         </div>
         
-        <div className="grid grid-cols-1 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
             <Card>
                 <CardHeader>
                     <CardTitle>Waiting Queue ({waitingQueue.length})</CardTitle>
@@ -163,9 +261,35 @@ export default function WalkInQueuePage() {
                     )}
                 </CardContent>
             </Card>
+             <Card>
+                <CardHeader>
+                    <CardTitle>Assigned & In-Progress ({servicingQueue.length})</CardTitle>
+                    <CardDescription>Customers currently being serviced.</CardDescription>
+                </CardHeader>
+                 <CardContent className="space-y-4">
+                    {servicingQueue.length > 0 ? (
+                        servicingQueue.map(walkIn => (
+                            <ServicingCustomerCard 
+                                key={walkIn.id} 
+                                walkIn={walkIn} 
+                                services={services} 
+                                staff={staff || []}
+                                onStatusChange={handleWalkInStatusChange}
+                            />
+                        ))
+                    ) : (
+                        <div className="text-center py-16 px-6 text-muted-foreground">
+                            <Coffee className="w-12 h-12 mx-auto mb-4" />
+                            <h3 className="font-semibold text-lg text-foreground">No Active Clients</h3>
+                            <p>All staff members are currently available.</p>
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
         </div>
 
       </main>
     </div>
   );
 }
+
