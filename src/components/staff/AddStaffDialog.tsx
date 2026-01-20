@@ -122,7 +122,30 @@ const AddStaffForm = () => {
                         <AccordionContent className="p-4 pt-0">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
                              <div className="space-y-2"><Label htmlFor="emergencyContact.name">Contact Name</Label><Input id="emergencyContact.name" placeholder="e.g., John Barnes" {...register('emergencyContact.name')} /></div>
-                             <div className="space-y-2"><Label htmlFor="emergencyContact.relationship">Relationship</Label><Input id="emergencyContact.relationship" placeholder="e.g., Spouse" {...register('emergencyContact.relationship')} /></div>
+                             <Controller
+                                name="emergencyContact.relationship"
+                                control={control}
+                                render={({ field }) => (
+                                    <div className="space-y-2">
+                                        <Label htmlFor="emergencyContact.relationship">Relationship</Label>
+                                        <Select onValueChange={field.onChange} value={field.value}>
+                                            <SelectTrigger id="emergencyContact.relationship">
+                                                <SelectValue placeholder="Select a relationship" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="Spouse">Spouse</SelectItem>
+                                                <SelectItem value="Partner">Partner</SelectItem>
+                                                <SelectItem value="Parent">Parent</SelectItem>
+                                                <SelectItem value="Guardian">Guardian</SelectItem>
+                                                <SelectItem value="Sibling">Sibling</SelectItem>
+                                                <SelectItem value="Child">Child</SelectItem>
+                                                <SelectItem value="Friend">Friend</SelectItem>
+                                                <SelectItem value="Other">Other</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                )}
+                             />
                              <PhoneInput name="emergencyContact.phone" label="Contact Phone" />
                             </div>
                         </AccordionContent>
