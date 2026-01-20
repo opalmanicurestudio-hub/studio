@@ -161,7 +161,7 @@ const AddEventForm = ({
             notes,
             location,
             checklist: checklist.map((item, index) => ({...item, id: `cl-${Date.now()}-${index}`})),
-            staffId: staffId ? staffId : undefined,
+            staffId: (staffId && staffId !== 'all') ? staffId : undefined,
         };
         onConfirm(newEvent);
     }
@@ -209,7 +209,7 @@ const AddEventForm = ({
                                     <SelectValue placeholder={type === 'blocked' ? 'All Staff' : 'Optional'} />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="">{type === 'blocked' ? 'All Staff' : 'None'}</SelectItem>
+                                    <SelectItem value="all">{type === 'blocked' ? 'All Staff' : 'None'}</SelectItem>
                                     {staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
                                 </SelectContent>
                             </Select>
