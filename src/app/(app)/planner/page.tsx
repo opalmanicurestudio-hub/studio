@@ -483,6 +483,13 @@ export default function PlannerPage() {
   const [startConfirmAppointment, setStartConfirmAppointment] = useState<Appointment | null>(null);
   const [finishConfirmAppointment, setFinishConfirmAppointment] = useState<Appointment | null>(null);
 
+  const finishDialogDuration = useMemo(() => {
+    if (!finishConfirmAppointment?.actualStartTime) return null;
+    const startTime = parseISO(finishConfirmAppointment.actualStartTime);
+    const duration = differenceInMinutes(new Date(), startTime);
+    return duration;
+  }, [finishConfirmAppointment]);
+
 
   useEffect(() => {
     if (staff && staff.length > 0 && !mobileSelectedStaffId) {
@@ -815,7 +822,7 @@ export default function PlannerPage() {
         });
     }
   
-  const handleSendToDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
+  const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
     setAppointments(prev =>
       prev.map(apt =>
         apt.id === appointmentId
@@ -1077,7 +1084,7 @@ export default function PlannerPage() {
             }}
             appointmentData={selectedAppointmentData}
             onConfirmCheckout={handleCheckout}
-            onSendToFrontDesk={handleSendToDesk}
+            onSendToFrontDesk={handleSendToFrontDesk}
         />
       )}
       <AddAppointmentDialog 
@@ -1205,12 +1212,15 @@ export default function PlannerPage() {
                 <AlertDialogHeader>
                     <AlertDialogTitle>Finish Service?</AlertDialogTitle>
                     <AlertDialogDescription>
-                        This will log the current time as the actual end time and complete the appointment.
+                        {finishDialogDuration !== null ?
+                        `This will end the service. Total elapsed time: ${finishDialogDuration} minutes. ` : ''
+                        }
+                        The appointment status will be set to "Ready for Checkout".
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={confirmFinishService}>Finish Service</AlertDialogAction>
+                    <AlertDialogAction onClick={confirmFinishService}>Finish & Await Checkout</AlertDialogAction>
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>

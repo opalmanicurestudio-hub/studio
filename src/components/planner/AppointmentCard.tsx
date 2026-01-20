@@ -320,6 +320,15 @@ export function AppointmentCard({
     };
   }, [appointment.status, appointment.actualStartTime]);
 
+  const finalDuration = useMemo(() => {
+    if (appointment.actualStartTime && appointment.actualEndTime) {
+      const start = parseISO(appointment.actualStartTime);
+      const end = parseISO(appointment.actualEndTime);
+      return differenceInMinutes(end, start);
+    }
+    return null;
+  }, [appointment.actualStartTime, appointment.actualEndTime]);
+
   const addOnServices = useMemo(() => {
       return (appointment.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
   }, [appointment.addOnIds]);
@@ -467,6 +476,11 @@ export function AppointmentCard({
                 </Badge>
                 {appointment.status === 'servicing' && elapsedTime ? (
                     <p className="font-mono text-sm font-semibold text-yellow-600 dark:text-yellow-400 mt-1">{elapsedTime}</p>
+                ) : finalDuration !== null ? (
+                    <div className="text-[10px] text-muted-foreground space-y-0.5 mt-1">
+                        <p>Scheduled: {format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
+                        <p>Actual: <span className="font-semibold text-foreground">{finalDuration} min</span></p>
+                    </div>
                 ) : (
                     <p className="text-[10px] text-muted-foreground">{format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
                 )}
