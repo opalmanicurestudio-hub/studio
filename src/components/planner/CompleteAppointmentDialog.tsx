@@ -210,6 +210,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     }
   }
 
+
   const handleStaffOverride = (serviceId: string, staffId: string) => {
     setServiceStaffOverrides(prev => ({ ...prev, [serviceId]: staffId }));
   };
@@ -818,5 +819,3 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     </>
   );
 };
-
-    
