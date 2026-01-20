@@ -1,12 +1,10 @@
-
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { User, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal, Printer, UserPlus } from 'lucide-react';
+import { User, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal, Printer, UserPlus, ArrowUp, ArrowDown } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { useCollection, useFirebase, updateDocumentNonBlocking, useMemoFirebase } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
@@ -28,6 +26,7 @@ import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const Timer = ({ startTime }: { startTime: string }) => {
     const [elapsed, setElapsed] = useState('');
@@ -249,6 +248,8 @@ export default function WalkInQueuePage() {
   const [ticketToPrint, setTicketToPrint] = useState<WalkIn | null>(null);
   const [checkoutAppointment, setCheckoutAppointment] = useState<Appointment | null>(null);
   const [walkInToAssign, setWalkInToAssign] = useState<WalkIn | null>(null);
+  const [assignmentMode, setAssignmentMode] = useState<'automatic' | 'ordered'>('automatic');
+  const [staffOrder, setStaffOrder] = useState<Staff[]>([]);
   
   const staffQuery = useMemoFirebase(() => {
     if (!firestore || !user) return null;
@@ -265,6 +266,24 @@ export default function WalkInQueuePage() {
   
   const staff = useMemo(() => firestoreStaff && firestoreStaff.length > 0 ? firestoreStaff : allStaff, [firestoreStaff, allStaff]);
   const walkIns = useMemo(() => firestoreWalkIns && firestoreWalkIns.length > 0 ? firestoreWalkIns : allWalkIns, [firestoreWalkIns, allWalkIns]);
+
+  useEffect(() => {
+    if (staff) {
+        setStaffOrder(staff);
+    }
+  }, [staff]);
+
+  const handleReorder = (index: number, direction: 'up' | 'down') => {
+    const newOrder = [...staffOrder];
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+
+    if (targetIndex >= 0 && targetIndex < newOrder.length) {
+        const [movedItem] = newOrder.splice(index, 1);
+        newOrder.splice(targetIndex, 0, movedItem);
+        setStaffOrder(newOrder);
+    }
+  };
+
 
   const assignWalkIn = useCallback((walkInId: string, staffId: string) => {
     if (!firestore || !walkIns || !staff) return;
@@ -318,15 +337,26 @@ export default function WalkInQueuePage() {
 
   const nextUpStaffId = useMemo(() => {
     if (!staff) return null;
+    
     const idleStaff = staff.filter(s => s.status === 'idle' && !s.onBreak);
     if (idleStaff.length === 0) return null;
 
-    const sortedIdleStaff = idleStaff.sort((a, b) =>
-      (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) -
-      (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0)
-    );
-    return sortedIdleStaff[0].id;
-  }, [staff]);
+    if (assignmentMode === 'automatic') {
+        const sortedIdleStaff = idleStaff.sort((a, b) =>
+        (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) -
+        (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0)
+        );
+        return sortedIdleStaff[0].id;
+    } else { // 'ordered'
+        for (const orderedStaffMember of staffOrder) {
+            if (idleStaff.some(s => s.id === orderedStaffMember.id)) {
+                return orderedStaffMember.id;
+            }
+        }
+        return null;
+    }
+  }, [staff, assignmentMode, staffOrder]);
+
 
   const waitingQueue = useMemo(() => {
     if (!walkIns) return [];
@@ -431,64 +461,67 @@ export default function WalkInQueuePage() {
         }
 
         const idleStaff = staff.filter(s => s.status === 'idle' && !s.onBreak);
-        if (idleStaff.length === 0) {
-            return;
-        }
+        if (idleStaff.length === 0) return;
 
         const waitingCustomers = walkIns.filter(w => w.status === 'waiting').sort((a, b) => parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
-        if (waitingCustomers.length === 0) {
-            return;
-        }
+        if (waitingCustomers.length === 0) return;
 
         let customerToAssign: WalkIn | undefined;
         let staffToAssign: Staff | undefined;
 
         const preferredWaiters = waitingCustomers.filter(c => c.waitForPreferredStaff && c.preferredStaffId);
-        for (const customer of preferredWaiters) {
-            const preferredStaff = idleStaff.find(s => s.id === customer.preferredStaffId);
-            if (preferredStaff && (customer.requiredSkills || []).every(skill => (preferredStaff.skillSet || []).includes(skill))) {
-                customerToAssign = customer;
-                staffToAssign = preferredStaff;
-                break;
+        if(preferredWaiters.length > 0) {
+            for (const customer of preferredWaiters) {
+                const preferredStaff = idleStaff.find(s => s.id === customer.preferredStaffId);
+                if (preferredStaff && (customer.requiredSkills || []).every(skill => (preferredStaff.skillSet || []).includes(skill))) {
+                    customerToAssign = customer;
+                    staffToAssign = preferredStaff;
+                    break;
+                }
             }
         }
+        
+        if (customerToAssign && staffToAssign) {
+             assignWalkIn(customerToAssign.id, staffToAssign.id);
+             return;
+        }
 
-        if (!customerToAssign) {
-            const generalWaiters = waitingCustomers.filter(c => !c.waitForPreferredStaff);
+        const generalWaiters = waitingCustomers.filter(c => !c.waitForPreferredStaff && !preferredWaiters.find(p => p.id === c.id));
+        if (generalWaiters.length === 0) return;
+
+
+        if (assignmentMode === 'automatic') {
             for (const customer of generalWaiters) {
-                const eligibleStaff = idleStaff.filter(s => 
-                    (customer.requiredSkills || []).every(skill => (s.skillSet || []).includes(skill))
-                );
-
+                const eligibleStaff = idleStaff.filter(s => (customer.requiredSkills || []).every(skill => (s.skillSet || []).includes(skill)));
                 if (eligibleStaff.length > 0) {
-                    let assignedStaffMember: Staff | undefined;
-                    if (customer.preferredStaffId) {
-                        const preferred = eligibleStaff.find(s => s.id === customer.preferredStaffId);
-                        if (preferred) {
-                            assignedStaffMember = preferred;
+                    let assignedStaffMember = eligibleStaff.sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0))[0];
+                    customerToAssign = customer;
+                    staffToAssign = assignedStaffMember;
+                    break;
+                }
+            }
+        } else { // Ordered Mode
+            for (const staffMember of staffOrder) {
+                const isAvailable = idleStaff.some(s => s.id === staffMember.id);
+                if (isAvailable) {
+                    for (const customer of generalWaiters) {
+                        const isQualified = (customer.requiredSkills || []).every(skill => (staffMember.skillSet || []).includes(skill));
+                        if (isQualified && !walkIns.find(w => w.id === customer.id)?.assignedStaffId) {
+                            customerToAssign = customer;
+                            staffToAssign = staffMember;
+                            break;
                         }
                     }
-
-                    if (!assignedStaffMember) {
-                        assignedStaffMember = eligibleStaff.sort((a, b) =>
-                            (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) -
-                            (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0)
-                        )[0];
-                    }
-                    
-                    if(assignedStaffMember) {
-                        customerToAssign = customer;
-                        staffToAssign = assignedStaffMember;
-                        break;
-                    }
                 }
+                if (customerToAssign) break;
             }
         }
         
         if (customerToAssign && staffToAssign) {
             assignWalkIn(customerToAssign.id, staffToAssign.id);
         }
-  }, [staff, walkIns, staffLoading, walkInsLoading, firestore, assignWalkIn]);
+
+  }, [staff, walkIns, staffLoading, walkInsLoading, firestore, assignWalkIn, assignmentMode, staffOrder]);
 
   const ticketData: WalkInTicketData | null = ticketToPrint ? {
     id: ticketToPrint.id,
@@ -527,32 +560,66 @@ export default function WalkInQueuePage() {
       <AppHeader title="Smart Walk-in Queue" />
       <main className="flex-1 p-4 md:p-8 space-y-8">
         
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <Card className="col-span-1 md:col-span-2 lg:col-span-3">
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <div>
-                    <CardTitle>Team Status</CardTitle>
-                    <CardDescription>Current availability of your staff members.</CardDescription>
-                  </div>
-                  <Button asChild variant="outline">
-                    <Link href="/walk-in" target="_blank">
-                      <LinkIcon className="mr-2 h-4 w-4" />
-                      Public Check-in
-                    </Link>
-                  </Button>
+        <Card className="col-span-1 md:col-span-2 lg:col-span-3">
+                <CardHeader>
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                        <div>
+                            <CardTitle>Team Status</CardTitle>
+                            <CardDescription>Current availability and assignment mode.</CardDescription>
+                        </div>
+                         <div className="flex items-center gap-2 w-full sm:w-auto">
+                            <Label htmlFor="assignment-mode" className="text-sm shrink-0">Assignment Mode:</Label>
+                            <Select value={assignmentMode} onValueChange={(value: 'automatic' | 'ordered') => setAssignmentMode(value)}>
+                                <SelectTrigger id="assignment-mode" className="w-full sm:w-[220px]">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="automatic">Automatic Fair-Play</SelectItem>
+                                    <SelectItem value="ordered">Ordered List</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
                 </CardHeader>
-                <CardContent className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {staff?.map(member => (
-                        <StaffStatusCard 
-                            key={member.id} 
-                            staffMember={member} 
-                            onStatusChange={handleStaffStatusChange} 
-                            isNextUp={member.id === nextUpStaffId}
-                        />
-                    ))}
+                <CardContent>
+                    {assignmentMode === 'automatic' ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {staff?.map(member => (
+                                <StaffStatusCard 
+                                    key={member.id} 
+                                    staffMember={member} 
+                                    onStatusChange={handleStaffStatusChange} 
+                                    isNextUp={member.id === nextUpStaffId}
+                                />
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="space-y-2">
+                            {staffOrder.map((member, index) => (
+                                <Card key={member.id} className={cn("flex items-center p-3 gap-4", member.id === nextUpStaffId && "border-primary ring-2 ring-primary")}>
+                                    <div className="font-bold text-lg text-primary">{index + 1}</div>
+                                    <Avatar className="w-10 h-10">
+                                        <AvatarImage src={member.avatarUrl} alt={member.name} />
+                                        <AvatarFallback>{member.name.substring(0, 2)}</AvatarFallback>
+                                    </Avatar>
+                                    <div className="flex-1">
+                                        <p className="font-semibold">{member.name}</p>
+                                        <p className="text-sm text-muted-foreground capitalize">{member.onBreak ? 'On Break' : member.status || 'Idle'}</p>
+                                    </div>
+                                    <div className="flex flex-col gap-1">
+                                        <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => handleReorder(index, 'up')} disabled={index === 0}>
+                                            <ArrowUp className="h-4 w-4" />
+                                        </Button>
+                                        <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => handleReorder(index, 'down')} disabled={index === staffOrder.length - 1}>
+                                            <ArrowDown className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                </Card>
+                            ))}
+                        </div>
+                    )}
                 </CardContent>
             </Card>
-        </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
             <Card>
