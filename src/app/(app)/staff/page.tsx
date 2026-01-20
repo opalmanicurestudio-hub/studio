@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Users } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Users, Calendar as CalendarIcon } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,6 +29,11 @@ import { AddStaffDialog } from '@/components/staff/AddStaffDialog';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { nanoid } from 'nanoid';
 import { Separator } from '@/components/ui/separator';
+import { DateRange } from 'react-day-picker';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { format, subDays, startOfDay, endOfDay } from 'date-fns';
+import { cn } from '@/lib/utils';
 
 const StaffCard = ({ member, stats }: { member: Staff, stats: any }) => (
   <Card className="text-center flex flex-col">
@@ -47,11 +52,11 @@ const StaffCard = ({ member, stats }: { member: Staff, stats: any }) => (
      <CardContent className="p-4">
         <div className="grid grid-cols-2 gap-4 text-center">
             <div>
-                <p className="text-xs text-muted-foreground">Earnings (MTD)</p>
+                <p className="text-xs text-muted-foreground">Earnings</p>
                 <p className="text-xl font-bold">${stats.earnings.toFixed(2)}</p>
             </div>
             <div>
-                <p className="text-xs text-muted-foreground">Tips (MTD)</p>
+                <p className="text-xs text-muted-foreground">Tips</p>
                 <p className="text-xl font-bold">${stats.tips.toFixed(2)}</p>
             </div>
              <div className="col-span-2 border-t pt-4">
@@ -85,15 +90,27 @@ const StaffCard = ({ member, stats }: { member: Staff, stats: any }) => (
 export default function StaffPage() {
   const { staff, setStaff, appointments, services, transactions } = useInventory();
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
+  const [dateRange, setDateRange] = useState<DateRange | undefined>({
+    from: subDays(new Date(), 29),
+    to: new Date(),
+  });
 
   const staffWithStats = useMemo(() => {
     if (!staff || !appointments || !services) return [];
-
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    
+    const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
+    const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
 
     return staff.map(member => {
-        const staffAppointments = appointments.filter(a => a.staffId === member.id && a.status === 'completed' && a.startTime >= startOfMonth);
+        const staffAppointments = appointments.filter(a => {
+            if (a.staffId !== member.id || a.status !== 'completed') return false;
+            
+            const appointmentDate = new Date(a.startTime);
+            if(fromDate && appointmentDate < fromDate) return false;
+            if(toDate && appointmentDate > toDate) return false;
+
+            return true;
+        });
         
         const earnings = staffAppointments.reduce((acc, apt) => {
             const service = services.find(s => s.id === apt.serviceId);
@@ -122,7 +139,7 @@ export default function StaffPage() {
             }
         };
     });
-  }, [staff, appointments, services]);
+  }, [staff, appointments, services, dateRange]);
 
   const handleAddStaff = (newStaffData: Omit<Staff, 'id' | 'avatarUrl'>) => {
     const newStaff: Staff = {
@@ -137,7 +154,7 @@ export default function StaffPage() {
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Staff Management" />
       <main className="flex-1 p-4 md:p-8">
-        <div className="flex items-center justify-between gap-4 mb-8">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-8">
           <div>
             <h1 className="text-3xl font-bold">Your Team</h1>
             <p className="text-muted-foreground">Add, edit, and manage your staff members.</p>
@@ -146,6 +163,46 @@ export default function StaffPage() {
             <PlusCircle className="mr-2 h-4 w-4" /> Add Staff Member
           </Button>
         </div>
+        
+        <div className="mb-6">
+            <Popover>
+                <PopoverTrigger asChild>
+                    <Button
+                        id="date"
+                        variant={"outline"}
+                        className={cn(
+                        "w-full md:w-[300px] justify-start text-left font-normal",
+                        !dateRange && "text-muted-foreground"
+                        )}
+                    >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {dateRange?.from ? (
+                        dateRange.to ? (
+                            <>
+                            {format(dateRange.from, "LLL dd, y")} -{" "}
+                            {format(dateRange.to, "LLL dd, y")}
+                            </>
+                        ) : (
+                            format(dateRange.from, "LLL dd, y")
+                        )
+                        ) : (
+                        <span>Pick a date range</span>
+                        )}
+                    </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                        initialFocus
+                        mode="range"
+                        defaultMonth={dateRange?.from}
+                        selected={dateRange}
+                        onSelect={setDateRange}
+                        numberOfMonths={2}
+                    />
+                </PopoverContent>
+            </Popover>
+        </div>
+
 
         {staff.length > 0 ? (
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
