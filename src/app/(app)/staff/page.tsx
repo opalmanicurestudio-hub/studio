@@ -2,7 +2,7 @@
 
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -94,10 +94,12 @@ const StaffCard = ({ member, stats }: { member: Staff, stats: any }) => (
 export default function StaffPage() {
   const { staff, setStaff, appointments, services, transactions, stockCorrections, inventory } = useInventory();
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
-  const [dateRange, setDateRange] = useState<DateRange | undefined>({
-    from: subDays(new Date(), 29),
-    to: new Date(),
-  });
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+
+  useEffect(() => {
+    // Set initial date range on client to avoid hydration mismatch
+    setDateRange({ from: subDays(new Date(), 29), to: new Date() });
+  }, []);
 
   const staffWithStats = useMemo(() => {
     if (!staff || !appointments || !services) return [];
