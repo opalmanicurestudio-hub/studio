@@ -5,7 +5,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { User, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal } from 'lucide-react';
+import { User, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal, Printer } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { useCollection, useFirebase, updateDocumentNonBlocking, useMemoFirebase } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
@@ -19,6 +19,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import Link from 'next/link';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { PrintWalkInTicket, WalkInTicketData } from '@/components/walk-in/PrintWalkInTicket';
 
 const StaffStatusCard = ({ staffMember, onStatusChange }: { staffMember: Staff, onStatusChange: (staffId: string, status: Partial<Staff>) => void }) => {
   const statusConfig = {
@@ -60,7 +62,7 @@ const StaffStatusCard = ({ staffMember, onStatusChange }: { staffMember: Staff, 
   );
 }
 
-const WaitingCustomerCard = ({ walkIn, services }: { walkIn: WalkIn, services: any[] }) => {
+const WaitingCustomerCard = ({ walkIn, services, onPrintTicket }: { walkIn: WalkIn, services: any[], onPrintTicket: (data: WalkIn) => void }) => {
     const walkInServices = services.filter(s => walkIn.serviceIds.includes(s.id));
     return (
         <Card>
@@ -70,7 +72,19 @@ const WaitingCustomerCard = ({ walkIn, services }: { walkIn: WalkIn, services: a
                         <p className="font-bold text-xl">{walkIn.customerName}</p>
                         <p className="text-sm text-muted-foreground">Checked in {formatDistanceToNow(parseISO(walkIn.checkInTime), { addSuffix: true })}</p>
                     </div>
-                     <Badge variant="secondary">{walkIn.status}</Badge>
+                    <div className="flex items-center gap-2">
+                        <Badge variant="secondary">{walkIn.status}</Badge>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 -mr-2"><MoreHorizontal className="h-4 w-4" /></Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent>
+                                <DropdownMenuItem onClick={() => onPrintTicket(walkIn)}>
+                                    <Printer className="mr-2 h-4 w-4"/>Print Ticket
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
                 </div>
                 <div className="mt-4 space-y-2">
                     <p className="font-semibold text-sm">Services:</p>
@@ -83,7 +97,7 @@ const WaitingCustomerCard = ({ walkIn, services }: { walkIn: WalkIn, services: a
     );
 };
 
-const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange }: { walkIn: WalkIn, services: any[], staff: Staff[], onStatusChange: (walkInId: string, staffId: string, status: WalkIn['status']) => void }) => {
+const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange, onPrintTicket }: { walkIn: WalkIn, services: any[], staff: Staff[], onStatusChange: (walkInId: string, staffId: string, status: WalkIn['status']) => void, onPrintTicket: (data: WalkIn) => void }) => {
     const walkInServices = services.filter(s => walkIn.serviceIds.includes(s.id));
     const assignedStaff = staff.find(s => s.id === walkIn.assignedStaffId);
     
@@ -95,7 +109,19 @@ const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange }: { wa
                         <p className="font-bold text-xl">{walkIn.customerName}</p>
                         <p className="text-sm text-primary">Assigned to: {assignedStaff?.name || 'N/A'}</p>
                     </div>
-                    <Badge className="bg-primary hover:bg-primary/90 text-primary-foreground capitalize">{walkIn.status}</Badge>
+                    <div className="flex items-center gap-2">
+                        <Badge className="bg-primary hover:bg-primary/90 text-primary-foreground capitalize">{walkIn.status}</Badge>
+                         <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 -mr-2"><MoreHorizontal className="h-4 w-4" /></Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent>
+                                <DropdownMenuItem onClick={() => onPrintTicket(walkIn)}>
+                                    <Printer className="mr-2 h-4 w-4"/>Print Ticket
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
                 </div>
                 <div className="mt-4 space-y-2">
                     <p className="font-semibold text-sm">Services:</p>
@@ -117,6 +143,7 @@ export default function WalkInQueuePage() {
   const { services } = useInventory();
   const { firestore, user } = useFirebase();
   const tenantId = 'tenant-abc';
+  const [ticketToPrint, setTicketToPrint] = useState<WalkIn | null>(null);
   
   const staffQuery = useMemoFirebase(() => {
     if (!firestore || !user) return null;
@@ -226,8 +253,17 @@ export default function WalkInQueuePage() {
 
   }, [staff, walkIns, staffLoading, walkInsLoading, firestore, tenantId]);
 
+  const ticketData: WalkInTicketData | null = ticketToPrint ? {
+    id: ticketToPrint.id,
+    name: ticketToPrint.customerName,
+    services: services.filter(s => ticketToPrint.serviceIds.includes(s.id)),
+    queuePosition: (waitingQueue.findIndex(w => w.id === ticketToPrint.id) + 1) || 1, // Mock if not in waiting
+    checkInTime: ticketToPrint.checkInTime,
+  } : null;
+
 
   return (
+    <>
     <div className="flex h-screen w-full flex-col">
       <AppHeader title="Smart Walk-in Queue" />
       <main className="flex-1 p-4 md:p-8 space-y-8">
@@ -262,8 +298,8 @@ export default function WalkInQueuePage() {
                 </CardHeader>
                  <CardContent className="space-y-4">
                     {waitingQueue.length > 0 ? (
-                        waitingQueue.map(walkIn => (
-                            <WaitingCustomerCard key={walkIn.id} walkIn={walkIn} services={services} />
+                        waitingQueue.map((walkIn, index) => (
+                            <WaitingCustomerCard key={walkIn.id} walkIn={{...walkIn, queuePosition: index + 1}} services={services} onPrintTicket={setTicketToPrint} />
                         ))
                     ) : (
                         <div className="text-center py-16 px-6 text-muted-foreground">
@@ -288,6 +324,7 @@ export default function WalkInQueuePage() {
                                 services={services} 
                                 staff={staff || []}
                                 onStatusChange={handleWalkInStatusChange}
+                                onPrintTicket={setTicketToPrint}
                             />
                         ))
                     ) : (
@@ -303,5 +340,39 @@ export default function WalkInQueuePage() {
 
       </main>
     </div>
+    <Dialog open={!!ticketToPrint} onOpenChange={() => setTicketToPrint(null)}>
+      <DialogContent className="max-w-sm print-content">
+        <DialogHeader className="print:hidden">
+          <DialogTitle>Print Ticket</DialogTitle>
+        </DialogHeader>
+        <div id="ticket-area">
+          {ticketData && <PrintWalkInTicket data={ticketData} />}
+        </div>
+        <DialogFooter className="print:hidden">
+          <Button variant="outline" onClick={() => setTicketToPrint(null)}>Close</Button>
+          <Button onClick={() => window.print()}>
+            <Printer className="mr-2 h-4 w-4" />
+            Print
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+     <style jsx global>{`
+        @media print {
+          body * {
+            visibility: hidden;
+          }
+          #ticket-area, #ticket-area * {
+            visibility: visible;
+          }
+          #ticket-area {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+          }
+        }
+      `}</style>
+    </>
   );
 }

@@ -27,6 +27,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { Textarea } from '@/components/ui/textarea';
 
 type Step = 'services' | 'details' | 'confirmation';
 
@@ -59,6 +60,7 @@ export default function WalkInPage() {
   const [customerPhone, setCustomerPhone] = useState('');
   const [selectedServices, setSelectedServices] = useState<Service[]>([]);
   const [preferredStaffId, setPreferredStaffId] = useState<string>('any');
+  const [notes, setNotes] = useState('');
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
 
   const mainServices = useMemo(() => services.filter(s => s.type === 'service'), [services]);
@@ -101,6 +103,7 @@ export default function WalkInPage() {
       checkInTime: new Date().toISOString(),
       status: 'waiting',
       preferredStaffId: preferredStaffId === 'any' ? undefined : preferredStaffId,
+      notes: notes,
     };
     
     try {
@@ -124,6 +127,7 @@ export default function WalkInPage() {
     setCustomerPhone('');
     setSelectedServices([]);
     setPreferredStaffId('any');
+    setNotes('');
     setStep('services');
   };
 
@@ -235,6 +239,10 @@ export default function WalkInPage() {
                                          <StaffSelectionCard key={s.id} staff={s} isSelected={preferredStaffId === s.id} onSelect={() => setPreferredStaffId(s.id)} />
                                      ))}
                                  </RadioGroup>
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="preferences">Preferences or Special Needs (Optional)</Label>
+                                <Textarea id="preferences" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g., preference for a quiet environment, allergy to certain scents..." />
                             </div>
                         </CardContent>
                         <CardFooter className="flex justify-between">
