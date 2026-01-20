@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
@@ -407,7 +406,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
             : "sm:max-w-4xl max-h-[90vh] flex flex-col p-0"
         )}>
           <DialogHeader className="p-6 pb-4">
-            <DialogTitle>Complete Appointment & Checkout</DialogTitle>
+            <DialogTitle>Complete Appointment &amp; Checkout</DialogTitle>
             <DialogDescription>
               Confirm products used, add retail sales, and finalize the appointment.
             </DialogDescription>
@@ -455,7 +454,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                       <Separator />
                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                           <h4 className="font-medium">Product Formula</h4>
-                          {client.customFormulas && client.customFormulas.length > 0 && (
+                          {client.customFormulas &amp;&amp; client.customFormulas.length > 0 &amp;&amp; (
                             <div className="w-full sm:w-auto sm:min-w-[200px]">
                                 <Select onValueChange={handleApplyClientFormula}>
                                     <SelectTrigger>
@@ -505,7 +504,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Retail & Add-ons</CardTitle>
+                  <CardTitle>Retail &amp; Add-ons</CardTitle>
                   <CardDescription>Add any products the client is purchasing or extra services.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -557,7 +556,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
 
                 <Card>
                     <CardHeader>
-                        <CardTitle>Staff & Tip Allocation</CardTitle>
+                        <CardTitle>Staff &amp; Tip Allocation</CardTitle>
                         <CardDescription>Assign services to staff and split any tips.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -581,7 +580,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                             ))}
                         </div>
                         
-                        {tipAmount > 0 && (
+                        {tipAmount > 0 &amp;&amp; (
                             <div className="space-y-2 pt-4 border-t">
                                 <Label>Tip Allocation</Label>
                                 <div className="space-y-3">
@@ -604,7 +603,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                                 </div>
                                 <div className="flex justify-between text-xs font-medium pt-2">
                                     <Button variant="link" size="xs" className="p-0 h-auto" onClick={splitTipEvenly}>Split Evenly</Button>
-                                    <span>Remaining: <span className={remainingTip < 0 ? 'text-destructive' : ''}>${remainingTip.toFixed(2)}</span></span>
+                                    <span>Remaining: <span className={remainingTip &lt; 0 ? 'text-destructive' : ''}>${remainingTip.toFixed(2)}</span></span>
                                 </div>
                             </div>
                         )}
@@ -619,7 +618,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                     <Switch checked={logIncident} onCheckedChange={setLogIncident} />
                   </div>
                 </CardHeader>
-                {logIncident && (
+                {logIncident &amp;&amp; (
                   <CardContent>
                      <FormProvider {...incidentMethods}>
                         <LogIncidentForm />
@@ -630,7 +629,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
 
                <Card>
                   <CardHeader>
-                      <CardTitle>Payment & Checkout</CardTitle>
+                      <CardTitle>Payment &amp; Checkout</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
                       <div className="space-y-2">
@@ -647,7 +646,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                         ))}
                         <div className='flex justify-between'><span>Retail:</span><span>${retailTotal.toFixed(2)}</span></div>
                         
-                        {additionalCharge > 0 && (
+                        {additionalCharge > 0 &amp;&amp; (
                              <div className='flex justify-between items-center p-3 my-2 -mx-3 rounded-lg bg-amber-500/10'>
                                 <div className="space-y-1">
                                     <Label htmlFor="apply-charges" className="font-medium text-amber-900 dark:text-amber-300">Apply Additional Charges?</Label>
@@ -665,7 +664,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                                 </div>
                             </div>
                         )}
-                        {discount > 0 && (
+                        {discount > 0 &amp;&amp; (
                             <div className='flex justify-between text-primary font-semibold'>
                                 <span>Referral Discount:</span>
                                 <span>-${discount.toFixed(2)}</span>
@@ -687,8 +686,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                           <p className="text-5xl font-bold text-primary">${grandTotal.toFixed(2)}</p>
                       </div>
 
-                      {absorbedCost > 0 && (
-                          <Alert variant="destructive" className="bg-orange-500/5 border-orange-500/30 text-orange-800 dark:text-orange-300 [&>svg]:text-orange-500">
+                      {absorbedCost > 0 &amp;&amp; (
+                          <Alert variant="destructive" className="bg-orange-500/5 border-orange-500/30 text-orange-800 dark:text-orange-300 [&gt;svg]:text-orange-500">
                               <AlertCircle className="h-4 w-4" />
                               <AlertTitle>Absorbed Cost</AlertTitle>
                               <AlertDescription>
@@ -725,7 +724,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                                       </div>
                                   </div>
                               </div>
-                               {changeDue > 0 && (
+                               {changeDue > 0 &amp;&amp; (
                                 <Button variant="secondary" className="w-full" onClick={handleKeepTheChange}>
                                     <Coins className="w-4 h-4 mr-2" /> Keep the Change as Tip
                                 </Button>
@@ -745,15 +744,15 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                       </Tabs>
                   </CardContent>
               </Card>
-          </div>
-          </div>
+            </div>
+          </ScrollArea>
           <DialogFooter className="print:hidden p-6 pt-4 border-t">
             <div className="flex flex-col sm:flex-row sm:justify-end gap-2 w-full">
                 <Button variant="secondary" onClick={handleSendToFrontDesk}>Send to Front Desk</Button>
                 <div className="flex-1" />
                 <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
                 <Button onClick={handleCompleteAppointment} disabled={warnings.some(w => w.includes('Insufficient stock'))}>
-                  Complete & Charge
+                  Complete &amp; Charge
                 </Button>
             </div>
           </DialogFooter>
@@ -793,7 +792,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div className="w-2/3 h-1/2 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
             </div>
-            {hasCameraPermission === false && (
+            {hasCameraPermission === false &amp;&amp; (
                 <Alert variant="destructive" className="mt-4">
                     <AlertTriangle className="h-4 w-4" />
                     <AlertTitle>Camera Access Required</AlertTitle>
