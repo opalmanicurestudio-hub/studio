@@ -25,7 +25,11 @@ import {
     walkIns as initialWalkIns,
     type WalkIn,
     activityLogs as initialActivityLogs,
-    type ActivityLog
+    type ActivityLog,
+    memberships as initialMemberships,
+    type Membership,
+    packages as initialPackages,
+    type Package
 } from '@/lib/data';
 import {
     billDefinitions as initialBillDefinitions,
@@ -67,6 +71,10 @@ interface InventoryContextType {
   setWalkIns: React.Dispatch<React.SetStateAction<WalkIn[]>>;
   activityLogs: ActivityLog[];
   setActivityLogs: React.Dispatch<React.SetStateAction<ActivityLog[]>>;
+  memberships: Membership[];
+  setMemberships: React.Dispatch<React.SetStateAction<Membership[]>>;
+  packages: Package[];
+  setPackages: React.Dispatch<React.SetStateAction<Package[]>>;
 }
 
 const InventoryContext = createContext<InventoryContextType | undefined>(undefined);
@@ -87,6 +95,8 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const [staff, setStaff] = useState<Staff[]>(initialStaff);
   const [walkIns, setWalkIns] = useState<WalkIn[]>(initialWalkIns);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(initialActivityLogs);
+  const [memberships, setMemberships] = useState<Membership[]>(initialMemberships);
+  const [packages, setPackages] = useState<Package[]>(initialPackages);
 
 
   const addStockCorrection = (correction: StockCorrection) => {
@@ -123,6 +133,10 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     setWalkIns,
     activityLogs,
     setActivityLogs,
+    memberships,
+    setMemberships,
+    packages,
+    setPackages,
   };
 
   return (
