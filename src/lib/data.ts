@@ -219,6 +219,9 @@ export type AppointmentCheckoutState = {
     retailItems: any[];
     addOns: any[];
     actualDuration: number;
+    serviceStaffOverrides?: Record<string, string>;
+    tipAllocations?: Record<string, number>;
+    tipAmount?: number;
 };
 
 export type Appointment = {
