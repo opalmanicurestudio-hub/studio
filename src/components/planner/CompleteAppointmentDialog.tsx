@@ -33,6 +33,7 @@ import { LogIncidentForm, incidentSchema, type IncidentFormData } from '../incid
 import { FormProvider, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { differenceInMinutes, parseISO } from 'date-fns';
+import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 
 type EditableFormulaItem = {
     id: string; // productId
@@ -188,6 +189,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         toast({ variant: "destructive", title: "Invalid Code", description: "This promo code is not valid for this client or appointment." })
     }
   }
+
 
   const handleKeepTheChange = () => {
     if (changeDue > 0) {
