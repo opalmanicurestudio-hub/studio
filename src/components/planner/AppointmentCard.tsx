@@ -358,36 +358,12 @@ export function AppointmentCard({
                 <p className="font-semibold text-xs leading-tight truncate">{client.name}</p>
                 <p className="text-[11px] text-muted-foreground truncate">{serviceNameDisplay}</p>
             </div>
-            <div className="text-right flex-shrink-0">
-                 <div className='text-[10px] space-y-0.5 text-right'>
-                    <div className="flex items-center justify-end gap-1.5">
-                        <span className="text-muted-foreground">Rev:</span>
-                        <span className="text-green-600 dark:text-green-400 font-semibold">${revenue.toFixed(2)}</span>
-                    </div>
-                    <div className="flex items-center justify-end gap-1.5">
-                        <span className="text-muted-foreground">Cost:</span>
-                        <span className="text-red-600 dark:text-red-400 font-semibold">${breakEvenCost.toFixed(2)}</span>
-                    </div>
-                    <div className="flex items-center justify-end gap-1.5">
-                        <span className="text-muted-foreground">Profit:</span>
-                        <span className={cn("font-semibold", netProfit >= 0 ? 'text-primary' : 'text-destructive')}>
-                          ${netProfit.toFixed(2)}
-                        </span>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div className="mt-1 flex items-end justify-between">
-            <div className="flex flex-col items-start">
-                <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[appointment.status]?.className, statusDisplay[appointment.status]?.bgClassName)}>{statusDisplay[appointment.status]?.text}</Badge>
-                <p className="text-[10px] text-muted-foreground">{format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
-            </div>
-             <DropdownMenu>
+            <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-6 w-6"
+                  className="h-6 w-6 flex-shrink-0 -mr-1"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <MoreHorizontal className="h-4 w-4" />
@@ -425,6 +401,12 @@ export function AppointmentCard({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+        </div>
+        <div className="mt-1 flex items-end justify-between">
+            <div className="flex flex-col items-start">
+                <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[appointment.status]?.className, statusDisplay[appointment.status]?.bgClassName)}>{statusDisplay[appointment.status]?.text}</Badge>
+                <p className="text-[10px] text-muted-foreground">{format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
+            </div>
         </div>
       </div>
     </div>

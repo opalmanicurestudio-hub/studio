@@ -61,7 +61,7 @@ import { LogPaymentDialog } from '@/components/bills/LogPaymentDialog';
 import { PickingListDialog } from '@/components/planner/PickingListDialog';
 
 
-const TimeIndicator = ({ staffCount }: { staffCount: number }) => {
+const TimeIndicator = () => {
     const [top, setTop] = useState(0);
     const START_HOUR = 0; // Starts from midnight
 
@@ -85,7 +85,7 @@ const TimeIndicator = ({ staffCount }: { staffCount: number }) => {
     if (top === 0) return null;
 
     return (
-        <div className="absolute w-full flex items-center z-10" style={{ top: `${top}px`, width: `${staffCount * 256}px` }}>
+        <div className="absolute w-full flex items-center z-10" style={{ top: `${top}px`, width: '100%' }}>
             <div className="h-2 w-2 rounded-full bg-red-500 -ml-1"></div>
             <div className="h-px w-full bg-red-500"></div>
         </div>
@@ -251,17 +251,20 @@ const DayTimeline = ({
             </div>
             
             <ScrollArea className="flex-1">
-                <div className="relative flex" style={{ width: `${staff.length * 256}px` /* 16rem = 256px */ }}>
-                    <div className="absolute inset-0 grid grid-cols-1">
-                        {hours.map(hour => (
-                            <div key={hour} className="h-40 border-t border-dashed -mt-px"></div>
-                        ))}
-                    </div>
+                <div className="relative grid" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(256px, 1fr))` }}>
+                    {/* Background Grid Lines */}
+                    {Array.from({ length: staff.length }).map((_, index) => (
+                        <div key={`col-bg-${index}`} className="relative border-l">
+                            {hours.map(hour => (
+                                <div key={`hour-line-${hour}-${index}`} className="h-40 border-t border-dashed -mt-px"></div>
+                            ))}
+                        </div>
+                    ))}
 
-                    {isToday(date) && <TimeIndicator staffCount={staff.length} />}
-
-                    {staffSchedules.map(({ staffMember, positionedAppointments }) => (
-                        <div key={staffMember.id} className="w-64 border-l relative">
+                    {isToday(date) && <TimeIndicator />}
+                    
+                    {staffSchedules.map(({ staffMember, positionedAppointments }, index) => (
+                        <div key={staffMember.id} className="row-start-1" style={{ gridColumnStart: index + 1 }}>
                             <div className="sticky top-0 bg-background/80 backdrop-blur-sm z-10 p-2 border-b text-center">
                                 <div className="flex items-center justify-center gap-2">
                                   <Avatar className="w-6 h-6">
@@ -326,7 +329,7 @@ const WeeklyKpiSheet = ({ open, onOpenChange, kpis, isMobile }: { open: boolean,
                         </CardContent>
                     </Card>
                      <Card>
-                        <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                             <CardTitle className="text-sm font-medium">Net Profit</CardTitle>
                             <DollarSign className="h-4 w-4 text-muted-foreground" />
                         </CardHeader>
@@ -336,7 +339,7 @@ const WeeklyKpiSheet = ({ open, onOpenChange, kpis, isMobile }: { open: boolean,
                         </CardContent>
                     </Card>
                     <Card>
-                        <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                             <CardTitle className="text-sm font-medium">Absorbed Costs</CardTitle>
                             <DollarSign className="h-4 w-4 text-muted-foreground" />
                         </CardHeader>
@@ -1009,6 +1012,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
