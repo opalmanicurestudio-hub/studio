@@ -555,7 +555,7 @@ export default function RetailPage() {
 
   const handleApplyPromo = () => {
     const selectedClient = clients.find(c => c.id === selectedClientId);
-    if (promoCode === 'NEWCLIENT15' && selectedClient && selectedClient.lifetimeValue === 0) {
+    if (promoCode === 'NEWCLIENT15' && selectedClient && selectedClient.lifetimeValue < (service?.price || 0)) {
         setDiscount(15);
         toast({
             title: "Discount Applied!",
@@ -880,7 +880,7 @@ export default function RetailPage() {
                     </div>
                 </div>
                 <ScrollArea className="flex-1">
-                  <TabsContent value="products" className="m-0">
+                    <TabsContent value="products" className="m-0">
                       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
                           {retailProducts.map(product => (
                               <Card key={product.id} onClick={() => addToCart(product, 'product')} className="cursor-pointer hover:shadow-lg transition-shadow">
@@ -895,7 +895,7 @@ export default function RetailPage() {
                           ))}
                       </div>
                   </TabsContent>
-                  <TabsContent value="memberships" className="m-0">
+                   <TabsContent value="memberships" className="m-0">
                       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
                           {memberships.map(membership => (
                               <MembershipProductCard key={membership.id} membership={membership} onClick={() => addToCart(membership, 'membership')} />
