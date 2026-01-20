@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
@@ -16,9 +15,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle, UserPlus, Coins, Printer, Wallet } from 'lucide-react';
+import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle, UserPlus, Coins, Printer, Wallet, Award, Repeat } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
-import { type InventoryItem, type StockCorrection, type Transaction, type Client, type Appointment, type Service, type AppointmentCheckoutState } from '@/lib/data';
+import { type InventoryItem, type StockCorrection, type Transaction, type Client, type Appointment, type Service, type AppointmentCheckoutState, Membership, Package } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -48,7 +47,32 @@ type CartItem = {
   quantity: number;
   imageUrl?: string;
   stock: number;
+  type: 'product' | 'membership' | 'package';
 };
+
+const MembershipProductCard = ({ membership, onClick }: { membership: Membership; onClick: () => void }) => (
+    <Card onClick={onClick} className="cursor-pointer hover:shadow-lg transition-shadow">
+        <CardContent className="p-2 space-y-2">
+            <div className="aspect-square bg-indigo-500/10 rounded-md flex items-center justify-center">
+                <Award className="w-1/2 h-1/2 text-indigo-500" />
+            </div>
+            <h3 className="text-sm font-medium leading-tight truncate">{membership.name}</h3>
+            <p className="text-sm font-semibold">${membership.price.toFixed(2)} / {membership.interval.replace('ly', '')}</p>
+        </CardContent>
+    </Card>
+);
+
+const PackageProductCard = ({ pack, onClick }: { pack: Package; onClick: () => void }) => (
+    <Card onClick={onClick} className="cursor-pointer hover:shadow-lg transition-shadow">
+        <CardContent className="p-2 space-y-2">
+            <div className="aspect-square bg-teal-500/10 rounded-md flex items-center justify-center">
+                <Repeat className="w-1/2 h-1/2 text-teal-500" />
+            </div>
+            <h3 className="text-sm font-medium leading-tight truncate">{pack.name}</h3>
+            <p className="text-sm font-semibold">${pack.price.toFixed(2)}</p>
+        </CardContent>
+    </Card>
+);
 
 const CartContent = ({
     cart,
@@ -185,26 +209,29 @@ const CartContent = ({
                     </div>
                     <div className="flex items-center gap-1">
                         <Button
-                        variant="outline"
-                        size="icon"
-                        className="h-6 w-6"
-                        onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                            variant="outline"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                            disabled={item.type !== 'product'}
                         >
                         <Minus className="h-3 w-3" />
                         </Button>
                         <Input
-                        type="number"
-                        value={item.quantity}
-                        onChange={(e) =>
-                            updateQuantity(item.id, parseInt(e.target.value) || 0)
-                        }
-                        className="w-12 h-8 text-center"
+                            type="number"
+                            value={item.quantity}
+                            onChange={(e) =>
+                                updateQuantity(item.id, parseInt(e.target.value) || 0)
+                            }
+                            className="w-12 h-8 text-center"
+                            readOnly={item.type !== 'product'}
                         />
                         <Button
-                        variant="outline"
-                        size="icon"
-                        className="h-6 w-6"
-                        onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                            variant="outline"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                            disabled={item.type !== 'product'}
                         >
                         <Plus className="h-3 w-3" />
                         </Button>
@@ -397,7 +424,8 @@ const CartContent = ({
 };
 
 export default function RetailPage() {
-  const { inventory, appointments, services, addStockCorrection, setTransactions, setClients, clients, setAppointments } = useInventory();
+  const { inventory, appointments, services, addStockCorrection, setTransactions, setClients, clients, setAppointments, memberships, packages } = useInventory();
+  const [activeTab, setActiveTab] = useState('products');
   const [searchTerm, setSearchTerm] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const { toast } = useToast();
@@ -430,39 +458,59 @@ export default function RetailPage() {
     );
   }, [inventory, searchTerm]);
 
-  const addToCart = (product: InventoryItem) => {
-    const existingItem = cart.find(item => item.id === product.id);
-    const price = product.costPerUnit ? product.costPerUnit * 1.75 : 0; // Mocked markup
+  const addToCart = (item: InventoryItem | Membership | Package, type: 'product' | 'membership' | 'package') => {
+    const existingItem = cart.find(cartItem => cartItem.id === item.id);
+    
+    if (type === 'membership') {
+        const hasMembership = cart.some(cartItem => cartItem.type === 'membership');
+        if (hasMembership) {
+            toast({
+                variant: 'destructive',
+                title: 'Membership Already in Cart',
+                description: 'Only one membership can be purchased at a time.',
+            });
+            return;
+        }
+    }
 
     if (existingItem) {
-      if (existingItem.quantity < product.totalStock) {
-        setCart(cart.map(item =>
-          item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
-        ));
-      } else {
-        toast({
-          variant: 'destructive',
-          title: 'Out of Stock',
-          description: `No more units of ${product.name} are available.`,
-        });
-      }
+        if (type === 'product' && existingItem.quantity < (item as InventoryItem).totalStock) {
+            updateQuantity(item.id, existingItem.quantity + 1);
+        } else if (type === 'product') {
+            toast({
+                variant: 'destructive',
+                title: 'Out of Stock',
+                description: `No more units of ${item.name} are available.`,
+            });
+        }
+        return;
+    }
+
+    let price = 0;
+    if (type === 'product') {
+        price = (item as InventoryItem).costPerUnit ? (item as InventoryItem).costPerUnit! * 1.75 : 0;
     } else {
-      if (product.totalStock > 0) {
-        setCart([...cart, {
-          id: product.id,
-          name: product.name,
-          price: price,
-          quantity: 1,
-          imageUrl: product.imageUrl,
-          stock: product.totalStock,
+        price = (item as Membership | Package).price;
+    }
+
+    const stock = type === 'product' ? (item as InventoryItem).totalStock : Infinity;
+
+    if (stock > 0) {
+        setCart(prev => [...prev, {
+            id: item.id,
+            name: item.name,
+            price: price,
+            quantity: 1,
+            imageUrl: (item as InventoryItem).imageUrl,
+            stock: stock,
+            type: type,
         }]);
-      } else {
+    } else {
          toast({
           variant: 'destructive',
           title: 'Out of Stock',
-          description: `${product.name} is currently out of stock.`,
+          description: `${item.name} is currently out of stock.`,
         });
-      }
     }
   };
 
@@ -472,7 +520,7 @@ export default function RetailPage() {
 
     if (newQuantity <= 0) {
       setCart(cart.filter(item => item.id !== productId));
-    } else if (newQuantity > cartItem.stock) {
+    } else if (cartItem.type === 'product' && newQuantity > cartItem.stock) {
         toast({
             variant: 'destructive',
             title: 'Not Enough Stock',
@@ -515,8 +563,9 @@ export default function RetailPage() {
     
     const selectedClient = clients.find(c => c.id === selectedClientId);
 
-    // 1. Create Stock Corrections
-    cart.forEach(item => {
+    // Handle product stock corrections
+    const productItems = cart.filter(item => item.type === 'product');
+    productItems.forEach(item => {
         const newCorrection: StockCorrection = {
             id: `sc-${Date.now()}-${item.id}`,
             productId: item.id,
@@ -527,29 +576,50 @@ export default function RetailPage() {
         };
         addStockCorrection(newCorrection);
     });
-
-    // 2. Create Transaction
+    
+    // Create transaction
     const newTransaction: Omit<Transaction, 'id'> = {
         date: new Date().toISOString(),
-        description: `Retail Sale (${cart.length} items)`,
+        description: `Retail Sale (${cart.map(i => i.name).join(', ')})`,
         clientOrVendor: selectedClient?.name || 'In-Store Customer',
         type: 'income',
         context: 'Business',
         category: 'Retail',
         amount: total,
         paymentMethod: paymentTab,
-        hasReceipt: true, // Will generate a receipt
+        hasReceipt: true,
     };
     setTransactions(prev => [...prev, { ...newTransaction, id: `txn-${Date.now()}` }]);
     
-    // 3. Update Client Wallet if credit was used
-    if (selectedClient && appliedStoreCredit > 0) {
-        const updatedClient: Client = {
-            ...selectedClient,
-            walletCredit: (selectedClient.walletCredit || 0) - appliedStoreCredit,
-        };
+    // Update Client State
+    if (selectedClient) {
+        const membershipItem = cart.find(item => item.type === 'membership');
+        const packageItems = cart.filter(item => item.type === 'package');
+
+        let updatedClient = { ...selectedClient };
+        
+        if (appliedStoreCredit > 0) {
+            updatedClient.walletCredit = (updatedClient.walletCredit || 0) - appliedStoreCredit;
+        }
+
+        if (membershipItem) {
+            updatedClient.activeMembershipId = membershipItem.id;
+        }
+
+        if (packageItems.length > 0) {
+            const newPackages = packageItems.map(p => {
+                const pack = packages.find(pkg => pkg.id === p.id);
+                return {
+                    packageId: p.id,
+                    sessionsRemaining: pack?.sessions || 0,
+                };
+            });
+            updatedClient.activePackages = [...(updatedClient.activePackages || []), ...newPackages];
+        }
+
         setClients(prevClients => prevClients.map(c => c.id === updatedClient.id ? updatedClient : c));
     }
+
 
      const receiptData: Omit<ReceiptData, 'business'> = {
         clientName: selectedClient?.name || 'In-Store Customer',
@@ -580,7 +650,7 @@ export default function RetailPage() {
         description: `Successfully processed a sale of $${total.toFixed(2)}. Inventory has been updated.`
     });
 
-    // 4. Reset State
+    // Reset State
     setCart([]);
     setAmountTendered(0);
     setTipAmount(0);
@@ -617,7 +687,7 @@ export default function RetailPage() {
             const productId = data.split('/').pop();
             const productToAdd = inventory.find(p => p.id === productId);
             if (productToAdd) {
-                addToCart(productToAdd);
+                addToCart(productToAdd, 'product');
                 toast({ title: 'Product Added', description: `${productToAdd.name} added to cart.` });
             }
         }
@@ -667,10 +737,7 @@ export default function RetailPage() {
         if (changeDue > 0) {
             setTipAmount(prevTip => prevTip + changeDue);
             setAmountTendered(total + changeDue); 
-            toast({
-                title: "Tip Added!",
-                description: `$${changeDue.toFixed(2)} has been added as a tip.`
-            });
+            toast({ title: "Tip Added!", description: `$${changeDue.toFixed(2)} has been added as a tip.` });
         }
     };
     
@@ -753,7 +820,7 @@ export default function RetailPage() {
         if (!checkoutAppointment) return null;
         const clientData = clients.find(c => c.id === checkoutAppointment.clientId);
         const serviceData = services.find(s => s.id === checkoutAppointment.serviceId);
-        
+
         const walkInClientName = checkoutAppointment.isWalkIn ?
           (inventory.find(i => `apt-walkin-${i.id}` === checkoutAppointment.id) as any)?.customerName || 'Walk-in'
           : 'Unknown Client';
@@ -778,37 +845,56 @@ export default function RetailPage() {
       <AppHeader title="Retail POS" />
       <main className="flex-1 overflow-hidden">
         <div className="grid lg:grid-cols-3 h-full">
-          {/* Product Browser */}
           <div className="lg:col-span-2 flex flex-col h-full">
-            <div className="p-4 border-b flex items-center gap-2">
-                 <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input 
-                        placeholder="Search products..." 
-                        className="pl-9"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                    />
+            <div className="p-4 border-b">
+              <Tabs value={activeTab} onValueChange={setActiveTab}>
+                <div className="flex items-center gap-4">
+                  <TabsList>
+                    <TabsTrigger value="products">Products</TabsTrigger>
+                    <TabsTrigger value="memberships">Memberships</TabsTrigger>
+                    <TabsTrigger value="packages">Packages</TabsTrigger>
+                  </TabsList>
+                  <div className="relative flex-1">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input placeholder="Search items..." className="pl-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                  </div>
+                  <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
+                      <QrCode className="h-4 w-4" />
+                      <span className="sr-only">Scan</span>
+                  </Button>
                 </div>
-                 <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
-                    <QrCode className="h-4 w-4" />
-                    <span className="sr-only">Scan</span>
-                </Button>
+              </Tabs>
             </div>
             <ScrollArea className="flex-1">
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
-                    {retailProducts.map(product => (
-                        <Card key={product.id} onClick={() => addToCart(product)} className="cursor-pointer hover:shadow-lg transition-shadow">
-                            <CardContent className="p-2 space-y-2">
-                                <div className="aspect-square bg-muted rounded-md overflow-hidden">
-                                     <Image src={product.imageUrl || `https://picsum.photos/seed/inv${product.id}/200/200`} alt={product.name} width={200} height={200} className="object-cover h-full w-full" />
-                                </div>
-                                <h3 className="text-sm font-medium leading-tight truncate">{product.name}</h3>
-                                <p className="text-sm font-semibold">${(product.costPerUnit || 0 * 1.75).toFixed(2)}</p>
-                            </CardContent>
-                        </Card>
-                    ))}
-                </div>
+              <TabsContent value="products" className="m-0">
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
+                      {retailProducts.map(product => (
+                          <Card key={product.id} onClick={() => addToCart(product, 'product')} className="cursor-pointer hover:shadow-lg transition-shadow">
+                              <CardContent className="p-2 space-y-2">
+                                  <div className="aspect-square bg-muted rounded-md overflow-hidden">
+                                       <Image src={product.imageUrl || `https://picsum.photos/seed/inv${product.id}/200/200`} alt={product.name} width={200} height={200} className="object-cover h-full w-full" />
+                                  </div>
+                                  <h3 className="text-sm font-medium leading-tight truncate">{product.name}</h3>
+                                  <p className="text-sm font-semibold">${(product.costPerUnit || 0 * 1.75).toFixed(2)}</p>
+                              </CardContent>
+                          </Card>
+                      ))}
+                  </div>
+              </TabsContent>
+               <TabsContent value="memberships" className="m-0">
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
+                      {memberships.map(membership => (
+                          <MembershipProductCard key={membership.id} membership={membership} onClick={() => addToCart(membership, 'membership')} />
+                      ))}
+                  </div>
+              </TabsContent>
+              <TabsContent value="packages" className="m-0">
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
+                      {packages.map(pack => (
+                          <PackageProductCard key={pack.id} pack={pack} onClick={() => addToCart(pack, 'package')} />
+                      ))}
+                  </div>
+              </TabsContent>
             </ScrollArea>
           </div>
 
@@ -907,7 +993,7 @@ export default function RetailPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="p-4 relative">
-             <video ref={videoRef} className="w-full aspect-square rounded-md" autoPlay muted playsInline />
+             <video ref={videoRef} className="w-full aspect-square rounded-md bg-muted" autoPlay muted playsInline />
              <div className="absolute inset-4 flex items-center justify-center pointer-events-none">
                 <div className="w-2/3 h-1/2 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
             </div>
@@ -927,7 +1013,7 @@ export default function RetailPage() {
         </DialogContent>
       </Dialog>
     </div>
-    <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients} />
+    <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients} onSave={() => {}} />
     
     {checkoutAppointmentData && (
         <CompleteAppointmentDialog
