@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -51,12 +50,12 @@ export default function LoginPage() {
       await signInWithEmailAndPassword(auth, data.email, data.password);
       // onAuthStateChanged in the AuthGuard will handle the redirect.
     } catch (error: any) {
-      console.error('Sign-in error:', error);
       toast({
         variant: 'destructive',
         title: 'Sign-in Failed',
         description: 'Invalid email or password. Please try again.',
       });
+    } finally {
       setIsLoading(false);
     }
   };

@@ -68,6 +68,7 @@ export default function SignupPage() {
         title: 'Sign-up Failed',
         description: description,
       });
+    } finally {
       setIsLoading(false);
     }
   };
