@@ -33,6 +33,7 @@ import {
   FileSignature,
   ShoppingCart,
   Gift,
+  Users2,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -64,6 +65,7 @@ const setupNavItems = [
   { href: '/services', icon: List, label: 'Services' },
   { href: '/inventory', icon: Box, label: 'Inventory' },
   { href: '/clients', icon: Users, label: 'Clients' },
+  { href: '/staff', icon: Users2, label: 'Staff' },
   { href: '/memberships', icon: Gift, label: 'Memberships' },
   { href: '/consents', icon: FileSignature, label: 'Consents' },
 ];

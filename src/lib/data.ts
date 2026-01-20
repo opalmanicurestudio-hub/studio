@@ -32,6 +32,14 @@ export type CustomFormula = {
   }[];
 };
 
+export type Staff = {
+  id: string;
+  name: string;
+  email: string;
+  role: 'admin' | 'staff';
+  avatarUrl: string;
+};
+
 export type Client = {
   id: string;
   name: string;
@@ -178,6 +186,7 @@ export type Appointment = {
   id: string;
   clientId: string;
   serviceId: string;
+  staffId?: string;
   startTime: Date;
   endTime: Date;
   status: 'confirmed' | 'completed' | 'cancelled' | 'deposit_pending';
@@ -348,6 +357,11 @@ export const clients: Client[] = [
     activeMembershipId: 'mem-1',
     referralCode: 'SOFIA25' 
   },
+];
+
+export const staff: Staff[] = [
+  { id: 'staff-1', name: 'Brenda Barnes', email: 'brenda@example.com', role: 'staff', avatarUrl: 'https://picsum.photos/seed/staff1/100' },
+  { id: 'staff-2', name: 'Carlos Reyes', email: 'carlos@example.com', role: 'admin', avatarUrl: 'https://picsum.photos/seed/staff2/100' },
 ];
 
 export const inventory: InventoryItem[] = [
@@ -607,19 +621,19 @@ export const services: Service[] = [
 const today = new Date();
 export const appointments: Appointment[] = [
     // Today's appointments
-  { id: 'apt-0', clientId: 'cli-4', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 8), 0), endTime: setMinutes(setHours(startOfDay(today), 8), 50), status: 'completed', absorbedCost: 0 },
+  { id: 'apt-0', clientId: 'cli-4', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 8), 0), endTime: setMinutes(setHours(startOfDay(today), 8), 50), status: 'completed', absorbedCost: 0, staffId: 'staff-1' },
   { id: 'apt-1', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today,1)), 9), 30), endTime: setMinutes(setHours(startOfDay(subDays(today,1)), 10), 20), status: 'confirmed', inspirationPhotoUrl: 'https://images.unsplash.com/photo-1596796242339-3c368369b139?w=400', absorbedCost: 0 },
-  { id: 'apt-2', clientId: 'cli-2', serviceId: 'svc-7', startTime: setMinutes(setHours(startOfDay(today), 11), 0), endTime: setMinutes(setHours(startOfDay(today), 12), 30), status: 'completed', addOnIds: ['svc-addon-1'], absorbedCost: 0 },
-  { id: 'apt-6', clientId: 'cli-2', serviceId: 'svc-7', startTime: setMinutes(setHours(startOfDay(today), 14), 0), endTime: setMinutes(setHours(startOfDay(today), 15), 30), status: 'confirmed', absorbedCost: 0 },
+  { id: 'apt-2', clientId: 'cli-2', serviceId: 'svc-7', startTime: setMinutes(setHours(startOfDay(today), 11), 0), endTime: setMinutes(setHours(startOfDay(today), 12), 30), status: 'completed', addOnIds: ['svc-addon-1'], absorbedCost: 0, staffId: 'staff-2' },
+  { id: 'apt-6', clientId: 'cli-2', serviceId: 'svc-7', startTime: setMinutes(setHours(startOfDay(today), 14), 0), endTime: setMinutes(setHours(startOfDay(today), 15), 30), status: 'confirmed', absorbedCost: 0, staffId: 'staff-1' },
   { id: 'apt-3', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 15), 0), endTime: setMinutes(setHours(startOfDay(today), 15), 50), status: 'confirmed', absorbedCost: 0 },
-  { id: 'apt-5', clientId: 'cli-5', serviceId: 'svc-4', startTime: setMinutes(setHours(startOfDay(today), 16), 0), endTime: setMinutes(setHours(startOfDay(today), 17), 15), status: 'confirmed', absorbedCost: 0 },
+  { id: 'apt-5', clientId: 'cli-5', serviceId: 'svc-4', startTime: setMinutes(setHours(startOfDay(today), 16), 0), endTime: setMinutes(setHours(startOfDay(today), 17), 15), status: 'confirmed', absorbedCost: 0, staffId: 'staff-2' },
 
   // Past appointments
-  { id: 'apt-4', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today, 2)), 10), 0), endTime: setMinutes(setHours(startOfDay(subDays(today,2)), 10), 50), status: 'completed', absorbedCost: 0 },
+  { id: 'apt-4', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today, 2)), 10), 0), endTime: setMinutes(setHours(startOfDay(subDays(today,2)), 10), 50), status: 'completed', absorbedCost: 0, staffId: 'staff-1' },
   
   // Future appointments
   { id: 'apt-7', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 11), 0), endTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 11), 50), status: 'confirmed', absorbedCost: 0 },
-  { id: 'apt-8', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(addDays(today, 3)), 10), 0), endTime: setMinutes(setHours(startOfDay(addDays(today, 3)), 10), 50), status: 'confirmed', absorbedCost: 0 },
+  { id: 'apt-8', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(addDays(today, 3)), 10), 0), endTime: setMinutes(setHours(startOfDay(addDays(today, 3)), 10), 50), status: 'confirmed', absorbedCost: 0, staffId: 'staff-1' },
 ];
 
 export const events: Event[] = [
@@ -772,5 +786,3 @@ export const initialLocations: Location[] = [
 
 
 export { nanoid };
-
-    

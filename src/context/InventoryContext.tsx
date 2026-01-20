@@ -17,7 +17,9 @@ import {
     initialLocations,
     initialLocationTypes,
     consentForms as initialConsentForms,
-    type ConsentForm
+    type ConsentForm,
+    staff as initialStaff,
+    type Staff
 } from '@/lib/data';
 import {
     billDefinitions as initialBillDefinitions,
@@ -53,6 +55,8 @@ interface InventoryContextType {
   setServices: React.Dispatch<React.SetStateAction<Service[]>>;
   consentForms: ConsentForm[];
   setConsentForms: React.Dispatch<React.SetStateAction<ConsentForm[]>>;
+  staff: Staff[];
+  setStaff: React.Dispatch<React.SetStateAction<Staff[]>>;
 }
 
 const InventoryContext = createContext<InventoryContextType | undefined>(undefined);
@@ -70,6 +74,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
   const [services, setServices] = useState<Service[]>(initialServices);
   const [consentForms, setConsentForms] = useState<ConsentForm[]>(initialConsentForms);
+  const [staff, setStaff] = useState<Staff[]>(initialStaff);
 
 
   const addStockCorrection = (correction: StockCorrection) => {
@@ -100,6 +105,8 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     setServices,
     consentForms,
     setConsentForms,
+    staff,
+    setStaff,
   };
 
   return (

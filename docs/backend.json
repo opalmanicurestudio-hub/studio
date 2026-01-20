@@ -53,6 +53,19 @@
         "userId"
       ]
     },
+    "Staff": {
+      "title": "Staff",
+      "type": "object",
+      "description": "Represents a staff member of a tenant.",
+      "properties": {
+        "id": { "type": "string" },
+        "tenantId": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["admin", "staff"] }
+      },
+      "required": ["id", "tenantId", "name", "email", "role"]
+    },
     "Service": {
       "title": "Service",
       "type": "object",
@@ -207,6 +220,10 @@
         },
         "serviceId": {
           "type": "string"
+        },
+        "staffId": {
+          "type": "string",
+          "description": "The ID of the staff member performing the appointment."
         },
         "startTime": {
           "type": "string",
@@ -424,6 +441,12 @@
         "$ref": "#/entities/Tenant"
       },
       "description": "Stores tenant (business) profiles. All business-specific data is nested under this."
+    },
+    "/tenants/{tenantId}/staff/{staffId}": {
+      "schema": {
+        "$ref": "#/entities/Staff"
+      },
+      "description": "Staff members belonging to a specific tenant."
     },
     "/tenants/{tenantId}/services/{serviceId}": {
       "schema": {

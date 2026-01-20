@@ -76,6 +76,15 @@ service cloud.firestore {
     }
 
     /**
+     * Returns true if the user is a staff member of the specified tenant.
+     * Checks for the existence of a document in the staff subcollection where
+     * the document ID matches the authenticated user's UID.
+     */
+    function isStaff(tenantId) {
+      return isSignedIn() && exists(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid));
+    }
+
+    /**
      * For CREATE operations: Validates that a new document's internal `id` field
      * matches the document ID from the path, ensuring consistency.
      */
@@ -152,6 +161,15 @@ service cloud.firestore {
     }
 
     /**
+     * @description Rules for staff members of a tenant.
+     * @path /tenants/{tenantId}/staff/{staffId}
+     */
+    match /tenants/{tenantId}/staff/{staffId} {
+      allow read, write: if isTenantOwner(tenantId);
+      allow get: if isStaff(tenantId) && request.auth.uid == staffId;
+    }
+
+    /**
      * @description Rules for services offered by a tenant.
      * @path /tenants/{tenantId}/services/{serviceId}
      * @allow (get) Any user (including anonymous) reading a tenant's service details.
@@ -184,27 +202,17 @@ service cloud.firestore {
     /**
      * @description Rules for the clients of a tenant. This data is private.
      * @path /tenants/{tenantId}/clients/{clientId}
-     * @allow (create) The tenant owner creating a new client record.
-     * @deny (get) Any user other than the tenant owner reading a client's data.
-     * @principle Enforces strict data privacy for a tenant's business information.
      */
     match /tenants/{tenantId}/clients/{clientId} {
-      allow get: if isTenantOwner(tenantId);
-      allow list: if isTenantOwner(tenantId);
-      allow create: if isTenantOwner(tenantId) && newDocTenantIdMatchesPath(tenantId);
-      allow update: if isTenantOwner(tenantId) && resource != null && isTenantIdImmutable();
-      allow delete: if isTenantOwner(tenantId) && resource != null;
+      allow read, write: if isTenantOwner(tenantId) || isStaff(tenantId);
     }
 
     /**
      * @description Rules for appointments booked with a tenant. This data is private.
      * @path /tenants/{tenantId}/appointments/{appointmentId}
-     * @allow (list) The tenant owner listing all appointments for their business.
-     * @deny (get) Any user other than the tenant owner reading appointment details.
-     * @principle Enforces strict data privacy for a tenant's business information.
      */
     match /tenants/{tenantId}/appointments/{appointmentId} {
-      allow read, write: if isTenantOwner(tenantId);
+      allow read, write: if isTenantOwner(tenantId) || isStaff(tenantId);
     }
     
     /**
@@ -212,7 +220,7 @@ service cloud.firestore {
      * @path /tenants/{tenantId}/events/{eventId}
      */
     match /tenants/{tenantId}/events/{eventId} {
-      allow read, write: if isTenantOwner(tenantId);
+      allow read, write: if isTenantOwner(tenantId) || isStaff(tenantId);
     }
     
     /**
