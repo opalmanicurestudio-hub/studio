@@ -21,17 +21,18 @@ import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { Loader } from 'lucide-react';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import Link from 'next/link';
 
-const loginSchema = z.object({
+const signupSchema = z.object({
+  name: z.string().min(2, 'Name must be at least 2 characters.'),
   email: z.string().email('Invalid email address.'),
   password: z.string().min(6, 'Password must be at least 6 characters.'),
 });
 
-type LoginFormData = z.infer<typeof loginSchema>;
+type SignupFormData = z.infer<typeof signupSchema>;
 
-export default function LoginPage() {
+export default function SignupPage() {
   const auth = useAuth();
   const { toast } = useToast();
   const router = useRouter();
@@ -41,21 +42,32 @@ export default function LoginPage() {
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm<LoginFormData>({
-    resolver: zodResolver(loginSchema),
+  } = useForm<SignupFormData>({
+    resolver: zodResolver(signupSchema),
   });
 
-  const onSubmit = async (data: LoginFormData) => {
+  const onSubmit = async (data: SignupFormData) => {
     setIsLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, data.email, data.password);
+      const userCredential = await createUserWithEmailAndPassword(auth, data.email, data.password);
+      
+      // Update user's profile with their name
+      await updateProfile(userCredential.user, {
+        displayName: data.name
+      });
+      
       // onAuthStateChanged in the AuthGuard will handle the redirect.
+      // No need to call router.push here if AuthGuard is set up correctly.
     } catch (error: any) {
-      console.error('Sign-in error:', error);
+      console.error('Sign-up error:', error);
+      let description = 'An unexpected error occurred. Please try again.';
+      if (error.code === 'auth/email-already-in-use') {
+        description = 'This email is already in use. Please log in instead.';
+      }
       toast({
         variant: 'destructive',
-        title: 'Sign-in Failed',
-        description: 'Invalid email or password. Please try again.',
+        title: 'Sign-up Failed',
+        description: description,
       });
       setIsLoading(false);
     }
@@ -67,11 +79,16 @@ export default function LoginPage() {
         <div className="flex justify-center mb-4">
             <ClarityFlowLogo />
         </div>
-        <CardTitle className="text-2xl">Welcome Back</CardTitle>
-        <CardDescription>Enter your credentials to access your dashboard.</CardDescription>
+        <CardTitle className="text-2xl">Create an Account</CardTitle>
+        <CardDescription>Join ClarityFlow and take control of your business.</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="name">Full Name</Label>
+            <Input id="name" type="text" placeholder="Jane Doe" {...register('name')} />
+            {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+          </div>
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input id="email" type="email" placeholder="m@example.com" {...register('email')} />
@@ -84,15 +101,15 @@ export default function LoginPage() {
           </div>
           <Button type="submit" className="w-full" disabled={isLoading}>
             {isLoading && <Loader className="mr-2 h-4 w-4 animate-spin" />}
-            Sign In
+            Create Account
           </Button>
         </form>
       </CardContent>
       <CardFooter className="justify-center">
         <p className="text-sm text-muted-foreground">
-            Don&apos;t have an account?{' '}
-            <Link href="/signup" className="font-medium text-primary hover:underline">
-                Sign up
+            Already have an account?{' '}
+            <Link href="/login" className="font-medium text-primary hover:underline">
+                Log in
             </Link>
         </p>
       </CardFooter>
