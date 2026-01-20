@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle, UserPlus, Coins, Printer, Wallet, Award, Repeat } from 'lucide-react';
+import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle, UserPlus, Coins, Printer, Wallet, Award, Repeat, CheckCircle, Percent } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { type InventoryItem, type StockCorrection, type Transaction, type Client, type Appointment, type Service, type AppointmentCheckoutState, Membership, Package } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
@@ -66,11 +66,33 @@ const MembershipProductCard = ({ membership, onClick }: { membership: Membership
                 <h3 className="text-sm font-medium leading-tight truncate">{membership.name}</h3>
                 <p className="text-sm font-semibold">${membership.price.toFixed(2)} / {membership.interval.replace('ly', '')}</p>
                  {hasPerks && (
-                    <div className="text-xs text-muted-foreground pt-1 border-t space-y-0.5">
-                        {membership.includedServices?.map(s => <p key={s.id}>Incl. {s.name}</p>)}
-                        {membership.includedAddOns?.map(s => <p key={s.id}>Incl. {s.name}</p>)}
-                        {membership.includedProducts?.map(p => <p key={p.id}>Incl. {p.name}</p>)}
-                        {membership.retailDiscount && <p>+ {membership.retailDiscount}% off retail</p>}
+                    <div className="text-xs text-muted-foreground pt-2 border-t mt-1">
+                        <ul className="space-y-1">
+                            {(membership.includedServices || []).map(s => (
+                                <li key={s.id} className="flex items-center gap-1.5">
+                                    <CheckCircle className="w-3 h-3 text-green-500 flex-shrink-0" />
+                                    <span className="truncate">1x {s.name}</span>
+                                </li>
+                            ))}
+                            {(membership.includedAddOns || []).map(s => (
+                                <li key={s.id} className="flex items-center gap-1.5">
+                                    <CheckCircle className="w-3 h-3 text-green-500 flex-shrink-0" />
+                                    <span className="truncate">1x {s.name}</span>
+                                </li>
+                            ))}
+                            {(membership.includedProducts || []).map(p => (
+                                <li key={p.id} className="flex items-center gap-1.5">
+                                    <CheckCircle className="w-3 h-3 text-green-500 flex-shrink-0" />
+                                    <span className="truncate">1x {p.name}</span>
+                                </li>
+                            ))}
+                            {membership.retailDiscount && (
+                                 <li className="flex items-center gap-1.5">
+                                    <Percent className="w-3 h-3 text-blue-500 flex-shrink-0" />
+                                    <span className="truncate">{membership.retailDiscount}% off retail</span>
+                                </li>
+                            )}
+                        </ul>
                     </div>
                 )}
             </CardContent>
@@ -908,14 +930,14 @@ export default function RetailPage() {
                   </TabsContent>
                    <TabsContent value="memberships" className="m-0">
                       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
-                          {memberships.map(membership => (
+                          {memberships && memberships.map(membership => (
                               <MembershipProductCard key={membership.id} membership={membership} onClick={() => addToCart(membership, 'membership')} />
                           ))}
                       </div>
                   </TabsContent>
                   <TabsContent value="packages" className="m-0">
                       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
-                          {packages.map(pack => (
+                          {packages && packages.map(pack => (
                               <PackageProductCard key={pack.id} pack={pack} onClick={() => addToCart(pack, 'package')} services={services} />
                           ))}
                       </div>
