@@ -279,29 +279,27 @@ const DayTimeline = ({
 
     return (
         <div className="flex-1 relative overflow-auto" ref={scrollContainerRef}>
-            <div className="grid grid-cols-[3rem,1fr] min-w-max">
+            <div className="grid grid-cols-[auto,1fr] min-w-max">
                 
+                {/* Headers and time labels are only shown on desktop */}
                 {!isMobile && (
                     <>
-                        {/* Top-left corner */}
                         <div className="sticky top-0 left-0 z-30 bg-background h-14 border-b border-r" />
-
-                        {/* Staff headers */}
                         <div className="sticky top-0 z-20 grid col-start-2 bg-background" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(250px, 1fr))` }}>
                             {staff.map(staffMember => (
-                            <div key={staffMember.id} className="p-2 h-14 border-b border-r text-center flex items-center justify-center">
-                                <div className="flex items-center justify-center gap-2 h-full">
-                                    <Avatar className="w-6 h-6"><AvatarImage src={staffMember.avatarUrl} /><AvatarFallback>{staffMember.name.charAt(0)}</AvatarFallback></Avatar>
-                                    <p className="font-semibold text-sm truncate">{staffMember.name}</p>
+                                <div key={staffMember.id} className="p-2 h-14 border-b border-r text-center flex items-center justify-center">
+                                    <div className="flex items-center justify-center gap-2 h-full">
+                                        <Avatar className="w-6 h-6"><AvatarImage src={staffMember.avatarUrl} /><AvatarFallback>{staffMember.name.charAt(0)}</AvatarFallback></Avatar>
+                                        <p className="font-semibold text-sm truncate">{staffMember.name}</p>
+                                    </div>
                                 </div>
-                            </div>
                             ))}
                         </div>
                     </>
                 )}
                 
-                {/* Time labels */}
-                <div className="sticky left-0 z-10 bg-background">
+                {/* Time labels column */}
+                <div className={cn("sticky left-0 z-10 bg-background", isMobile ? "w-10" : "w-12")}>
                     {hours.map(hour => (
                         <div key={hour} className="h-40 border-r border-b text-right pr-2 pt-1 flex justify-end">
                             <span className="text-xs text-muted-foreground -mt-2.5">{format(new Date(0, 0, 0, hour), 'ha')}</span>
@@ -310,7 +308,7 @@ const DayTimeline = ({
                 </div>
 
                 {/* Main content grid */}
-                <div className="col-start-2 grid relative" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(250px, 1fr))` }}>
+                <div className="col-start-2 grid relative" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(${isMobile ? '0' : '250px'}, 1fr))` }}>
                     {staffSchedules.map(({ staffMember, positionedItems }) => (
                         <div key={staffMember.id} className="relative border-r">
                             {/* Grid lines */}
@@ -936,17 +934,6 @@ export default function PlannerPage() {
             <Button variant="outline" onClick={handlePrevWeek} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
             <Button variant="outline" onClick={handleNextWeek} size="icon" className="h-8 w-8"><ChevronRight /></Button>
             <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
-             <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                     <Button variant="ghost" size="icon" className="h-8 w-8 md:hidden ml-auto">
-                        <Edit className="w-4 h-4" />
-                    </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => handleEditClick(appointments[0])}>Edit Appointment</DropdownMenuItem>
-                    <DropdownMenuItem>Edit Event</DropdownMenuItem>
-                </DropdownMenuContent>
-            </DropdownMenu>
         </div>
       </div>
       
@@ -1123,5 +1110,6 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
