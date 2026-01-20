@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Users, Calendar as CalendarIcon } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Users, Calendar as CalendarIcon, FlaskConical } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -63,6 +63,10 @@ const StaffCard = ({ member, stats }: { member: Staff, stats: any }) => (
                 <p className="text-xs text-muted-foreground">Avg. Service Duration</p>
                 <p className="text-lg font-semibold">{stats.avgDuration} min</p>
             </div>
+             <div className="col-span-2 border-t pt-4">
+                <p className="text-xs text-muted-foreground flex items-center justify-center gap-1"><FlaskConical className="w-3 h-3"/>Product Consumption</p>
+                <p className="text-lg font-semibold">${stats.consumptionValue.toFixed(2)}</p>
+            </div>
         </div>
     </CardContent>
     <CardFooter className="p-2 border-t mt-auto">
@@ -88,7 +92,7 @@ const StaffCard = ({ member, stats }: { member: Staff, stats: any }) => (
 
 
 export default function StaffPage() {
-  const { staff, setStaff, appointments, services, transactions } = useInventory();
+  const { staff, setStaff, appointments, services, transactions, stockCorrections, inventory } = useInventory();
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange | undefined>({
     from: subDays(new Date(), 29),
@@ -129,6 +133,28 @@ export default function StaffPage() {
         }, 0);
 
         const avgDuration = staffAppointments.length > 0 ? Math.round(totalDuration / staffAppointments.length) : 0;
+        
+        let consumptionValue = 0;
+        const appointmentIds = new Set(staffAppointments.map(a => a.id));
+
+        stockCorrections.forEach(sc => {
+            const match = sc.reason.match(/Appointment #(\S+)/);
+            if (match && appointmentIds.has(match[1])) {
+                const product = inventory.find(p => p.id === sc.productId);
+                if (product && product.costPerUnit) {
+                    let costPerBaseUnit = 0;
+                    if (product.costingMethod === 'size' && product.size && product.size > 0) {
+                        costPerBaseUnit = product.costPerUnit / product.size;
+                    } else if (product.costingMethod === 'uses' && product.estimatedUses && product.estimatedUses > 0) {
+                        costPerBaseUnit = product.costPerUnit / product.estimatedUses;
+                    } else if (!product.costingMethod) { // Fallback for items tracked per unit
+                        costPerBaseUnit = product.costPerUnit;
+                    }
+                    consumptionValue += Math.abs(sc.change) * costPerBaseUnit;
+                }
+            }
+        });
+
 
         return {
             ...member,
@@ -136,10 +162,11 @@ export default function StaffPage() {
                 earnings,
                 tips,
                 avgDuration,
+                consumptionValue,
             }
         };
     });
-  }, [staff, appointments, services, dateRange]);
+  }, [staff, appointments, services, dateRange, stockCorrections, inventory]);
 
   const handleAddStaff = (newStaffData: Omit<Staff, 'id' | 'avatarUrl'>) => {
     const newStaff: Staff = {
