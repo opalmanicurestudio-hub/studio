@@ -351,14 +351,14 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-2xl print:hidden">
+        <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col print:hidden">
           <DialogHeader>
             <DialogTitle>Complete Appointment & Checkout</DialogTitle>
             <DialogDescription>
               Confirm products used, add retail sales, and finalize the appointment.
             </DialogDescription>
           </DialogHeader>
-          <ScrollArea className="max-h-[70vh] pr-4">
+          <ScrollArea className="pr-4 -mr-4">
           <div className="py-4 space-y-6">
               <Card>
                   <CardContent className="p-4 flex items-center gap-4">
