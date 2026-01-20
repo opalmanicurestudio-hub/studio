@@ -80,6 +80,8 @@ const DayTimeline = ({
     onAddTransaction,
     onReschedule,
     onOpenPickingList,
+    onStartService,
+    onFinishService,
 }: { 
     date: Date; 
     staff: Staff[];
@@ -97,6 +99,8 @@ const DayTimeline = ({
     onAddTransaction: (transaction: any) => void;
     onReschedule: (appointment: Appointment) => void;
     onOpenPickingList: () => void;
+    onStartService: (appointmentId: string) => void;
+    onFinishService: (appointment: Appointment) => void;
 }) => {
     const START_HOUR = 0; // Start at midnight
     const hours = Array.from({ length: 24 - START_HOUR }, (_, i) => i + START_HOUR);
@@ -206,6 +210,8 @@ const DayTimeline = ({
                     onPrintTicket={onPrintTicket}
                     onEdit={onEditAppointment}
                     onReschedule={onReschedule}
+                    onStartService={onStartService}
+                    onFinishService={onFinishService}
                 />
             </div>
         );
@@ -711,14 +717,6 @@ export default function PlannerPage() {
   const handleCheckout = (updatedInventory: any, newCorrections: any, receiptData: Omit<ReceiptData, 'business'>) => {
     if (!selectedAppointment) return;
 
-    // Placeholder for Firestore logic
-    // In a real app, you would:
-    // 1. Create a transaction document for the income.
-    // 2. Create transaction documents for the CoGS (Cost of Goods Sold).
-    // 3. Update the appointment status to 'completed'.
-    // 4. Batch write all stock correction documents.
-    // 5. Update the inventory documents for each product used.
-
     const completedAppointment: Appointment = { 
         ...selectedAppointment, 
         status: 'completed' as const,
@@ -826,6 +824,28 @@ export default function PlannerPage() {
         title: "Status Updated",
         description: `Appointment status changed to ${status}.`
     });
+  };
+
+  const handleStartService = (appointmentId: string) => {
+    setAppointments(prev => prev.map(apt => 
+      apt.id === appointmentId 
+        ? { ...apt, status: 'servicing', actualStartTime: new Date().toISOString() } 
+        : apt
+    ));
+    toast({
+        title: "Service Started",
+        description: "The appointment is now marked as 'In Service'."
+    });
+  };
+
+  const handleFinishService = (appointment: Appointment) => {
+    setAppointments(prev => prev.map(apt => 
+      apt.id === appointment.id 
+        ? { ...apt, status: 'ready_for_checkout', actualEndTime: new Date().toISOString() } 
+        : apt
+    ));
+    // Open checkout dialog directly after finishing
+    handleCompleteClick(appointment);
   };
 
   const handleDeleteAppointment = (appointmentId: string) => {
@@ -997,6 +1017,8 @@ export default function PlannerPage() {
               onAddTransaction={handleAddTransaction}
               onReschedule={handleRescheduleClick}
               onOpenPickingList={() => setIsPickingListOpen(true)}
+              onStartService={handleStartService}
+              onFinishService={handleFinishService}
           />
       </main>
       {selectedAppointmentData && (
@@ -1126,3 +1148,6 @@ export default function PlannerPage() {
 
 
 
+
+
+    
