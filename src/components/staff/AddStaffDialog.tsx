@@ -1,7 +1,8 @@
 
+
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useForm, Controller, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -37,14 +38,15 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { PhoneInput } from '@/components/ui/phone-input';
-import { type Staff } from '@/lib/data';
+import { type Staff, type Service } from '@/lib/data';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '../ui/scroll-area';
-import { User, Wallet, CalendarIcon, Shield, FileText } from 'lucide-react';
+import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { buttonVariants } from '../ui/button';
 import { nanoid } from 'nanoid';
+import { SelectServicesDialog } from './SelectServicesDialog';
 
 const addStaffSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
@@ -54,6 +56,7 @@ const addStaffSchema = z.object({
   payStructure: z.enum(['commission', 'hourly', 'salary']),
   commissionRate: z.coerce.number().min(0).max(100).optional(),
   hourlyRate: z.coerce.number().min(0).optional(),
+  services: z.array(z.string()).optional(),
   emergencyContact: z.object({
       name: z.string().optional(),
       relationship: z.string().optional(),
@@ -86,14 +89,22 @@ interface AddStaffDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (staffData: Omit<Staff, 'id' | 'avatarUrl'>) => void;
+  services: Service[];
 }
 
-const AddStaffForm = () => {
-    const { register, control, watch, formState: { errors } } = useForm<AddStaffFormData>();
+const AddStaffForm = ({ services }: { services: Service[] }) => {
+    const { register, control, watch, setValue, formState: { errors } } = useForm<AddStaffFormData>();
     const payStructure = watch('payStructure');
+    const selectedServiceIds = watch('services') || [];
+    const [isServicesDialogOpen, setIsServicesDialogOpen] = useState(false);
+    
+    const selectedServices = useMemo(() => {
+        return services.filter(s => selectedServiceIds.includes(s.id));
+    }, [selectedServiceIds, services]);
+
 
     return (
-        <FormProvider {...{register, control, watch, errors}}>
+        <FormProvider {...{register, control, watch, setValue, errors}}>
             <div className="space-y-6">
                 <Accordion type="multiple" defaultValue={['item-1']} className="w-full space-y-4">
                     <AccordionItem value="item-1" className="border rounded-lg">
@@ -104,6 +115,37 @@ const AddStaffForm = () => {
                                 <div className="space-y-2"><Label htmlFor="email">Email Address</Label><Input id="email" type="email" placeholder="brenda@example.com" {...register('email')} />{errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}</div>
                                 <PhoneInput name="phone" label="Phone Number" />
                                 <Controller name="role" control={control} render={({ field }) => ( <div className="space-y-2"><Label htmlFor="role">Role</Label><Select onValueChange={field.onChange} defaultValue={field.value}><SelectTrigger id="role"><SelectValue placeholder="Select a role" /></SelectTrigger><SelectContent><SelectItem value="staff">Staff</SelectItem><SelectItem value="admin">Admin</SelectItem></SelectContent></Select>{errors.role && <p className="text-sm text-destructive">{errors.role.message}</p>}</div> )}/>
+                            </div>
+                        </AccordionContent>
+                    </AccordionItem>
+                     <AccordionItem value="item-services" className="border rounded-lg">
+                        <AccordionTrigger className="p-4"><div className="flex items-center gap-3"><List className="w-5 h-5 text-primary"/>Services Offered</div></AccordionTrigger>
+                        <AccordionContent className="p-4 pt-0">
+                            <div className="space-y-4 mt-4">
+                                {selectedServices.length > 0 ? (
+                                    <div className="space-y-2">
+                                        {selectedServices.map(service => (
+                                            <div key={service.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+                                                <span className="text-sm font-medium">{service.name}</span>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    type="button"
+                                                    className="h-6 w-6 text-destructive"
+                                                    onClick={() => setValue('services', selectedServiceIds.filter(id => id !== service.id), { shouldDirty: true })}
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <p className="text-sm text-center text-muted-foreground p-4 border rounded-md">No services selected.</p>
+                                )}
+                                <Button variant="outline" className="w-full" type="button" onClick={() => setIsServicesDialogOpen(true)}>
+                                    <PlusCircle className="mr-2 h-4 w-4" />
+                                    Select Services
+                                </Button>
                             </div>
                         </AccordionContent>
                     </AccordionItem>
@@ -171,6 +213,15 @@ const AddStaffForm = () => {
                     </AccordionItem>
                 </Accordion>
             </div>
+            <SelectServicesDialog
+                open={isServicesDialogOpen}
+                onOpenChange={setIsServicesDialogOpen}
+                allServices={services}
+                initialSelected={selectedServices}
+                onSelect={(newSelection) => {
+                    setValue('services', newSelection.map(s => s.id), { shouldDirty: true });
+                }}
+            />
         </FormProvider>
     )
 }
@@ -179,6 +230,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
   open,
   onOpenChange,
   onSave,
+  services,
 }) => {
   const methods = useForm<AddStaffFormData>({
     resolver: zodResolver(addStaffSchema),
@@ -188,6 +240,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
       role: 'staff',
       payStructure: 'commission',
       commissionRate: 40,
+      services: [],
     },
   });
 
@@ -198,6 +251,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
     const staffDataToSave: Omit<Staff, 'id' | 'avatarUrl'> = {
         ...data,
         commissionRate: data.commissionRate || 0,
+        services: data.services || [],
         compliance: data.compliance?.licenseExpiry 
             ? { ...data.compliance, licenseExpiry: data.compliance.licenseExpiry.toISOString() }
             : undefined
@@ -222,7 +276,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
              <FormProvider {...methods}>
                 <form id="add-staff-form-comprehensive" onSubmit={handleSubmit(handleSave)} className="flex-1 flex flex-col overflow-hidden">
                     <div className="flex-1 overflow-y-auto px-6 py-4">
-                        <AddStaffForm />
+                        <AddStaffForm services={services} />
                     </div>
                     <DialogFooter className="p-6 pt-4 border-t">
                         <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>

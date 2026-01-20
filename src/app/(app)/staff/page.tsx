@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -13,7 +14,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Users, Calendar as CalendarIcon, FlaskConical, AlertTriangle } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Users, Calendar as CalendarIcon, FlaskConical, AlertTriangle, List } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,13 +36,18 @@ import { format, subDays, startOfDay, endOfDay, parseISO, isPast, differenceInDa
 import { cn } from '@/lib/utils';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
-const StaffCard = ({ member, stats }: { member: Staff, stats: any }) => {
+const StaffCard = ({ member, stats, services }: { member: Staff, stats: any, services: Service[] }) => {
     const [licenseInfo, setLicenseInfo] = useState<{
         isExpired: boolean;
         isExpiringSoon: boolean;
         daysUntilExpiry: number | null;
         expiryDate: Date | null;
     } | null>(null);
+
+    const staffServices = useMemo(() => {
+      if (!member.services) return [];
+      return services.filter(s => member.services!.includes(s.id));
+    }, [member.services, services]);
 
     useEffect(() => {
         if (!member.compliance?.licenseExpiry) return;
@@ -89,7 +95,7 @@ const StaffCard = ({ member, stats }: { member: Staff, stats: any }) => {
             )}
             </CardContent>
             <Separator />
-            <CardContent className="p-4">
+            <CardContent className="p-4 space-y-4">
                 <div className="grid grid-cols-2 gap-4 text-center">
                     <div>
                         <p className="text-xs text-muted-foreground">Earnings</p>
@@ -108,6 +114,14 @@ const StaffCard = ({ member, stats }: { member: Staff, stats: any }) => {
                         <p className="text-lg font-semibold">${stats.consumptionValue.toFixed(2)}</p>
                     </div>
                 </div>
+                {staffServices.length > 0 && (
+                    <div className="text-left border-t pt-4">
+                        <h4 className="font-semibold text-xs text-muted-foreground mb-2 flex items-center gap-2"><List className="w-4 h-4"/>Services Offered</h4>
+                        <div className="flex flex-wrap gap-1">
+                            {staffServices.map(s => <Badge key={s.id} variant="secondary">{s.name}</Badge>)}
+                        </div>
+                    </div>
+                )}
             </CardContent>
             <CardFooter className="p-2 border-t mt-auto">
             <ClientOnly>
@@ -277,7 +291,7 @@ export default function StaffPage() {
         {staff.length > 0 ? (
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {staffWithStats.map((member) => (
-              <StaffCard key={member.id} member={member} stats={member.stats} />
+              <StaffCard key={member.id} member={member} stats={member.stats} services={services} />
             ))}
           </div>
         ) : (
@@ -293,7 +307,8 @@ export default function StaffPage() {
       <AddStaffDialog 
         open={isAddStaffOpen} 
         onOpenChange={setIsAddStaffOpen} 
-        onSave={handleAddStaff} 
+        onSave={handleAddStaff}
+        services={services}
       />
     </div>
   );

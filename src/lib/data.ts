@@ -42,6 +42,7 @@ export type Staff = {
   payStructure: 'commission' | 'hourly' | 'salary';
   commissionRate: number; // as a percentage, e.g., 40 for 40%
   hourlyRate?: number;
+  services?: string[];
   emergencyContact?: {
     name: string;
     relationship: string;
@@ -386,6 +387,7 @@ export const staff: Staff[] = [
     avatarUrl: 'https://picsum.photos/seed/staff1/100', 
     payStructure: 'commission', 
     commissionRate: 45,
+    services: ['svc-1', 'svc-7'],
     compliance: {
       licenseNumber: 'C-12345',
       licenseExpiry: addDays(new Date(), 15).toISOString(),
@@ -400,6 +402,7 @@ export const staff: Staff[] = [
     payStructure: 'salary', 
     commissionRate: 0, 
     hourlyRate: 0,
+    services: ['svc-2', 'svc-3', 'svc-5', 'svc-6', 'svc-9', 'svc-10', 'svc-11', 'svc-12'],
     compliance: {
       licenseNumber: 'C-67890',
       licenseExpiry: subDays(new Date(), 10).toISOString(),
