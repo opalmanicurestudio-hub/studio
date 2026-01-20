@@ -225,6 +225,14 @@ service cloud.firestore {
     }
     
     /**
+     * @description Rules for the smart walk-in queue.
+     * @path /tenants/{tenantId}/walkIns/{walkInId}
+     */
+    match /tenants/{tenantId}/walkIns/{walkInId} {
+      allow read, write: if isTenantOwner(tenantId) || isStaff(tenantId);
+    }
+    
+    /**
      * @description Rules for calendar events for a tenant. This data is private.
      * @path /tenants/{tenantId}/events/{eventId}
      */

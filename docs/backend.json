@@ -67,13 +67,6 @@
         "payStructure": { "type": "string", "enum": ["commission", "hourly", "salary"] },
         "commissionRate": { "type": "number", "description": "Commission rate as a percentage (e.g., 40 for 40%)." },
         "hourlyRate": { "type": "number", "description": "Hourly pay rate." },
-        "services": {
-            "type": "array",
-            "description": "A list of service IDs that this staff member is qualified to perform.",
-            "items": {
-                "type": "string"
-            }
-        },
         "emergencyContact": {
             "type": "object",
             "properties": {
@@ -91,6 +84,15 @@
                 "licenseExpiry": { "type": "string", "format": "date" },
                 "documentUrl": { "type": "string", "format": "uri" }
             }
+        },
+        "active": { "type": "boolean", "description": "Whether the staff member is currently active and schedulable." },
+        "onBreak": { "type": "boolean", "description": "Whether the staff member is currently on a break." },
+        "status": { "type": "string", "enum": ["idle", "busy"], "description": "The current working status of the staff member." },
+        "lastServedTimestamp": { "type": "string", "format": "date-time", "description": "The timestamp of when the staff member last completed a service." },
+        "skillSet": {
+            "type": "array",
+            "description": "A list of skills the staff member possesses, used for smart assignment.",
+            "items": { "type": "string" }
         }
       },
       "required": ["id", "tenantId", "name", "email", "role", "payStructure"]
@@ -114,6 +116,12 @@
         },
         "price": {
           "type": "number"
+        },
+        "category": { "type": "string", "description": "The category of the service (e.g., nails, hair)." },
+        "requiredSkills": {
+            "type": "array",
+            "description": "A list of skills required to perform this service.",
+            "items": { "type": "string" }
         }
       },
       "required": [
@@ -270,6 +278,26 @@
         "startTime",
         "endTime"
       ]
+    },
+    "WalkIn": {
+      "title": "Walk-In Queue Entry",
+      "type": "object",
+      "description": "Represents a single customer in the smart walk-in queue.",
+      "properties": {
+        "id": { "type": "string" },
+        "clientId": { "type": "string", "description": "The ID of an existing client, if applicable." },
+        "customerName": { "type": "string", "description": "The name of the walk-in customer." },
+        "customerPhone": { "type": "string", "description": "Phone number for SMS updates." },
+        "serviceIds": { "type": "array", "items": { "type": "string" } },
+        "requiredSkills": { "type": "array", "items": { "type": "string" } },
+        "estimatedDuration": { "type": "number", "description": "Total estimated minutes for all requested services." },
+        "checkInTime": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["waiting", "assigned", "servicing", "completed", "skipped", "cancelled"] },
+        "assignedStaffId": { "type": "string", "description": "The ID of the staff member assigned to this customer." },
+        "notes": { "type": "string" },
+        "preferredStaffId": { "type": "string" }
+      },
+      "required": ["id", "customerName", "serviceIds", "checkInTime", "status"]
     },
     "Bill": {
       "title": "Bill",
@@ -501,6 +529,12 @@
       },
       "description": "Appointments for a specific tenant."
     },
+    "/tenants/{tenantId}/walkIns/{walkInId}": {
+      "schema": {
+        "$ref": "#/entities/WalkIn"
+      },
+      "description": "The smart queue for walk-in customers."
+    },
     "/tenants/{tenantId}/events/{eventId}": {
       "schema": {
         "$ref": "#/entities/Event"
@@ -551,4 +585,3 @@
     }
   }
 }
-
