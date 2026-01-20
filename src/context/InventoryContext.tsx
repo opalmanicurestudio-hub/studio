@@ -22,7 +22,9 @@ import {
     staff as initialStaff,
     type Staff,
     walkIns as initialWalkIns,
-    type WalkIn
+    type WalkIn,
+    activityLogs as initialActivityLogs,
+    type ActivityLog
 } from '@/lib/data';
 import {
     billDefinitions as initialBillDefinitions,
@@ -62,6 +64,8 @@ interface InventoryContextType {
   setStaff: React.Dispatch<React.SetStateAction<Staff[]>>;
   walkIns: WalkIn[];
   setWalkIns: React.Dispatch<React.SetStateAction<WalkIn[]>>;
+  activityLogs: ActivityLog[];
+  setActivityLogs: React.Dispatch<React.SetStateAction<ActivityLog[]>>;
 }
 
 const InventoryContext = createContext<InventoryContextType | undefined>(undefined);
@@ -81,6 +85,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const [consentForms, setConsentForms] = useState<ConsentForm[]>(initialConsentForms);
   const [staff, setStaff] = useState<Staff[]>(initialStaff);
   const [walkIns, setWalkIns] = useState<WalkIn[]>(initialWalkIns);
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(initialActivityLogs);
 
 
   const addStockCorrection = (correction: StockCorrection) => {
@@ -115,6 +120,8 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     setStaff,
     walkIns,
     setWalkIns,
+    activityLogs,
+    setActivityLogs,
   };
 
   return (

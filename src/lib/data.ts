@@ -59,6 +59,15 @@ export type Staff = {
   onBreak?: boolean;
   lastServedTimestamp?: string;
   skillSet?: string[];
+  breakStartTime?: string; // ISO date string
+};
+
+export type ActivityLog = {
+    id: string;
+    staffId: string;
+    type: 'break_start' | 'break_end';
+    timestamp: string; // ISO date string
+    durationMinutes?: number;
 };
 
 export type Client = {
@@ -205,6 +214,13 @@ export type InventoryItem = {
   maintenanceHistory?: MaintenanceRecord[];
 };
 
+export type AppointmentCheckoutState = {
+    formula: any[];
+    retailItems: any[];
+    addOns: any[];
+    actualDuration: number;
+};
+
 export type Appointment = {
   id: string;
   clientId: string;
@@ -212,12 +228,15 @@ export type Appointment = {
   staffId?: string;
   startTime: Date;
   endTime: Date;
-  status: 'confirmed' | 'completed' | 'cancelled' | 'deposit_pending' | 'ready_for_checkout';
+  status: 'confirmed' | 'completed' | 'cancelled' | 'deposit_pending' | 'ready_for_checkout' | 'servicing';
   addOnIds?: string[];
   inspirationPhotoUrl?: string;
   absorbedCost?: number;
   incident?: Incident;
   isWalkIn?: boolean;
+  actualStartTime?: string;
+  actualEndTime?: string;
+  checkoutState?: AppointmentCheckoutState;
 };
 
 export type EventChecklistItem = {
@@ -881,6 +900,10 @@ export const consentForms: ConsentForm[] = [
   },
 ];
 
+export const activityLogs: ActivityLog[] = [
+    { id: 'log-1', staffId: 'staff-1', type: 'break_start', timestamp: new Date(new Date().getTime() - 2 * 60 * 60 * 1000).toISOString() },
+    { id: 'log-2', staffId: 'staff-1', type: 'break_end', timestamp: new Date(new Date().getTime() - 1.5 * 60 * 60 * 1000).toISOString(), durationMinutes: 30 },
+];
 
 export const initialLocationTypes: LocationType[] = [
   { id: 'lt-1', name: 'General Storage', icon: 'Box' },
