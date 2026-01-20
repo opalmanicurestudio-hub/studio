@@ -41,7 +41,7 @@ const Timer = ({ startTime }: { startTime: string }) => {
     return <span>{elapsed}</span>;
 };
 
-const StaffStatusCard = ({ staffMember, onStatusChange }: { staffMember: Staff, onStatusChange: (staffId: string, status: Partial<Staff>) => void }) => {
+const StaffStatusCard = ({ staffMember, onStatusChange, isNextUp }: { staffMember: Staff, onStatusChange: (staffId: string, status: Partial<Staff>) => void, isNextUp: boolean }) => {
   const statusConfig = {
     idle: { label: 'Idle', color: 'bg-green-500' },
     busy: { label: 'Busy', color: 'bg-red-500' },
@@ -52,7 +52,10 @@ const StaffStatusCard = ({ staffMember, onStatusChange }: { staffMember: Staff, 
   const { label, color } = statusConfig[currentStatus];
 
   return (
-    <Card className="text-center">
+    <Card className={cn("text-center relative", isNextUp && "border-primary ring-2 ring-primary")}>
+      {isNextUp && (
+        <Badge className="absolute -top-2.5 left-1/2 -translate-x-1/2 z-10">Next Up</Badge>
+      )}
       <CardContent className="p-4 flex flex-col items-center gap-3">
         <div className="relative">
           <Avatar className="w-20 h-20">
@@ -198,6 +201,18 @@ export default function WalkInQueuePage() {
   
   const staff = useMemo(() => firestoreStaff && firestoreStaff.length > 0 ? firestoreStaff : allStaff, [firestoreStaff, allStaff]);
   const walkIns = useMemo(() => firestoreWalkIns && firestoreWalkIns.length > 0 ? firestoreWalkIns : allWalkIns, [firestoreWalkIns, allWalkIns]);
+
+  const nextUpStaffId = useMemo(() => {
+    if (!staff) return null;
+    const idleStaff = staff.filter(s => s.status === 'idle' && !s.onBreak);
+    if (idleStaff.length === 0) return null;
+
+    const sortedIdleStaff = idleStaff.sort((a, b) =>
+      (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) -
+      (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0)
+    );
+    return sortedIdleStaff[0].id;
+  }, [staff]);
 
   const waitingQueue = useMemo(() => {
     if (!walkIns) return [];
@@ -449,7 +464,12 @@ export default function WalkInQueuePage() {
                 </CardHeader>
                 <CardContent className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {staff?.map(member => (
-                        <StaffStatusCard key={member.id} staffMember={member} onStatusChange={handleStaffStatusChange} />
+                        <StaffStatusCard 
+                            key={member.id} 
+                            staffMember={member} 
+                            onStatusChange={handleStaffStatusChange} 
+                            isNextUp={member.id === nextUpStaffId}
+                        />
                     ))}
                 </CardContent>
             </Card>
@@ -523,7 +543,7 @@ export default function WalkInQueuePage() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
-     <style jsx global>{`
+     <style jsx global>{\`
         @media print {
           body * {
             visibility: hidden;
@@ -538,7 +558,7 @@ export default function WalkInQueuePage() {
             width: 100%;
           }
         }
-      `}</style>
+      \`}</style>
       
       {checkoutAppointmentData && (
           <CompleteAppointmentDialog
