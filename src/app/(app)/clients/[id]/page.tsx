@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy, Save } from 'lucide-react';
+import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy, Save, Award, Repeat } from 'lucide-react';
 import { appointments, services, inventory, type CustomFormula, Client, type Incident } from '@/lib/data';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
@@ -154,7 +154,7 @@ const AppointmentHistoryCard = ({
 
 export default function ClientDetailPage() {
   const params = useParams<{ id: string }>();
-  const { clients, setClients } = useInventory();
+  const { clients, setClients, appointments, services, inventory, memberships, packages } = useInventory();
   const client = clients.find((c) => c.id === params.id);
   const { toast } = useToast();
   const [isAddFormulaOpen, setIsAddFormulaOpen] = useState(false);
@@ -180,7 +180,7 @@ export default function ClientDetailPage() {
         });
         setPhotos(collectedPhotos);
     }
-  }, [client]);
+  }, [client, appointments]);
 
   useEffect(() => {
       setEditableReferralCode(client?.referralCode || '');
@@ -400,8 +400,47 @@ export default function ClientDetailPage() {
                                   </CardContent>
                               </Card>
                                <Card>
-                                   <CardHeader><CardTitle>Active Offers</CardTitle></CardHeader>
-                                  <CardContent><p className="text-sm text-center text-muted-foreground py-8">No active memberships or packages.</p></CardContent>
+                                  <CardHeader><CardTitle>Active Offers</CardTitle></CardHeader>
+                                  <CardContent>
+                                    {(!client.activeMembershipId && (!client.activePackages || client.activePackages.length === 0)) ? (
+                                        <p className="text-sm text-center text-muted-foreground py-8">No active memberships or packages.</p>
+                                    ) : (
+                                        <div className="space-y-4">
+                                            {client.activeMembershipId && (() => {
+                                                const membership = memberships.find(m => m.id === client.activeMembershipId);
+                                                if (!membership) return null;
+                                                return (
+                                                    <div className="p-4 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                                                        <h4 className="font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-2"><Award className="w-4 h-4" /> Active Membership</h4>
+                                                        <p className="font-bold text-lg mt-1">{membership.name}</p>
+                                                        <p className="text-xs text-muted-foreground">{membership.description}</p>
+                                                    </div>
+                                                )
+                                            })()}
+                                            {(client.activePackages && client.activePackages.length > 0) && (
+                                                <div className="space-y-2">
+                                                    <h4 className="font-semibold">Active Packages</h4>
+                                                    {client.activePackages.map((pack, index) => {
+                                                         const packageDetails = packages.find(pkg => pkg.id === pack.packageId);
+                                                         if (!packageDetails) return null;
+                                                         return (
+                                                            <div key={index} className="p-3 rounded-md bg-muted/50 flex justify-between items-center">
+                                                                <div>
+                                                                    <p className="font-medium text-sm flex items-center gap-2"><Repeat className="w-4 h-4 text-teal-500" /> {packageDetails.name}</p>
+                                                                    <p className="text-xs text-muted-foreground pl-6">{packageDetails.sessions} sessions total</p>
+                                                                </div>
+                                                                <div className="text-right">
+                                                                    <p className="font-bold text-lg">{pack.sessionsRemaining}</p>
+                                                                    <p className="text-xs text-muted-foreground">left</p>
+                                                                </div>
+                                                            </div>
+                                                         )
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                  </CardContent>
                               </Card>
                           </div>
                            <div className="lg:col-span-1 space-y-6">
@@ -606,6 +645,7 @@ export default function ClientDetailPage() {
   );
 
     
+
 
 
 
