@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -84,7 +85,10 @@ const WaitingCustomerCard = ({ walkIn, services, onPrintTicket }: { walkIn: Walk
                 <div className="flex justify-between items-start">
                     <div>
                         <p className="font-bold text-xl">{walkIn.customerName}</p>
-                        <p className="text-sm text-muted-foreground">Checked in <Timer startTime={walkIn.checkInTime} /> ago</p>
+                         <div className="flex items-center gap-2 text-lg font-semibold text-primary mt-1">
+                            <Clock className="h-5 w-5" />
+                            <span>Waiting <Timer startTime={walkIn.checkInTime} /></span>
+                        </div>
                     </div>
                     <div className="flex items-center gap-2">
                         <Badge variant="secondary">{walkIn.status}</Badge>
@@ -451,7 +455,7 @@ export default function WalkInQueuePage() {
       </main>
     </div>
     <Dialog open={!!ticketToPrint} onOpenChange={() => setTicketToPrint(null)}>
-      <DialogContent className="max-w-sm print-content">
+      <DialogContent className="sm:max-w-sm print-content">
         <DialogHeader className="print:hidden">
           <DialogTitle>Print Ticket</DialogTitle>
         </DialogHeader>
@@ -495,3 +499,5 @@ export default function WalkInQueuePage() {
     </>
   );
 }
+
+    
