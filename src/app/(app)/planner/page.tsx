@@ -85,7 +85,7 @@ const TimeIndicator = () => {
     if (top === 0) return null;
 
     return (
-        <div className="absolute w-full flex items-center z-10" style={{ top: `${top}px`, width: '100%' }}>
+        <div className="absolute w-full flex items-center z-10" style={{ top: `${top}px`, width: 'calc(100% + 1rem)' }}>
             <div className="h-2 w-2 rounded-full bg-red-500 -ml-1"></div>
             <div className="h-px w-full bg-red-500"></div>
         </div>
@@ -409,7 +409,6 @@ const BillsDueSheet = ({ open, onOpenChange, billInstances, isMobile, onLogPayme
 export default function PlannerPage() {
   const isMobile = useIsMobile();
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
-  const [isClient, setIsClient] = useState(false);
   const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
   const [events, setEvents] = useState<Event[]>(initialEvents);
   
@@ -457,10 +456,6 @@ export default function PlannerPage() {
   const billDefinitions = useMemo(() => (fetchedBillDefinitions && fetchedBillDefinitions.length > 0) ? fetchedBillDefinitions : mockDefinitions, [fetchedBillDefinitions, mockDefinitions]);
   const billInstances = useMemo(() => (fetchedBillInstances && fetchedBillInstances.length > 0) ? fetchedBillInstances : mockInstances, [fetchedBillInstances, mockInstances]);
 
-
-  useEffect(() => {
-    setIsClient(true);
-  }, []);
 
   const weekStart = useMemo(() => {
     return startOfWeek(currentDate, { weekStartsOn: 0 });
@@ -816,7 +811,12 @@ export default function PlannerPage() {
       .filter(evt => format(evt.startTime, 'yyyy-MM-dd') === format(currentDate, 'yyyy-MM-dd'))
       .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
   
-  if (!isClient) {
+  const [hasMounted, setHasMounted] = useState(false);
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
+
+  if (!hasMounted) {
     return (
       <div className="flex h-screen w-full flex-col">
         <AppHeaderClient title="Planner" />
@@ -1028,6 +1028,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
