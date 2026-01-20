@@ -376,8 +376,33 @@ export const clients: Client[] = [
 ];
 
 export const staff: Staff[] = [
-  { id: 'staff-1', name: 'Brenda Barnes', email: 'brenda@example.com', role: 'staff', avatarUrl: 'https://picsum.photos/seed/staff1/100', payStructure: 'commission', commissionRate: 45 },
-  { id: 'staff-2', name: 'Carlos Reyes', email: 'carlos@example.com', role: 'admin', avatarUrl: 'https://picsum.photos/seed/staff2/100', payStructure: 'salary', commissionRate: 0, hourlyRate: 0 },
+  { 
+    id: 'staff-1', 
+    name: 'Brenda Barnes', 
+    email: 'brenda@example.com', 
+    role: 'staff', 
+    avatarUrl: 'https://picsum.photos/seed/staff1/100', 
+    payStructure: 'commission', 
+    commissionRate: 45,
+    compliance: {
+      licenseNumber: 'C-12345',
+      licenseExpiry: addDays(new Date(), 15).toISOString(),
+    }
+  },
+  { 
+    id: 'staff-2', 
+    name: 'Carlos Reyes', 
+    email: 'carlos@example.com', 
+    role: 'admin', 
+    avatarUrl: 'https://picsum.photos/seed/staff2/100', 
+    payStructure: 'salary', 
+    commissionRate: 0, 
+    hourlyRate: 0,
+    compliance: {
+      licenseNumber: 'C-67890',
+      licenseExpiry: subDays(new Date(), 10).toISOString(),
+    }
+  },
 ];
 
 export const inventory: InventoryItem[] = [
