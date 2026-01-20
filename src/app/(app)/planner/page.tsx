@@ -4,7 +4,7 @@
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square } from 'lucide-react';
 import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem, type StockCorrection, type Staff, type AppointmentCheckoutState } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping } from 'date-fns';
@@ -828,6 +828,7 @@ export default function PlannerPage() {
       )
     );
     setIsCheckoutOpen(false);
+    setSelectedAppointment(null);
     toast({
       title: 'Sent to Front Desk',
       description: "Client is ready for checkout.",
@@ -868,16 +869,31 @@ export default function PlannerPage() {
   };
 
   const confirmFinishService = () => {
-    if (!finishConfirmAppointment) return;
+    if (!finishConfirmAppointment || !finishConfirmAppointment.actualStartTime) return;
+    
+    const endTime = new Date();
+    const updatedAppointment: Appointment = { 
+        ...finishConfirmAppointment, 
+        status: 'completed', 
+        actualEndTime: endTime.toISOString() 
+    };
+
     setAppointments(prev => prev.map(apt => 
       apt.id === finishConfirmAppointment.id 
-        ? { ...apt, status: 'ready_for_checkout', actualEndTime: new Date().toISOString() } 
+        ? updatedAppointment
         : apt
     ));
-    // Open checkout dialog directly after finishing
-    handleCompleteClick(finishConfirmAppointment);
+
+    const startTime = parseISO(finishConfirmAppointment.actualStartTime);
+    const duration = differenceInMinutes(endTime, startTime);
+
+    toast({
+        title: "Service Finished",
+        description: `The service took ${duration} minutes.`
+    });
+
     setFinishConfirmAppointment(null);
-  }
+  };
 
   const handleDeleteAppointment = (appointmentId: string) => {
     setAppointments(prev => prev.filter(apt => apt.id !== appointmentId));
@@ -1186,12 +1202,12 @@ export default function PlannerPage() {
                 <AlertDialogHeader>
                     <AlertDialogTitle>Finish Service?</AlertDialogTitle>
                     <AlertDialogDescription>
-                        This will log the current time as the actual end time and proceed to the checkout screen.
+                        This will log the current time as the actual end time and complete the appointment.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={confirmFinishService}>Finish & Checkout</AlertDialogAction>
+                    <AlertDialogAction onClick={confirmFinishService}>Finish Service</AlertDialogAction>
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>
@@ -1209,6 +1225,9 @@ export default function PlannerPage() {
 
 
 
+
+
+    
 
 
     
