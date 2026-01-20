@@ -18,7 +18,7 @@ import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle, UserPlus, Coins, Printer, Wallet, Award, Repeat, CheckCircle, Percent } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
-import { type InventoryItem, type StockCorrection, type Transaction, type Client, type Appointment, type Service, type AppointmentCheckoutState, Membership, Package } from '@/lib/data';
+import { type InventoryItem, type StockCorrection, type Transaction, type Client, type Appointment, type Service, type AppointmentCheckoutState, Membership, Package, type ClientFormData } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -39,6 +39,7 @@ import { cn } from '@/lib/utils';
 import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { CompleteAppointmentDialog, type CheckoutData } from '@/components/planner/CompleteAppointmentDialog';
+import { nanoid } from 'nanoid';
 
 
 type CartItem = {
@@ -332,7 +333,7 @@ const CartContent = ({
                 <div className="flex justify-between text-sm items-center">
                 <span className="text-muted-foreground">Tip</span>
                 <div className="relative w-24">
-                    <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <DollarSignIcon className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                     type="number"
                     value={tipAmount || ''}
@@ -461,7 +462,7 @@ const CartContent = ({
             onClick={handleCheckout}
             disabled={total < 0}
           >
-            <DollarSign className="mr-2 h-6 w-6" />
+            <DollarSignIcon className="mr-2 h-6 w-6" />
             Charge ${total > 0 ? total.toFixed(2) : '0.00'}
           </Button>
         </div>
@@ -604,6 +605,17 @@ export default function RetailPage() {
   }
 
   const handleRetailCheckout = () => {
+    const hasMembershipOrPackage = cart.some(item => item.type === 'membership' || item.type === 'package');
+    
+    if (hasMembershipOrPackage && !selectedClientId) {
+      toast({
+        variant: 'destructive',
+        title: 'Client Required',
+        description: 'Please select or create a client profile to sell memberships or packages.',
+      });
+      return;
+    }
+
     if (cart.length === 0) {
         toast({ variant: 'destructive', title: 'Empty Cart', description: 'Please add items to the cart before checking out.'});
         return;
@@ -749,10 +761,6 @@ export default function RetailPage() {
           setHasCameraPermission(true);
           if (videoRef.current) {
             videoRef.current.srcObject = stream;
-            const fakeScanTimeout = setTimeout(() => {
-                setScannedData(`clarityflow://walk-in/wi-1`); 
-                setIsScannerOpen(false);
-            }, 3000);
           }
         } catch (error) {
           console.error('Error accessing camera:', error);
@@ -863,6 +871,58 @@ export default function RetailPage() {
             ...receiptData
         });
     };
+
+      const handleAddClient = (data: ClientFormData) => {
+        const { referringClientId } = data;
+        
+        const firstName = data.name.split(' ')[0].toUpperCase();
+        const referralCode = `${firstName}${nanoid(4)}`;
+
+        const newClient: Client = {
+          id: `cli-${nanoid()}`,
+          name: data.name,
+          email: data.email || '',
+          phone: data.phone || '',
+          avatarUrl: data.avatarUrl || '',
+          lifetimeValue: 0,
+          lastAppointment: new Date().toISOString(),
+          status: 'active',
+          notes: data.notes,
+          referralCode: referralCode,
+          birthday: data.birthday ? data.birthday.toISOString() : undefined,
+          address: data.address,
+          emergencyContact: data.emergencyContact,
+          intel: {
+            referralSource: data.intel?.referralSource
+          }
+        };
+        
+        let updatedClients = [...clients];
+        
+        if (referringClientId) {
+            const referrerIndex = updatedClients.findIndex(c => c.id === referringClientId);
+            if (referrerIndex !== -1) {
+                const referrer = { ...updatedClients[referrerIndex] };
+                
+                newClient.referredBy = referrer.name;
+
+                referrer.successfulReferrals = [...(referrer.successfulReferrals || []), newClient.name];
+                
+                updatedClients[referrerIndex] = referrer;
+            }
+        }
+        
+        updatedClients.push(newClient);
+        
+        setClients(updatedClients);
+        setSelectedClientId(newClient.id);
+
+        toast({
+          title: "Client Added",
+          description: `${newClient.name} has been added to your client list and selected.`,
+        });
+        setIsAddClientOpen(false);
+    }
     
     const checkoutAppointmentData = useMemo(() => {
         if (!checkoutAppointment) return null;
@@ -930,14 +990,14 @@ export default function RetailPage() {
                   </TabsContent>
                    <TabsContent value="memberships" className="m-0">
                       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
-                          {memberships && memberships.map(membership => (
+                          {memberships.map(membership => (
                               <MembershipProductCard key={membership.id} membership={membership} onClick={() => addToCart(membership, 'membership')} />
                           ))}
                       </div>
                   </TabsContent>
                   <TabsContent value="packages" className="m-0">
                       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
-                          {packages && packages.map(pack => (
+                          {packages.map(pack => (
                               <PackageProductCard key={pack.id} pack={pack} onClick={() => addToCart(pack, 'package')} services={services} />
                           ))}
                       </div>
@@ -1061,7 +1121,7 @@ export default function RetailPage() {
         </DialogContent>
       </Dialog>
     </div>
-    <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients} onSave={() => {}} />
+    <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients} onSave={handleAddClient} />
     
     {checkoutAppointmentData && (
         <CompleteAppointmentDialog
