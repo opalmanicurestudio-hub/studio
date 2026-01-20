@@ -15,12 +15,11 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useAuth } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { Loader } from 'lucide-react';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
 import Link from 'next/link';
 
 const loginSchema = z.object({
@@ -31,7 +30,6 @@ const loginSchema = z.object({
 type LoginFormData = z.infer<typeof loginSchema>;
 
 export default function LoginPage() {
-  const auth = useAuth();
   const { toast } = useToast();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
@@ -46,6 +44,7 @@ export default function LoginPage() {
 
   const onSubmit = async (data: LoginFormData) => {
     setIsLoading(true);
+    const auth = getAuth();
     try {
       await signInWithEmailAndPassword(auth, data.email, data.password);
       // onAuthStateChanged in the AuthGuard will handle the redirect.

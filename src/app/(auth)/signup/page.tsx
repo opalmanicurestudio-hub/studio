@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -16,12 +15,11 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useAuth } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { Loader } from 'lucide-react';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
-import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
+import { getAuth, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import Link from 'next/link';
 
 const signupSchema = z.object({
@@ -33,7 +31,6 @@ const signupSchema = z.object({
 type SignupFormData = z.infer<typeof signupSchema>;
 
 export default function SignupPage() {
-  const auth = useAuth();
   const { toast } = useToast();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
@@ -48,6 +45,7 @@ export default function SignupPage() {
 
   const onSubmit = async (data: SignupFormData) => {
     setIsLoading(true);
+    const auth = getAuth();
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, data.email, data.password);
       
@@ -57,7 +55,6 @@ export default function SignupPage() {
       });
       
       // onAuthStateChanged in the AuthGuard will handle the redirect.
-      // No need to call router.push here if AuthGuard is set up correctly.
     } catch (error: any) {
       let description = 'An unexpected error occurred. Please try again.';
       if (error.code === 'auth/email-already-in-use') {
