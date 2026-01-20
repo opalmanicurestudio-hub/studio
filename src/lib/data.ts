@@ -217,6 +217,7 @@ export type Appointment = {
   inspirationPhotoUrl?: string;
   absorbedCost?: number;
   incident?: Incident;
+  isWalkIn?: boolean;
 };
 
 export type EventChecklistItem = {
@@ -274,6 +275,7 @@ export type WalkIn = {
     assignedStaffId?: string;
     notes?: string;
     preferredStaffId?: string;
+    waitForPreferredStaff?: boolean;
 };
 
 export type StockCorrection = {
