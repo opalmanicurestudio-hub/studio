@@ -5,7 +5,7 @@
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User } from 'lucide-react';
-import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem, type StockCorrection, type Staff } from '@/lib/data';
+import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem, type StockCorrection, type Staff, type AppointmentCheckoutState } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping } from 'date-fns';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -61,6 +61,7 @@ import { LogPaymentDialog } from '@/components/bills/LogPaymentDialog';
 import { PickingListDialog } from '@/components/planner/PickingListDialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 
 
 const DayTimeline = ({ 
@@ -453,6 +454,8 @@ export default function PlannerPage() {
     staff,
     appointments, 
     setAppointments,
+    activityLogs, 
+    setActivityLogs
   } = useInventory();
   
   const { firestore, user, isUserLoading } = useFirebase();
@@ -476,6 +479,10 @@ export default function PlannerPage() {
   const [ticketToPrint, setTicketToPrint] = useState<TicketData | null>(null);
   
   const [mobileSelectedStaffId, setMobileSelectedStaffId] = useState<string>('');
+
+  const [startConfirmAppointment, setStartConfirmAppointment] = useState<Appointment | null>(null);
+  const [finishConfirmAppointment, setFinishConfirmAppointment] = useState<Appointment | null>(null);
+
 
   useEffect(() => {
     if (staff && staff.length > 0 && !mobileSelectedStaffId) {
@@ -808,15 +815,24 @@ export default function PlannerPage() {
         });
     }
   
-  const handleSendToDesk = () => {
-    if (!selectedAppointment) return;
-    handleUpdateStatus(selectedAppointment.id, 'ready_for_checkout');
-    setIsCheckoutOpen(false); // Close the dialog
+  const handleSendToDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
+    setAppointments(prev =>
+      prev.map(apt =>
+        apt.id === appointmentId
+          ? {
+              ...apt,
+              status: 'ready_for_checkout',
+              checkoutState,
+            }
+          : apt
+      )
+    );
+    setIsCheckoutOpen(false);
     toast({
-        title: "Sent to Front Desk",
-        description: `${selectedAppointmentData?.client?.name}'s appointment is now ready for checkout.`
-    })
-  }
+      title: 'Sent to Front Desk',
+      description: "Client is ready for checkout.",
+    });
+  };
 
   const handleUpdateStatus = (appointmentId: string, status: Appointment['status']) => {
     setAppointments(prev => prev.map(apt => apt.id === appointmentId ? { ...apt, status } : apt));
@@ -827,8 +843,16 @@ export default function PlannerPage() {
   };
 
   const handleStartService = (appointmentId: string) => {
+    const appointmentToStart = appointments.find(apt => apt.id === appointmentId);
+    if (appointmentToStart) {
+        setStartConfirmAppointment(appointmentToStart);
+    }
+  };
+
+  const confirmStartService = () => {
+    if (!startConfirmAppointment) return;
     setAppointments(prev => prev.map(apt => 
-      apt.id === appointmentId 
+      apt.id === startConfirmAppointment.id 
         ? { ...apt, status: 'servicing', actualStartTime: new Date().toISOString() } 
         : apt
     ));
@@ -836,17 +860,24 @@ export default function PlannerPage() {
         title: "Service Started",
         description: "The appointment is now marked as 'In Service'."
     });
+    setStartConfirmAppointment(null);
   };
 
   const handleFinishService = (appointment: Appointment) => {
+     setFinishConfirmAppointment(appointment);
+  };
+
+  const confirmFinishService = () => {
+    if (!finishConfirmAppointment) return;
     setAppointments(prev => prev.map(apt => 
-      apt.id === appointment.id 
+      apt.id === finishConfirmAppointment.id 
         ? { ...apt, status: 'ready_for_checkout', actualEndTime: new Date().toISOString() } 
         : apt
     ));
     // Open checkout dialog directly after finishing
-    handleCompleteClick(appointment);
-  };
+    handleCompleteClick(finishConfirmAppointment);
+    setFinishConfirmAppointment(null);
+  }
 
   const handleDeleteAppointment = (appointmentId: string) => {
     setAppointments(prev => prev.filter(apt => apt.id !== appointmentId));
@@ -1134,6 +1165,36 @@ export default function PlannerPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+        <AlertDialog open={!!startConfirmAppointment} onOpenChange={(open) => !open && setStartConfirmAppointment(null)}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Start Service?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        This will mark the appointment as &quot;In Service&quot; and log the current time as the actual start time.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={confirmStartService}>Start Service</AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog open={!!finishConfirmAppointment} onOpenChange={(open) => !open && setFinishConfirmAppointment(null)}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Finish Service?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        This will log the current time as the actual end time and proceed to the checkout screen.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={confirmFinishService}>Finish & Checkout</AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
 
         <div id="print-ticket-area" className="hidden">
             {ticketToPrint && <PrintTicket data={ticketToPrint} />}

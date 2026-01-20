@@ -15,8 +15,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { AlertCircle, CheckCircle, FileText, FlaskConical, PlusCircle, Trash2, Library, Wand, QrCode, Search, AlertTriangle, ShoppingCart, CreditCard, Banknote, Gift, Coins, ShieldAlert } from 'lucide-react';
-import { type Appointment, type Client, type Service, type InventoryItem, type StockCorrection, type CustomFormula } from '@/lib/data';
+import { AlertCircle, CheckCircle, FileText, FlaskConical, PlusCircle, Trash2, Library, Wand, QrCode, Search, AlertTriangle, ShoppingCart, CreditCard, Banknote, Gift, Coins, ShieldAlert, DollarSign as DollarSignIcon } from 'lucide-react';
+import { type Appointment, type Client, type Service, type InventoryItem, type StockCorrection, type CustomFormula, type Staff, AppointmentCheckoutState } from '@/lib/data';
 import { Input } from '../ui/input';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { useInventory } from '@/context/InventoryContext';
@@ -32,6 +32,7 @@ import { ReceiptData } from './PrintReceipt';
 import { LogIncidentForm, incidentSchema, type IncidentFormData } from '../incidents/LogIncidentForm';
 import { FormProvider, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { differenceInMinutes, parseISO } from 'date-fns';
 
 type EditableFormulaItem = {
     id: string; // productId
@@ -52,7 +53,7 @@ interface CompleteAppointmentDialogProps {
     service: Service | undefined;
   };
   onConfirmCheckout: (updatedInventory: InventoryItem[], newCorrections: StockCorrection[], receiptData: Omit<ReceiptData, 'business'>, incident?: IncidentFormData) => void;
-  onSendToFrontDesk: () => void;
+  onSendToFrontDesk: (appointmentId: string, checkoutState: AppointmentCheckoutState) => void;
 }
 
 export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps> = ({
@@ -62,13 +63,15 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   onConfirmCheckout,
   onSendToFrontDesk,
 }) => {
-  const { inventory } = useInventory();
+  const { inventory, services, staff } = useInventory();
   const { appointment, client, service } = appointmentData;
   const [formulaName, setFormulaName] = useState('Default Service Formula');
   const { toast } = useToast();
 
   const [editableFormula, setEditableFormula] = useState<EditableFormulaItem[]>([]);
   const [retailItems, setRetailItems] = useState<EditableFormulaItem[]>([]);
+  const [selectedAddOns, setSelectedAddOns] = useState<Service[]>([]);
+  const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
   
   const [paymentTab, setPaymentTab] = useState('card');
   const [amountTendered, setAmountTendered] = useState<number>(0);
@@ -96,37 +99,41 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   const [promoCode, setPromoCode] = useState('');
   const [discount, setDiscount] = useState(0);
 
+  const [serviceStaffOverrides, setServiceStaffOverrides] = useState<Record<string, string>>({});
+  const [tipAllocations, setTipAllocations] = useState<Record<string, number>>({});
   
   useEffect(() => {
-    if (open && service) {
-        const defaultFormula = service.products?.map(p => ({
-            id: p.id,
-            name: p.name,
-            quantity: p.quantityUsed,
-            unit: p.unit || 'uses',
-            costPerUnit: p.costPerUnit || 0,
+    if (open && service && appointment) {
+        const checkoutState = appointment.checkoutState;
+        const initialFormula = checkoutState?.formula || service.products?.map(p => ({
+            id: p.id, name: p.name, quantity: p.quantityUsed, unit: p.unit || 'uses', costPerUnit: p.costPerUnit || 0
         })) || [];
-        setEditableFormula(defaultFormula);
-        setRetailItems([]);
+        setEditableFormula(initialFormula);
+        setRetailItems(checkoutState?.retailItems || []);
+        const initialAddons = checkoutState?.addOns || (appointment.addOnIds || [])
+            .map(id => services.find(s => s.id === id))
+            .filter((s): s is Service => !!s);
+        setSelectedAddOns(initialAddons);
         setFormulaName('Default Service Formula');
         setAmountTendered(0);
-        setTipAmount(0);
+        setTipAmount(checkoutState?.tipAmount || 0);
         setPaymentTab('card');
-        setActualDuration(service.duration);
+        setActualDuration(checkoutState?.actualDuration || service.duration);
         setApplyAdditionalCharges(true);
         setLogIncident(false);
         incidentMethods.reset();
-        setPromoCode(client?.referredBy ? 'NEWCLIENT15' : ''); // Mock auto-apply
+        setPromoCode(client?.referredBy ? 'NEWCLIENT15' : '');
         setDiscount(0);
+        setServiceStaffOverrides(checkoutState?.serviceStaffOverrides || { [service.id]: appointment.staffId || '' });
     }
-  }, [service, open, incidentMethods, client]);
+  }, [service, open, appointment, incidentMethods, client, services]);
+
+  const allServicesForAppointment = useMemo(() => [service, ...selectedAddOns].filter((s): s is Service => !!s), [service, selectedAddOns]);
 
   const { initialBreakEven, finalBreakEven, additionalCharge, absorbedCost } = useMemo(() => {
     if (!service) return { initialBreakEven: 0, finalBreakEven: 0, additionalCharge: 0, absorbedCost: 0 };
     
     const tmhr = (typeof window !== 'undefined' && parseFloat(localStorage.getItem('tmhr') || '50')) || 50;
-
-    // Calculate initial cost based on the service's default formula and duration
     const initialProductCost = (service.products || []).reduce((acc, p) => {
         const inventoryItem = inventory.find(i => i.id === p.id);
         const cost = inventoryItem?.costPerUnit || 0;
@@ -135,13 +142,17 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     const initialTimeCost = ((service.duration + (service.padBefore || 0) + (service.padAfter || 0)) / 60) * tmhr;
     const initialBreakEvenCost = initialProductCost + initialTimeCost;
 
-    // Calculate final cost based on the edited formula and actual duration
     const finalProductCost = editableFormula.reduce((acc, item) => {
         const inventoryItem = inventory.find(i => i.id === item.id);
         const cost = inventoryItem?.costPerUnit || 0;
         return acc + (cost * item.quantity);
     }, 0);
-    const finalTimeCost = ((actualDuration + (service.padBefore || 0) + (service.padAfter || 0)) / 60) * tmhr;
+
+    const actualServiceDuration = appointment.actualEndTime && appointment.actualStartTime
+      ? differenceInMinutes(parseISO(appointment.actualEndTime), parseISO(appointment.actualStartTime))
+      : actualDuration;
+      
+    const finalTimeCost = ((actualServiceDuration + (service.padBefore || 0) + (service.padAfter || 0)) / 60) * tmhr;
     const finalBreakEvenCost = finalProductCost + finalTimeCost;
     
     const additionalChargeValue = Math.max(0, finalBreakEvenCost - initialBreakEvenCost);
@@ -153,7 +164,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         additionalCharge: additionalChargeValue,
         absorbedCost: absorbedCostValue
     };
-  }, [service, actualDuration, editableFormula, inventory, applyAdditionalCharges]);
+  }, [service, actualDuration, editableFormula, inventory, applyAdditionalCharges, appointment]);
 
   const retailTotal = useMemo(() => {
     return retailItems.reduce((acc, item) => {
@@ -163,37 +174,26 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     }, 0);
   }, [retailItems, inventory]);
   
-  const subtotal = (service?.price || 0) + retailTotal + (applyAdditionalCharges ? additionalCharge : 0);
+  const subtotal = (service?.price || 0) + selectedAddOns.reduce((acc, s) => acc + s.price, 0) + retailTotal + (applyAdditionalCharges ? additionalCharge : 0);
   const mockTax = (subtotal - discount) * 0.07; // 7% tax for demo
   const grandTotal = subtotal - discount + mockTax + tipAmount;
   
   const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - grandTotal : 0;
 
   const handleApplyPromo = () => {
-    // Mock validation logic
     if (promoCode === 'NEWCLIENT15' && client && client.lifetimeValue < (service?.price || 0)) {
         setDiscount(15);
-        toast({
-            title: "Discount Applied!",
-            description: "$15.00 new client discount has been applied.",
-        })
+        toast({ title: "Discount Applied!", description: "$15.00 new client discount has been applied." })
     } else {
-        toast({
-            variant: "destructive",
-            title: "Invalid Code",
-            description: "This promo code is not valid for this client or appointment.",
-        })
+        toast({ variant: "destructive", title: "Invalid Code", description: "This promo code is not valid for this client or appointment." })
     }
   }
 
   const handleKeepTheChange = () => {
     if (changeDue > 0) {
         setTipAmount(prevTip => prevTip + changeDue);
-        setAmountTendered(grandTotal + changeDue); // Effectively makes change 0
-        toast({
-            title: "Tip Added!",
-            description: `$${changeDue.toFixed(2)} has been added as a tip.`
-        });
+        setAmountTendered(grandTotal + changeDue); 
+        toast({ title: "Tip Added!", description: `$${changeDue.toFixed(2)} has been added as a tip.` });
     }
   };
 
@@ -207,23 +207,14 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   
   const handleAddProduct = (products: InventoryItem[]) => {
       const newItems: EditableFormulaItem[] = products.map(p => ({
-        id: p.id,
-        name: p.name,
-        quantity: 1, // Default quantity, user can edit
-        unit: p.unit || 'unit',
-        costPerUnit: p.costPerUnit || 0,
-        isCustom: true,
+        id: p.id, name: p.name, quantity: 1, unit: p.unit || 'unit', costPerUnit: p.costPerUnit || 0, isCustom: true,
       }));
       setEditableFormula(prev => [...prev, ...newItems.filter(newItem => !prev.find(item => item.id === newItem.id))]);
   };
 
   const handleAddRetail = (products: InventoryItem[]) => {
       const newItems: EditableFormulaItem[] = products.map(p => ({
-        id: p.id,
-        name: p.name,
-        quantity: 1,
-        unit: 'unit',
-        costPerUnit: p.costPerUnit || 0,
+        id: p.id, name: p.name, quantity: 1, unit: 'unit', costPerUnit: p.costPerUnit || 0,
       }));
       setRetailItems(newItems);
   }
@@ -242,11 +233,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
       const newFormula: EditableFormulaItem[] = formula.items.map(item => {
         const product = inventory.find(p => p.id === item.productId);
         return {
-            id: item.productId,
-            name: item.productName,
-            quantity: item.quantityUsed,
-            unit: item.unit,
-            costPerUnit: product?.costPerUnit || 0,
+            id: item.productId, name: item.productName, quantity: item.quantityUsed, unit: item.unit, costPerUnit: product?.costPerUnit || 0,
         }
       });
       setEditableFormula(newFormula);
@@ -269,11 +256,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     if (logIncident) {
         const isValid = await incidentMethods.trigger();
         if (!isValid) {
-            toast({
-                variant: 'destructive',
-                title: "Incident Form Incomplete",
-                description: "Please fill out all required fields for the incident report.",
-            });
+            toast({ variant: 'destructive', title: "Incident Form Incomplete", description: "Please fill out all required fields for the incident report." });
             return;
         }
         incidentData = incidentMethods.getValues();
@@ -282,8 +265,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     if (!client || !service) return;
 
     const receiptData: Omit<ReceiptData, 'business'> = {
-        clientName: client.name,
-        date: appointment.endTime,
+        clientName: client.name, date: appointment.endTime,
         items: [
             { name: service.name, quantity: 1, price: service.price },
             ...retailItems.map(item => {
@@ -293,24 +275,26 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
             }),
             ...(additionalCharge > 0 && applyAdditionalCharges ? [{ name: 'Additional Charges', quantity: 1, price: additionalCharge }] : [])
         ],
-        subtotal: subtotal,
-        tax: mockTax,
-        tip: tipAmount,
-        total: grandTotal,
-        payment: {
-            method: paymentTab,
-            amountTendered: paymentTab === 'cash' ? amountTendered : grandTotal,
-            changeDue: changeDue > 0 ? changeDue : 0,
-        }
+        subtotal: subtotal, tax: mockTax, tip: tipAmount, total: grandTotal,
+        payment: { method: paymentTab, amountTendered: paymentTab === 'cash' ? amountTendered : grandTotal, changeDue: changeDue > 0 ? changeDue : 0 }
     };
     onConfirmCheckout(updatedInventory, newCorrections, receiptData, incidentData);
   };
 
-  const handleSendToDesk = () => {
-    onSendToFrontDesk();
-    onOpenChange(false);
-  }
+  const handleSendToFrontDesk = () => {
+    if (!client || !service) return;
 
+    const currentCheckoutState: AppointmentCheckoutState = {
+        formula: editableFormula,
+        retailItems,
+        addOns: selectedAddOns,
+        actualDuration,
+        serviceStaffOverrides,
+        tipAllocations,
+        tipAmount,
+    };
+    onSendToFrontDesk(appointment.id, currentCheckoutState);
+  }
 
   const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
   const [isRetailBrowserOpen, setIsRetailBrowserOpen] = useState(false);
@@ -350,7 +334,13 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   const handleDenominationClick = (amount: number) => {
     setAmountTendered(prev => prev + amount);
   }
-
+  
+  const actualServiceDuration = useMemo(() => {
+    if (appointment.actualStartTime && appointment.actualEndTime) {
+      return differenceInMinutes(parseISO(appointment.actualEndTime), parseISO(appointment.actualStartTime));
+    }
+    return actualDuration;
+  }, [appointment, actualDuration]);
 
   if (!client || !service) {
     return null;
@@ -396,9 +386,15 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                         <Input 
                             id="actual-duration"
                             type="number"
-                            value={actualDuration}
+                            value={actualServiceDuration}
                             onChange={(e) => setActualDuration(parseInt(e.target.value) || 0)}
+                            readOnly={!!(appointment.actualStartTime && appointment.actualEndTime)}
                         />
+                         {appointment.actualStartTime && appointment.actualEndTime && (
+                            <p className="text-xs text-muted-foreground">
+                                Service duration tracked from start to finish: {actualServiceDuration} min. (Scheduled: {service.duration} min)
+                            </p>
+                        )}
                       </div>
                       <Separator />
                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -454,9 +450,23 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
               <Card>
                 <CardHeader>
                   <CardTitle>Retail & Add-ons</CardTitle>
-                  <CardDescription>Add any products the client is purchasing.</CardDescription>
+                  <CardDescription>Add any products the client is purchasing or extra services.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
+                     <h4 className="font-medium text-sm">Add-on Services</h4>
+                     <div className="space-y-2 text-sm">
+                          {selectedAddOns.map((item) => (
+                              <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md">
+                                  <p className="font-medium">{item.name}</p>
+                                  <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => setSelectedAddOns(prev => prev.filter(s => s.id !== item.id))}>
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                              </div>
+                          ))}
+                      </div>
+                      <Button variant="outline" size="sm" onClick={() => setIsAddOnSelectorOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Select Add-ons</Button>
+                     <Separator className="my-4"/>
+                     <h4 className="font-medium text-sm">Retail Products</h4>
                      <div className="space-y-2 text-sm">
                           {retailItems.map((item) => {
                              const product = inventory.find(p => p.id === item.id);
@@ -520,6 +530,9 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                       </div>
                       <div className="p-4 rounded-lg bg-muted/50 space-y-2 text-sm">
                         <div className='flex justify-between'><span>Base Service Price:</span><span>${service.price.toFixed(2)}</span></div>
+                        {selectedAddOns.map(addon => (
+                            <div key={addon.id} className="flex justify-between pl-4"><span>+ {addon.name}</span><span>${addon.price.toFixed(2)}</span></div>
+                        ))}
                         <div className='flex justify-between'><span>Retail:</span><span>${retailTotal.toFixed(2)}</span></div>
                         
                         {additionalCharge > 0 && (
@@ -620,7 +633,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
           </ScrollArea>
           <DialogFooter className="print:hidden pt-4 border-t">
             <div className="flex flex-col sm:flex-row sm:justify-end gap-2 w-full">
-                <Button variant="secondary" onClick={handleSendToDesk}>Send to Front Desk</Button>
+                <Button variant="secondary" onClick={handleSendToFrontDesk}>Send to Front Desk</Button>
                 <div className="flex-1" />
                 <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
                 <Button onClick={handleCompleteAppointment} disabled={warnings.some(w => w.includes('Insufficient stock'))}>
@@ -630,6 +643,13 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <SelectAddOnsDialog
+        open={isAddOnSelectorOpen}
+        onOpenChange={setIsAddOnSelectorOpen}
+        onSelect={setSelectedAddOns}
+        allAddOns={services.filter(s => s.type === 'addon')}
+        initialSelected={selectedAddOns}
+      />
       <BrowseProductsDialog
         open={isProductBrowserOpen}
         onOpenChange={setIsProductBrowserOpen}
@@ -655,7 +675,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
           <div className="p-4 relative">
              <video ref={videoRef} className="w-full aspect-square rounded-md bg-muted" autoPlay muted playsInline />
              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
+                <div className="w-2/3 h-1/2 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
             </div>
             {hasCameraPermission === false && (
                 <Alert variant="destructive" className="mt-4">

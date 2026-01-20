@@ -217,7 +217,7 @@ export type InventoryItem = {
 export type AppointmentCheckoutState = {
     formula: any[];
     retailItems: any[];
-    addOns: any[];
+    addOns: Service[];
     actualDuration: number;
     serviceStaffOverrides?: Record<string, string>;
     tipAllocations?: Record<string, number>;
