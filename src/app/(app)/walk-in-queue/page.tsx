@@ -180,34 +180,47 @@ export default function WalkInQueuePage() {
 
         // Attempt to assign the first customer who can be served.
         for (const customer of waitingCustomers) {
+            let assignedStaff: Staff | undefined;
+
             // Find staff who have ALL the required skills for this customer's services
             const eligibleStaff = idleStaff.filter(s => 
                 (customer.requiredSkills || []).every(skill => (s.skillSet || []).includes(skill))
             );
 
             if (eligibleStaff.length > 0) {
-                // We have staff who can serve this customer. Now, pick the best one.
-                // "Best" is defined as the one who has been idle the longest (oldest lastServedTimestamp).
-                const bestStaff = eligibleStaff.sort((a,b) => 
-                    (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - 
-                    (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0)
-                )[0];
+                // Check if customer has a preferred staff member and if they are eligible
+                if (customer.preferredStaffId) {
+                    const preferred = eligibleStaff.find(s => s.id === customer.preferredStaffId);
+                    if (preferred) {
+                        assignedStaff = preferred; // Assign the preferred staff member
+                    }
+                }
+
+                // If no preferred staff was assigned, fall back to the fairest turn rotation
+                if (!assignedStaff) {
+                    // "Best" is defined as the one who has been idle the longest (oldest lastServedTimestamp).
+                    assignedStaff = eligibleStaff.sort((a, b) =>
+                        (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) -
+                        (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0)
+                    )[0];
+                }
                 
-                // Assign this customer to this staff member
-                const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', customer.id);
-                updateDocumentNonBlocking(walkInDocRef, {
-                    status: 'assigned',
-                    assignedStaffId: bestStaff.id,
-                });
+                // If we found a staff member to assign (either preferred or by rotation)
+                if (assignedStaff) {
+                    const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', customer.id);
+                    updateDocumentNonBlocking(walkInDocRef, {
+                        status: 'assigned',
+                        assignedStaffId: assignedStaff.id,
+                    });
 
-                const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', bestStaff.id);
-                updateDocumentNonBlocking(staffDocRef, {
-                    status: 'busy',
-                });
+                    const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', assignedStaff.id);
+                    updateDocumentNonBlocking(staffDocRef, {
+                        status: 'busy',
+                    });
 
-                // We've made an assignment, so we break the loop to process one assignment at a time.
-                // The useEffect will re-run when the data changes, handling the next assignment if possible.
-                break;
+                    // We've made an assignment, so we break the loop to process one assignment at a time.
+                    break;
+                }
             }
         }
 
@@ -292,4 +305,3 @@ export default function WalkInQueuePage() {
     </div>
   );
 }
-
