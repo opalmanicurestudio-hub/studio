@@ -4,12 +4,25 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { Check, Loader } from 'lucide-react';
+import { Check, Loader, Award } from 'lucide-react';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, where, doc } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { updateDocumentNonBlocking } from '@/firebase';
+import Link from 'next/link';
+
+const proFeatures = [
+    'Smart Walk-in & Appointment Scheduling',
+    'True Minimum Hourly Rate (TMHR) Calculation',
+    'Client Management & Custom Formulas',
+    'Inventory & Product Costing',
+    'Staff Performance & Payroll',
+    'AI-Powered Business Insights',
+    'Recurring Memberships & Packages',
+    'Quotes & Invoicing for Events',
+    'Point of Sale (POS) for Retail'
+];
 
 
 export default function SubscriptionsPage() {
@@ -88,83 +101,67 @@ export default function SubscriptionsPage() {
 
     if (isLoading) {
         return (
-            <div className="flex min-h-screen w-full flex-col items-center justify-center bg-muted/40 p-4">
+            <div className="flex h-screen w-full items-center justify-center">
                 <Loader className="h-8 w-8 animate-spin" />
             </div>
         );
     }
     
-    if (tenant && tenant.subscriptionStatus === 'active') {
+    const ProPlanCard = ({ onSubscribe, isLoading }: { onSubscribe: () => void, isLoading: boolean }) => (
+        <Card className="border-2 border-primary shadow-2xl shadow-primary/20 w-full max-w-md">
+            <CardHeader className="text-center">
+                 <div className="mx-auto bg-primary/10 p-3 rounded-full mb-2">
+                    <Award className="w-8 h-8 text-primary" />
+                </div>
+                <CardTitle className="text-2xl">ClarityFlow Pro</CardTitle>
+                <CardDescription>The complete toolkit for solo service professionals.</CardDescription>
+                <div className="flex items-baseline justify-center gap-2 pt-4">
+                    <span className="text-5xl font-extrabold">$49</span>
+                    <span className="text-muted-foreground">/ month</span>
+                </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+                <ul className="space-y-3">
+                    {proFeatures.map((feature, i) => (
+                        <li key={i} className="flex items-start gap-3">
+                            <Check className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
+                            <span className="text-sm text-muted-foreground">{feature}</span>
+                        </li>
+                    ))}
+                </ul>
+            </CardContent>
+            <CardFooter>
+                 <Button className="w-full" size="lg" onClick={onSubscribe} disabled={isLoading}>
+                    {isLoading ? <Loader className="animate-spin" /> : 'Get Started with Pro'}
+                </Button>
+            </CardFooter>
+        </Card>
+    );
+
+    if (tenant?.subscriptionStatus === 'active') {
         return (
-             <div className="flex min-h-screen w-full flex-col items-center justify-center bg-muted/40 p-4">
-                <Card className="w-full max-w-md">
-                    <CardHeader>
-                        <CardTitle>Manage Your Subscription</CardTitle>
-                        <CardDescription>
-                            Thank you for being a Pro member, {user?.displayName || 'user'}!
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <Card className="border-primary">
-                            <CardHeader>
-                                <CardTitle>Pro Plan</CardTitle>
-                                <div className="flex items-baseline gap-2">
-                                    <span className="text-4xl font-bold">$49</span>
-                                    <span className="text-muted-foreground">/ month</span>
-                                </div>
-                            </CardHeader>
-                            <CardContent>
-                                <p className="text-sm text-muted-foreground">Your subscription is currently active.</p>
-                            </CardContent>
-                            <CardFooter>
-                                <Button variant="destructive" className="w-full" onClick={handleCancelSubscription} disabled={isCancelling}>
-                                    {isCancelling ? <Loader className="animate-spin" /> : 'Cancel Subscription'}
-                                </Button>
-                            </CardFooter>
-                        </Card>
-                    </CardContent>
-                     <CardFooter>
-                        <Button variant="outline" className="w-full" asChild>
-                            <Link href="/dashboard">Back to Dashboard</Link>
-                        </Button>
-                    </CardFooter>
-                </Card>
+            <div className="text-center space-y-6">
+                <h1 className="text-3xl font-bold">You're already a Pro!</h1>
+                <p className="text-muted-foreground">Thank you for being a ClarityFlow Pro member. You have full access to all features.</p>
+                <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                    <Button asChild><Link href="/dashboard">Go to Dashboard</Link></Button>
+                    <Button variant="destructive" onClick={handleCancelSubscription} disabled={isCancelling}>
+                         {isCancelling ? <Loader className="animate-spin" /> : 'Cancel Subscription'}
+                    </Button>
+                </div>
             </div>
-        )
+        );
     }
 
     return (
-        <div className="flex min-h-screen w-full flex-col items-center justify-center bg-muted/40 p-4">
-            <Card className="w-full max-w-md">
-                <CardHeader>
-                    <CardTitle>Choose Your Plan</CardTitle>
-                    <CardDescription>
-                        Welcome, {user?.displayName || 'user'}! Subscribe to unlock your dashboard.
-                    </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <Card className="border-primary ring-2 ring-primary">
-                        <CardHeader>
-                            <CardTitle>Pro Plan</CardTitle>
-                            <div className="flex items-baseline gap-2">
-                                <span className="text-4xl font-bold">$49</span>
-                                <span className="text-muted-foreground">/ month</span>
-                            </div>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                            <ul className="space-y-2 text-sm text-muted-foreground">
-                                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-primary" /> Full-featured Dashboard</li>
-                                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-primary" /> Client & Service Management</li>
-                                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-primary" /> Inventory Tracking</li>
-                                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-primary" /> AI-Powered Insights</li>
-                            </ul>
-                            <Button className="w-full" onClick={handleSubscribe} disabled={isSubscribing || isLoading}>
-                                {isSubscribing ? <Loader className="animate-spin" /> : 'Subscribe to Pro'}
-                            </Button>
-                        </CardContent>
-                    </Card>
-                </CardContent>
-            </Card>
+        <div className="w-full flex flex-col items-center text-center space-y-6">
+             <div className="max-w-2xl">
+                <h1 className="text-4xl font-extrabold tracking-tight">Unlock Your Full Potential</h1>
+                <p className="mt-4 text-lg text-muted-foreground">
+                    You're one step away. Choose the Pro plan to get instant access to every tool you need to manage and grow your business.
+                </p>
+            </div>
+            <ProPlanCard onSubscribe={handleSubscribe} isLoading={isSubscribing} />
         </div>
     );
 }
