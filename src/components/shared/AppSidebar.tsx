@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import { usePathname } from 'next/navigation';
@@ -34,6 +32,7 @@ import {
   ShoppingCart,
   Gift,
   Users2,
+  ListChecks,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -73,6 +72,7 @@ const setupNavItems = [
 const operationsNavItems = [
     { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { href: '/planner', icon: Calendar, label: 'Planner' },
+    { href: '/walk-in-queue', icon: ListChecks, label: 'Walk-in Queue' },
     { href: '/retail', icon: ShoppingCart, label: 'Retail' },
     { href: '/quotes', icon: FileText, label: 'Quotes' },
 ];
