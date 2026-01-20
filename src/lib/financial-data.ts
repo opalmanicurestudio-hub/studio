@@ -41,6 +41,8 @@ export type Transaction = {
   relatedBillInstanceId?: string; // Link to a bill instance
   relatedEventId?: string; // Link to an event
   reversalOf?: string; // ID of the transaction this entry is reversing
+  staffId?: string;
+  tipAmount?: number;
 };
 
 
@@ -100,6 +102,8 @@ export const transactions: Transaction[] = [
     paymentMethod: 'Credit Card',
     paymentMethodIdentifier: 'Visa **** 4242',
     hasReceipt: true,
+    staffId: 'staff-1',
+    tipAmount: 9.00,
   },
   {
     id: 'txn-2',
@@ -125,6 +129,8 @@ export const transactions: Transaction[] = [
     amount: 25.00,
     paymentMethod: 'Cash',
     hasReceipt: true,
+    staffId: 'staff-2',
+    tipAmount: 5.00,
   },
   {
     id: 'txn-4',
@@ -150,6 +156,8 @@ export const transactions: Transaction[] = [
     amount: 350.00,
     paymentMethod: 'Credit Card',
     hasReceipt: true,
+    staffId: 'staff-2',
+    tipAmount: 70.00,
   },
   {
     id: 'txn-6',

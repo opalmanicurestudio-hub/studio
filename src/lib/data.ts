@@ -212,7 +212,7 @@ export type Appointment = {
   staffId?: string;
   startTime: Date;
   endTime: Date;
-  status: 'confirmed' | 'completed' | 'cancelled' | 'deposit_pending';
+  status: 'confirmed' | 'completed' | 'cancelled' | 'deposit_pending' | 'ready_for_checkout';
   addOnIds?: string[];
   inspirationPhotoUrl?: string;
   absorbedCost?: number;

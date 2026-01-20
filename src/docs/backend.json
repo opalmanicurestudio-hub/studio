@@ -1,4 +1,5 @@
 
+
 {
   "entities": {
     "User": {
@@ -423,6 +424,14 @@
         },
         "hasReceipt": {
           "type": "boolean"
+        },
+        "staffId": {
+          "type": "string",
+          "description": "The ID of the staff member associated with the transaction."
+        },
+        "tipAmount": {
+            "type": "number",
+            "description": "The tip amount included in this transaction."
         }
       },
       "required": ["id", "date", "description", "type", "context", "category", "amount", "paymentMethod"]
@@ -530,7 +539,7 @@
       },
       "description": "Appointments for a specific tenant."
     },
-    "/tenants/{tenantId}/walkins/{walkInId}": {
+    "/tenants/{tenantId}/walkIns/{walkInId}": {
       "schema": {
         "$ref": "#/entities/WalkIn"
       },
