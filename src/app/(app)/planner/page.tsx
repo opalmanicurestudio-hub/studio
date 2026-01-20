@@ -874,7 +874,7 @@ export default function PlannerPage() {
     const endTime = new Date();
     const updatedAppointment: Appointment = { 
         ...finishConfirmAppointment, 
-        status: 'completed', 
+        status: 'ready_for_checkout',
         actualEndTime: endTime.toISOString() 
     };
 
@@ -889,7 +889,7 @@ export default function PlannerPage() {
 
     toast({
         title: "Service Finished",
-        description: `The service took ${duration} minutes.`
+        description: `The service took ${duration} minutes. Client is ready for checkout.`
     });
 
     setFinishConfirmAppointment(null);
@@ -1071,7 +1071,10 @@ export default function PlannerPage() {
       {selectedAppointmentData && (
         <CompleteAppointmentDialog
             open={isCheckoutOpen}
-            onOpenChange={setIsCheckoutOpen}
+            onOpenChange={(isOpen) => {
+              if(!isOpen) setSelectedAppointment(null);
+              setIsCheckoutOpen(isOpen);
+            }}
             appointmentData={selectedAppointmentData}
             onConfirmCheckout={handleCheckout}
             onSendToFrontDesk={handleSendToDesk}
