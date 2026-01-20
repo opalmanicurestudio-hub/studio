@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
@@ -406,14 +407,15 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
             ? "h-[95vh] flex flex-col p-0"
             : "sm:max-w-4xl max-h-[90vh] flex flex-col p-0"
         )}>
-          <DialogHeader className="p-6 pb-4">
+          <DialogHeader className="p-6 pb-4 border-b flex-shrink-0">
             <DialogTitle>Complete Appointment &amp; Checkout</DialogTitle>
             <DialogDescription>
               Confirm products used, add retail sales, and finalize the appointment.
             </DialogDescription>
           </DialogHeader>
-          <ScrollArea className="flex-1 min-h-0">
-            <div className="py-4 px-6 space-y-6">
+          
+          <div className="flex-1 overflow-y-auto">
+            <div className="p-6 space-y-6">
               <Card>
                   <CardContent className="p-4 flex items-center gap-4">
                        <Avatar className="w-12 h-12">
@@ -754,8 +756,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                   </CardContent>
               </Card>
             </div>
-          </ScrollArea>
-          <DialogFooter className="print:hidden p-6 pt-4 border-t">
+          </div>
+          <DialogFooter className="print:hidden p-6 pt-4 border-t flex-shrink-0">
             <div className="flex flex-col sm:flex-row sm:justify-end gap-2 w-full">
                 <Button variant="secondary" onClick={handleSendToFrontDesk}>Send to Front Desk</Button>
                 <div className="flex-1" />
