@@ -12,19 +12,21 @@ import {
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { SidebarTrigger } from '@/components/ui/sidebar';
-import { Bell, LifeBuoy, LogOut, Settings, User, PackageX, Calendar, Landmark, Check, X } from 'lucide-react';
+import { Bell, LifeBuoy, LogOut, Settings, User, PackageX, Calendar, Landmark, Check, X, ShieldAlert } from 'lucide-react';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
-import { useState } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Badge } from '../ui/badge';
 import Link from 'next/link';
 import { ClientOnly } from './ClientOnly';
+import { useInventory } from '@/context/InventoryContext';
+import { differenceInDays, isPast, parseISO } from 'date-fns';
 
 type AppHeaderProps = {
   title: string;
 };
 
 // Mock data for notifications
-const mockNotifications = [
+const baseNotifications = [
     { id: 1, type: 'stock', message: "Low Stock Alert: 'Red Nail Polish' is at 2 units.", link: '/inventory', read: false, icon: <PackageX className="h-4 w-4 text-destructive" /> },
     { id: 2, type: 'appointment', message: "New Appointment: Eleanor Vance booked 'Classic Manicure'.", link: '/planner', read: false, icon: <Calendar className="h-4 w-4 text-primary" /> },
     { id: 3, type: 'bill', message: "Bill Due Soon: 'Studio Rent' is due in 3 days.", link: '/bills', read: true, icon: <Landmark className="h-4 w-4 text-orange-500" /> },
@@ -32,10 +34,55 @@ const mockNotifications = [
 ];
 
 export function AppHeader({ title }: AppHeaderProps) {
-  const [notifications, setNotifications] = useState(mockNotifications);
+  const { staff } = useInventory();
+  
+  const licenseNotifications = useMemo(() => {
+    if (!staff) return [];
+    return staff.map(member => {
+      if (!member.compliance?.licenseExpiry) return null;
+
+      const licenseExpiry = parseISO(member.compliance.licenseExpiry);
+      const daysUntil = differenceInDays(licenseExpiry, new Date());
+      const expired = isPast(licenseExpiry);
+
+      if (expired) {
+        return {
+          id: `license-${member.id}-expired`,
+          type: 'license',
+          message: `${member.name}'s license has expired.`,
+          link: '/staff',
+          read: false,
+          icon: <ShieldAlert className="h-4 w-4 text-destructive" />,
+        };
+      }
+      
+      if (daysUntil <= 30) {
+        return {
+          id: `license-${member.id}-expiring`,
+          type: 'license',
+          message: `${member.name}'s license is expiring in ${daysUntil} days.`,
+          link: '/staff',
+          read: false,
+          icon: <ShieldAlert className="h-4 w-4 text-orange-500" />,
+        };
+      }
+      
+      return null;
+    }).filter((n): n is NonNullable<typeof n> => n !== null);
+  }, [staff]);
+
+  const [notifications, setNotifications] = useState<(typeof baseNotifications[0] | typeof licenseNotifications[0])[]>(baseNotifications);
+  
+  useEffect(() => {
+    const allNotifs = [...licenseNotifications, ...baseNotifications];
+    const uniqueNotifs = Array.from(new Map(allNotifs.map(n => [n.id, n])).values());
+    setNotifications(uniqueNotifs);
+  }, [licenseNotifications]);
+
+
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  const markAsRead = (id: number) => {
+  const markAsRead = (id: number | string) => {
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
   };
   
@@ -77,7 +124,7 @@ export function AppHeader({ title }: AppHeaderProps) {
                             <p className="text-xs font-medium leading-none">{notification.message}</p>
                           </Link>
                           {!notification.read && (
-                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => markAsRead(notification.id)}>
+                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); markAsRead(notification.id); }}>
                                   <Check className="h-4 w-4 text-primary" />
                               </Button>
                           )}

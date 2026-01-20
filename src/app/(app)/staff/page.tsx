@@ -44,7 +44,8 @@ const StaffCard = ({ member, stats }: { member: Staff, stats: any }) => {
     } | null>(null);
 
     useEffect(() => {
-        const licenseExpiry = member.compliance?.licenseExpiry ? parseISO(member.compliance.licenseExpiry) : null;
+        if (!member.compliance?.licenseExpiry) return;
+        const licenseExpiry = parseISO(member.compliance.licenseExpiry);
         if (licenseExpiry) {
             const daysUntil = differenceInDays(licenseExpiry, new Date());
             const expired = isPast(licenseExpiry);
@@ -73,18 +74,18 @@ const StaffCard = ({ member, stats }: { member: Staff, stats: any }) => {
             </Badge>
 
             {licenseInfo && (licenseInfo.isExpired || licenseInfo.isExpiringSoon) && (
-                <Alert variant="destructive" className="mt-4 text-left">
-                    <AlertTriangle className="h-4 w-4" />
-                    <AlertTitle>
-                        {licenseInfo.isExpired ? 'License Expired' : 'License Expiring Soon'}
-                    </AlertTitle>
-                    <AlertDescription className="text-xs">
-                        {licenseInfo.isExpired 
-                        ? `Expired on ${format(licenseInfo.expiryDate!, 'MMM d, yyyy')}.`
-                        : `Expires in ${licenseInfo.daysUntilExpiry} days on ${format(licenseInfo.expiryDate!, 'MMM d, yyyy')}.`
-                        }
-                    </AlertDescription>
-                </Alert>
+                <div className="mt-4 text-left p-3 rounded-lg bg-destructive/10 text-destructive text-xs flex items-start gap-2">
+                    <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                    <div>
+                        <p className="font-semibold">{licenseInfo.isExpired ? 'License Expired' : 'License Expiring Soon'}</p>
+                        <p>
+                            {licenseInfo.isExpired 
+                            ? `Expired on ${format(licenseInfo.expiryDate!, 'MMM d, yyyy')}.`
+                            : `Expires in ${licenseInfo.daysUntilExpiry} days on ${format(licenseInfo.expiryDate!, 'MMM d, yyyy')}.`
+                            }
+                        </p>
+                    </div>
+                </div>
             )}
             </CardContent>
             <Separator />
