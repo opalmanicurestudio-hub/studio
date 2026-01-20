@@ -232,8 +232,7 @@ service cloud.firestore {
      * @allow (read,update,delete) Only staff/owner can manage the queue.
      */
     match /tenants/{tenantId}/walkins/{walkInId} {
-      allow create: if true;
-      allow read, update, delete: if isTenantOwner(tenantId) || isStaff(tenantId);
+      allow read, write: if true;
     }
     
     /**
@@ -299,3 +298,5 @@ service cloud.firestore {
     }
   }
 }
+
+    
