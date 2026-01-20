@@ -408,9 +408,9 @@ export const staff: Staff[] = [
     payStructure: 'commission', 
     commissionRate: 45,
     services: ['svc-1', 'svc-7'],
-    skillSet: ['basic_manicure', 'gel', 'nail_art'],
     status: 'idle',
     onBreak: false,
+    skillSet: ['basic_manicure', 'gel_nails', 'nail_art'],
     lastServedTimestamp: subDays(new Date(), 1).toISOString(),
     compliance: {
       licenseNumber: 'C-12345',
@@ -427,9 +427,9 @@ export const staff: Staff[] = [
     commissionRate: 0, 
     hourlyRate: 0,
     services: ['svc-2', 'svc-3', 'svc-5', 'svc-6', 'svc-9', 'svc-10', 'svc-11', 'svc-12'],
-    skillSet: ['haircut', 'color', 'balayage', 'styling'],
     status: 'busy',
     onBreak: false,
+    skillSet: ['haircut', 'color', 'balayage', 'styling'],
     lastServedTimestamp: new Date().toISOString(),
     compliance: {
       licenseNumber: 'C-67890',
