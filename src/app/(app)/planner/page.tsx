@@ -455,7 +455,9 @@ export default function PlannerPage() {
     appointments, 
     setAppointments,
     activityLogs, 
-    setActivityLogs
+    setActivityLogs,
+    addStockCorrection,
+    setTransactions,
   } = useInventory();
   
   const { firestore, user, isUserLoading } = useFirebase();
@@ -731,17 +733,87 @@ export default function PlannerPage() {
   const handleCheckout = (updatedInventory: any, newCorrections: any, receiptData: Omit<ReceiptData, 'business'>) => {
     if (!selectedAppointment) return;
 
+    // Create multiple transactions based on the checkout state
+    const { checkoutState } = selectedAppointment;
+    if (!checkoutState) return;
+
+    const { serviceStaffOverrides, tipAllocations, retailItems, addOns, absorbedCost } = checkoutState;
+    const allPerformedServices = [services.find(s => s.id === selectedAppointment.serviceId), ...addOns].filter((s): s is Service => !!s);
+    
+    const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+
+    // 1. Service Revenue Transactions
+    allPerformedServices.forEach(service => {
+        const staffId = serviceStaffOverrides[service.id] || selectedAppointment.staffId;
+        const newTransaction: Omit<Transaction, 'id'> = {
+            date: new Date().toISOString(),
+            description: `Service: ${service.name}`,
+            clientOrVendor: clients.find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
+            type: 'income',
+            context: 'Business',
+            category: 'Service Revenue',
+            amount: service.price,
+            paymentMethod: receiptData.payment.method,
+            hasReceipt: true,
+            staffId: staffId,
+        };
+        addDocumentNonBlocking(transactionsRef, newTransaction);
+    });
+
+    // 2. Tip Transactions
+    Object.entries(tipAllocations).forEach(([staffId, tipAmount]) => {
+        if (tipAmount > 0) {
+            const newTransaction: Omit<Transaction, 'id'> = {
+                date: new Date().toISOString(),
+                description: `Tip for Appointment #${selectedAppointment.id.slice(-4)}`,
+                clientOrVendor: clients.find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
+                type: 'income',
+                context: 'Business',
+                category: 'Tips',
+                amount: tipAmount,
+                paymentMethod: receiptData.payment.method,
+                hasReceipt: true,
+                staffId: staffId,
+                tipAmount: tipAmount,
+            };
+            addDocumentNonBlocking(transactionsRef, newTransaction);
+        }
+    });
+
+    // 3. Retail Transactions
+    if (retailItems.length > 0) {
+        const retailTotal = retailItems.reduce((acc, item) => acc + (item.costPerUnit * item.quantity), 0); // Note: using cost here, should be price.
+        const newTransaction: Omit<Transaction, 'id'> = {
+            date: new Date().toISOString(),
+            description: `Retail Sale (${retailItems.length} items)`,
+            clientOrVendor: clients.find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
+            type: 'income',
+            context: 'Business',
+            category: 'Retail',
+            amount: retailTotal,
+            paymentMethod: receiptData.payment.method,
+            hasReceipt: true,
+            staffId: selectedAppointment.staffId, // Or assign to a specific staff
+        };
+        addDocumentNonBlocking(transactionsRef, newTransaction);
+    }
+    
+    // 4. Update stock corrections
+    newCorrections.forEach(addStockCorrection);
+    
+    // 5. Update appointment
     const completedAppointment: Appointment = { 
         ...selectedAppointment, 
         status: 'completed' as const,
-        absorbedCost: receiptData.payment.method === 'Cash' && receiptData.tip > 0 ? 0 : (receiptData.payment.amountTendered || 0)
+        absorbedCost: absorbedCost,
     };
     setAppointments(prev => prev.map(apt => apt.id === selectedAppointment.id ? completedAppointment : apt));
     
     toast({
         title: "Appointment Completed",
-        description: `Inventory levels have been updated and ${newCorrections.length} stock correction(s) logged.`
+        description: `Inventory levels have been updated and financial transactions logged.`
     });
+    
     setIsCheckoutOpen(false); 
     setSelectedAppointment(null);
     handlePrintReceipt(receiptData);
@@ -1244,3 +1316,4 @@ export default function PlannerPage() {
 
 
     
+

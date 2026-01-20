@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { AlertCircle, CheckCircle, FileText, FlaskConical, PlusCircle, Trash2, Library, Wand, QrCode, Search, AlertTriangle, ShoppingCart, CreditCard, Banknote, Gift, Coins, ShieldAlert, DollarSign as DollarSignIcon } from 'lucide-react';
+import { AlertCircle, CheckCircle, FileText, FlaskConical, PlusCircle, Trash2, Library, Wand, QrCode, Search, AlertTriangle, ShoppingCart, CreditCard, Banknote, Gift, Coins, ShieldAlert, DollarSign as DollarSignIcon, Users } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type StockCorrection, type CustomFormula, type Staff, AppointmentCheckoutState } from '@/lib/data';
 import { Input } from '../ui/input';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
@@ -34,6 +34,9 @@ import { FormProvider, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { differenceInMinutes, parseISO } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
+import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '../ui/sheet';
+import { useIsMobile } from '@/hooks/use-mobile';
+
 
 type EditableFormulaItem = {
     id: string; // productId
@@ -102,6 +105,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
 
   const [serviceStaffOverrides, setServiceStaffOverrides] = useState<Record<string, string>>({});
   const [tipAllocations, setTipAllocations] = useState<Record<string, number>>({});
+  const isMobile = useIsMobile();
   
   useEffect(() => {
     if (open && service && appointment) {
@@ -125,7 +129,13 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         incidentMethods.reset();
         setPromoCode(client?.referredBy ? 'NEWCLIENT15' : '');
         setDiscount(0);
-        setServiceStaffOverrides(checkoutState?.serviceStaffOverrides || { [service.id]: appointment.staffId || '' });
+
+        const initialOverrides: Record<string, string> = { [service.id]: appointment.staffId || '' };
+        initialAddons.forEach(addon => {
+            initialOverrides[addon.id] = appointment.staffId || '';
+        });
+        setServiceStaffOverrides(checkoutState?.serviceStaffOverrides || initialOverrides);
+        setTipAllocations(checkoutState?.tipAllocations || {});
     }
   }, [service, open, appointment, incidentMethods, client, services]);
 
@@ -181,6 +191,17 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   
   const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - grandTotal : 0;
 
+  const involvedStaff = useMemo(() => {
+      const staffIds = new Set(Object.values(serviceStaffOverrides));
+      return staff.filter(s => staffIds.has(s.id));
+  }, [serviceStaffOverrides, staff]);
+
+  const remainingTip = useMemo(() => {
+      const allocatedTip = Object.values(tipAllocations).reduce((sum, amount) => sum + amount, 0);
+      return tipAmount - allocatedTip;
+  }, [tipAmount, tipAllocations]);
+
+
   const handleApplyPromo = () => {
     if (promoCode === 'NEWCLIENT15' && client && client.lifetimeValue < (service?.price || 0)) {
         setDiscount(15);
@@ -190,6 +211,32 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     }
   }
 
+  const handleStaffOverride = (serviceId: string, staffId: string) => {
+    setServiceStaffOverrides(prev => ({ ...prev, [serviceId]: staffId }));
+  };
+
+  const handleTipAllocation = (staffId: string, value: string) => {
+    const amount = parseFloat(value) || 0;
+    setTipAllocations(prev => ({ ...prev, [staffId]: amount }));
+  };
+
+  const splitTipEvenly = () => {
+      if (involvedStaff.length === 0) return;
+      const amountPerStaff = parseFloat((tipAmount / involvedStaff.length).toFixed(2));
+      const newAllocations: Record<string, number> = {};
+      involvedStaff.forEach(s => {
+          newAllocations[s.id] = amountPerStaff;
+      });
+
+      // Adjust for rounding errors
+      const totalAllocated = amountPerStaff * involvedStaff.length;
+      const remainder = tipAmount - totalAllocated;
+      if (remainder !== 0) {
+          newAllocations[involvedStaff[0].id] += remainder;
+      }
+
+      setTipAllocations(newAllocations);
+  };
 
   const handleKeepTheChange = () => {
     if (changeDue > 0) {
@@ -348,17 +395,24 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     return null;
   }
 
+  const DialogComponent = isMobile ? Sheet : Dialog;
+  const ContentComponent = isMobile ? SheetContent : DialogContent;
+
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col print:hidden p-0">
+      <DialogComponent open={open} onOpenChange={onOpenChange}>
+        <ContentComponent className={cn(
+          isMobile
+            ? "h-[95vh] flex flex-col p-0"
+            : "sm:max-w-4xl max-h-[90vh] flex flex-col p-0"
+        )}>
           <DialogHeader className="p-6 pb-4">
             <DialogTitle>Complete Appointment & Checkout</DialogTitle>
             <DialogDescription>
               Confirm products used, add retail sales, and finalize the appointment.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex-1 min-h-0 overflow-y-auto">
+          <ScrollArea className="flex-1 min-h-0">
             <div className="py-4 px-6 space-y-6">
               <Card>
                   <CardContent className="p-4 flex items-center gap-4">
@@ -500,6 +554,62 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                       </div>
                 </CardContent>
               </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Staff & Tip Allocation</CardTitle>
+                        <CardDescription>Assign services to staff and split any tips.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="space-y-2">
+                            <Label>Service Performers</Label>
+                            <div className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+                                <span className="text-sm font-medium">{service.name}</span>
+                                <Select value={serviceStaffOverrides[service.id] || ''} onValueChange={(staffId) => handleStaffOverride(service.id, staffId)}>
+                                    <SelectTrigger className="w-[150px] h-8"><SelectValue placeholder="Select Staff" /></SelectTrigger>
+                                    <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+                                </Select>
+                            </div>
+                            {selectedAddOns.map(addon => (
+                                <div key={addon.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+                                    <span className="text-sm pl-4">+ {addon.name}</span>
+                                    <Select value={serviceStaffOverrides[addon.id] || ''} onValueChange={(staffId) => handleStaffOverride(addon.id, staffId)}>
+                                        <SelectTrigger className="w-[150px] h-8"><SelectValue placeholder="Select Staff" /></SelectTrigger>
+                                        <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+                                    </Select>
+                                </div>
+                            ))}
+                        </div>
+                        
+                        {tipAmount > 0 && (
+                            <div className="space-y-2 pt-4 border-t">
+                                <Label>Tip Allocation</Label>
+                                <div className="space-y-3">
+                                    {involvedStaff.map(staffMember => (
+                                        <div key={staffMember.id} className="flex items-center justify-between">
+                                            <Label htmlFor={`tip-${staffMember.id}`} className="text-sm">{staffMember.name}</Label>
+                                            <div className="relative w-28">
+                                                <DollarSignIcon className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                                <Input
+                                                    id={`tip-${staffMember.id}`}
+                                                    type="number"
+                                                    value={tipAllocations[staffMember.id] || ''}
+                                                    onChange={(e) => handleTipAllocation(staffMember.id, e.target.value)}
+                                                    placeholder="0.00"
+                                                    className="h-8 text-right pr-2 pl-7"
+                                                />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="flex justify-between text-xs font-medium pt-2">
+                                    <Button variant="link" size="xs" className="p-0 h-auto" onClick={splitTipEvenly}>Split Evenly</Button>
+                                    <span>Remaining: <span className={remainingTip < 0 ? 'text-destructive' : ''}>${remainingTip.toFixed(2)}</span></span>
+                                </div>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
               
                <Card>
                 <CardHeader>
@@ -564,9 +674,13 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                          <Separator className="my-2" />
                         <div className='flex justify-between font-semibold'><span>Subtotal:</span><span>${(subtotal - discount).toFixed(2)}</span></div>
                         <div className='flex justify-between'><span>Taxes (7%):</span><span>${mockTax.toFixed(2)}</span></div>
-                         {tipAmount > 0 && (
-                            <div className='flex justify-between font-semibold text-primary'><span>Tip:</span><span>${tipAmount.toFixed(2)}</span></div>
-                         )}
+                         <div className="flex justify-between text-sm items-center">
+                            <Label htmlFor="tip-amount">Tip</Label>
+                            <div className="relative w-24">
+                                <DollarSignIcon className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input id="tip-amount" type="number" value={tipAmount || ''} onChange={(e) => setTipAmount(parseFloat(e.target.value) || 0)} className="h-8 text-right pr-2 pl-7" placeholder="0.00" />
+                            </div>
+                         </div>
                       </div>
                       <div className="p-4 rounded-lg bg-primary/10 text-center">
                           <p className="text-sm font-medium text-primary">Total Due</p>
@@ -643,8 +757,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                 </Button>
             </div>
           </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </ContentComponent>
+      </DialogComponent>
       <SelectAddOnsDialog
         open={isAddOnSelectorOpen}
         onOpenChange={setIsAddOnSelectorOpen}
@@ -684,7 +798,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                     <AlertTriangle className="h-4 w-4" />
                     <AlertTitle>Camera Access Required</AlertTitle>
                     <AlertDescription>
-                        Please enable camera access to use the scanner. You may need to change permissions in your browser settings.
+                        Please enable camera access to use the scanner.
                     </AlertDescription>
                 </Alert>
             )}
