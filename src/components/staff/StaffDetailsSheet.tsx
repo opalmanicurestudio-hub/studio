@@ -17,8 +17,14 @@ import { type Staff, type Transaction, type Service, type Appointment } from '@/
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { format, differenceInMinutes, parseISO } from 'date-fns';
-import { TrendingUp, DollarSign, PackageX, Clock } from 'lucide-react';
+import { TrendingUp, DollarSign, PackageX, Clock, Info } from 'lucide-react';
 import { Button } from '../ui/button';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 interface StaffDetailsSheetProps {
   open: boolean;
@@ -97,10 +103,13 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                                                 <div className="space-y-1">
                                                     <p className="font-medium">{t.description}</p>
                                                     <p className="text-xs text-muted-foreground">{format(new Date(t.date), 'MMM d, yyyy h:mm a')}</p>
-                                                    {timeVariance !== null && (
-                                                        <p className={`text-xs font-semibold ${timeVariance > 0 ? 'text-destructive' : 'text-green-500'}`}>
-                                                            Time Variance: {timeVariance > 0 ? '+' : ''}{timeVariance} min
-                                                        </p>
+                                                     {timeVariance !== null && (
+                                                        <div>
+                                                            <p className={`text-sm font-semibold ${timeVariance > 0 ? 'text-destructive' : 'text-green-500'}`}>
+                                                                Time Variance: {timeVariance > 0 ? '+' : ''}{timeVariance} min
+                                                            </p>
+                                                            <p className="text-xs text-muted-foreground">(Actual vs. Scheduled)</p>
+                                                        </div>
                                                     )}
                                                 </div>
                                                 <div className="text-right">
@@ -136,7 +145,22 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                                     <TableHead>Date</TableHead>
                                     <TableHead>Description</TableHead>
                                     <TableHead>Type</TableHead>
-                                    <TableHead className="text-right">Time Variance</TableHead>
+                                    <TableHead className="text-right">
+                                        <div className="flex items-center justify-end gap-1">
+                                            Time Variance
+                                            <TooltipProvider>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                <Button variant="ghost" size="icon" className="h-4 w-4 rounded-full cursor-help"><Info className="h-3 w-3 text-muted-foreground" /></Button>
+                                                </TooltipTrigger>
+                                                <TooltipContent>
+                                                <p>Actual time vs. scheduled duration.</p>
+                                                <p>Captured from 'Start' to 'Finish' in the Planner.</p>
+                                                </TooltipContent>
+                                            </Tooltip>
+                                            </TooltipProvider>
+                                        </div>
+                                    </TableHead>
                                     <TableHead className="text-right">Amount</TableHead>
                                     </TableRow>
                                 </TableHeader>
