@@ -1,5 +1,4 @@
 
-
 import { BillDefinition, billDefinitions, billInstances, transactions } from './financial-data';
 import { addDays, subDays, setHours, setMinutes, startOfDay } from 'date-fns';
 import { nanoid } from 'nanoid';
@@ -55,6 +54,10 @@ export type Staff = {
     licenseExpiry?: string; // ISO Date
     documentUrl?: string;
   };
+  status?: 'idle' | 'busy';
+  onBreak?: boolean;
+  lastServedTimestamp?: string;
+  skillSet?: string[];
 };
 
 export type Client = {
@@ -148,6 +151,8 @@ export type Service = {
   depositType?: 'none' | 'deposit' | 'full' | 'breakeven';
   depositSubType?: 'flat' | 'percentage';
   depositAmount?: number;
+  requiredSkills?: string[];
+  compatibleAddOnIds?: string[];
 };
 
 export type Batch = {
@@ -253,6 +258,21 @@ export type Quote = {
   totalHours?: number;
   createdAt: string;
   userId: string;
+};
+
+export type WalkIn = {
+    id: string;
+    clientId?: string;
+    customerName: string;
+    customerPhone?: string;
+    serviceIds: string[];
+    requiredSkills: string[];
+    estimatedDuration: number;
+    checkInTime: string; // ISO Date
+    status: 'waiting' | 'assigned' | 'servicing' | 'completed' | 'skipped' | 'cancelled';
+    assignedStaffId?: string;
+    notes?: string;
+    preferredStaffId?: string;
 };
 
 export type StockCorrection = {
@@ -388,6 +408,10 @@ export const staff: Staff[] = [
     payStructure: 'commission', 
     commissionRate: 45,
     services: ['svc-1', 'svc-7'],
+    skillSet: ['basic_manicure', 'gel', 'nail_art'],
+    status: 'idle',
+    onBreak: false,
+    lastServedTimestamp: subDays(new Date(), 1).toISOString(),
     compliance: {
       licenseNumber: 'C-12345',
       licenseExpiry: addDays(new Date(), 15).toISOString(),
@@ -403,6 +427,10 @@ export const staff: Staff[] = [
     commissionRate: 0, 
     hourlyRate: 0,
     services: ['svc-2', 'svc-3', 'svc-5', 'svc-6', 'svc-9', 'svc-10', 'svc-11', 'svc-12'],
+    skillSet: ['haircut', 'color', 'balayage', 'styling'],
+    status: 'busy',
+    onBreak: false,
+    lastServedTimestamp: new Date().toISOString(),
     compliance: {
       licenseNumber: 'C-67890',
       licenseExpiry: subDays(new Date(), 10).toISOString(),
@@ -451,6 +479,8 @@ export const services: Service[] = [
     ],
     isPrivate: false,
     depositType: 'none',
+    requiredSkills: ['basic_manicure'],
+    compatibleAddOnIds: ['svc-addon-1'],
   },
   { 
     id: 'svc-2', 
@@ -466,6 +496,8 @@ export const services: Service[] = [
     imageUrl: 'https://picsum.photos/seed/haircut/200/200',
     isPrivate: true,
     depositType: 'none',
+    requiredSkills: ['haircut'],
+    compatibleAddOnIds: ['svc-addon-2', 'svc-addon-4'],
   },
    { 
     id: 'svc-3', 
@@ -481,6 +513,7 @@ export const services: Service[] = [
     imageUrl: 'https://picsum.photos/seed/haircolor/200/200',
     isPrivate: false,
     depositType: 'none',
+    requiredSkills: ['color'],
   },
   { 
     id: 'svc-4', 
@@ -510,6 +543,7 @@ export const services: Service[] = [
     imageUrl: 'https://picsum.photos/seed/balayage/200/200',
     isPrivate: false,
     depositType: 'none',
+    requiredSkills: ['color', 'balayage'],
   },
   { 
     id: 'svc-6', 
@@ -525,6 +559,7 @@ export const services: Service[] = [
     imageUrl: 'https://picsum.photos/seed/menscut/200/200',
     isPrivate: false,
     depositType: 'none',
+    requiredSkills: ['haircut'],
   },
   { 
     id: 'svc-7', 
@@ -541,6 +576,8 @@ export const services: Service[] = [
     imageUrl: 'https://picsum.photos/seed/gelx/200/200',
     isPrivate: false,
     depositType: 'none',
+    requiredSkills: ['basic_manicure', 'gel'],
+    compatibleAddOnIds: ['svc-addon-1', 'svc-addon-3'],
   },
   { 
     id: 'svc-8', 
@@ -570,6 +607,7 @@ export const services: Service[] = [
     imageUrl: 'https://picsum.photos/seed/root-touchup/200/200',
     isPrivate: false,
     depositType: 'none',
+    requiredSkills: ['color'],
   },
   { 
     id: 'svc-10', 
@@ -584,6 +622,7 @@ export const services: Service[] = [
     imageUrl: 'https://picsum.photos/seed/toner/200/200',
     isPrivate: false,
     depositType: 'none',
+    requiredSkills: ['color'],
   },
   { 
     id: 'svc-11', 
@@ -598,6 +637,7 @@ export const services: Service[] = [
     imageUrl: 'https://picsum.photos/seed/blowout/200/200',
     isPrivate: false,
     depositType: 'none',
+    requiredSkills: ['styling'],
   },
   { 
     id: 'svc-12', 
@@ -613,6 +653,7 @@ export const services: Service[] = [
     isPrivate: false,
     status: 'archived',
     depositType: 'none',
+    requiredSkills: ['styling'],
   },
   { 
     id: 'svc-addon-1', 

@@ -22,10 +22,31 @@ import { collection } from 'firebase/firestore';
 import { Service, Staff } from '@/lib/data';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { Progress } from '@/components/ui/progress';
-import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft } from 'lucide-react';
+import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 
 type Step = 'services' | 'details' | 'confirmation';
+
+const StaffSelectionCard = ({ staff, isSelected, onSelect }: { staff: Staff | { id: string, name: string, avatarUrl: string }, isSelected: boolean, onSelect: () => void }) => {
+    return (
+        <label htmlFor={`staff-${staff.id}`} className="block cursor-pointer">
+            <Card className={`transition-all ${isSelected ? 'border-primary ring-2 ring-primary' : 'hover:border-primary/50'}`}>
+                <CardContent className="p-4 flex flex-col items-center gap-3">
+                    <Avatar className="w-16 h-16">
+                        <AvatarImage src={staff.avatarUrl} />
+                        <AvatarFallback>{staff.name.charAt(0)}</AvatarFallback>
+                    </Avatar>
+                    <p className="font-semibold text-sm text-center">{staff.name}</p>
+                    <RadioGroupItem value={staff.id} id={`staff-${staff.id}`} className="sr-only" />
+                </CardContent>
+            </Card>
+        </label>
+    );
+};
+
 
 export default function WalkInPage() {
   const { services, staff } = useInventory();
@@ -40,7 +61,19 @@ export default function WalkInPage() {
   const [preferredStaffId, setPreferredStaffId] = useState<string>('any');
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
 
-  const nailServices = useMemo(() => services.filter(s => s.category === 'Nails'), [services]);
+  const mainServices = useMemo(() => services.filter(s => s.type === 'service'), [services]);
+  const addOnServices = useMemo(() => services.filter(s => s.type === 'addon'), [services]);
+  
+  const compatibleAddOns = useMemo(() => {
+    if (selectedServices.length === 0) return [];
+    
+    const selectedMainServices = selectedServices.filter(s => s.type === 'service');
+    if (selectedMainServices.length === 0) return [];
+
+    const allCompatibleIds = new Set(selectedMainServices.flatMap(s => s.compatibleAddOnIds || []));
+    
+    return addOnServices.filter(addOn => allCompatibleIds.has(addOn.id));
+  }, [selectedServices, addOnServices]);
 
   const handleServiceToggle = (service: Service) => {
     setSelectedServices(prev =>
@@ -135,20 +168,36 @@ export default function WalkInPage() {
                     <CardDescription>Choose one or more services you'd like today.</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4 max-h-[40vh] overflow-y-auto">
-                     {nailServices.map(service => (
-                        <label key={service.id} htmlFor={service.id} className="flex items-center space-x-4 p-4 rounded-lg border has-[:checked]:border-primary has-[:checked]:bg-primary/5 transition-all cursor-pointer">
-                            <Checkbox
-                                id={service.id}
-                                checked={selectedServices.some(s => s.id === service.id)}
-                                onCheckedChange={() => handleServiceToggle(service)}
-                                className="h-6 w-6"
-                            />
-                            <div className="flex-1">
-                                <span className="font-medium">{service.name}</span>
-                                <p className="text-xs text-muted-foreground">{service.duration} min &middot; ${service.price.toFixed(2)}</p>
-                            </div>
-                        </label>
-                    ))}
+                     <Accordion type="multiple" defaultValue={['main-services']} className="w-full space-y-4">
+                        <AccordionItem value="main-services">
+                            <AccordionTrigger>Main Services</AccordionTrigger>
+                            <AccordionContent className="space-y-2 pt-2">
+                                {mainServices.map(service => (
+                                    <label key={service.id} htmlFor={service.id} className="flex items-center space-x-4 p-4 rounded-lg border has-[:checked]:border-primary has-[:checked]:bg-primary/5 transition-all cursor-pointer">
+                                        <Checkbox id={service.id} checked={selectedServices.some(s => s.id === service.id)} onCheckedChange={() => handleServiceToggle(service)} className="h-6 w-6" />
+                                        <div className="flex-1">
+                                            <span className="font-medium">{service.name}</span>
+                                            <p className="text-xs text-muted-foreground">{service.duration} min &middot; ${service.price.toFixed(2)}</p>
+                                        </div>
+                                    </label>
+                                ))}
+                            </AccordionContent>
+                        </AccordionItem>
+                        <AccordionItem value="add-ons" disabled={selectedServices.filter(s => s.type === 'service').length === 0}>
+                            <AccordionTrigger>Compatible Add-ons</AccordionTrigger>
+                            <AccordionContent className="space-y-2 pt-2">
+                               {compatibleAddOns.length > 0 ? compatibleAddOns.map(service => (
+                                    <label key={service.id} htmlFor={service.id} className="flex items-center space-x-4 p-4 rounded-lg border has-[:checked]:border-primary has-[:checked]:bg-primary/5 transition-all cursor-pointer">
+                                        <Checkbox id={service.id} checked={selectedServices.some(s => s.id === service.id)} onCheckedChange={() => handleServiceToggle(service)} className="h-6 w-6" />
+                                        <div className="flex-1">
+                                            <span className="font-medium">{service.name}</span>
+                                            <p className="text-xs text-muted-foreground">{service.duration} min &middot; ${service.price.toFixed(2)}</p>
+                                        </div>
+                                    </label>
+                               )) : <p className="text-sm text-center text-muted-foreground p-4">No compatible add-ons for selected service(s).</p>}
+                            </AccordionContent>
+                        </AccordionItem>
+                    </Accordion>
                   </CardContent>
                   <CardFooter className="flex justify-end">
                     <Button onClick={() => setStep('details')} disabled={selectedServices.length === 0}>
@@ -181,19 +230,13 @@ export default function WalkInPage() {
                                 </div>
                             </div>
                              <div className="space-y-2">
-                                <Label htmlFor="staff">Preferred Staff</Label>
-                                <div className="relative">
-                                    <List className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                    <Select value={preferredStaffId} onValueChange={setPreferredStaffId}>
-                                        <SelectTrigger id="staff" className="pl-9">
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="any">Any Available</SelectItem>
-                                            {staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
+                                <Label>Preferred Staff</Label>
+                                 <RadioGroup value={preferredStaffId} onValueChange={setPreferredStaffId} className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                     <StaffSelectionCard staff={{id: 'any', name: 'Any Available', avatarUrl: ''}} isSelected={preferredStaffId === 'any'} onSelect={() => setPreferredStaffId('any')} />
+                                     {staff.map(s => (
+                                         <StaffSelectionCard key={s.id} staff={s} isSelected={preferredStaffId === s.id} onSelect={() => setPreferredStaffId(s.id)} />
+                                     ))}
+                                 </RadioGroup>
                             </div>
                         </CardContent>
                         <CardFooter className="flex justify-between">

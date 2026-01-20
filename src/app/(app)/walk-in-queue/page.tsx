@@ -1,10 +1,11 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { User, Clock, CheckCircle, Coffee, ShieldAlert } from 'lucide-react';
+import { User, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { useCollection, useFirebase, updateDocumentNonBlocking, useMemoFirebase } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
@@ -17,6 +18,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import Link from 'next/link';
 
 const StaffStatusCard = ({ staffMember, onStatusChange }: { staffMember: Staff, onStatusChange: (staffId: string, status: Partial<Staff>) => void }) => {
   const statusConfig = {
@@ -121,9 +123,17 @@ export default function WalkInQueuePage() {
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <Card className="col-span-1 md:col-span-2 lg:col-span-3">
-                <CardHeader>
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div>
                     <CardTitle>Team Status</CardTitle>
                     <CardDescription>Current availability of your staff members.</CardDescription>
+                  </div>
+                  <Button asChild variant="outline">
+                    <Link href="/walk-in" target="_blank">
+                      <LinkIcon className="mr-2 h-4 w-4" />
+                      Public Check-in
+                    </Link>
+                  </Button>
                 </CardHeader>
                 <CardContent className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {staff?.map(member => (
