@@ -59,7 +59,6 @@ export default function SignupPage() {
       // onAuthStateChanged in the AuthGuard will handle the redirect.
       // No need to call router.push here if AuthGuard is set up correctly.
     } catch (error: any) {
-      console.error('Sign-up error:', error);
       let description = 'An unexpected error occurred. Please try again.';
       if (error.code === 'auth/email-already-in-use') {
         description = 'This email is already in use. Please log in instead.';
