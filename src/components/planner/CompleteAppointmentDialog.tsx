@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
@@ -51,6 +52,7 @@ interface CompleteAppointmentDialogProps {
     service: Service | undefined;
   };
   onConfirmCheckout: (updatedInventory: InventoryItem[], newCorrections: StockCorrection[], receiptData: Omit<ReceiptData, 'business'>, incident?: IncidentFormData) => void;
+  onSendToFrontDesk: () => void;
 }
 
 export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps> = ({
@@ -58,6 +60,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   onOpenChange,
   appointmentData,
   onConfirmCheckout,
+  onSendToFrontDesk,
 }) => {
   const { inventory } = useInventory();
   const { appointment, client, service } = appointmentData;
@@ -302,6 +305,11 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     };
     onConfirmCheckout(updatedInventory, newCorrections, receiptData, incidentData);
   };
+
+  const handleSendToDesk = () => {
+    onSendToFrontDesk();
+    onOpenChange(false);
+  }
 
 
   const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
@@ -611,9 +619,10 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
           </div>
           </ScrollArea>
           <DialogFooter className="print:hidden">
+            <Button variant="secondary" onClick={handleSendToDesk}>Send to Front Desk</Button>
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button onClick={handleCompleteAppointment} disabled={warnings.some(w => w.includes('Insufficient stock'))}>
-              Complete Appointment
+              Complete & Charge
             </Button>
           </DialogFooter>
         </DialogContent>

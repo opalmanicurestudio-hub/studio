@@ -809,6 +809,16 @@ export default function PlannerPage() {
             description: `An expense of $${transaction.amount.toFixed(2)} for "${transaction.description}" has been recorded in your ledger.`
         });
     }
+  
+  const handleSendToDesk = () => {
+    if (!selectedAppointment) return;
+    handleUpdateStatus(selectedAppointment.id, 'ready_for_checkout');
+    setIsCheckoutOpen(false); // Close the dialog
+    toast({
+        title: "Sent to Front Desk",
+        description: `${selectedAppointmentData?.client?.name}'s appointment is now ready for checkout.`
+    })
+  }
 
   const handleUpdateStatus = (appointmentId: string, status: Appointment['status']) => {
     setAppointments(prev => prev.map(apt => apt.id === appointmentId ? { ...apt, status } : apt));
@@ -995,6 +1005,7 @@ export default function PlannerPage() {
             onOpenChange={setIsCheckoutOpen}
             appointmentData={selectedAppointmentData}
             onConfirmCheckout={handleCheckout}
+            onSendToFrontDesk={handleSendToDesk}
         />
       )}
       <AddAppointmentDialog 
@@ -1108,6 +1119,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 

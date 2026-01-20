@@ -35,6 +35,7 @@ import {
   Book,
   Calendar,
   FileText as TicketIcon,
+  Users,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -325,6 +326,7 @@ export function AppointmentCard({
     completed: { text: 'Completed', className: 'border-green-500/30 text-green-800 dark:text-green-300', bgClassName: 'bg-green-500/10' },
     cancelled: { text: 'Cancelled', className: 'border-red-500/30 text-red-800 dark:text-red-300', bgClassName: 'bg-red-500/10' },
     deposit_pending: { text: 'Awaiting Payment', className: 'border-pink-500/30 text-pink-800 dark:text-pink-300', bgClassName: 'bg-pink-500/10' },
+    ready_for_checkout: { text: 'Checkout', className: 'border-orange-500/30 text-orange-800 dark:text-orange-300', bgClassName: 'bg-orange-500/10' },
   };
 
   const hasPadBefore = (service.padBefore || 0) > 0;
@@ -342,7 +344,7 @@ export function AppointmentCard({
         : service.name;
 
     const handleCardClick = () => {
-        if (appointment.status === 'confirmed') {
+        if (appointment.status === 'confirmed' || appointment.status === 'ready_for_checkout') {
             onCompleteClick(appointment);
         } else {
             setIsDetailsOpen(true);
@@ -363,7 +365,10 @@ export function AppointmentCard({
       <div className="flex-grow flex flex-col justify-between min-h-0">
         <div className="flex items-start justify-between">
             <div className='flex-1 min-w-0'>
-                <p className="font-semibold text-xs leading-tight truncate">{client.name}</p>
+                <p className="font-semibold text-xs leading-tight truncate flex items-center gap-1.5">
+                  {appointment.isWalkIn && <Users className="h-3 w-3 text-muted-foreground" />}
+                  {client.name}
+                </p>
                 <p className="text-[11px] text-muted-foreground truncate">{serviceNameDisplay}</p>
             </div>
             <DropdownMenu>
@@ -379,10 +384,10 @@ export function AppointmentCard({
               </DropdownMenuTrigger>
               <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
                 <DropdownMenuItem onClick={() => onCompleteClick(appointment)}>
-                    <CheckCircle className="mr-2" /> Complete Appointment
+                    <CheckCircle className="mr-2" /> Checkout
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onEdit(appointment)}>
-                    <Edit className="mr-2" /> Edit Appointment
+                    <Edit className="mr-2" /> Edit Details
                 </DropdownMenuItem>
                  <DropdownMenuItem onClick={() => onPrintTicket({ appointment, client, service })}>
                     <TicketIcon className="mr-2" /> Print Ticket
@@ -412,7 +417,10 @@ export function AppointmentCard({
         </div>
         <div className="mt-1 flex items-end justify-between">
             <div className="flex flex-col items-start">
-                <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[appointment.status]?.className, statusDisplay[appointment.status]?.bgClassName)}>{statusDisplay[appointment.status]?.text}</Badge>
+                <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[appointment.status]?.className, statusDisplay[appointment.status]?.bgClassName)}>
+                   {appointment.status === 'ready_for_checkout' && <DollarSign className="w-3 h-3 mr-1" />}
+                   {statusDisplay[appointment.status]?.text}
+                </Badge>
                 <p className="text-[10px] text-muted-foreground">{format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
             </div>
         </div>
