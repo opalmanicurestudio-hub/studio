@@ -141,7 +141,7 @@ const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange, onPrin
 
 
 export default function WalkInQueuePage() {
-  const { services, setAppointments } = useInventory();
+  const { services, setAppointments, walkIns: allWalkIns, staff: allStaff } = useInventory();
   const { firestore, user } = useFirebase();
   const tenantId = 'tenant-abc';
   const [ticketToPrint, setTicketToPrint] = useState<WalkIn | null>(null);
@@ -156,8 +156,11 @@ export default function WalkInQueuePage() {
     return collection(firestore, 'tenants', tenantId, 'walkIns');
   }, [firestore, user, tenantId]);
 
-  const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
-  const { data: walkIns, isLoading: walkInsLoading } = useCollection<WalkIn>(walkInQuery);
+  const { data: firestoreStaff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
+  const { data: firestoreWalkIns, isLoading: walkInsLoading } = useCollection<WalkIn>(walkInQuery);
+  
+  const staff = useMemo(() => firestoreStaff && firestoreStaff.length > 0 ? firestoreStaff : allStaff, [firestoreStaff, allStaff]);
+  const walkIns = useMemo(() => firestoreWalkIns && firestoreWalkIns.length > 0 ? firestoreWalkIns : allWalkIns, [firestoreWalkIns, allWalkIns]);
 
   const waitingQueue = useMemo(() => {
     if (!walkIns) return [];

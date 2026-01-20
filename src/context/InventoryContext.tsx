@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { createContext, useContext, useState, ReactNode } from 'react';
@@ -19,7 +20,9 @@ import {
     consentForms as initialConsentForms,
     type ConsentForm,
     staff as initialStaff,
-    type Staff
+    type Staff,
+    walkIns as initialWalkIns,
+    type WalkIn
 } from '@/lib/data';
 import {
     billDefinitions as initialBillDefinitions,
@@ -57,6 +60,8 @@ interface InventoryContextType {
   setConsentForms: React.Dispatch<React.SetStateAction<ConsentForm[]>>;
   staff: Staff[];
   setStaff: React.Dispatch<React.SetStateAction<Staff[]>>;
+  walkIns: WalkIn[];
+  setWalkIns: React.Dispatch<React.SetStateAction<WalkIn[]>>;
 }
 
 const InventoryContext = createContext<InventoryContextType | undefined>(undefined);
@@ -75,6 +80,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const [services, setServices] = useState<Service[]>(initialServices);
   const [consentForms, setConsentForms] = useState<ConsentForm[]>(initialConsentForms);
   const [staff, setStaff] = useState<Staff[]>(initialStaff);
+  const [walkIns, setWalkIns] = useState<WalkIn[]>(initialWalkIns);
 
 
   const addStockCorrection = (correction: StockCorrection) => {
@@ -107,6 +113,8 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     setConsentForms,
     staff,
     setStaff,
+    walkIns,
+    setWalkIns,
   };
 
   return (

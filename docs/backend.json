@@ -295,7 +295,8 @@
         "status": { "type": "string", "enum": ["waiting", "assigned", "servicing", "completed", "skipped", "cancelled"] },
         "assignedStaffId": { "type": "string", "description": "The ID of the staff member assigned to this customer." },
         "notes": { "type": "string" },
-        "preferredStaffId": { "type": "string" }
+        "preferredStaffId": { "type": "string" },
+        "waitForPreferredStaff": { "type": "boolean", "description": "Whether the client wants to wait for their preferred staff member." }
       },
       "required": ["id", "customerName", "serviceIds", "checkInTime", "status"]
     },

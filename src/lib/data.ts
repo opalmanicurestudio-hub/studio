@@ -884,5 +884,44 @@ export const initialLocations: Location[] = [
   { id: 'loc-3', name: 'Styling Station 1', locationTypeId: 'lt-3' },
 ];
 
+export const walkIns: WalkIn[] = [
+    {
+        id: 'wi-1',
+        customerName: 'Sarah K.',
+        customerPhone: '555-0101',
+        serviceIds: ['svc-2', 'svc-addon-2'], // Signature Haircut, Deep Conditioning
+        requiredSkills: ['haircut', 'styling'],
+        estimatedDuration: 80,
+        checkInTime: new Date(new Date().getTime() - 15 * 60 * 1000).toISOString(),
+        status: 'waiting',
+        preferredStaffId: 'staff-2', // Prefers Carlos
+        waitForPreferredStaff: true,
+        notes: 'Has an event tonight, needs to be out by 5pm.'
+    },
+    {
+        id: 'wi-2',
+        customerName: 'Mike P.',
+        customerPhone: '555-0102',
+        serviceIds: ['svc-6'], // Men's haircut
+        requiredSkills: ['haircut'],
+        estimatedDuration: 45,
+        checkInTime: new Date(new Date().getTime() - 8 * 60 * 1000).toISOString(),
+        status: 'waiting',
+        preferredStaffId: undefined,
+        waitForPreferredStaff: false,
+    },
+    {
+        id: 'wi-3',
+        customerName: 'Jessica L.',
+        customerPhone: '555-0103',
+        serviceIds: ['svc-7'], // Gel-X Manicure
+        requiredSkills: ['basic_manicure', 'gel'],
+        estimatedDuration: 90,
+        checkInTime: new Date(new Date().getTime() - 25 * 60 * 1000).toISOString(),
+        status: 'assigned',
+        assignedStaffId: 'staff-1', // Assigned to Brenda
+    }
+];
+
 
 export { nanoid };
