@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -9,8 +10,8 @@ import { User, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHo
 import { useInventory } from '@/context/InventoryContext';
 import { useCollection, useFirebase, updateDocumentNonBlocking, useMemoFirebase } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
-import type { WalkIn, Staff } from '@/lib/data';
-import { formatDistanceToNow, parseISO } from 'date-fns';
+import type { WalkIn, Staff, Appointment } from '@/lib/data';
+import { formatDistanceToNow, parseISO, addMinutes } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
@@ -140,7 +141,7 @@ const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange, onPrin
 
 
 export default function WalkInQueuePage() {
-  const { services } = useInventory();
+  const { services, setAppointments } = useInventory();
   const { firestore, user } = useFirebase();
   const tenantId = 'tenant-abc';
   const [ticketToPrint, setTicketToPrint] = useState<WalkIn | null>(null);
@@ -197,61 +198,89 @@ export default function WalkInQueuePage() {
 
         const idleStaff = staff.filter(s => s.status === 'idle' && !s.onBreak);
         if (idleStaff.length === 0) {
-            return; // No one is available to take a client.
+            return;
         }
 
         const waitingCustomers = walkIns.filter(w => w.status === 'waiting').sort((a, b) => parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
         if (waitingCustomers.length === 0) {
-            return; // No customers waiting.
+            return;
         }
 
-        // Attempt to assign the first customer who can be served.
-        for (const customer of waitingCustomers) {
-            let assignedStaff: Staff | undefined;
+        let customerToAssign: WalkIn | undefined;
+        let staffToAssign: Staff | undefined;
 
-            // Find staff who have ALL the required skills for this customer's services
-            const eligibleStaff = idleStaff.filter(s => 
-                (customer.requiredSkills || []).every(skill => (s.skillSet || []).includes(skill))
-            );
-
-            if (eligibleStaff.length > 0) {
-                // Check if customer has a preferred staff member and if they are eligible
-                if (customer.preferredStaffId) {
-                    const preferred = eligibleStaff.find(s => s.id === customer.preferredStaffId);
-                    if (preferred) {
-                        assignedStaff = preferred; // Assign the preferred staff member
-                    }
-                }
-
-                // If no preferred staff was assigned, fall back to the fairest turn rotation
-                if (!assignedStaff) {
-                    // "Best" is defined as the one who has been idle the longest (oldest lastServedTimestamp).
-                    assignedStaff = eligibleStaff.sort((a, b) =>
-                        (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) -
-                        (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0)
-                    )[0];
-                }
-                
-                // If we found a staff member to assign (either preferred or by rotation)
-                if (assignedStaff) {
-                    const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', customer.id);
-                    updateDocumentNonBlocking(walkInDocRef, {
-                        status: 'assigned',
-                        assignedStaffId: assignedStaff.id,
-                    });
-
-                    const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', assignedStaff.id);
-                    updateDocumentNonBlocking(staffDocRef, {
-                        status: 'busy',
-                    });
-
-                    // We've made an assignment, so we break the loop to process one assignment at a time.
-                    break;
-                }
+        // First, try to fulfill "wait for preferred" requests
+        const preferredWaiters = waitingCustomers.filter(c => c.waitForPreferredStaff && c.preferredStaffId);
+        for (const customer of preferredWaiters) {
+            const preferredStaff = idleStaff.find(s => s.id === customer.preferredStaffId);
+            if (preferredStaff && (customer.requiredSkills || []).every(skill => (preferredStaff.skillSet || []).includes(skill))) {
+                customerToAssign = customer;
+                staffToAssign = preferredStaff;
+                break;
             }
         }
 
-  }, [staff, walkIns, staffLoading, walkInsLoading, firestore, tenantId]);
+        // If no preferred match, process general queue
+        if (!customerToAssign) {
+            const generalWaiters = waitingCustomers.filter(c => !c.waitForPreferredStaff);
+            for (const customer of generalWaiters) {
+                const eligibleStaff = idleStaff.filter(s => 
+                    (customer.requiredSkills || []).every(skill => (s.skillSet || []).includes(skill))
+                );
+
+                if (eligibleStaff.length > 0) {
+                    let assignedStaffMember: Staff | undefined;
+                    if (customer.preferredStaffId) {
+                        const preferred = eligibleStaff.find(s => s.id === customer.preferredStaffId);
+                        if (preferred) {
+                            assignedStaffMember = preferred;
+                        }
+                    }
+
+                    if (!assignedStaffMember) {
+                        assignedStaffMember = eligibleStaff.sort((a, b) =>
+                            (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) -
+                            (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0)
+                        )[0];
+                    }
+                    
+                    if(assignedStaffMember) {
+                        customerToAssign = customer;
+                        staffToAssign = assignedStaffMember;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        if (customerToAssign && staffToAssign) {
+            // Assign walk-in to staff
+            const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', customerToAssign.id);
+            updateDocumentNonBlocking(walkInDocRef, { status: 'assigned', assignedStaffId: staffToAssign.id });
+
+            const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffToAssign.id);
+            updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
+
+            // Planner Integration: Create appointment
+            const service = services.find(s => s.id === customerToAssign!.serviceIds[0]);
+            if (service) {
+                const now = new Date();
+                const appointmentStartTime = now;
+                const appointmentEndTime = addMinutes(now, service.duration);
+                const newAppointment: Appointment = {
+                    id: `apt-walkin-${customerToAssign.id}`,
+                    clientId: customerToAssign.clientId || `walkin-${customerToAssign.id}`,
+                    serviceId: service.id,
+                    staffId: staffToAssign.id,
+                    startTime: appointmentStartTime,
+                    endTime: appointmentEndTime,
+                    status: 'confirmed',
+                    isWalkIn: true,
+                };
+                setAppointments(prev => [...prev, newAppointment]);
+            }
+        }
+  }, [staff, walkIns, staffLoading, walkInsLoading, firestore, tenantId, setAppointments, services]);
 
   const ticketData: WalkInTicketData | null = ticketToPrint ? {
     id: ticketToPrint.id,

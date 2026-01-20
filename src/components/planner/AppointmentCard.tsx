@@ -341,6 +341,14 @@ export function AppointmentCard({
         ? `${service.name} + ${addOnServices.length} add-on(s)`
         : service.name;
 
+    const handleCardClick = () => {
+        if (appointment.status === 'confirmed') {
+            onCompleteClick(appointment);
+        } else {
+            setIsDetailsOpen(true);
+        }
+    };
+
     return (
     <div 
         className={cn(
@@ -350,7 +358,7 @@ export function AppointmentCard({
             hasPadBefore ? 'rounded-t-none' : '',
             hasPadAfter ? 'rounded-b-none' : ''
         )}
-        onClick={() => setIsDetailsOpen(true)}
+        onClick={handleCardClick}
     >
       <div className="flex-grow flex flex-col justify-between min-h-0">
         <div className="flex items-start justify-between">

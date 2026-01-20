@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -28,6 +29,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
 
 type Step = 'services' | 'details' | 'confirmation';
 
@@ -62,6 +64,7 @@ export default function WalkInPage() {
   const [preferredStaffId, setPreferredStaffId] = useState<string>('any');
   const [notes, setNotes] = useState('');
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
+  const [waitForPreferred, setWaitForPreferred] = useState<boolean>(false);
 
   const mainServices = useMemo(() => services.filter(s => s.type === 'service'), [services]);
   const addOnServices = useMemo(() => services.filter(s => s.type === 'addon'), [services]);
@@ -103,6 +106,7 @@ export default function WalkInPage() {
       checkInTime: new Date().toISOString(),
       status: 'waiting',
       preferredStaffId: preferredStaffId === 'any' ? undefined : preferredStaffId,
+      waitForPreferredStaff: preferredStaffId !== 'any' ? waitForPreferred : false,
       notes: notes,
     };
     
@@ -128,6 +132,7 @@ export default function WalkInPage() {
     setSelectedServices([]);
     setPreferredStaffId('any');
     setNotes('');
+    setWaitForPreferred(false);
     setStep('services');
   };
 
@@ -239,6 +244,20 @@ export default function WalkInPage() {
                                          <StaffSelectionCard key={s.id} staff={s} isSelected={preferredStaffId === s.id} onSelect={() => setPreferredStaffId(s.id)} />
                                      ))}
                                  </RadioGroup>
+                            </div>
+                            <div className={`mt-4 space-y-2 transition-opacity ${preferredStaffId === 'any' ? 'opacity-50' : 'opacity-100'}`}>
+                                <div className="flex items-center justify-between rounded-lg border p-4">
+                                    <Label htmlFor="wait-for-preferred" className="flex flex-col gap-1">
+                                        <span>Wait for {staff.find(s => s.id === preferredStaffId)?.name || 'Preferred Staff'}?</span>
+                                        <span className="text-xs font-normal text-muted-foreground">If unchecked, you may be assigned to the next available stylist.</span>
+                                    </Label>
+                                    <Switch
+                                        id="wait-for-preferred"
+                                        checked={waitForPreferred}
+                                        onCheckedChange={setWaitForPreferred}
+                                        disabled={preferredStaffId === 'any'}
+                                    />
+                                </div>
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="preferences">Preferences or Special Needs (Optional)</Label>
