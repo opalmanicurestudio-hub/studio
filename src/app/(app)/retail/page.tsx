@@ -51,23 +51,33 @@ type CartItem = {
   type: 'product' | 'membership' | 'package';
 };
 
-const MembershipProductCard = ({ membership, onClick }: { membership: Membership; onClick: () => void }) => (
-    <Card onClick={onClick} className="cursor-pointer hover:shadow-lg transition-shadow">
-        <CardContent className="p-2 space-y-2">
-            <div className="aspect-square bg-indigo-500/10 rounded-md flex items-center justify-center">
-                <Award className="w-1/2 h-1/2 text-indigo-500" />
-            </div>
-            <h3 className="text-sm font-medium leading-tight truncate">{membership.name}</h3>
-            <p className="text-sm font-semibold">${membership.price.toFixed(2)} / {membership.interval.replace('ly', '')}</p>
-             {(membership.includedServices && membership.includedServices.length > 0 || membership.retailDiscount) && (
-                <div className="text-xs text-muted-foreground pt-1 border-t space-y-0.5">
-                    {membership.includedServices?.slice(0, 1).map(s => <p key={s.id}>Incl. {s.name}</p>)}
-                    {membership.retailDiscount && <p>+ {membership.retailDiscount}% off retail</p>}
+const MembershipProductCard = ({ membership, onClick }: { membership: Membership; onClick: () => void }) => {
+    const hasPerks = (membership.includedServices && membership.includedServices.length > 0) ||
+                   (membership.includedAddOns && membership.includedAddOns.length > 0) ||
+                   (membership.includedProducts && membership.includedProducts.length > 0) ||
+                   membership.retailDiscount;
+
+    return (
+        <Card onClick={onClick} className="cursor-pointer hover:shadow-lg transition-shadow">
+            <CardContent className="p-2 space-y-2">
+                <div className="aspect-square bg-indigo-500/10 rounded-md flex items-center justify-center">
+                    <Award className="w-1/2 h-1/2 text-indigo-500" />
                 </div>
-            )}
-        </CardContent>
-    </Card>
-);
+                <h3 className="text-sm font-medium leading-tight truncate">{membership.name}</h3>
+                <p className="text-sm font-semibold">${membership.price.toFixed(2)} / {membership.interval.replace('ly', '')}</p>
+                 {hasPerks && (
+                    <div className="text-xs text-muted-foreground pt-1 border-t space-y-0.5">
+                        {membership.includedServices?.map(s => <p key={s.id}>Incl. {s.name}</p>)}
+                        {membership.includedAddOns?.map(s => <p key={s.id}>Incl. {s.name}</p>)}
+                        {membership.includedProducts?.map(p => <p key={p.id}>Incl. {p.name}</p>)}
+                        {membership.retailDiscount && <p>+ {membership.retailDiscount}% off retail</p>}
+                    </div>
+                )}
+            </CardContent>
+        </Card>
+    );
+};
+
 
 const PackageProductCard = ({ pack, onClick, services }: { pack: Package; onClick: () => void; services: Service[] }) => {
     const service = services.find(s => s.id === pack.serviceId);
@@ -555,7 +565,8 @@ export default function RetailPage() {
 
   const handleApplyPromo = () => {
     const selectedClient = clients.find(c => c.id === selectedClientId);
-    if (promoCode === 'NEWCLIENT15' && selectedClient && selectedClient.lifetimeValue < (service?.price || 0)) {
+    const service = services.find(s => s.id === appointments[0]?.serviceId);
+    if (promoCode === 'NEWCLIENT15' && selectedClient && service && selectedClient.lifetimeValue < (service?.price || 0)) {
         setDiscount(15);
         toast({
             title: "Discount Applied!",
@@ -880,7 +891,7 @@ export default function RetailPage() {
                     </div>
                 </div>
                 <ScrollArea className="flex-1">
-                    <TabsContent value="products" className="m-0">
+                  <TabsContent value="products" className="m-0">
                       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
                           {retailProducts.map(product => (
                               <Card key={product.id} onClick={() => addToCart(product, 'product')} className="cursor-pointer hover:shadow-lg transition-shadow">
