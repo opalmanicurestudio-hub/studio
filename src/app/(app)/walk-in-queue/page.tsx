@@ -2,11 +2,11 @@
 
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { User, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal, Printer } from 'lucide-react';
+import { User, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal, Printer, UserPlus } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { useCollection, useFirebase, updateDocumentNonBlocking, useMemoFirebase } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
@@ -26,6 +26,8 @@ import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointm
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Label } from '@/components/ui/label';
 
 const Timer = ({ startTime }: { startTime: string }) => {
     const [elapsed, setElapsed] = useState('');
@@ -92,7 +94,7 @@ const StaffStatusCard = ({ staffMember, onStatusChange, isNextUp }: { staffMembe
   );
 }
 
-const WaitingCustomerCard = ({ walkIn, services, onPrintTicket, queuePosition }: { walkIn: WalkIn, services: any[], onPrintTicket: (data: WalkIn) => void, queuePosition: number }) => {
+const WaitingCustomerCard = ({ walkIn, services, onPrintTicket, onOpenAssignDialog, queuePosition }: { walkIn: WalkIn, services: any[], onPrintTicket: (data: WalkIn) => void, onOpenAssignDialog: (walkIn: WalkIn) => void, queuePosition: number }) => {
     const walkInServices = services.filter(s => walkIn.serviceIds.includes(s.id));
     return (
         <Card>
@@ -115,6 +117,9 @@ const WaitingCustomerCard = ({ walkIn, services, onPrintTicket, queuePosition }:
                                 <Button variant="ghost" size="icon" className="h-8 w-8 -mr-2"><MoreHorizontal className="h-4 w-4" /></Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent>
+                                <DropdownMenuItem onClick={() => onOpenAssignDialog(walkIn)}>
+                                    <UserPlus className="mr-2 h-4 w-4" />Assign Manually
+                                </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => onPrintTicket(walkIn)}>
                                     <Printer className="mr-2 h-4 w-4"/>Print Ticket
                                 </DropdownMenuItem>
@@ -177,6 +182,65 @@ const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange, onPrin
     )
 };
 
+const AssignStaffDialog = ({ open, onOpenChange, walkIn, staff, services, onAssign }: { open: boolean, onOpenChange: (open: boolean) => void, walkIn: WalkIn | null, staff: Staff[], services: Service[], onAssign: (staffId: string) => void }) => {
+  const [selectedStaffId, setSelectedStaffId] = useState('');
+
+  const eligibleStaff = useMemo(() => {
+    if (!walkIn || !staff) return [];
+    const requiredSkills = walkIn.serviceIds.flatMap(id => services.find(s => s.id === id)?.requiredSkills || []);
+    const uniqueSkills = [...new Set(requiredSkills)];
+
+    return staff.filter(s => 
+      s.status === 'idle' && 
+      !s.onBreak && 
+      uniqueSkills.every(skill => (s.skillSet || []).includes(skill))
+    );
+  }, [walkIn, staff, services]);
+
+  const handleAssign = () => {
+    if (selectedStaffId) {
+      onAssign(selectedStaffId);
+    }
+  };
+
+  if (!walkIn) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Assign {walkIn.customerName} to...</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-4">
+          <RadioGroup value={selectedStaffId} onValueChange={setSelectedStaffId}>
+            {eligibleStaff.map(s => (
+              <Label key={s.id} htmlFor={`assign-${s.id}`} className="flex items-center gap-4 p-3 border rounded-md cursor-pointer hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:ring-2 has-[:checked]:ring-primary">
+                <Avatar className="w-12 h-12">
+                  <AvatarImage src={s.avatarUrl} />
+                  <AvatarFallback>{s.name.charAt(0)}</AvatarFallback>
+                </Avatar>
+                <div className="flex-1">
+                  <p className="font-semibold">{s.name}</p>
+                </div>
+                <RadioGroupItem value={s.id} id={`assign-${s.id}`} />
+              </Label>
+            ))}
+          </RadioGroup>
+          {eligibleStaff.length === 0 && (
+            <div className="text-center text-muted-foreground p-8">
+              <p>No eligible staff are available for the requested services.</p>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={handleAssign} disabled={!selectedStaffId}>Assign</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 
 export default function WalkInQueuePage() {
   const { services, clients, setAppointments, walkIns: allWalkIns, staff: allStaff, setStaff, setActivityLogs } = useInventory();
@@ -184,7 +248,7 @@ export default function WalkInQueuePage() {
   const tenantId = 'tenant-abc';
   const [ticketToPrint, setTicketToPrint] = useState<WalkIn | null>(null);
   const [checkoutAppointment, setCheckoutAppointment] = useState<Appointment | null>(null);
-
+  const [walkInToAssign, setWalkInToAssign] = useState<WalkIn | null>(null);
   
   const staffQuery = useMemoFirebase(() => {
     if (!firestore || !user) return null;
@@ -201,6 +265,56 @@ export default function WalkInQueuePage() {
   
   const staff = useMemo(() => firestoreStaff && firestoreStaff.length > 0 ? firestoreStaff : allStaff, [firestoreStaff, allStaff]);
   const walkIns = useMemo(() => firestoreWalkIns && firestoreWalkIns.length > 0 ? firestoreWalkIns : allWalkIns, [firestoreWalkIns, allWalkIns]);
+
+  const assignWalkIn = useCallback((walkInId: string, staffId: string) => {
+    if (!firestore || !walkIns || !staff) return;
+
+    const walkIn = walkIns.find(w => w.id === walkInId);
+    const staffMember = staff.find(s => s.id === staffId);
+
+    if (!walkIn || !staffMember) return;
+    
+    const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkins', walkInId);
+    const now = new Date();
+    updateDocumentNonBlocking(walkInDocRef, {
+        status: 'servicing',
+        assignedStaffId: staffId,
+        serviceStartTime: now.toISOString(),
+    });
+
+    const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
+    updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
+
+    const service = services.find(s => s.id === walkIn.serviceIds[0]);
+    if (service) {
+        const appointmentEndTime = addMinutes(now, walkIn.estimatedDuration);
+        const newAppointment: Appointment = {
+            id: `apt-walkin-${walkIn.id}`,
+            clientId: walkIn.clientId || `walkin-${walkIn.id}`,
+            serviceId: service.id,
+            staffId: staffId,
+            startTime: now,
+            endTime: appointmentEndTime,
+            status: 'servicing',
+            isWalkIn: true,
+            actualStartTime: now.toISOString(),
+            addOnIds: walkIn.serviceIds.slice(1),
+        };
+        setAppointments(prev => {
+            if (prev.some(apt => apt.id === newAppointment.id)) {
+                return prev;
+            }
+            return [...prev, newAppointment];
+        });
+    }
+  }, [firestore, tenantId, walkIns, staff, services, setAppointments]);
+
+  const handleManualAssign = (staffId: string) => {
+    if (walkInToAssign) {
+        assignWalkIn(walkInToAssign.id, staffId);
+    }
+    setWalkInToAssign(null);
+  };
 
   const nextUpStaffId = useMemo(() => {
     if (!staff) return null;
@@ -232,9 +346,8 @@ export default function WalkInQueuePage() {
 
     let finalUpdate = { ...statusUpdate };
     
-    // Check if 'onBreak' is being toggled
     if (statusUpdate.hasOwnProperty('onBreak')) {
-        if (statusUpdate.onBreak === true) { // Starting a break
+        if (statusUpdate.onBreak === true) { 
             finalUpdate.breakStartTime = new Date().toISOString();
             const newLog: ActivityLog = {
                 id: `log-${nanoid()}`,
@@ -244,7 +357,7 @@ export default function WalkInQueuePage() {
             };
             setActivityLogs(prev => [...prev, newLog]);
 
-        } else if (statusUpdate.onBreak === false && staffMember.onBreak && staffMember.breakStartTime) { // Ending a break
+        } else if (statusUpdate.onBreak === false && staffMember.onBreak && staffMember.breakStartTime) { 
             const breakStart = parseISO(staffMember.breakStartTime);
             const breakEnd = new Date();
             const durationMinutes = differenceInMinutes(breakEnd, breakStart);
@@ -274,7 +387,6 @@ export default function WalkInQueuePage() {
     
     updateDocumentNonBlocking(walkInDocRef, update);
 
-    // If completed or skipped, make staff idle again
     if ((status === 'completed' || status === 'skipped') && staffId) {
         const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
         updateDocumentNonBlocking(staffDocRef, { 
@@ -308,8 +420,6 @@ export default function WalkInQueuePage() {
     const walkInId = checkoutAppointment.id.replace('apt-walkin-', '');
     handleWalkInStatusChange(walkInId, checkoutAppointment.staffId || '', 'completed');
     
-    // Here you would also handle inventory and transaction logging
-    
     setCheckoutAppointment(null);
   };
 
@@ -333,7 +443,6 @@ export default function WalkInQueuePage() {
         let customerToAssign: WalkIn | undefined;
         let staffToAssign: Staff | undefined;
 
-        // First, try to fulfill "wait for preferred" requests
         const preferredWaiters = waitingCustomers.filter(c => c.waitForPreferredStaff && c.preferredStaffId);
         for (const customer of preferredWaiters) {
             const preferredStaff = idleStaff.find(s => s.id === customer.preferredStaffId);
@@ -344,7 +453,6 @@ export default function WalkInQueuePage() {
             }
         }
 
-        // If no preferred match, process general queue
         if (!customerToAssign) {
             const generalWaiters = waitingCustomers.filter(c => !c.waitForPreferredStaff);
             for (const customer of generalWaiters) {
@@ -378,43 +486,15 @@ export default function WalkInQueuePage() {
         }
         
         if (customerToAssign && staffToAssign) {
-            // Assign walk-in to staff
-            const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkins', customerToAssign.id);
-            const now = new Date();
-            const service = services.find(s => s.id === customerToAssign!.serviceIds[0]);
-
-            updateDocumentNonBlocking(walkInDocRef, { 
-                status: 'servicing', 
-                assignedStaffId: staffToAssign.id, 
-                serviceStartTime: now.toISOString() 
-            });
-
-            const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffToAssign.id);
-            updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
-
-            if(service) {
-                const appointmentEndTime = addMinutes(now, service.duration);
-                const newAppointment: Appointment = {
-                    id: `apt-walkin-${customerToAssign.id}`,
-                    clientId: customerToAssign.clientId || `walkin-${customerToAssign.id}`,
-                    serviceId: service.id,
-                    staffId: staffToAssign.id,
-                    startTime: now,
-                    endTime: appointmentEndTime,
-                    status: 'servicing',
-                    isWalkIn: true,
-                    actualStartTime: now.toISOString(),
-                };
-                setAppointments(prev => [...prev, newAppointment]);
-            }
+            assignWalkIn(customerToAssign.id, staffToAssign.id);
         }
-  }, [staff, walkIns, staffLoading, walkInsLoading, firestore, tenantId, setAppointments, services]);
+  }, [staff, walkIns, staffLoading, walkInsLoading, firestore, assignWalkIn]);
 
   const ticketData: WalkInTicketData | null = ticketToPrint ? {
     id: ticketToPrint.id,
     name: ticketToPrint.customerName,
     services: services.filter(s => ticketToPrint.serviceIds.includes(s.id)),
-    queuePosition: (waitingQueue.findIndex(w => w.id === ticketToPrint.id) + 1) || 1, // Mock if not in waiting
+    queuePosition: (waitingQueue.findIndex(w => w.id === ticketToPrint.id) + 1) || 1, 
     checkInTime: ticketToPrint.checkInTime,
   } : null;
 
@@ -423,7 +503,6 @@ export default function WalkInQueuePage() {
     const clientData = clients.find(c => c.id === checkoutAppointment.clientId);
     const serviceData = services.find(s => s.id === checkoutAppointment.serviceId);
 
-    // If client doesn't exist, create a temporary one for the dialog
     const displayClient = clientData || {
       id: checkoutAppointment.clientId,
       name: checkoutAppointment.clientId.replace('walkin-', ''),
@@ -484,7 +563,7 @@ export default function WalkInQueuePage() {
                  <CardContent className="space-y-4">
                     {waitingQueue.length > 0 ? (
                         waitingQueue.map((walkIn, index) => (
-                            <WaitingCustomerCard key={walkIn.id} walkIn={walkIn} services={services} onPrintTicket={setTicketToPrint} queuePosition={index + 1} />
+                            <WaitingCustomerCard key={walkIn.id} walkIn={walkIn} services={services} onPrintTicket={setTicketToPrint} onOpenAssignDialog={setWalkInToAssign} queuePosition={index + 1} />
                         ))
                     ) : (
                         <div className="text-center py-16 px-6 text-muted-foreground">
@@ -523,9 +602,18 @@ export default function WalkInQueuePage() {
                 </CardContent>
             </Card>
         </div>
-
       </main>
     </div>
+    
+    <AssignStaffDialog
+      open={!!walkInToAssign}
+      onOpenChange={() => setWalkInToAssign(null)}
+      walkIn={walkInToAssign}
+      staff={staff}
+      services={services}
+      onAssign={handleManualAssign}
+    />
+
     <Dialog open={!!ticketToPrint} onOpenChange={() => setTicketToPrint(null)}>
       <DialogContent className="sm:max-w-sm print-content">
         <DialogHeader className="print:hidden">
@@ -571,5 +659,3 @@ export default function WalkInQueuePage() {
     </>
   );
 }
-
-    
