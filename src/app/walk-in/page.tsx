@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -20,6 +19,7 @@ import { useRouter } from 'next/navigation';
 import { useFirebase, addDocumentNonBlocking } from '@/firebase';
 import { collection } from 'firebase/firestore';
 import { Service, Staff } from '@/lib/data';
+import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 
 export default function WalkInPage() {
   const { services, staff } = useInventory();
@@ -95,8 +95,13 @@ export default function WalkInPage() {
   };
 
   return (
-    <div className="flex min-h-screen w-full flex-col">
-      <AppHeader title="Walk-In Check-in" />
+    <div className="flex min-h-screen w-full flex-col bg-muted/40">
+      <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-background/80 px-4 backdrop-blur-sm md:px-6 print:hidden">
+        <div className="flex items-center gap-2">
+            <ClarityFlowLogo />
+            <h1 className="text-xl font-semibold md:text-2xl">ClarityFlow</h1>
+        </div>
+      </header>
       <main className="flex-1 p-4 md:p-8 flex items-center justify-center">
         <Card className="w-full max-w-2xl">
           <CardHeader>

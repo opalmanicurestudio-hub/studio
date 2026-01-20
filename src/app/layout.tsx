@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
+import { FirebaseClientProvider } from "@/firebase";
+import { InventoryProvider } from "@/context/InventoryContext";
 
 export const metadata: Metadata = {
   title: "ClarityFlow",
@@ -25,7 +27,11 @@ export default function RootLayout({
         />
       </head>
       <body className={`font-body antialiased`}>
-        {children}
+        <FirebaseClientProvider>
+          <InventoryProvider>
+            {children}
+          </InventoryProvider>
+        </FirebaseClientProvider>
         <Toaster />
       </body>
     </html>
