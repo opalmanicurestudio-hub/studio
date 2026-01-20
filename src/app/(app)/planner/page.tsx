@@ -61,39 +61,6 @@ import { LogPaymentDialog } from '@/components/bills/LogPaymentDialog';
 import { PickingListDialog } from '@/components/planner/PickingListDialog';
 
 
-const TimeIndicator = () => {
-    const [top, setTop] = useState(0);
-    const START_HOUR = 0; // Starts from midnight
-    const HEADER_HEIGHT = 56; // h-14
-
-    useEffect(() => {
-        const updatePosition = () => {
-            const now = new Date();
-            const startOfDayWithOffset = setHours(startOfDay(now), START_HOUR);
-            const minutesFromStart = differenceInMinutes(now, startOfDayWithOffset);
-            const newTop = minutesFromStart * (160 / 60); // 160px is h-40
-            if (newTop >= 0) {
-                setTop(newTop + HEADER_HEIGHT);
-            }
-        };
-
-        updatePosition();
-        const interval = setInterval(updatePosition, 60000);
-
-        return () => clearInterval(interval);
-    }, []);
-
-    if (top === 0) return null;
-
-    return (
-        <div className="absolute w-full flex items-center z-30" style={{ top: `${top}px` }}>
-            <div className="h-2 w-2 rounded-full bg-red-500 -ml-1"></div>
-            <div className="h-px w-full bg-red-500"></div>
-        </div>
-    );
-};
-
-
 const DayTimeline = ({ 
     date, 
     staff,
@@ -132,7 +99,7 @@ const DayTimeline = ({
     const START_HOUR = 0; // Start at midnight
     const hours = Array.from({ length: 24 - START_HOUR }, (_, i) => i + START_HOUR);
     const [tmhr, setTmhr] = useState(0);
-    const scrollViewportRef = useRef<HTMLDivElement>(null);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
       if (typeof window !== 'undefined') {
@@ -140,22 +107,6 @@ const DayTimeline = ({
         setTmhr(parseFloat(storedTmhr || '50'));
       }
     }, []);
-
-    useEffect(() => {
-        if (isToday(date) && scrollViewportRef.current) {
-            const now = new Date();
-            const startOfDayWithOffset = setHours(startOfDay(now), START_HOUR);
-            const minutesFromStart = differenceInMinutes(now, startOfDayWithOffset);
-            
-            const HEADER_HEIGHT = 56; // h-14
-            const scrollPosition = (minutesFromStart * (160 / 60)) - (scrollViewportRef.current.clientHeight / 4) + HEADER_HEIGHT;
-
-            scrollViewportRef.current.scrollTo({
-                top: Math.max(0, scrollPosition),
-                behavior: 'smooth'
-            });
-        }
-    }, [date]);
 
     const staffSchedules = useMemo(() => {
         return staff.map(staffMember => {
@@ -239,7 +190,7 @@ const DayTimeline = ({
         const style = { top: `${top}px`, height: `${height}px`, width: `calc(${item.layout.width} - 0.5rem)`, left: item.layout.left };
        
         return (
-            <div key={item.id} className="absolute pr-2" style={style}>
+            <div key={item.id} className="absolute pr-2 z-10" style={style}>
                 <AppointmentCard
                     appointment={item}
                     client={client}
@@ -258,47 +209,88 @@ const DayTimeline = ({
         );
     };
 
+    const TimeIndicator = () => {
+        const [top, setTop] = useState(0);
+
+        useEffect(() => {
+            const updatePosition = () => {
+                const now = new Date();
+                const minutesFromStart = differenceInMinutes(now, startOfDay(now));
+                setTop(minutesFromStart * (160 / 60)); // 160px is h-40
+            };
+
+            updatePosition();
+            const interval = setInterval(updatePosition, 60000);
+            return () => clearInterval(interval);
+        }, []);
+
+        if (top === 0) return null;
+
+        return (
+            <div className="absolute w-full flex items-center z-20" style={{ top: `${top}px` }}>
+                <div className="h-2 w-2 rounded-full bg-red-500 -ml-1"></div>
+                <div className="h-px w-full bg-red-500"></div>
+            </div>
+        );
+    };
+
+    useEffect(() => {
+        if (isToday(date) && scrollContainerRef.current) {
+            const now = new Date();
+            const minutesFromStart = differenceInMinutes(now, startOfDay(now));
+            const scrollPosition = (minutesFromStart * (160/60)) - (scrollContainerRef.current.clientHeight / 4);
+
+            scrollContainerRef.current.scrollTo({
+                top: Math.max(0, scrollPosition),
+                behavior: 'smooth'
+            });
+        }
+    }, [date]);
+
     return (
-        <ScrollArea className="flex-1" viewportRef={scrollViewportRef}>
-            <div className="relative flex min-h-full">
-                {/* Time Labels Column */}
-                <div className="sticky left-0 z-20 w-16 flex-shrink-0 flex flex-col bg-background text-right pr-4">
-                    {/* Spacer for Staff Header */}
-                    <div className="h-14 border-b"></div> 
+        <div className="flex-1 relative overflow-auto" ref={scrollContainerRef}>
+            <div className="grid grid-cols-[4rem,1fr] min-w-max">
+                {/* Top-left corner */}
+                <div className="sticky top-0 left-0 z-30 bg-background h-14 border-b border-r" />
+
+                {/* Staff headers */}
+                <div className="sticky top-0 z-20 grid col-start-2 bg-background" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(250px, 1fr))` }}>
+                    {staff.map(staffMember => (
+                    <div key={staffMember.id} className="p-2 h-14 border-b border-r text-center flex items-center justify-center">
+                        <div className="flex items-center justify-center gap-2 h-full">
+                            <Avatar className="w-6 h-6"><AvatarImage src={staffMember.avatarUrl} /><AvatarFallback>{staffMember.name.charAt(0)}</AvatarFallback></Avatar>
+                            <p className="font-semibold text-sm truncate">{staffMember.name}</p>
+                        </div>
+                    </div>
+                    ))}
+                </div>
+                
+                {/* Time labels */}
+                <div className="sticky left-0 row-start-2 z-10 bg-background">
                     {hours.map(hour => (
-                        <div key={hour} className="h-40 -mt-2.5 flex items-start justify-end pt-1">
-                            <span className="text-xs text-muted-foreground">{format(new Date(0, 0, 0, hour), 'ha')}</span>
+                        <div key={hour} className="h-40 border-r border-b text-right pr-2 pt-1 flex justify-end">
+                            <span className="text-xs text-muted-foreground -mt-2.5">{format(new Date(0, 0, 0, hour), 'ha')}</span>
                         </div>
                     ))}
                 </div>
 
-                {/* Main Timeline Grid */}
-                <div className="relative grid flex-1" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(250px, 1fr))` }}>
-                    {isToday(date) && <TimeIndicator />}
-
-                    {/* Staff Columns */}
-                    {staffSchedules.map(({ staffMember, positionedAppointments }, staffIndex) => (
-                        <div key={staffMember.id} className="relative border-r flex flex-col">
-                            <div className="sticky top-0 bg-background/80 backdrop-blur-sm z-10 p-2 h-14 border-b text-center flex items-center justify-center">
-                                {/* Staff header content */}
-                                <div className="flex items-center justify-center gap-2 h-full">
-                                    <Avatar className="w-6 h-6"><AvatarImage src={staffMember.avatarUrl} /><AvatarFallback>{staffMember.name.charAt(0)}</AvatarFallback></Avatar>
-                                    <p className="font-semibold text-sm truncate">{staffMember.name}</p>
-                                </div>
-                            </div>
-                            <div className="relative flex-1">
-                                {/* Grid lines */}
-                                {hours.map(hour => (
-                                    <div key={hour} className="h-40 border-t border-dashed"></div>
-                                ))}
-                                {/* Appointments */}
-                                {positionedAppointments.map(renderAppointment)}
-                            </div>
+                {/* Main content grid */}
+                <div className="col-start-2 row-start-2 grid relative" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(250px, 1fr))` }}>
+                    {staffSchedules.map(({ staffMember, positionedAppointments }) => (
+                        <div key={staffMember.id} className="relative border-r">
+                            {/* Grid lines */}
+                            {hours.map(hour => (
+                                <div key={hour} className="h-40 border-b border-dashed" />
+                            ))}
+                            {/* Appointments */}
+                            {positionedAppointments.map(renderAppointment)}
                         </div>
                     ))}
+
+                    {isToday(date) && <TimeIndicator />}
                 </div>
             </div>
-        </ScrollArea>
+        </div>
     );
 };
 
@@ -892,7 +884,7 @@ export default function PlannerPage() {
         </ScrollArea>
       </div>
 
-      <main className="flex-1 min-h-0">
+      <main className="flex-1 flex flex-col min-h-0">
           <DayTimeline 
               date={currentDate} 
               staff={staff}
@@ -1036,3 +1028,6 @@ export default function PlannerPage() {
 
 
 
+
+
+    
