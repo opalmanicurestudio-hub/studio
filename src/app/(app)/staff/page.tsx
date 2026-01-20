@@ -9,28 +9,55 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  CardFooter,
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Users } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { useInventory } from '@/context/InventoryContext';
 import { type Staff } from '@/lib/data';
 import { AddStaffDialog } from '@/components/staff/AddStaffDialog';
+
+const StaffCard = ({ member }: { member: Staff }) => (
+  <Card className="text-center">
+    <CardContent className="p-6">
+      <Avatar className="w-24 h-24 mx-auto mb-4">
+        <AvatarImage src={member.avatarUrl} alt={member.name} data-ai-hint="person portrait" />
+        <AvatarFallback>{member.name.substring(0, 2)}</AvatarFallback>
+      </Avatar>
+      <h3 className="text-lg font-semibold">{member.name}</h3>
+      <p className="text-sm text-muted-foreground">{member.email}</p>
+      <Badge variant={member.role === 'admin' ? 'default' : 'secondary'} className="mt-4 capitalize">
+        {member.role}
+      </Badge>
+    </CardContent>
+    <CardFooter className="p-2 border-t">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" className="w-full">
+            <MoreHorizontal className="w-4 h-4 mr-2" />
+            Manage
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem>Edit Profile</DropdownMenuItem>
+          <DropdownMenuItem>Change Role</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem className="text-destructive">Remove from Team</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </CardFooter>
+  </Card>
+);
+
 
 export default function StaffPage() {
   const { staff, setStaff } = useInventory();
@@ -59,59 +86,21 @@ export default function StaffPage() {
           </Button>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Staff List</CardTitle>
-            <CardDescription>{staff.length} staff member(s) on your team.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead><span className="sr-only">Actions</span></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {staff.map((member) => (
-                  <TableRow key={member.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <Avatar>
-                          <AvatarImage src={member.avatarUrl} alt={member.name} />
-                          <AvatarFallback>{member.name.charAt(0)}</AvatarFallback>
-                        </Avatar>
-                        <span className="font-medium">{member.name}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>{member.email}</TableCell>
-                    <TableCell>
-                      <Badge variant={member.role === 'admin' ? 'default' : 'secondary'}>
-                        {member.role}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button aria-haspopup="true" size="icon" variant="ghost">
-                            <MoreHorizontal className="h-4 w-4" />
-                            <span className="sr-only">Toggle menu</span>
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem>Edit</DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        {staff.length > 0 ? (
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {staff.map((member) => (
+              <StaffCard key={member.id} member={member} />
+            ))}
+          </div>
+        ) : (
+          <Card>
+            <CardContent className="py-20 flex flex-col items-center justify-center text-center text-muted-foreground">
+                <Users className="w-16 h-16 mb-4"/>
+              <h3 className="text-xl font-semibold mb-2 text-foreground">No staff members yet</h3>
+              <p className="mb-4">Click the button to add your first team member.</p>
+            </CardContent>
+          </Card>
+        )}
       </main>
       <AddStaffDialog 
         open={isAddStaffOpen} 
