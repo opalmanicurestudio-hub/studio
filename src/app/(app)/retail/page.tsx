@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
@@ -333,7 +332,7 @@ const CartContent = ({
                 <div className="flex justify-between text-sm items-center">
                 <span className="text-muted-foreground">Tip</span>
                 <div className="relative w-24">
-                    <DollarSignIcon className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                     type="number"
                     value={tipAmount || ''}
@@ -462,7 +461,7 @@ const CartContent = ({
             onClick={handleCheckout}
             disabled={total < 0}
           >
-            <DollarSignIcon className="mr-2 h-6 w-6" />
+            <DollarSign className="mr-2 h-6 w-6" />
             Charge ${total > 0 ? total.toFixed(2) : '0.00'}
           </Button>
         </div>
@@ -1152,3 +1151,5 @@ export default function RetailPage() {
     </>
   );
 }
+
+    
