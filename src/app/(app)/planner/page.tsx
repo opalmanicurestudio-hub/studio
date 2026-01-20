@@ -4,8 +4,8 @@
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit } from 'lucide-react';
-import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem, type StockCorrection } from '@/lib/data';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User } from 'lucide-react';
+import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem, type StockCorrection, type Staff } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping } from 'date-fns';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -61,7 +61,7 @@ import { LogPaymentDialog } from '@/components/bills/LogPaymentDialog';
 import { PickingListDialog } from '@/components/planner/PickingListDialog';
 
 
-const TimeIndicator = () => {
+const TimeIndicator = ({ staffCount }: { staffCount: number }) => {
     const [top, setTop] = useState(0);
     const START_HOUR = 0; // Starts from midnight
 
@@ -85,7 +85,7 @@ const TimeIndicator = () => {
     if (top === 0) return null;
 
     return (
-        <div className="absolute w-full flex items-center z-10" style={{ top: `${top}px` }}>
+        <div className="absolute w-full flex items-center z-10" style={{ top: `${top}px`, width: `${staffCount * 256}px` }}>
             <div className="h-2 w-2 rounded-full bg-red-500 -ml-1"></div>
             <div className="h-px w-full bg-red-500"></div>
         </div>
@@ -95,9 +95,8 @@ const TimeIndicator = () => {
 
 const DayTimeline = ({ 
     date, 
-    appointments, 
-    events,
-    billInstances,
+    staff,
+    appointmentsByStaff,
     onCompleteClick, 
     onUpdateStatus, 
     onDeleteAppointment, 
@@ -113,9 +112,8 @@ const DayTimeline = ({
     onOpenPickingList,
 }: { 
     date: Date; 
-    appointments: Appointment[]; 
-    events: Event[]; 
-    billInstances: (BillInstance & { definition: BillDefinition })[];
+    staff: Staff[];
+    appointmentsByStaff: Map<string, Appointment[]>;
     onCompleteClick: (apt: Appointment) => void; 
     onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void; 
     onDeleteAppointment: (appointmentId: string) => void; 
@@ -130,116 +128,7 @@ const DayTimeline = ({
     onReschedule: (appointment: Appointment) => void;
     onOpenPickingList: () => void;
 }) => {
-    const viewportRef = useRef<HTMLDivElement>(null);
     const START_HOUR = 0; // Start at midnight
-    
-    useEffect(() => {
-        if (isToday(date) && viewportRef.current) {
-            const now = new Date();
-            const startOfDayWithOffset = setHours(startOfDay(now), START_HOUR);
-            const minutesFromStart = differenceInMinutes(now, startOfDayWithOffset);
-            
-            if (minutesFromStart > 0) {
-                const scrollPosition = minutesFromStart * (160 / 60); // 160px per hour
-                viewportRef.current.scrollTo({
-                    top: scrollPosition - viewportRef.current.clientHeight / 2,
-                    behavior: 'smooth',
-                });
-            }
-        }
-    }, [date, viewportRef.current]);
-    
-    const dailyTotals = useMemo(() => {
-        const appointmentRevenue = appointments
-            .filter(apt => apt.status === 'completed')
-            .reduce((acc, apt) => {
-                const service = services.find(s => s.id === apt.serviceId);
-                return acc + (service?.price || 0);
-            }, 0);
-
-        const costs = dailyTransactions?.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0) || 0;
-        
-        const appointmentCosts = appointments
-            .filter(apt => apt.status === 'completed')
-            .reduce((acc, apt) => {
-                const service = services.find(s => s.id === apt.serviceId);
-                return acc + (service?.cost || 0);
-            }, 0);
-        
-        const totalCosts = costs + appointmentCosts;
-        const netProfit = appointmentRevenue - totalCosts;
-
-        return {
-            revenue: appointmentRevenue,
-            costs: totalCosts,
-            net: netProfit,
-        };
-    }, [appointments, dailyTransactions]);
-
-    const positionedItems = useMemo(() => {
-        const items = [...appointments.map(a => ({...a, itemType: 'appointment'})), ...events.map(e => ({...e, itemType: 'event'}))]
-            .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
-        
-        if (items.length === 0) return [];
-
-        let layoutInfo = items.map(item => ({
-            ...item,
-            layout: { cols: 0, col: 0 }
-        }));
-        
-        // This function positions a cluster of overlapping events.
-        function positionCluster(cluster: any[]) {
-            cluster.sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
-            
-            const columns: any[][] = [];
-
-            for(const item of cluster) {
-                let placed = false;
-                for (let i = 0; i < columns.length; i++) {
-                    const col = columns[i];
-                    if (col[col.length-1].endTime <= item.startTime) {
-                        col.push(item);
-                        item.layout.col = i;
-                        placed = true;
-                        break;
-                    }
-                }
-                if (!placed) {
-                    columns.push([item]);
-                    item.layout.col = columns.length - 1;
-                }
-            }
-
-            for (const item of cluster) {
-                item.layout.cols = columns.length;
-            }
-        }
-        
-        // Group items into clusters
-        let lastEventEnd: Date | null = null;
-        let currentCluster: any[] = [];
-        for (const item of layoutInfo) {
-            if (lastEventEnd !== null && item.startTime >= lastEventEnd) {
-                positionCluster(currentCluster);
-                currentCluster = [];
-            }
-            currentCluster.push(item);
-            lastEventEnd = new Date(Math.max(lastEventEnd?.getTime() || 0, item.endTime.getTime()));
-        }
-
-        if (currentCluster.length > 0) {
-            positionCluster(currentCluster);
-        }
-        
-        return layoutInfo.map(item => ({
-            ...item,
-            layout: {
-                width: `${100 / item.layout.cols}%`,
-                left: `${(100 / item.layout.cols) * item.layout.col}%`,
-            }
-        }));
-    }, [appointments, events]);
-
     const hours = Array.from({ length: 24 - START_HOUR }, (_, i) => i + START_HOUR);
     const [tmhr, setTmhr] = useState(0);
 
@@ -250,151 +139,145 @@ const DayTimeline = ({
       }
     }, []);
 
-    const renderItem = (item: any) => {
-        const dayStart = setHours(startOfDay(date), START_HOUR);
-        
-        if (item.itemType === 'appointment' || (item.itemType === 'event' && item.quoteId)) {
-            let client;
-            let service;
-            let appointment;
+    const staffSchedules = useMemo(() => {
+        return staff.map(staffMember => {
+            const staffAppointments = appointmentsByStaff.get(staffMember.id) || [];
+            
+            let layoutInfo = staffAppointments.map(item => ({
+                ...item,
+                itemType: 'appointment',
+                layout: { cols: 0, col: 0 }
+            }));
+            
+            function positionCluster(cluster: any[]) {
+                cluster.sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
+                const columns: any[][] = [];
 
-            if (item.itemType === 'event') {
-                const quoteClient = clients.find(c => c.id === item.clientId);
-                if (!quoteClient) return null;
-                
-                const quoteTotal = (item.lineItems || []).reduce((acc: number, li: any) => acc + li.price, 0) + (item.travelExpenses || 0) + ((item.lineItems || []).reduce((acc: number, li: any) => acc + li.price, 0) * ((item.projectFee || 0) / 100));
-
-                client = quoteClient;
-                service = { 
-                    id: item.id,
-                    name: item.title,
-                    duration: differenceInMinutes(item.endTime, item.startTime),
-                    price: quoteTotal,
-                };
-                appointment = { 
-                    ...item,
-                    clientId: item.clientId,
-                    serviceId: item.id,
-                    status: 'confirmed',
-                };
-
-            } else {
-                client = clients.find(c => c.id === item.clientId);
-                service = services.find(s => s.id === item.serviceId);
-                appointment = item;
+                for(const item of cluster) {
+                    let placed = false;
+                    for (let i = 0; i < columns.length; i++) {
+                        const col = columns[i];
+                        if (col[col.length-1].endTime <= item.startTime) {
+                            col.push(item);
+                            item.layout.col = i;
+                            placed = true;
+                            break;
+                        }
+                    }
+                    if (!placed) {
+                        columns.push([item]);
+                        item.layout.col = columns.length - 1;
+                    }
+                }
+                for (const item of cluster) {
+                    item.layout.cols = columns.length;
+                }
+            }
+            
+            let lastEventEnd: Date | null = null;
+            let currentCluster: any[] = [];
+            for (const item of layoutInfo) {
+                if (lastEventEnd !== null && item.startTime >= lastEventEnd) {
+                    positionCluster(currentCluster);
+                    currentCluster = [];
+                }
+                currentCluster.push(item);
+                lastEventEnd = new Date(Math.max(lastEventEnd?.getTime() || 0, item.endTime.getTime()));
             }
 
-            if (!client || !service) return null;
-
-            const padBefore = service.padBefore || 0;
-            const padAfter = service.padAfter || 0;
-            const totalDuration = service.duration + padBefore + padAfter;
+            if (currentCluster.length > 0) {
+                positionCluster(currentCluster);
+            }
             
-            const actualStartTime = subMinutes(item.startTime, padBefore);
-            const minutesFromStart = differenceInMinutes(actualStartTime, dayStart);
-            
-            if (minutesFromStart < 0) return null;
+            const positionedAppointments = layoutInfo.map(item => ({
+                ...item,
+                layout: {
+                    width: `${100 / item.layout.cols}%`,
+                    left: `${(100 / item.layout.cols) * item.layout.col}%`,
+                }
+            }));
 
-            const top = minutesFromStart * (160/60);
-            const height = totalDuration * (160/60);
-            const style = { top: `${top}px`, height: `${height}px`, width: item.layout.width, left: item.layout.left };
-           
-            return (
-                <div key={item.id} className="absolute pr-2" style={style}>
-                    <AppointmentCard
-                        appointment={appointment}
-                        client={client}
-                        service={service}
-                        style={{ height: '100%'}}
-                        tmhr={tmhr}
-                        onUpdateStatus={onUpdateStatus}
-                        onDelete={onDeleteAppointment}
-                        onCompleteClick={onCompleteClick}
-                        onPrintReceipt={onPrintReceipt}
-                        onPrintTicket={onPrintTicket}
-                        onEdit={onEditAppointment}
-                        onReschedule={onReschedule}
-                    />
-                </div>
-            );
-        } else { // item.itemType === 'event' and NOT a booked quote
-             const minutesFromStart = differenceInMinutes(item.startTime, dayStart);
-             if (minutesFromStart < 0) return null;
+            return { staffMember, positionedAppointments };
+        });
+    }, [staff, appointmentsByStaff]);
 
-             const top = minutesFromStart * (160/60);
-             const height = differenceInMinutes(item.endTime, item.startTime) * (160/60);
-             const style = { top: `${top}px`, height: `${height}px`, width: item.layout.width, left: item.layout.left };
+    const renderAppointment = (item: any) => {
+        const dayStart = setHours(startOfDay(date), START_HOUR);
+        const client = clients.find(c => c.id === item.clientId);
+        const service = services.find(s => s.id === item.serviceId);
+        
+        if (!client || !service) return null;
 
-             const eventTransactions = dailyTransactions?.filter(t => t.relatedEventId === item.id) || [];
-             return (
-                 <div key={item.id} className="absolute pr-2" style={style}>
-                    <EventCard 
-                        event={item}
-                        transactions={eventTransactions}
-                        onChecklistItemToggle={onChecklistItemToggle}
-                        onUpdateEvent={onUpdateEvent}
-                        onEditEvent={onEditEvent}
-                        onAddTransaction={onAddTransaction}
-                    />
-                </div>
-            );
-        }
+        const padBefore = service.padBefore || 0;
+        const totalDuration = service.duration + padBefore + (service.padAfter || 0);
+        
+        const actualStartTime = subMinutes(item.startTime, padBefore);
+        const minutesFromStart = differenceInMinutes(actualStartTime, dayStart);
+        
+        if (minutesFromStart < 0) return null;
+
+        const top = minutesFromStart * (160/60);
+        const height = totalDuration * (160/60);
+        const style = { top: `${top}px`, height: `${height}px`, width: item.layout.width, left: item.layout.left };
+       
+        return (
+            <div key={item.id} className="absolute pr-2" style={style}>
+                <AppointmentCard
+                    appointment={item}
+                    client={client}
+                    service={service}
+                    style={{ height: '100%'}}
+                    tmhr={tmhr}
+                    onUpdateStatus={onUpdateStatus}
+                    onDelete={onDeleteAppointment}
+                    onCompleteClick={onCompleteClick}
+                    onPrintReceipt={onPrintReceipt}
+                    onPrintTicket={onPrintTicket}
+                    onEdit={onEditAppointment}
+                    onReschedule={onReschedule}
+                />
+            </div>
+        );
     };
 
     return (
-        <div className="flex flex-col h-full">
-            <Accordion type="single" collapsible className="w-full border-b px-4">
-                <AccordionItem value="item-1" className="border-b-0">
-                    <AccordionTrigger className="p-0 py-4 font-semibold text-sm hover:no-underline">
-                        Daily Financial Summary
-                    </AccordionTrigger>
-                    <AccordionContent>
-                         <div className="pb-4 grid grid-cols-3 gap-2">
-                            <div className="rounded-md bg-green-500/10 p-2 text-center">
-                                <p className="text-xs text-green-800/80 dark:text-green-400/80">Revenue</p>
-                                <p className="font-bold text-lg text-green-800 dark:text-green-400">${dailyTotals.revenue.toFixed(2)}</p>
+        <div className="flex flex-1 overflow-hidden">
+            <div className="w-16 flex-shrink-0 flex flex-col text-right pr-4 pt-[4.5rem]">
+                {hours.map(hour => (
+                    <div key={hour} className="h-40 flex items-start -mt-2">
+                        <span className="text-xs text-muted-foreground">{format(new Date(0, 0, 0, hour), 'ha')}</span>
+                    </div>
+                ))}
+            </div>
+            
+            <ScrollArea className="flex-1">
+                <div className="relative flex" style={{ width: `${staff.length * 256}px` /* 16rem = 256px */ }}>
+                    <div className="absolute inset-0 grid grid-cols-1">
+                        {hours.map(hour => (
+                            <div key={hour} className="h-40 border-t border-dashed -mt-px"></div>
+                        ))}
+                    </div>
+
+                    {isToday(date) && <TimeIndicator staffCount={staff.length} />}
+
+                    {staffSchedules.map(({ staffMember, positionedAppointments }) => (
+                        <div key={staffMember.id} className="w-64 border-l relative">
+                            <div className="sticky top-0 bg-background/80 backdrop-blur-sm z-10 p-2 border-b text-center">
+                                <div className="flex items-center justify-center gap-2">
+                                  <Avatar className="w-6 h-6">
+                                    <AvatarImage src={staffMember.avatarUrl} />
+                                    <AvatarFallback>{staffMember.name.charAt(0)}</AvatarFallback>
+                                  </Avatar>
+                                  <p className="font-semibold text-sm truncate">{staffMember.name}</p>
+                                </div>
                             </div>
-                            <div className="rounded-md bg-red-500/10 p-2 text-center">
-                                <p className="text-xs text-red-800/80 dark:text-red-400/80">Costs</p>
-                                <p className="font-bold text-lg text-red-800 dark:text-red-400">${dailyTotals.costs.toFixed(2)}</p>
-                            </div>
-                            <div className="rounded-md bg-blue-500/10 p-2 text-center">
-                                <p className="text-xs text-blue-800/80 dark:text-blue-400/80">Net Profit</p>
-                                <p className="font-bold text-lg text-blue-800 dark:text-blue-400">${dailyTotals.net.toFixed(2)}</p>
+                            <div className="relative h-full">
+                                {positionedAppointments.map(renderAppointment)}
                             </div>
                         </div>
-                    </AccordionContent>
-                </AccordionItem>
-            </Accordion>
-            
-            <div className='px-4 py-2 border-b'>
-                 <Button variant="outline" size="sm" className="w-full" onClick={onOpenPickingList}>
-                    <List className="w-4 h-4 mr-2"/>
-                    View Picking List
-                </Button>
-            </div>
-
-            <ScrollArea className="flex-1" viewportRef={viewportRef}>
-                <div className="grid grid-cols-[auto,1fr] p-4">
-                    {/* Time labels */}
-                    <div className="flex flex-col text-right pr-4">
-                        {hours.map(hour => (
-                            <div key={hour} className="h-40 flex items-start">
-                                <span className="text-xs text-muted-foreground">{format(new Date(0, 0, 0, hour), 'ha')}</span>
-                            </div>
-                        ))}
-                    </div>
-                     {/* Calendar grid */}
-                    <div className="relative">
-                        {hours.map(hour => (
-                           <div key={hour} className="h-40 border-t border-dashed"></div>
-                        ))}
-
-                        {isToday(date) && <TimeIndicator />}
-
-                        {positionedItems.map(renderItem)}
-                    </div>
+                    ))}
                 </div>
+                <ScrollBar orientation="horizontal" />
             </ScrollArea>
         </div>
     );
@@ -515,6 +398,7 @@ export default function PlannerPage() {
     inventory, 
     billDefinitions: mockDefinitions, 
     billInstances: mockInstances,
+    staff,
   } = useInventory();
   
   const { firestore, user, isUserLoading } = useFirebase();
@@ -645,6 +529,27 @@ export default function PlannerPage() {
         absorbedCosts: absorbedCosts,
     }
   }, [currentDate, appointments, weekStart, billDefinitions]);
+  
+  const appointmentsByStaff = useMemo(() => {
+    const map = new Map<string, Appointment[]>();
+    staff.forEach(s => map.set(s.id, []));
+    
+    appointments
+      .filter(apt => format(apt.startTime, 'yyyy-MM-dd') === format(currentDate, 'yyyy-MM-dd'))
+      .forEach(apt => {
+        // Use default staff if none is assigned
+        const staffId = apt.staffId || staff[0]?.id;
+        if (staffId && map.has(staffId)) {
+          map.get(staffId)!.push(apt);
+        }
+      });
+    
+    map.forEach(staffAppointments => {
+        staffAppointments.sort((a,b) => a.startTime.getTime() - b.startTime.getTime())
+    });
+
+    return map;
+  }, [currentDate, appointments, staff]);
 
 
   const handleCompleteClick = (appointment: Appointment) => {
@@ -971,9 +876,8 @@ export default function PlannerPage() {
       <main className="flex-1 min-h-0">
           <DayTimeline 
               date={currentDate} 
-              appointments={appointmentsForDay} 
-              events={eventsForDay} 
-              billInstances={dailyBillInstances}
+              staff={staff}
+              appointmentsByStaff={appointmentsByStaff}
               onCompleteClick={handleCompleteClick} 
               onUpdateStatus={handleUpdateStatus} 
               onDeleteAppointment={handleDeleteAppointment} 
@@ -1105,6 +1009,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
