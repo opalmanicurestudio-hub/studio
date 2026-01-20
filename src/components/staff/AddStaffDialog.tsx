@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -44,6 +43,7 @@ import { ScrollArea } from '../ui/scroll-area';
 import { User, Wallet, CalendarIcon, Shield, FileText } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { buttonVariants } from '../ui/button';
 
 const addStaffSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
@@ -188,7 +188,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
 
   return (
     <DialogComponent open={open} onOpenChange={onOpenChange}>
-        <ContentComponent side={isMobile ? "bottom" : undefined} className={isMobile ? "h-[90vh] p-0 flex flex-col" : "sm:max-w-2xl"}>
+        <ContentComponent side={isMobile ? "bottom" : undefined} className={isMobile ? "h-[90vh] p-0 flex flex-col" : "sm:max-w-2xl max-h-[90vh] flex flex-col"}>
             <DialogHeader className="p-6 pb-0">
                 <DialogTitle>Add New Staff Member</DialogTitle>
                 <DialogDescription>
