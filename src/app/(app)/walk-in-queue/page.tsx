@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -9,7 +10,7 @@ import { User, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHo
 import { useInventory } from '@/context/InventoryContext';
 import { useCollection, useFirebase, updateDocumentNonBlocking, useMemoFirebase } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
-import type { WalkIn, Staff, Appointment } from '@/lib/data';
+import type { WalkIn, Staff, Appointment, Service } from '@/lib/data';
 import { formatDistanceToNowStrict, parseISO, addMinutes, differenceInMinutes } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -77,17 +78,20 @@ const StaffStatusCard = ({ staffMember, onStatusChange }: { staffMember: Staff, 
   );
 }
 
-const WaitingCustomerCard = ({ walkIn, services, onPrintTicket }: { walkIn: WalkIn, services: any[], onPrintTicket: (data: WalkIn) => void }) => {
+const WaitingCustomerCard = ({ walkIn, services, onPrintTicket, queuePosition }: { walkIn: WalkIn, services: any[], onPrintTicket: (data: WalkIn) => void, queuePosition: number }) => {
     const walkInServices = services.filter(s => walkIn.serviceIds.includes(s.id));
     return (
         <Card>
             <CardContent className="p-4">
                 <div className="flex justify-between items-start">
-                    <div>
-                        <p className="font-bold text-xl">{walkIn.customerName}</p>
-                         <div className="flex items-center gap-2 text-lg font-semibold text-primary mt-1">
-                            <Clock className="h-5 w-5" />
-                            <span>Waiting <Timer startTime={walkIn.checkInTime} /></span>
+                    <div className="flex items-start gap-4">
+                        <div className="text-3xl font-bold text-primary w-10 text-center">{queuePosition}</div>
+                        <div>
+                            <p className="font-bold text-xl">{walkIn.customerName}</p>
+                            <div className="flex items-center gap-2 text-lg font-semibold text-primary mt-1">
+                                <Clock className="h-5 w-5" />
+                                <span>Waiting <Timer startTime={walkIn.checkInTime} /></span>
+                            </div>
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -104,7 +108,7 @@ const WaitingCustomerCard = ({ walkIn, services, onPrintTicket }: { walkIn: Walk
                         </DropdownMenu>
                     </div>
                 </div>
-                <div className="mt-4 space-y-2">
+                <div className="mt-4 space-y-2 pl-14">
                     <p className="font-semibold text-sm">Services:</p>
                     <ul className="list-disc list-inside text-sm text-muted-foreground">
                         {walkInServices.map(s => <li key={s.id}>{s.name}</li>)}
@@ -205,9 +209,6 @@ export default function WalkInQueuePage() {
     const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkins', walkInId);
     
     let update: Partial<WalkIn> = { status };
-    if (status === 'servicing') {
-        update.serviceStartTime = new Date().toISOString();
-    }
     
     updateDocumentNonBlocking(walkInDocRef, update);
 
@@ -232,7 +233,7 @@ export default function WalkInQueuePage() {
       staffId: walkIn.assignedStaffId,
       startTime: parseISO(walkIn.serviceStartTime || walkIn.checkInTime),
       endTime: addMinutes(parseISO(walkIn.serviceStartTime || walkIn.checkInTime), walkIn.estimatedDuration),
-      status: 'confirmed', // Treat as confirmed for checkout
+      status: 'ready_for_checkout',
       isWalkIn: true,
       addOnIds: walkIn.serviceIds.slice(1),
     };
@@ -317,26 +318,30 @@ export default function WalkInQueuePage() {
         if (customerToAssign && staffToAssign) {
             // Assign walk-in to staff
             const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkins', customerToAssign.id);
-            const now = new Date().toISOString();
-            updateDocumentNonBlocking(walkInDocRef, { status: 'assigned', assignedStaffId: staffToAssign.id, serviceStartTime: now });
+            const now = new Date();
+            const service = services.find(s => s.id === customerToAssign!.serviceIds[0]);
+
+            updateDocumentNonBlocking(walkInDocRef, { 
+                status: 'servicing', 
+                assignedStaffId: staffToAssign.id, 
+                serviceStartTime: now.toISOString() 
+            });
 
             const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffToAssign.id);
             updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
 
-            // Planner Integration: Create appointment
-            const service = services.find(s => s.id === customerToAssign!.serviceIds[0]);
-            if (service) {
-                const appointmentStartTime = parseISO(now);
-                const appointmentEndTime = addMinutes(appointmentStartTime, service.duration);
+            if(service) {
+                const appointmentEndTime = addMinutes(now, service.duration);
                 const newAppointment: Appointment = {
                     id: `apt-walkin-${customerToAssign.id}`,
                     clientId: customerToAssign.clientId || `walkin-${customerToAssign.id}`,
                     serviceId: service.id,
                     staffId: staffToAssign.id,
-                    startTime: appointmentStartTime,
+                    startTime: now,
                     endTime: appointmentEndTime,
-                    status: 'confirmed',
+                    status: 'servicing',
                     isWalkIn: true,
+                    actualStartTime: now.toISOString(),
                 };
                 setAppointments(prev => [...prev, newAppointment]);
             }
@@ -412,7 +417,7 @@ export default function WalkInQueuePage() {
                  <CardContent className="space-y-4">
                     {waitingQueue.length > 0 ? (
                         waitingQueue.map((walkIn, index) => (
-                            <WaitingCustomerCard key={walkIn.id} walkIn={{...walkIn, queuePosition: index + 1}} services={services} onPrintTicket={setTicketToPrint} />
+                            <WaitingCustomerCard key={walkIn.id} walkIn={walkIn} services={services} onPrintTicket={setTicketToPrint} queuePosition={index + 1} />
                         ))
                     ) : (
                         <div className="text-center py-16 px-6 text-muted-foreground">

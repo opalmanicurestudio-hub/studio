@@ -270,6 +270,20 @@
         "endTime": {
           "type": "string",
           "format": "date-time"
+        },
+        "isWalkIn": {
+            "type": "boolean",
+            "description": "True if the appointment was created from the walk-in queue."
+        },
+        "actualStartTime": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The actual start time of the service, logged when staff begins."
+        },
+        "actualEndTime": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The actual end time of the service, logged when staff finishes."
         }
       },
       "required": [
@@ -426,12 +440,16 @@
           "type": "boolean"
         },
         "staffId": {
-          "type": "string",
-          "description": "The ID of the staff member associated with the transaction."
+            "type": "string",
+            "description": "The ID of the staff member associated with the transaction."
         },
         "tipAmount": {
             "type": "number",
             "description": "The tip amount included in this transaction."
+        },
+        "appointmentId": {
+            "type": "string",
+            "description": "The ID of the appointment this transaction is associated with."
         }
       },
       "required": ["id", "date", "description", "type", "context", "category", "amount", "paymentMethod"]
