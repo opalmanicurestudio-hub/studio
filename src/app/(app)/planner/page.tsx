@@ -275,7 +275,7 @@ const DayTimeline = ({
                 behavior: 'smooth'
             });
         }
-    }, [date, staffToDisplay]); // Rerun when date or staff changes
+    }, [date, staff]); // Rerun when date or staff changes
 
     return (
         <div className="flex-1 relative overflow-auto" ref={scrollContainerRef}>
@@ -305,7 +305,7 @@ const DayTimeline = ({
                 </div>
 
                 {/* Main content grid */}
-                <div className="col-start-2 grid relative" style={{ gridTemplateColumns: `repeat(${staffToDisplay.length}, minmax(${isMobile ? '0' : '250px'}, 1fr))` }}>
+                <div className="col-start-2 grid relative" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(${isMobile ? '0' : '250px'}, 1fr))` }}>
                     {staffSchedules.map(({ staffMember, positionedItems }) => (
                         <div key={staffMember.id} className="relative border-r">
                             {/* Grid lines */}
@@ -1107,6 +1107,7 @@ export default function PlannerPage() {
     </div>
   );
 }
+
 
 
 
