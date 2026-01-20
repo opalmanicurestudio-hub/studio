@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -596,7 +597,10 @@ export default function WalkInQueuePage() {
                     ) : (
                         <div className="space-y-2">
                             {staffOrder.map((member, index) => (
-                                <Card key={member.id} className={cn("flex items-center p-3 gap-4", member.id === nextUpStaffId && "border-primary ring-2 ring-primary")}>
+                                <Card key={member.id} className={cn("relative flex items-center p-3 gap-4", member.id === nextUpStaffId && "border-primary ring-2 ring-primary")}>
+                                     {member.id === nextUpStaffId && (
+                                        <Badge className="absolute -top-2.5 left-1/2 -translate-x-1/2 z-10">Next Up</Badge>
+                                    )}
                                     <div className="font-bold text-lg text-primary">{index + 1}</div>
                                     <Avatar className="w-10 h-10">
                                         <AvatarImage src={member.avatarUrl} alt={member.name} />
