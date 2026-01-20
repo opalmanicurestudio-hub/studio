@@ -24,10 +24,15 @@ export default function LandingPage() {
                 <ClarityFlowLogo />
                 <h1 className="text-lg font-bold">ClarityFlow</h1>
             </div>
-            <Link href="/login" className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), "gap-2")}>
-                <LogIn />
-                Login
-            </Link>
+            <div className="flex items-center gap-2">
+                <Link href="/subscriptions" className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }))}>
+                    Pricing
+                </Link>
+                <Link href="/login" className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), "gap-2")}>
+                    <LogIn />
+                    Login
+                </Link>
+            </div>
         </div>
       </header>
 
