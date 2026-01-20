@@ -175,7 +175,7 @@ const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange, onPrin
             </CardContent>
         </Card>
     )
-}
+};
 
 
 export default function WalkInQueuePage() {
@@ -543,7 +543,7 @@ export default function WalkInQueuePage() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
-     <style jsx global>{\`
+     <style jsx global>{`
         @media print {
           body * {
             visibility: hidden;
@@ -558,7 +558,7 @@ export default function WalkInQueuePage() {
             width: 100%;
           }
         }
-      \`}</style>
+      `}</style>
       
       {checkoutAppointmentData && (
           <CompleteAppointmentDialog
