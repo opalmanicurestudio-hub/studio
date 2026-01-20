@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
@@ -58,21 +59,35 @@ const MembershipProductCard = ({ membership, onClick }: { membership: Membership
             </div>
             <h3 className="text-sm font-medium leading-tight truncate">{membership.name}</h3>
             <p className="text-sm font-semibold">${membership.price.toFixed(2)} / {membership.interval.replace('ly', '')}</p>
+             {(membership.includedServices && membership.includedServices.length > 0 || membership.retailDiscount) && (
+                <div className="text-xs text-muted-foreground pt-1 border-t space-y-0.5">
+                    {membership.includedServices?.slice(0, 1).map(s => <p key={s.id}>Incl. {s.name}</p>)}
+                    {membership.retailDiscount && <p>+ {membership.retailDiscount}% off retail</p>}
+                </div>
+            )}
         </CardContent>
     </Card>
 );
 
-const PackageProductCard = ({ pack, onClick }: { pack: Package; onClick: () => void }) => (
-    <Card onClick={onClick} className="cursor-pointer hover:shadow-lg transition-shadow">
-        <CardContent className="p-2 space-y-2">
-            <div className="aspect-square bg-teal-500/10 rounded-md flex items-center justify-center">
-                <Repeat className="w-1/2 h-1/2 text-teal-500" />
-            </div>
-            <h3 className="text-sm font-medium leading-tight truncate">{pack.name}</h3>
-            <p className="text-sm font-semibold">${pack.price.toFixed(2)}</p>
-        </CardContent>
-    </Card>
-);
+const PackageProductCard = ({ pack, onClick, services }: { pack: Package; onClick: () => void; services: Service[] }) => {
+    const service = services.find(s => s.id === pack.serviceId);
+    return (
+        <Card onClick={onClick} className="cursor-pointer hover:shadow-lg transition-shadow">
+            <CardContent className="p-2 space-y-2">
+                <div className="aspect-square bg-teal-500/10 rounded-md flex items-center justify-center">
+                    <Repeat className="w-1/2 h-1/2 text-teal-500" />
+                </div>
+                <h3 className="text-sm font-medium leading-tight truncate">{pack.name}</h3>
+                <p className="text-sm font-semibold">${pack.price.toFixed(2)}</p>
+                 {service && (
+                    <div className="text-xs text-muted-foreground pt-1 border-t">
+                        <p>Includes: {pack.sessions}x {service.name}</p>
+                    </div>
+                )}
+            </CardContent>
+        </Card>
+    );
+};
 
 const CartContent = ({
     cart,
@@ -865,35 +880,35 @@ export default function RetailPage() {
                     </div>
                 </div>
                 <ScrollArea className="flex-1">
-                <TabsContent value="products" className="m-0">
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
-                        {retailProducts.map(product => (
-                            <Card key={product.id} onClick={() => addToCart(product, 'product')} className="cursor-pointer hover:shadow-lg transition-shadow">
-                                <CardContent className="p-2 space-y-2">
-                                    <div className="aspect-square bg-muted rounded-md overflow-hidden">
-                                        <Image src={product.imageUrl || `https://picsum.photos/seed/inv${product.id}/200/200`} alt={product.name} width={200} height={200} className="object-cover h-full w-full" />
-                                    </div>
-                                    <h3 className="text-sm font-medium leading-tight truncate">{product.name}</h3>
-                                    <p className="text-sm font-semibold">${(product.costPerUnit || 0 * 1.75).toFixed(2)}</p>
-                                </CardContent>
-                            </Card>
-                        ))}
-                    </div>
-                </TabsContent>
-                <TabsContent value="memberships" className="m-0">
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
-                        {memberships.map(membership => (
-                            <MembershipProductCard key={membership.id} membership={membership} onClick={() => addToCart(membership, 'membership')} />
-                        ))}
-                    </div>
-                </TabsContent>
-                <TabsContent value="packages" className="m-0">
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
-                        {packages.map(pack => (
-                            <PackageProductCard key={pack.id} pack={pack} onClick={() => addToCart(pack, 'package')} />
-                        ))}
-                    </div>
-                </TabsContent>
+                  <TabsContent value="products" className="m-0">
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
+                          {retailProducts.map(product => (
+                              <Card key={product.id} onClick={() => addToCart(product, 'product')} className="cursor-pointer hover:shadow-lg transition-shadow">
+                                  <CardContent className="p-2 space-y-2">
+                                      <div className="aspect-square bg-muted rounded-md overflow-hidden">
+                                          <Image src={product.imageUrl || `https://picsum.photos/seed/inv${product.id}/200/200`} alt={product.name} width={200} height={200} className="object-cover h-full w-full" />
+                                      </div>
+                                      <h3 className="text-sm font-medium leading-tight truncate">{product.name}</h3>
+                                      <p className="text-sm font-semibold">${(product.costPerUnit || 0 * 1.75).toFixed(2)}</p>
+                                  </CardContent>
+                              </Card>
+                          ))}
+                      </div>
+                  </TabsContent>
+                  <TabsContent value="memberships" className="m-0">
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
+                          {memberships.map(membership => (
+                              <MembershipProductCard key={membership.id} membership={membership} onClick={() => addToCart(membership, 'membership')} />
+                          ))}
+                      </div>
+                  </TabsContent>
+                  <TabsContent value="packages" className="m-0">
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
+                          {packages.map(pack => (
+                              <PackageProductCard key={pack.id} pack={pack} onClick={() => addToCart(pack, 'package')} services={services} />
+                          ))}
+                      </div>
+                  </TabsContent>
                 </ScrollArea>
             </Tabs>
           </div>
