@@ -1,3 +1,4 @@
+
 'use client';
 
 import React from 'react';
@@ -82,7 +83,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                                             <div className="flex justify-between items-start">
                                                 <div className="space-y-1">
                                                     <p className="font-medium">{t.description}</p>
-                                                    <p className="text-xs text-muted-foreground">{format(new Date(t.date), 'MMM d, yyyy')}</p>
+                                                    <p className="text-xs text-muted-foreground">{format(new Date(t.date), 'MMM d, yyyy h:mm a')}</p>
                                                 </div>
                                                 <div className="text-right">
                                                     <p className="font-mono font-semibold flex items-center justify-end gap-1">
@@ -124,7 +125,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                                     {transactions.length > 0 ? (
                                     transactions.map(t => (
                                         <TableRow key={t.id}>
-                                        <TableCell>{format(new Date(t.date), 'MMM d, yyyy')}</TableCell>
+                                        <TableCell>{format(new Date(t.date), 'MMM d, yyyy h:mm a')}</TableCell>
                                         <TableCell>{t.description}</TableCell>
                                         <TableCell>
                                             <Badge
