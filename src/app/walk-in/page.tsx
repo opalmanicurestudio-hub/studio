@@ -34,13 +34,16 @@ import { Switch } from '@/components/ui/switch';
 type Step = 'services' | 'details' | 'confirmation';
 
 const StaffSelectionCard = ({ staff, isSelected, onSelect }: { staff: Staff | { id: string, name: string, avatarUrl: string }, isSelected: boolean, onSelect: () => void }) => {
+    const isAnyStaff = staff.id === 'any';
     return (
         <label htmlFor={`staff-${staff.id}`} className="block cursor-pointer">
             <Card className={`transition-all ${isSelected ? 'border-primary ring-2 ring-primary' : 'hover:border-primary/50'}`}>
                 <CardContent className="p-4 flex flex-col items-center gap-3">
                     <Avatar className="w-16 h-16">
-                        <AvatarImage src={staff.avatarUrl} />
-                        <AvatarFallback>{staff.name.charAt(0)}</AvatarFallback>
+                        {staff.avatarUrl ? <AvatarImage src={staff.avatarUrl} /> : null}
+                        <AvatarFallback className="text-muted-foreground">
+                            {isAnyStaff ? <Users className="w-8 h-8"/> : staff.name.charAt(0)}
+                        </AvatarFallback>
                     </Avatar>
                     <p className="font-semibold text-sm text-center">{staff.name}</p>
                     <RadioGroupItem value={staff.id} id={`staff-${staff.id}`} className="sr-only" />
