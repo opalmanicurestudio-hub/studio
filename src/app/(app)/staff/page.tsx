@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Users, Calendar as CalendarIcon, FlaskConical, AlertTriangle, List } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Users, Calendar as CalendarIcon, FlaskConical, AlertTriangle, List, TrendingUp, DollarSign } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -97,17 +97,17 @@ const StaffCard = ({ member, stats, services }: { member: Staff, stats: any, ser
             <Separator />
             <CardContent className="p-4 space-y-4">
                 <div className="grid grid-cols-2 gap-4 text-center">
-                    <div>
-                        <p className="text-xs text-muted-foreground">Earnings</p>
-                        <p className="text-xl font-bold">${stats.earnings.toFixed(2)}</p>
+                     <div>
+                        <p className="text-xs text-muted-foreground flex items-center justify-center gap-1"><TrendingUp className="w-3 h-3"/>Total Sales</p>
+                        <p className="text-xl font-bold">${stats.totalSales.toFixed(2)}</p>
                     </div>
-                    <div>
-                        <p className="text-xs text-muted-foreground">Tips</p>
+                     <div>
+                        <p className="text-xs text-muted-foreground flex items-center justify-center gap-1"><DollarSign className="w-3 h-3"/>Total Tips</p>
                         <p className="text-xl font-bold">${stats.tips.toFixed(2)}</p>
                     </div>
                     <div className="col-span-2 border-t pt-4">
-                        <p className="text-xs text-muted-foreground">Avg. Service Duration</p>
-                        <p className="text-lg font-semibold">{stats.avgDuration} min</p>
+                        <p className="text-xs text-muted-foreground">Est. Take-home Pay</p>
+                        <p className="text-lg font-semibold text-primary">${stats.earnings.toFixed(2)}</p>
                     </div>
                     <div className="col-span-2 border-t pt-4">
                         <p className="text-xs text-muted-foreground flex items-center justify-center gap-1"><FlaskConical className="w-3 h-3"/>Product Consumption</p>
@@ -157,46 +157,51 @@ export default function StaffPage() {
   }, []);
 
   const staffWithStats = useMemo(() => {
-    if (!staff || !appointments || !services) return [];
+    if (!staff || !transactions) return [];
     
     const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
     const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
 
     return staff.map(member => {
-        const staffAppointments = appointments.filter(a => {
-            if (a.staffId !== member.id || a.status !== 'completed') return false;
+        const staffTransactions = transactions.filter(t => {
+            if (t.staffId !== member.id) return false;
             
-            const appointmentDate = new Date(a.startTime);
-            if(fromDate && appointmentDate < fromDate) return false;
-            if(toDate && appointmentDate > toDate) return false;
+            const transactionDate = new Date(t.date);
+            if(fromDate && transactionDate < fromDate) return false;
+            if(toDate && transactionDate > toDate) return false;
 
             return true;
         });
         
-        const earnings = staffAppointments.reduce((acc, apt) => {
-            const service = services.find(s => s.id === apt.serviceId);
-            if (service && member.payStructure === 'commission') {
-                return acc + (service.price * (member.commissionRate / 100));
-            }
-            return acc;
-        }, 0);
+        const serviceRevenue = staffTransactions
+            .filter(t => t.category === 'Service Revenue')
+            .reduce((acc, t) => acc + t.amount, 0);
 
-        // This is mock data, as tip tracking is not yet fully implemented.
-        const tips = staffAppointments.length * 15; 
+        const retailSales = staffTransactions
+            .filter(t => t.category === 'Retail')
+            .reduce((acc, t) => acc + t.amount, 0);
+        
+        const totalSales = serviceRevenue + retailSales;
 
-        const totalDuration = staffAppointments.reduce((acc, apt) => {
-            const service = services.find(s => s.id === apt.serviceId);
-            return acc + (service?.duration || 0);
-        }, 0);
+        const tips = staffTransactions.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
 
-        const avgDuration = staffAppointments.length > 0 ? Math.round(totalDuration / staffAppointments.length) : 0;
+        let earnings = 0;
+        if (member.payStructure === 'commission') {
+            earnings = serviceRevenue * (member.commissionRate / 100);
+        }
+        // Simplified for now - assuming salary/hourly is handled separately
+        earnings += tips; 
         
         let consumptionValue = 0;
-        const appointmentIds = new Set(staffAppointments.map(a => a.id));
+        const staffAppointmentIds = new Set(
+            (appointments || [])
+                .filter(a => a.staffId === member.id)
+                .map(a => a.id)
+        );
 
         stockCorrections.forEach(sc => {
             const match = sc.reason.match(/Appointment #(\S+)/);
-            if (match && appointmentIds.has(match[1])) {
+            if (match && staffAppointmentIds.has(match[1])) {
                 const product = inventory.find(p => p.id === sc.productId);
                 if (product && product.costPerUnit) {
                     let costPerBaseUnit = 0;
@@ -204,7 +209,7 @@ export default function StaffPage() {
                         costPerBaseUnit = product.costPerUnit / product.size;
                     } else if (product.costingMethod === 'uses' && product.estimatedUses && product.estimatedUses > 0) {
                         costPerBaseUnit = product.costPerUnit / product.estimatedUses;
-                    } else if (!product.costingMethod) { // Fallback for items tracked per unit
+                    } else if (!product.costingMethod) {
                         costPerBaseUnit = product.costPerUnit;
                     }
                     consumptionValue += Math.abs(sc.change) * costPerBaseUnit;
@@ -216,14 +221,14 @@ export default function StaffPage() {
         return {
             ...member,
             stats: {
-                earnings,
+                totalSales,
                 tips,
-                avgDuration,
+                earnings,
                 consumptionValue,
             }
         };
     });
-  }, [staff, appointments, services, dateRange, stockCorrections, inventory]);
+  }, [staff, transactions, dateRange, appointments, stockCorrections, inventory]);
 
   const handleAddStaff = (newStaffData: Omit<Staff, 'id' | 'avatarUrl'>) => {
     const newStaff: Staff = {
