@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Users, Calendar as CalendarIcon, FlaskConical, AlertTriangle, List, TrendingUp, DollarSign } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Users, Calendar as CalendarIcon, FlaskConical, AlertTriangle, List, TrendingUp, DollarSign, BarChart } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,8 +34,9 @@ import { Calendar } from '@/components/ui/calendar';
 import { format, subDays, startOfDay, endOfDay, parseISO, isPast, differenceInDays } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { StaffDetailsSheet } from '@/components/staff/StaffDetailsSheet';
 
-const StaffCard = ({ member, stats, services }: { member: Staff, stats: any, services: Service[] }) => {
+const StaffCard = ({ member, stats, services, onViewDetails }: { member: Staff, stats: any, services: Service[], onViewDetails: (member: Staff & { stats: any }) => void }) => {
     const [licenseInfo, setLicenseInfo] = useState<{
         isExpired: boolean;
         isExpiringSoon: boolean;
@@ -132,6 +133,9 @@ const StaffCard = ({ member, stats, services }: { member: Staff, stats: any, ser
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => onViewDetails(member)}>
+                       <BarChart className="mr-2 h-4 w-4" /> View Activity
+                    </DropdownMenuItem>
                     <DropdownMenuItem>Edit Profile</DropdownMenuItem>
                     <DropdownMenuItem>Change Role</DropdownMenuItem>
                     <DropdownMenuSeparator />
@@ -149,6 +153,8 @@ export default function StaffPage() {
   const { staff, setStaff, appointments, services, transactions, stockCorrections, inventory } = useInventory();
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false);
+  const [selectedStaffMember, setSelectedStaffMember] = useState<(Staff & { stats: any }) | null>(null);
 
   useEffect(() => {
     // Set initial date range on client to avoid hydration mismatch
@@ -228,6 +234,29 @@ export default function StaffPage() {
         };
     });
   }, [staff, transactions, dateRange, appointments, stockCorrections, inventory]);
+  
+  const transactionsForSelectedStaff = useMemo(() => {
+    if (!selectedStaffMember || !transactions) return [];
+
+    const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
+    const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
+
+    return transactions.filter(t => {
+        if (t.staffId !== selectedStaffMember.id) return false;
+        
+        const transactionDate = new Date(t.date);
+        if(fromDate && transactionDate < fromDate) return false;
+        if(toDate && transactionDate > toDate) return false;
+
+        return true;
+    });
+  }, [selectedStaffMember, transactions, dateRange]);
+
+
+  const handleViewDetails = (member: Staff & { stats: any }) => {
+    setSelectedStaffMember(member);
+    setIsDetailsSheetOpen(true);
+  };
 
   const handleAddStaff = (newStaffData: Omit<Staff, 'id' | 'avatarUrl'>) => {
     const newStaff: Staff = {
@@ -295,7 +324,7 @@ export default function StaffPage() {
         {staff.length > 0 ? (
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {staffWithStats.map((member) => (
-              <StaffCard key={member.id} member={member} stats={member.stats} services={services} />
+              <StaffCard key={member.id} member={member} stats={member.stats} services={services} onViewDetails={handleViewDetails} />
             ))}
           </div>
         ) : (
@@ -312,6 +341,13 @@ export default function StaffPage() {
         open={isAddStaffOpen} 
         onOpenChange={setIsAddStaffOpen} 
         onSave={handleAddStaff}
+        services={services}
+      />
+       <StaffDetailsSheet
+        open={isDetailsSheetOpen}
+        onOpenChange={setIsDetailsSheetOpen}
+        staffMember={selectedStaffMember}
+        transactions={transactionsForSelectedStaff}
         services={services}
       />
     </div>

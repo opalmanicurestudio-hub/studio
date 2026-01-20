@@ -1,0 +1,131 @@
+
+'use client';
+
+import React from 'react';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from '@/components/ui/sheet';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { type Staff, type Transaction, type Service } from '@/lib/data';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { format } from 'date-fns';
+import { TrendingUp, DollarSign, PackageX } from 'lucide-react';
+import { Button } from '../ui/button';
+
+interface StaffDetailsSheetProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  staffMember: (Staff & { stats: any }) | null;
+  transactions: Transaction[];
+  services: Service[];
+}
+
+export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
+  open,
+  onOpenChange,
+  staffMember,
+  transactions,
+}) => {
+  if (!staffMember) return null;
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent className="w-full sm:max-w-2xl p-0 flex flex-col">
+        <SheetHeader className="p-6">
+          <SheetTitle>Activity for {staffMember.name}</SheetTitle>
+          <SheetDescription>
+            A detailed breakdown of sales, tips, and service performance for the selected period.
+          </SheetDescription>
+        </SheetHeader>
+        <ScrollArea className="flex-1">
+            <div className="p-6 pt-0 space-y-6">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Performance Summary</CardTitle>
+                    </CardHeader>
+                    <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="p-3 bg-muted/50 rounded-lg">
+                            <div className="text-sm font-medium text-muted-foreground">Total Sales</div>
+                            <div className="text-2xl font-bold">${staffMember.stats.totalSales.toFixed(2)}</div>
+                        </div>
+                        <div className="p-3 bg-muted/50 rounded-lg">
+                            <div className="text-sm font-medium text-muted-foreground">Tips Earned</div>
+                            <div className="text-2xl font-bold">${staffMember.stats.tips.toFixed(2)}</div>
+                        </div>
+                        <div className="p-3 bg-muted/50 rounded-lg">
+                            <div className="text-sm font-medium text-muted-foreground">Product Consumption</div>
+                            <div className="text-2xl font-bold">${staffMember.stats.consumptionValue.toFixed(2)}</div>
+                        </div>
+                        <div className="p-3 bg-primary/10 rounded-lg">
+                            <div className="text-sm font-medium text-primary">Est. Take-home</div>
+                            <div className="text-2xl font-bold text-primary">${staffMember.stats.earnings.toFixed(2)}</div>
+                        </div>
+                    </CardContent>
+                </Card>
+                <Card>
+                <CardHeader>
+                    <CardTitle>Transaction History</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <Table>
+                    <TableHeader>
+                        <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Description</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {transactions.length > 0 ? (
+                        transactions.map(t => (
+                            <TableRow key={t.id}>
+                            <TableCell>{format(new Date(t.date), 'MMM d, yyyy')}</TableCell>
+                            <TableCell>{t.description}</TableCell>
+                            <TableCell>
+                                <Badge
+                                variant={t.category === 'Tips' ? 'secondary' : 'outline'}
+                                className={
+                                    t.category === 'Tips' ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : ''
+                                }
+                                >
+                                {t.category}
+                                </Badge>
+                            </TableCell>
+                            <td className="text-right font-mono flex items-center justify-end gap-1">
+                                {t.type === 'income' ? (
+                                <TrendingUp className="h-4 w-4 text-green-500" />
+                                ) : (
+                                <DollarSign className="h-4 w-4 text-muted-foreground" />
+                                )}
+                                ${t.amount.toFixed(2)}
+                            </td>
+                            </TableRow>
+                        ))
+                        ) : (
+                        <TableRow>
+                            <TableCell colSpan={4} className="text-center h-24">
+                            No transactions in this period.
+                            </TableCell>
+                        </TableRow>
+                        )}
+                    </TableBody>
+                    </Table>
+                </CardContent>
+                </Card>
+            </div>
+        </ScrollArea>
+        <SheetFooter className="p-6 border-t">
+            <Button onClick={() => onOpenChange(false)}>Close</Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
+  );
+};
