@@ -18,7 +18,7 @@ import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle, UserPlus, Coins, Printer, Wallet } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
-import { type InventoryItem, type StockCorrection, type Transaction, type Client } from '@/lib/data';
+import { type InventoryItem, type StockCorrection, type Transaction, type Client, type Appointment, type Service, type AppointmentCheckoutState } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -38,6 +38,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { CompleteAppointmentDialog, type CheckoutData } from '@/components/planner/CompleteAppointmentDialog';
 
 
 type CartItem = {
@@ -396,7 +397,7 @@ const CartContent = ({
 };
 
 export default function RetailPage() {
-  const { inventory, addStockCorrection, setTransactions, setClients, clients } = useInventory();
+  const { inventory, appointments, services, addStockCorrection, setTransactions, setClients, clients, setAppointments } = useInventory();
   const [searchTerm, setSearchTerm] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const { toast } = useToast();
@@ -414,6 +415,9 @@ export default function RetailPage() {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [scannedData, setScannedData] = useState<string | null>(null);
+  
+  const [checkoutAppointment, setCheckoutAppointment] = useState<Appointment | null>(null);
 
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [isAddClientOpen, setIsAddClientOpen] = useState(false);
@@ -503,8 +507,7 @@ export default function RetailPage() {
     }
   }
 
-
-  const handleCheckout = () => {
+  const handleRetailCheckout = () => {
     if (cart.length === 0) {
         toast({ variant: 'destructive', title: 'Empty Cart', description: 'Please add items to the cart before checking out.'});
         return;
@@ -588,6 +591,38 @@ export default function RetailPage() {
     setAppliedStoreCredit(0);
   };
   
+    useEffect(() => {
+        if (scannedData) {
+            handleScan(scannedData);
+            setScannedData(null); // Reset after processing
+        }
+    }, [scannedData]);
+    
+    const handleScan = (data: string) => {
+        if (data.startsWith('clarityflow://walk-in/')) {
+            const walkInId = data.split('/').pop();
+            const appointmentId = `apt-walkin-${walkInId}`;
+            const appointmentToCheckout = appointments.find(apt => apt.id === appointmentId);
+
+            if (appointmentToCheckout) {
+                setCheckoutAppointment(appointmentToCheckout);
+            } else {
+                toast({
+                    variant: 'destructive',
+                    title: 'Appointment Not Found',
+                    description: 'Could not find a matching walk-in appointment.',
+                });
+            }
+        } else if (data.startsWith('clarityflow://product/')) {
+            const productId = data.split('/').pop();
+            const productToAdd = inventory.find(p => p.id === productId);
+            if (productToAdd) {
+                addToCart(productToAdd);
+                toast({ title: 'Product Added', description: `${productToAdd.name} added to cart.` });
+            }
+        }
+    };
+  
   useEffect(() => {
     if (isScannerOpen) {
       const getCameraPermission = async () => {
@@ -596,6 +631,10 @@ export default function RetailPage() {
           setHasCameraPermission(true);
           if (videoRef.current) {
             videoRef.current.srcObject = stream;
+            const fakeScanTimeout = setTimeout(() => {
+                setScannedData(`clarityflow://walk-in/wi-1`); 
+                setIsScannerOpen(false);
+            }, 3000);
           }
         } catch (error) {
           console.error('Error accessing camera:', error);
@@ -627,13 +666,110 @@ export default function RetailPage() {
     const handleKeepTheChange = () => {
         if (changeDue > 0) {
             setTipAmount(prevTip => prevTip + changeDue);
-            setAmountTendered(total + changeDue); // Effectively makes change 0 by setting tendered to new total
+            setAmountTendered(total + changeDue); 
             toast({
                 title: "Tip Added!",
                 description: `$${changeDue.toFixed(2)} has been added as a tip.`
             });
         }
     };
+    
+    const handleAppointmentCheckout = (data: CheckoutData) => {
+        if (!checkoutAppointment) return;
+
+        const {
+            newCorrections,
+            receiptData,
+            incident,
+            serviceStaffOverrides,
+            tipAllocations,
+            addOns,
+            absorbedCost,
+        } = data;
+        
+        const allPerformedServices = [services.find(s => s.id === checkoutAppointment.serviceId), ...addOns].filter((s): s is Service => !!s);
+        
+        allPerformedServices.forEach(service => {
+            const staffId = serviceStaffOverrides[service.id] || checkoutAppointment.staffId;
+            const newTransaction: Omit<Transaction, 'id'> = {
+                date: new Date().toISOString(),
+                description: `Service: ${service.name}`,
+                clientOrVendor: clients.find(c => c.id === checkoutAppointment.clientId)?.name || 'N/A',
+                type: 'income',
+                context: 'Business',
+                category: 'Service Revenue',
+                amount: service.price,
+                paymentMethod: receiptData.payment.method,
+                hasReceipt: true,
+                staffId: staffId,
+                appointmentId: checkoutAppointment.id,
+            };
+            setTransactions(prev => [...prev, { ...newTransaction, id: `txn-${Date.now()}` }]);
+        });
+        
+        Object.entries(tipAllocations).forEach(([staffId, tipAmount]) => {
+            if (tipAmount > 0) {
+                const newTransaction: Omit<Transaction, 'id'> = {
+                    date: new Date().toISOString(),
+                    description: `Tip for Appointment #${checkoutAppointment.id.slice(-4)}`,
+                    clientOrVendor: clients.find(c => c.id === checkoutAppointment.clientId)?.name || 'N/A',
+                    type: 'income',
+                    context: 'Business',
+                    category: 'Tips',
+                    amount: tipAmount,
+                    paymentMethod: receiptData.payment.method,
+                    hasReceipt: true,
+                    staffId: staffId,
+                    tipAmount: tipAmount,
+                    appointmentId: checkoutAppointment.id,
+                };
+                 setTransactions(prev => [...prev, { ...newTransaction, id: `txn-${Date.now()}` }]);
+            }
+        });
+        
+        newCorrections.forEach(addStockCorrection);
+        
+        const completedAppointment: Appointment = { 
+            ...checkoutAppointment, 
+            status: 'completed' as const,
+            absorbedCost: absorbedCost,
+            incident: incident,
+        };
+        setAppointments(prev => prev.map(apt => apt.id === checkoutAppointment.id ? completedAppointment : apt));
+        
+        toast({
+            title: "Appointment Completed",
+            description: `Inventory levels have been updated and financial transactions logged.`
+        });
+        
+        setCheckoutAppointment(null);
+        setReceiptToPrint({
+            business: { name: 'ClarityFlow Salon', phone: '555-123-4567' },
+            ...receiptData
+        });
+    };
+    
+    const checkoutAppointmentData = useMemo(() => {
+        if (!checkoutAppointment) return null;
+        const clientData = clients.find(c => c.id === checkoutAppointment.clientId);
+        const serviceData = services.find(s => s.id === checkoutAppointment.serviceId);
+        
+        const walkInClientName = checkoutAppointment.isWalkIn ?
+          (inventory.find(i => `apt-walkin-${i.id}` === checkoutAppointment.id) as any)?.customerName || 'Walk-in'
+          : 'Unknown Client';
+
+        const displayClient = clientData || {
+          id: checkoutAppointment.clientId,
+          name: checkoutAppointment.isWalkIn ? walkInClientName : 'Unknown Client',
+          email: '', phone: '', avatarUrl: '', lifetimeValue: 0, lastAppointment: '',
+        };
+        
+        return {
+          appointment: checkoutAppointment,
+          client: displayClient,
+          service: serviceData,
+        };
+    }, [checkoutAppointment, clients, services, inventory]);
 
 
   return (
@@ -698,7 +834,7 @@ export default function RetailPage() {
                     denominations={denominations}
                     handleDenominationClick={handleDenominationClick}
                     setAmountTendered={setAmountTendered}
-                    handleCheckout={handleCheckout}
+                    handleCheckout={handleRetailCheckout}
                     clients={clients}
                     updateQuantity={updateQuantity}
                     discount={discount}
@@ -746,7 +882,7 @@ export default function RetailPage() {
                             denominations={denominations}
                             handleDenominationClick={handleDenominationClick}
                             setAmountTendered={setAmountTendered}
-                            handleCheckout={handleCheckout}
+                            handleCheckout={handleRetailCheckout}
                             clients={clients}
                             updateQuantity={updateQuantity}
                             discount={discount}
@@ -765,9 +901,9 @@ export default function RetailPage() {
        <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
         <DialogContent className="sm:max-w-md p-0">
           <DialogHeader className="p-4 pb-0">
-            <DialogTitle>Scan Product</DialogTitle>
+            <DialogTitle>Scan Code</DialogTitle>
             <DialogDescription>
-              Position the product's barcode or QR code inside the frame.
+              Position a product barcode or appointment ticket QR code inside the frame.
             </DialogDescription>
           </DialogHeader>
           <div className="p-4 relative">
@@ -792,6 +928,15 @@ export default function RetailPage() {
       </Dialog>
     </div>
     <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients} />
+    
+    {checkoutAppointmentData && (
+        <CompleteAppointmentDialog
+            open={!!checkoutAppointment}
+            onOpenChange={() => setCheckoutAppointment(null)}
+            appointmentData={checkoutAppointmentData}
+            onConfirmCheckout={handleAppointmentCheckout}
+        />
+    )}
 
     <Dialog open={!!receiptToPrint} onOpenChange={(open) => !open && setReceiptToPrint(null)}>
         <DialogContent className="max-w-sm print-content">
