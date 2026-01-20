@@ -160,9 +160,7 @@ service cloud.firestore {
      * @principle Enforces document ownership and prevents enumeration of businesses.
      */
     match /tenants/{tenantId} {
-      // This rule is permissive to allow isTenantOwner() to function without circular dependencies.
-      // The sensitive data is in subcollections, which have their own specific rules.
-      allow get: if isSignedIn();
+      allow get: if true;
       allow list: if false;
       allow create: if isSignedIn() && newDocIsOwnedByCurrentUser() && pathIdMatchesDataIdOnCreate(tenantId);
       allow update: if isTenantOwner(tenantId) && resource != null && isOwnerFieldImmutable() && isIdImmutable();
@@ -228,11 +226,11 @@ service cloud.firestore {
     
     /**
      * @description Rules for the smart walk-in queue.
-     * @path /tenants/{tenantId}/walkIns/{walkInId}
+     * @path /tenants/{tenantId}/walkins/{walkInId}
      * @allow (create) Anyone can create a walk-in to join the queue.
      * @allow (read,update,delete) Only staff/owner can manage the queue.
      */
-    match /tenants/{tenantId}/walkIns/{walkInId} {
+    match /tenants/{tenantId}/walkins/{walkInId} {
       allow create: if true;
       allow read, update, delete: if isTenantOwner(tenantId) || isStaff(tenantId);
     }
@@ -273,7 +271,7 @@ service cloud.firestore {
     
     /**
      * @description Rules for all financial profiles. This data is private.
-     * @path /tenants/{tenantId}/{collection}/{profileId}
+     * @path /tenants/{tenantId}/{collection}/{profileId} 
      * @principle Enforces strict data privacy for a tenant's financial planning data.
      */
     match /tenants/{tenantId}/{collection}/{profileId} 
