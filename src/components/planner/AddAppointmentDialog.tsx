@@ -177,7 +177,7 @@ const AddAppointmentForm = ({
                 setSelectedAddOns([]);
             }
         }
-    }, [open, appointmentToRebook, initialClientId, staff, services]);
+    }, [open, appointmentToRebook, initialClientId]);
 
     const selectedService = useMemo(() => services.find(s => s.id === selectedServiceId), [services, selectedServiceId]);
 
