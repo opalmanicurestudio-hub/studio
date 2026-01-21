@@ -173,8 +173,8 @@ const DayTimeline = ({
             const positionedItems = layoutInfo.map(item => ({
                 ...item,
                 layout: {
-                    width: `${'100 / item.layout.cols'}%`,
-                    left: `${'(100 / item.layout.cols) * item.layout.col'}%`,
+                    width: `${100 / item.layout.cols}%`,
+                    left: `${(100 / item.layout.cols) * item.layout.col}%`,
                 }
             }));
 
@@ -215,7 +215,7 @@ const DayTimeline = ({
 
         const top = minutesFromStart * (160/60);
         const height = totalDuration * (160/60);
-        const style = { top: `${'top'}px`, height: `${'height'}px`, width: `calc(${'item.layout.width'} - 0.5rem)`, left: item.layout.left };
+        const style = { top: `${top}px`, height: `${height}px`, width: `calc(${item.layout.width} - 0.5rem)`, left: item.layout.left };
        
         return (
             <div key={item.id} className="absolute pr-2 z-10" style={style}>
@@ -250,7 +250,7 @@ const DayTimeline = ({
         const height = duration * (160/60);
         const top = minutesFromStart * (160/60);
 
-        const style = { top: `${'top'}px`, height: `${'height'}px`, width: `calc(${'item.layout.width'} - 0.5rem)`, left: item.layout.left };
+        const style = { top: `${top}px`, height: `${height}px`, width: `calc(${item.layout.width} - 0.5rem)`, left: item.layout.left };
 
         const eventTransactions = dailyTransactions?.filter(t => t.relatedEventId === item.id) || [];
 
@@ -286,7 +286,7 @@ const DayTimeline = ({
         if (top === 0) return null;
 
         return (
-            <div className="absolute w-full flex items-center z-20" style={{ top: `${'top'}px` }}>
+            <div className="absolute w-full flex items-center z-20" style={{ top: `${top}px` }}>
                 <div className="h-2 w-2 rounded-full bg-red-500 -ml-1"></div>
                 <div className="h-px w-full bg-red-500"></div>
             </div>
@@ -311,7 +311,7 @@ const DayTimeline = ({
             <div className="grid grid-cols-[auto,1fr] min-w-max">
                 
                 <div className="sticky top-0 z-30 bg-background h-14 border-b border-r grid" style={{ width: isMobile ? '40px' : '48px' }} />
-                <div className="sticky top-0 z-20 grid col-start-2 bg-background" style={{ gridTemplateColumns: `repeat(${'staff.length'}, minmax(${'isMobile ? '0' : '250px'}, 1fr))` }}>
+                <div className="sticky top-0 z-20 grid col-start-2 bg-background" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(${isMobile ? '0px' : '250px'}, 1fr))` }}>
                     {staff.map(staffMember => (
                         <div key={staffMember.id} className="p-2 h-14 border-b border-r text-center flex items-center justify-center">
                             {!isMobile && (
@@ -334,7 +334,7 @@ const DayTimeline = ({
                 </div>
 
                 {/* Main content grid */}
-                <div className="col-start-2 grid relative" style={{ gridTemplateColumns: `repeat(${'staff.length'}, minmax(${'isMobile ? '0' : '250px'}, 1fr))` }}>
+                <div className="col-start-2 grid relative" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(${isMobile ? '0px' : '250px'}, 1fr))` }}>
                     {staffSchedules.map(({ staffMember, positionedItems }) => (
                         <div key={staffMember.id} className="relative border-r">
                             {/* Grid lines */}
@@ -733,7 +733,7 @@ export default function PlannerPage() {
 
     const newTransaction: Omit<Transaction, 'id'> = {
         date: paymentData.date.toISOString(),
-        description: `Payment for ${'selectedBill.definition.name'}`,
+        description: `Payment for ${selectedBill.definition.name}`,
         clientOrVendor: selectedBill.definition.name,
         type: 'payment',
         context: selectedBill.definition.context,
@@ -749,7 +749,7 @@ export default function PlannerPage() {
     
     toast({
         title: "Payment Logged",
-        description: `A payment of $${'paymentData.amount.toFixed(2)'} has been logged for ${'selectedBill.definition.name'}.`
+        description: `A payment of $${paymentData.amount.toFixed(2)} has been logged for ${selectedBill.definition.name}.`
     })
 
     setSelectedBill(null);
@@ -782,7 +782,7 @@ export default function PlannerPage() {
         const staffId = serviceStaffOverrides[service.id] || selectedAppointment.staffId;
         const newTransaction: Omit<Transaction, 'id'> = {
             date: new Date().toISOString(),
-            description: `Service: ${'service.name'}`,
+            description: `Service: ${service.name}`,
             clientOrVendor: clients.find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
             type: 'income',
             context: 'Business',
@@ -800,7 +800,7 @@ export default function PlannerPage() {
         if (tipAmount > 0) {
             const newTransaction: Omit<Transaction, 'id'> = {
                 date: new Date().toISOString(),
-                description: `Tip for Appointment #${'selectedAppointment.id.slice(-4)'}`,
+                description: `Tip for Appointment #${selectedAppointment.id.slice(-4)}`,
                 clientOrVendor: clients.find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
                 type: 'income',
                 context: 'Business',
@@ -825,7 +825,7 @@ export default function PlannerPage() {
         if (retailTotal > 0) {
             const newTransaction: Omit<Transaction, 'id'> = {
                 date: new Date().toISOString(),
-                description: `Retail Sale (${'retailItems.length'} items)`,
+                description: `Retail Sale (${retailItems.length} items)`,
                 clientOrVendor: clients.find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
                 type: 'income',
                 context: 'Business',
@@ -876,11 +876,11 @@ export default function PlannerPage() {
   };
   
   const handleAddAppointment = (newAppointment: Omit<Appointment, 'id'>) => {
-    const newAptWithId = { ...newAppointment, id: `apt-${'Date.now()'}`, absorbedCost: 0 };
+    const newAptWithId = { ...newAppointment, id: `apt-${Date.now()}`, absorbedCost: 0 };
     setAppointments(prev => [...prev, newAptWithId].sort((a,b) => a.startTime.getTime() - b.startTime.getTime()));
     toast({
         title: "Appointment Booked",
-        description: `Appointment with ${'clients.find(c => c.id === newAppointment.clientId)?.name'} has been added.`
+        description: `Appointment with ${clients.find(c => c.id === newAppointment.clientId)?.name} has been added.`
     })
     setIsAddAppointmentOpen(false);
     setInitialClientIdForNewApt('');
@@ -910,10 +910,10 @@ export default function PlannerPage() {
   };
 
   const handleAddEvent = (newEvent: Omit<Event, 'id'>) => {
-    const newEventWithId = { ...newEvent, id: `evt-${'Date.now()'}` };
+    const newEventWithId = { ...newEvent, id: `evt-${Date.now()}` };
     if (newEvent.cost && newEvent.cost > 0 && newEvent.type !== 'blocked') {
         const newTransaction = {
-            description: `Expense for: ${'newEvent.title'}`,
+            description: `Expense for: ${newEvent.title}`,
             clientOrVendor: 'N/A',
             type: 'expense' as const,
             context: newEvent.type === 'business' ? 'Business' : 'Personal',
@@ -929,7 +929,7 @@ export default function PlannerPage() {
     setEvents(prev => [...prev, newEventWithId].sort((a,b) => a.startTime.getTime() - b.startTime.getTime()));
     toast({
         title: "Event Added",
-        description: `"${'newEvent.title'}" has been added to your calendar.`
+        description: `"${newEvent.title}" has been added to your calendar.`
     });
     setIsAddEventOpen(false);
   };
@@ -938,7 +938,7 @@ export default function PlannerPage() {
         setEvents(prev => prev.map(e => e.id === updatedEvent.id ? updatedEvent : e));
         toast({
             title: "Event Updated",
-            description: `"${'updatedEvent.title'}" has been updated.`
+            description: `"${updatedEvent.title}" has been updated.`
         });
         setIsEditEventOpen(false);
     }
@@ -960,7 +960,7 @@ export default function PlannerPage() {
         addDocumentNonBlocking(transactionRef, newTransaction);
         toast({
             title: "Expense Logged",
-            description: `An expense of $${'transaction.amount.toFixed(2)'} for "${'transaction.description'}" has been recorded in your ledger.`
+            description: `An expense of $${transaction.amount.toFixed(2)} for "${transaction.description}" has been recorded in your ledger.`
         });
     }
   
@@ -988,7 +988,7 @@ export default function PlannerPage() {
     setAppointments(prev => prev.map(apt => apt.id === appointmentId ? { ...apt, status } : apt));
     toast({
         title: "Status Updated",
-        description: `Appointment status changed to ${'status'}.`
+        description: `Appointment status changed to ${status}.`
     });
   };
 
@@ -1038,7 +1038,7 @@ export default function PlannerPage() {
 
     toast({
         title: "Service Finished",
-        description: `The service took ${'duration'} minutes. Client is ready for checkout.`
+        description: `The service took ${duration} minutes. Client is ready for checkout.`
     });
 
     setFinishConfirmAppointment(null);
@@ -1408,7 +1408,7 @@ export default function PlannerPage() {
                     <AlertDialogTitle>Finish Service?</AlertDialogTitle>
                     <AlertDialogDescription>
                         {finishDialogDuration !== null ?
-                        `This will end the service. Total elapsed time: ${'finishDialogDuration'} minutes. ` : ''
+                        `This will end the service. Total elapsed time: ${finishDialogDuration} minutes. ` : ''
                         }
                         The appointment status will be set to "Ready for Checkout".
                     </AlertDialogDescription>
@@ -1439,6 +1439,7 @@ export default function PlannerPage() {
 
 
     
+
 
 
 
