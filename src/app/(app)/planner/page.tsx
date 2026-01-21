@@ -110,6 +110,7 @@ const DayTimeline = ({
     const [tmhr, setTmhr] = useState(0);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const isMobile = useIsMobile();
+    const { walkIns, clients } = useInventory();
 
     useEffect(() => {
       if (typeof window !== 'undefined') {
@@ -182,8 +183,23 @@ const DayTimeline = ({
 
     const renderAppointment = (item: any) => {
         const dayStart = setHours(startOfDay(date), START_HOUR);
-        const client = clients.find(c => c.id === item.clientId);
+        let client = clients.find(c => c.id === item.clientId);
         const service = services.find(s => s.id === item.serviceId);
+
+        if (!client && item.isWalkIn) {
+            const walkIn = walkIns.find(w => `apt-walkin-${w.id}` === item.id);
+            if (walkIn) {
+                client = {
+                    id: item.clientId,
+                    name: walkIn.customerName,
+                    email: '',
+                    phone: walkIn.customerPhone || '',
+                    avatarUrl: '',
+                    lifetimeValue: 0,
+                    lastAppointment: walkIn.checkInTime,
+                };
+            }
+        }
         
         if (!client || !service) return null;
 
@@ -464,6 +480,7 @@ export default function PlannerPage() {
     setTransactions,
     clients,
     setClients,
+    walkIns,
   } = useInventory();
   
   const { firestore, user, isUserLoading } = useFirebase();
@@ -1378,6 +1395,7 @@ export default function PlannerPage() {
 
 
     
+
 
 
 
