@@ -92,6 +92,7 @@ interface AppointmentCardProps {
   onReschedule: (appointment: Appointment) => void;
   onStartService: (appointmentId: string) => void;
   onFinishService: (appointment: Appointment) => void;
+  onBookNewForClient: (clientId: string) => void;
 }
 
 const AppointmentDetails = ({
@@ -110,6 +111,7 @@ const AppointmentDetails = ({
     onUpdateStatus,
     onDelete,
     onReschedule,
+    onBookNewForClient,
 }: {
     appointment: Appointment;
     client: Client;
@@ -126,6 +128,7 @@ const AppointmentDetails = ({
     onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void;
     onDelete: (appointmentId: string) => void;
     onReschedule: (appointment: Appointment) => void;
+    onBookNewForClient: (clientId: string) => void;
 }) => {
     const { toast } = useToast();
 
@@ -187,7 +190,7 @@ const AppointmentDetails = ({
                                 <Send className="w-4 h-4 mr-2"/>
                                 Resend Confirmation
                             </DropdownMenuItem>
-                            <DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => onBookNewForClient(client.id)}>
                                 <Book className="w-4 h-4 mr-2"/>
                                 Book New Appointment
                             </DropdownMenuItem>
@@ -283,6 +286,7 @@ export function AppointmentCard({
   onReschedule,
   onStartService,
   onFinishService,
+  onBookNewForClient,
 }: AppointmentCardProps) {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
@@ -438,8 +442,8 @@ export function AppointmentCard({
                 <DropdownMenuItem onClick={() => onCompleteClick(appointment)}>
                     <CheckCircle className="mr-2" /> Checkout
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onEdit(appointment)}>
-                    <Edit className="mr-2" /> Edit Details
+                <DropdownMenuItem onClick={() => setIsDetailsOpen(true)}>
+                    <FileText className="mr-2" /> View Details
                 </DropdownMenuItem>
                  <DropdownMenuItem onClick={() => onPrintTicket({ appointment, client, service })}>
                     <TicketIcon className="mr-2" /> Print Ticket
@@ -544,6 +548,7 @@ export function AppointmentCard({
             onUpdateStatus={onUpdateStatus}
             onDelete={onDelete}
             onReschedule={onReschedule}
+            onBookNewForClient={onBookNewForClient}
           />
         </DialogOrSheetContent>
       </DialogOrSheet>

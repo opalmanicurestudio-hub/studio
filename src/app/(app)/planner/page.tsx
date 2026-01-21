@@ -83,6 +83,7 @@ const DayTimeline = ({
     onOpenPickingList,
     onStartService,
     onFinishService,
+    onBookNewForClient,
 }: { 
     date: Date; 
     staff: Staff[];
@@ -102,6 +103,7 @@ const DayTimeline = ({
     onOpenPickingList: () => void;
     onStartService: (appointmentId: string) => void;
     onFinishService: (appointment: Appointment) => void;
+    onBookNewForClient: (clientId: string) => void;
 }) => {
     const START_HOUR = 0; // Start at midnight
     const hours = Array.from({ length: 24 - START_HOUR }, (_, i) => i + START_HOUR);
@@ -214,6 +216,7 @@ const DayTimeline = ({
                     onReschedule={onReschedule}
                     onStartService={onStartService}
                     onFinishService={onFinishService}
+                    onBookNewForClient={onBookNewForClient}
                 />
             </div>
         );
@@ -489,6 +492,8 @@ export default function PlannerPage() {
   const [finishConfirmAppointment, setFinishConfirmAppointment] = useState<Appointment | null>(null);
 
   const [appointmentToRebook, setAppointmentToRebook] = useState<Appointment | null>(null);
+  const [initialClientIdForNewApt, setInitialClientIdForNewApt] = useState<string>('');
+
 
   const finishDialogDuration = useMemo(() => {
     if (!finishConfirmAppointment?.actualStartTime) return null;
@@ -860,6 +865,7 @@ export default function PlannerPage() {
         description: `Appointment with ${clients.find(c => c.id === newAppointment.clientId)?.name} has been added.`
     })
     setIsAddAppointmentOpen(false);
+    setInitialClientIdForNewApt('');
   };
 
   const handleUpdateAppointment = (updatedAppointment: Appointment) => {
@@ -878,6 +884,12 @@ export default function PlannerPage() {
       setAppointmentToRebook(appointment);
       setIsAddAppointmentOpen(true);
   }
+
+  const handleBookNewAppointmentForClient = (clientId: string) => {
+    setAppointmentToRebook(null);
+    setInitialClientIdForNewApt(clientId);
+    setIsAddAppointmentOpen(true);
+  };
 
   const handleAddEvent = (newEvent: Omit<Event, 'id'>) => {
     const newEventWithId = { ...newEvent, id: `evt-${Date.now()}` };
@@ -1185,6 +1197,7 @@ export default function PlannerPage() {
               onOpenPickingList={() => setIsPickingListOpen(true)}
               onStartService={handleStartService}
               onFinishService={handleFinishService}
+              onBookNewForClient={handleBookNewAppointmentForClient}
           />
       </main>
       {selectedAppointmentData && (
@@ -1205,6 +1218,7 @@ export default function PlannerPage() {
         onOpenChange={(isOpen) => {
             if (!isOpen) {
                 setAppointmentToRebook(null);
+                setInitialClientIdForNewApt('');
             }
             setIsAddAppointmentOpen(isOpen);
         }}
@@ -1213,7 +1227,7 @@ export default function PlannerPage() {
         staff={staff}
         appointments={appointments}
         onConfirm={handleAddAppointment}
-        initialClientId={''}
+        initialClientId={appointmentToRebook ? appointmentToRebook.clientId : initialClientIdForNewApt}
         appointmentToRebook={appointmentToRebook}
       />
        {selectedAppointment && (
@@ -1364,6 +1378,7 @@ export default function PlannerPage() {
 
 
     
+
 
 
 
