@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
@@ -37,6 +36,7 @@ import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '../ui/sheet';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
+import { Badge } from '../ui/badge';
 
 
 type EditableFormulaItem = {
@@ -148,6 +148,9 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     }
     return offers;
 }, [client, service, memberships, packages]);
+
+  // This would be dynamic in a real app, based on client's transaction history for the month
+  const hasRedeemedThisMonth = true;
 
   useEffect(() => {
     if (open && service && appointment) {
@@ -615,17 +618,35 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                           }
                         }}
                       >
-                        {applicableOffers.map(({ type, offer, sessionsRemaining }) => (
-                          <div key={`${type}-${offer.id}`} className="flex items-center space-x-2 py-2">
-                            <RadioGroupItem value={`${type}:${offer.id}`} id={`${type}:${offer.id}`} />
-                            <Label htmlFor={`${type}:${offer.id}`} className="flex-1">
-                              <span className="font-medium">{type === 'membership' ? 'Redeem from Membership' : 'Use Package Session'}</span>
-                              <p className="text-xs text-muted-foreground">{offer.name}
-                                {type === 'package' && ` (${sessionsRemaining} left)`}
-                              </p>
-                            </Label>
-                          </div>
-                        ))}
+                        {applicableOffers.map(({ type, offer, sessionsRemaining }) => {
+                          const isMembership = type === 'membership';
+                          const isRedeemed = isMembership && hasRedeemedThisMonth;
+                          return (
+                            <div key={`${type}-${offer.id}`} className="flex items-center space-x-3 py-2">
+                                <RadioGroupItem
+                                value={`${type}:${offer.id}`}
+                                id={`${type}:${offer.id}`}
+                                disabled={isRedeemed}
+                                />
+                                <Label
+                                htmlFor={`${type}:${offer.id}`}
+                                className={cn("flex-1", isRedeemed && "text-muted-foreground")}
+                                >
+                                <div className="flex justify-between items-center">
+                                    <div>
+                                    <span className="font-medium">{isMembership ? 'Redeem from Membership' : 'Use Package Session'}</span>
+                                    <p className="text-xs text-muted-foreground">{offer.name}
+                                        {type === 'package' && ` (${sessionsRemaining} left)`}
+                                    </p>
+                                    </div>
+                                    {isRedeemed && (
+                                    <Badge variant="secondary">Redeemed this month</Badge>
+                                    )}
+                                </div>
+                                </Label>
+                            </div>
+                          );
+                        })}
                       </RadioGroup>
                     </CardContent>
                   </Card>
