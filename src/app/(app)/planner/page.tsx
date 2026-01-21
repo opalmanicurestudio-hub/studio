@@ -62,6 +62,7 @@ import { PickingListDialog } from '@/components/planner/PickingListDialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
 
 const DayTimeline = ({ 
@@ -741,7 +742,6 @@ export default function PlannerPage() {
         paymentMethod: paymentData.paymentMethod,
         paymentMethodIdentifier: paymentData.paymentMethodIdentifier,
         hasReceipt: !!paymentData.receiptUrl,
-        receiptUrl: paymentData.receiptUrl,
         relatedBillInstanceId: selectedBill.id,
     };
     const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
@@ -1155,19 +1155,42 @@ export default function PlannerPage() {
             </DropdownMenu>
         </div>
         <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setIsKpiSheetOpen(true)}>
-                <BarChart className="w-4 h-4 mr-2" />
-                Weekly KPIs
-            </Button>
-            <Button variant="outline" size="sm" className="relative" onClick={() => setIsBillsSheetOpen(true)}>
-                <BellRing className={cn("h-4 w-4 mr-2", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
-                Bills Due Today
-                {dailyBillInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setIsPickingListOpen(true)}>
-                <List className="w-4 h-4 mr-2" />
-                Picking List
-            </Button>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="icon" onClick={() => setIsKpiSheetOpen(true)}>
+                      <BarChart className="w-4 h-4" />
+                      <span className="sr-only">Weekly KPIs</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Weekly KPIs</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="icon" className="relative" onClick={() => setIsBillsSheetOpen(true)}>
+                      <BellRing className={cn("h-4 w-4", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
+                      {dailyBillInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
+                      <span className="sr-only">Bills Due Today</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Bills Due Today</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="icon" onClick={() => setIsPickingListOpen(true)}>
+                      <List className="w-4 h-4" />
+                      <span className="sr-only">Picking List</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Picking List</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                     <Button size="sm"><PlusCircle className="mr-2 h-4 w-4"/>Add New</Button>
@@ -1416,6 +1439,7 @@ export default function PlannerPage() {
 
 
     
+
 
 
 
