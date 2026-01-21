@@ -5,7 +5,7 @@
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square } from 'lucide-react';
-import { appointments as initialAppointments, clients, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem, type StockCorrection, type Staff, type AppointmentCheckoutState } from '@/lib/data';
+import { appointments as initialAppointments, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem, type StockCorrection, type Staff, type AppointmentCheckoutState } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping } from 'date-fns';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -110,6 +110,7 @@ const DayTimeline = ({
     const [tmhr, setTmhr] = useState(0);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const isMobile = useIsMobile();
+    const { walkIns, clients } = useInventory();
 
     useEffect(() => {
       if (typeof window !== 'undefined') {
@@ -182,8 +183,24 @@ const DayTimeline = ({
 
     const renderAppointment = (item: any) => {
         const dayStart = setHours(startOfDay(date), START_HOUR);
-        const client = clients.find(c => c.id === item.clientId);
+        let client = clients.find(c => c.id === item.clientId);
         const service = services.find(s => s.id === item.serviceId);
+
+        if (!client && item.isWalkIn) {
+            const walkIn = walkIns.find(w => `apt-walkin-${w.id}` === item.id);
+            if (walkIn) {
+                client = {
+                    id: item.clientId,
+                    name: walkIn.customerName,
+                    email: walkIn.customerEmail || '',
+                    phone: walkIn.customerPhone || '',
+                    avatarUrl: '',
+                    lifetimeValue: 0,
+                    lastAppointment: walkIn.checkInTime,
+                    birthday: walkIn.customerBirthday,
+                };
+            }
+        }
         
         if (!client || !service) return null;
 

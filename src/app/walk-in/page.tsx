@@ -23,13 +23,17 @@ import { collection } from 'firebase/firestore';
 import { Service, Staff } from '@/lib/data';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { Progress } from '@/components/ui/progress';
-import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users } from 'lucide-react';
+import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { format } from 'date-fns';
+import { cn } from '@/lib/utils';
 
 type Step = 'services' | 'details' | 'confirmation';
 
@@ -63,6 +67,8 @@ export default function WalkInPage() {
   const [step, setStep] = useState<Step>('services');
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
+  const [customerBirthday, setCustomerBirthday] = useState<Date | undefined>();
   const [selectedServices, setSelectedServices] = useState<Service[]>([]);
   const [preferredStaffId, setPreferredStaffId] = useState<string>('any');
   const [notes, setNotes] = useState('');
@@ -103,6 +109,8 @@ export default function WalkInPage() {
     const newWalkIn = {
       customerName,
       customerPhone,
+      customerEmail,
+      customerBirthday: customerBirthday?.toISOString(),
       serviceIds: selectedServices.map(s => s.id),
       requiredSkills: [...new Set(selectedServices.flatMap(s => s.requiredSkills || []))],
       estimatedDuration: totalDuration,
@@ -132,6 +140,8 @@ export default function WalkInPage() {
   const resetFlow = () => {
     setCustomerName('');
     setCustomerPhone('');
+    setCustomerEmail('');
+    setCustomerBirthday(undefined);
     setSelectedServices([]);
     setPreferredStaffId('any');
     setNotes('');
@@ -238,6 +248,38 @@ export default function WalkInPage() {
                                     <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                     <Input id="phone" type="tel" value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="(555) 123-4567" className="pl-9" />
                                 </div>
+                            </div>
+                             <div className="space-y-2">
+                                <Label htmlFor="email">Email Address</Label>
+                                <div className="relative">
+                                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                    <Input id="email" type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="jane.doe@example.com" className="pl-9" />
+                                </div>
+                            </div>
+                             <div className="space-y-2">
+                                <Label htmlFor="birthday">Birthday (Optional)</Label>
+                                <Popover>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant={"outline"}
+                                            className={cn(
+                                            "w-full justify-start text-left font-normal",
+                                            !customerBirthday && "text-muted-foreground"
+                                            )}
+                                        >
+                                            <CalendarIcon className="mr-2 h-4 w-4" />
+                                            {customerBirthday ? format(customerBirthday, "PPP") : <span>Pick a date</span>}
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0">
+                                        <Calendar
+                                            mode="single"
+                                            selected={customerBirthday}
+                                            onSelect={setCustomerBirthday}
+                                            initialFocus
+                                        />
+                                    </PopoverContent>
+                                </Popover>
                             </div>
                              <div className="space-y-2">
                                 <Label>Preferred Staff</Label>

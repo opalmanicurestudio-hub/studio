@@ -288,6 +288,8 @@ export type WalkIn = {
     clientId?: string;
     customerName: string;
     customerPhone?: string;
+    customerEmail?: string;
+    customerBirthday?: string;
     serviceIds: string[];
     requiredSkills: string[];
     estimatedDuration: number;
@@ -926,6 +928,8 @@ export const walkIns: WalkIn[] = [
         id: 'wi-1',
         customerName: 'Sarah K.',
         customerPhone: '555-0101',
+        customerEmail: 'sarah.k@example.com',
+        customerBirthday: '1995-08-22T00:00:00.000Z',
         serviceIds: ['svc-2', 'svc-addon-2'], // Signature Haircut, Deep Conditioning
         requiredSkills: ['haircut', 'styling'],
         estimatedDuration: 80,
