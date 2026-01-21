@@ -131,6 +131,7 @@ interface AddAppointmentFormProps {
     onConfirm: (apt: Omit<Appointment, 'id'>) => void;
     initialClientId?: string;
     open: boolean;
+    appointmentToRebook?: Appointment | null;
 }
 
 const AddAppointmentForm = ({ 
@@ -141,6 +142,7 @@ const AddAppointmentForm = ({
     onConfirm,
     initialClientId,
     open,
+    appointmentToRebook,
 }: AddAppointmentFormProps) => {
     const [selectedClientId, setSelectedClientId] = useState<string>('');
     const [selectedServiceId, setSelectedServiceId] = useState<string>('');
@@ -154,15 +156,28 @@ const AddAppointmentForm = ({
     const [showConfirmation, setShowConfirmation] = useState(false);
     
     useEffect(() => {
-        if(open) {
-            setSelectedClientId(initialClientId || '');
-            setSelectedServiceId('');
-            setSelectedStaffId(staff[0]?.id || '');
-            setDate(new Date());
-            setStartTime('');
-            setSelectedAddOns([]);
+        if (open) {
+            if (appointmentToRebook) {
+                setSelectedClientId(appointmentToRebook.clientId);
+                setSelectedServiceId(appointmentToRebook.serviceId);
+                setSelectedStaffId(appointmentToRebook.staffId || staff[0]?.id || '');
+                setDate(new Date()); // Default to today for rebooking
+                setStartTime('');
+                setSelectedAddOns(
+                    (appointmentToRebook.addOnIds || [])
+                        .map(id => services.find(s => s.id === id))
+                        .filter((s): s is Service => !!s)
+                );
+            } else {
+                setSelectedClientId(initialClientId || '');
+                setSelectedServiceId('');
+                setSelectedStaffId(staff[0]?.id || '');
+                setDate(new Date());
+                setStartTime('');
+                setSelectedAddOns([]);
+            }
         }
-    }, [open, initialClientId, staff])
+    }, [open, appointmentToRebook, initialClientId, staff, services]);
 
     const selectedService = useMemo(() => services.find(s => s.id === selectedServiceId), [services, selectedServiceId]);
 
@@ -382,15 +397,16 @@ interface AddAppointmentDialogProps {
   appointments: Appointment[];
   onConfirm: (apt: Omit<Appointment, 'id'>) => void;
   initialClientId?: string;
+  appointmentToRebook?: Appointment | null;
 }
 
-export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, clients, services, staff, appointments, onConfirm, initialClientId }) => {
+export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, clients, services, staff, appointments, onConfirm, initialClientId, appointmentToRebook }) => {
   const isMobile = useIsMobile();
 
   const title = "New Appointment";
   const description = "Book a new appointment for a client.";
   
-  const FormContent = <AddAppointmentForm clients={clients} services={services} staff={staff} appointments={appointments} onConfirm={onConfirm} initialClientId={initialClientId} open={open} />;
+  const FormContent = <AddAppointmentForm clients={clients} services={services} staff={staff} appointments={appointments} onConfirm={onConfirm} initialClientId={initialClientId} open={open} appointmentToRebook={appointmentToRebook}/>;
 
   if (isMobile) {
     return (

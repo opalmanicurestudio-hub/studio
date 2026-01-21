@@ -15,7 +15,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy, Save, Award, Repeat, CheckCircle, Percent } from 'lucide-react';
-import { appointments, services, inventory, type CustomFormula, Client, type Incident } from '@/lib/data';
+import { appointments as initialAppointments, services as initialServices, inventory, type CustomFormula, Client, type Incident, type Appointment } from '@/lib/data';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -44,6 +44,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useInventory } from '@/context/InventoryContext';
 import { formatPhoneNumber } from 'react-phone-number-input';
+import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog';
+import { nanoid } from 'nanoid';
 
 
 type ClientPhoto = {
@@ -115,12 +117,14 @@ const FormulaCard = ({ formula }: { formula: CustomFormula }) => (
 
 const AppointmentHistoryCard = ({
   appointment,
+  onRebook,
 }: {
   appointment: ReturnType<typeof useMemo<any[], any>>[0];
+  onRebook: (appointment: Appointment) => void;
 }) => {
   return (
-    <Card>
-      <CardContent className="p-4 space-y-3">
+    <Card className="flex flex-col">
+      <CardContent className="p-4 space-y-3 flex-1">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
                 <p className="font-semibold">{appointment.service?.name || 'N/A'}</p>
@@ -148,18 +152,25 @@ const AppointmentHistoryCard = ({
           </span>
         </div>
       </CardContent>
+      <CardFooter className="p-2 border-t">
+        <Button variant="secondary" className="w-full" onClick={() => onRebook(appointment)}>
+            <Repeat className="w-4 h-4 mr-2"/> Rebook Service
+        </Button>
+      </CardFooter>
     </Card>
   );
 };
 
 export default function ClientDetailPage() {
   const params = useParams<{ id: string }>();
-  const { clients, setClients, appointments, services, inventory, memberships, packages } = useInventory();
+  const { clients, setClients, appointments, setAppointments, services, inventory, memberships, packages, staff } = useInventory();
   const client = clients.find((c) => c.id === params.id);
   const { toast } = useToast();
   const [isAddFormulaOpen, setIsAddFormulaOpen] = useState(false);
   const [isLogIncidentOpen, setIsLogIncidentOpen] = useState(false);
   const [isEditClientOpen, setIsEditClientOpen] = useState(false);
+  const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
+  const [appointmentToRebook, setAppointmentToRebook] = useState<Appointment | null>(null);
   const [photos, setPhotos] = useState<ClientPhoto[]>([]);
   const [selectedPhoto, setSelectedPhoto] = useState<ClientPhoto | null>(null);
 
@@ -197,6 +208,21 @@ export default function ClientDetailPage() {
 
   const upcomingAppointments = clientAppointments.filter(apt => apt.startTime > new Date() && apt.status !== 'cancelled');
   const pastAppointments = clientAppointments.filter(apt => apt.startTime <= new Date()).sort((a,b) => b.startTime.getTime() - a.startTime.getTime());
+
+  const handleRebook = (appointment: Appointment) => {
+    setAppointmentToRebook(appointment);
+    setIsAddAppointmentOpen(true);
+  };
+
+  const handleAddAppointment = (newAppointment: Omit<Appointment, 'id'>) => {
+    const newAptWithId: Appointment = { ...newAppointment, id: `apt-${nanoid()}`, absorbedCost: 0, status: 'confirmed' };
+    setAppointments(prev => [...prev, newAptWithId].sort((a,b) => a.startTime.getTime() - b.startTime.getTime()));
+    toast({
+        title: "Appointment Booked",
+        description: `Appointment for ${clients.find(c => c.id === newAppointment.clientId)?.name} has been added.`
+    })
+    setIsAddAppointmentOpen(false);
+  };
 
   const handleSaveFormula = (newFormula: CustomFormula) => {
     setClients(prevClients => 
@@ -540,13 +566,13 @@ export default function ClientDetailPage() {
                       <Card>
                           <CardHeader><CardTitle>Upcoming Appointments</CardTitle></CardHeader>
                           <CardContent className="space-y-4">
-                              {upcomingAppointments.length > 0 ? upcomingAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} />) : <p className="text-sm text-muted-foreground text-center col-span-full py-4">No upcoming appointments.</p>}
+                              {upcomingAppointments.length > 0 ? upcomingAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={handleRebook} />) : <p className="text-sm text-muted-foreground text-center col-span-full py-4">No upcoming appointments.</p>}
                           </CardContent>
                       </Card>
                        <Card>
                           <CardHeader><CardTitle>Past Appointments</CardTitle></CardHeader>
                           <CardContent className="space-y-4">
-                              {pastAppointments.length > 0 ? pastAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} />) : <p className="text-sm text-muted-foreground text-center col-span-full py-4">No past appointments.</p>}
+                              {pastAppointments.length > 0 ? pastAppointments.map((apt) => <AppointmentHistoryCard key={apt.id} appointment={apt} onRebook={handleRebook} />) : <p className="text-sm text-muted-foreground text-center col-span-full py-4">No past appointments.</p>}
                           </CardContent>
                       </Card>
                   </TabsContent>
@@ -662,6 +688,23 @@ export default function ClientDetailPage() {
             onSave={handleUpdateClient}
         />
 
+        <AddAppointmentDialog 
+            open={isAddAppointmentOpen}
+            onOpenChange={(isOpen) => {
+                if (!isOpen) {
+                    setAppointmentToRebook(null);
+                }
+                setIsAddAppointmentOpen(isOpen);
+            }}
+            clients={clients}
+            services={services}
+            staff={staff}
+            appointments={appointments}
+            onConfirm={handleAddAppointment}
+            initialClientId={client.id}
+            appointmentToRebook={appointmentToRebook}
+        />
+
         <Dialog open={!!selectedPhoto} onOpenChange={() => setSelectedPhoto(null)}>
             <DialogContent className="max-w-3xl">
                 <DialogHeader>
@@ -678,6 +721,7 @@ export default function ClientDetailPage() {
   );
 
     
+
 
 
 
