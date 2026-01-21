@@ -488,6 +488,8 @@ export default function PlannerPage() {
   const [startConfirmAppointment, setStartConfirmAppointment] = useState<Appointment | null>(null);
   const [finishConfirmAppointment, setFinishConfirmAppointment] = useState<Appointment | null>(null);
 
+  const [appointmentToRebook, setAppointmentToRebook] = useState<Appointment | null>(null);
+
   const finishDialogDuration = useMemo(() => {
     if (!finishConfirmAppointment?.actualStartTime) return null;
     const startTime = parseISO(finishConfirmAppointment.actualStartTime);
@@ -842,13 +844,11 @@ export default function PlannerPage() {
         }
     }
     
-    toast({
-        title: "Appointment Completed",
-        description: `Inventory levels have been updated and financial transactions logged.`
-    });
+    // No toast here; the dialog transitions to the rebooking prompt
     
-    setIsCheckoutOpen(false); 
-    setSelectedAppointment(null);
+    // This is handled by the rebooking prompt now
+    // setIsCheckoutOpen(false); 
+    // setSelectedAppointment(null);
     handlePrintReceipt(receiptData);
   };
   
@@ -871,6 +871,13 @@ export default function PlannerPage() {
     setIsEditAppointmentOpen(false);
     setIsRescheduleOpen(false);
   };
+
+  const handleRebook = (appointment: Appointment) => {
+      setIsCheckoutOpen(false);
+      setSelectedAppointment(null); // Clear appointment from checkout
+      setAppointmentToRebook(appointment);
+      setIsAddAppointmentOpen(true);
+  }
 
   const handleAddEvent = (newEvent: Omit<Event, 'id'>) => {
     const newEventWithId = { ...newEvent, id: `evt-${Date.now()}` };
@@ -1190,16 +1197,24 @@ export default function PlannerPage() {
             appointmentData={selectedAppointmentData}
             onConfirmCheckout={handleCheckout}
             onSendToFrontDesk={handleSendToFrontDesk}
+            onRebook={handleRebook}
         />
       )}
       <AddAppointmentDialog 
         open={isAddAppointmentOpen}
-        onOpenChange={setIsAddAppointmentOpen}
+        onOpenChange={(isOpen) => {
+            if (!isOpen) {
+                setAppointmentToRebook(null);
+            }
+            setIsAddAppointmentOpen(isOpen);
+        }}
         clients={clients}
         services={services}
         staff={staff}
         appointments={appointments}
         onConfirm={handleAddAppointment}
+        initialClientId={''}
+        appointmentToRebook={appointmentToRebook}
       />
        {selectedAppointment && (
         <EditAppointmentDialog 
@@ -1349,6 +1364,7 @@ export default function PlannerPage() {
 
 
     
+
 
 
 

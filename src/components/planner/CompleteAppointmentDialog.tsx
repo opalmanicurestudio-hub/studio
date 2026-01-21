@@ -82,6 +82,7 @@ interface CompleteAppointmentDialogProps {
   };
   onConfirmCheckout: (data: CheckoutData) => void;
   onSendToFrontDesk?: (appointmentId: string, checkoutState: AppointmentCheckoutState) => void;
+  onRebook: (appointment: Appointment) => void;
 }
 
 export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps> = ({
@@ -90,6 +91,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   appointmentData,
   onConfirmCheckout,
   onSendToFrontDesk,
+  onRebook,
 }) => {
   const { inventory, services, staff, memberships, packages, clients, setClients } = useInventory();
   const { appointment, client, service } = appointmentData;
@@ -132,7 +134,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   const [serviceStaffOverrides, setServiceStaffOverrides] = useState<Record<string, string>>({});
   const [tipAllocations, setTipAllocations] = useState<Record<string, number>>({});
   const isMobile = useIsMobile();
-  
+  const [view, setView] = useState<'checkout' | 'rebooking_prompt'>('checkout');
+
   const applicableOffers = useMemo(() => {
     if (!client || !service) return [];
     const offers: { type: 'membership' | 'package'; offer: any; sessionsRemaining?: number }[] = [];
@@ -162,6 +165,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
 
   useEffect(() => {
     if (open && service && appointment) {
+        setView('checkout');
         const checkoutState = appointment.checkoutState;
         const initialFormula = checkoutState?.formula || service.products?.map(p => ({
             id: p.id, name: p.name, quantity: p.quantityUsed, unit: p.unit || 'uses', costPerUnit: p.costPerUnit || 0
@@ -532,6 +536,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
       tipAmount,
       redeemedOffer: redeemedOffer,
     });
+    setView('rebooking_prompt');
   };
 
   const handleSendToFrontDesk = () => {
@@ -983,22 +988,33 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     return (
         <>
             <Sheet open={open} onOpenChange={onOpenChange}>
-                <SheetContent side="right" className="w-full p-0 flex flex-col sm:max-w-full">
+                <SheetContent side="bottom" className="w-full h-full p-0 flex flex-col sm:max-w-full">
                     <SheetHeader className="p-6 pb-4 border-b">
                         <SheetTitle>Complete Appointment & Checkout</SheetTitle>
-                        <SheetDescription>
-                        Confirm products used, add retail sales, and finalize the appointment.
-                        </SheetDescription>
                     </SheetHeader>
-                    <ScrollArea className="flex-1">
-                        {FormContent}
-                    </ScrollArea>
-                    <SheetFooter className="p-4 border-t bg-background flex-col sm:flex-col sm:space-x-0 gap-2">
-                        {onSendToFrontDesk && <Button variant="secondary" onClick={handleSendToFrontDesk}>Send to Front Desk</Button>}
-                        <Button onClick={handleCompleteAppointment} disabled={warnings.length > 0} size="lg">
-                            Finalize & Record Sale
-                        </Button>
-                    </SheetFooter>
+                     {view === 'checkout' ? (
+                        <>
+                            <ScrollArea className="flex-1">
+                                {FormContent}
+                            </ScrollArea>
+                            <SheetFooter className="p-4 border-t bg-background flex-col sm:flex-col sm:space-x-0 gap-2">
+                                {onSendToFrontDesk && <Button variant="secondary" onClick={handleSendToFrontDesk}>Send to Front Desk</Button>}
+                                <Button onClick={handleCompleteAppointment} disabled={warnings.length > 0} size="lg">
+                                    Finalize & Record Sale
+                                </Button>
+                            </SheetFooter>
+                        </>
+                    ) : (
+                         <div className="flex flex-col items-center justify-center text-center p-8 space-y-4 flex-1">
+                            <CheckCircle className="w-16 h-16 mx-auto text-green-500" />
+                            <h2 className="text-2xl font-bold">Checkout Complete!</h2>
+                            <p className="text-muted-foreground">Would you like to book {client.name}'s next appointment?</p>
+                            <div className="flex flex-col sm:flex-row justify-center gap-4 pt-4 w-full">
+                                <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full">No, Thanks</Button>
+                                <Button onClick={() => onRebook(appointment)} className="w-full">Book Next Appointment</Button>
+                            </div>
+                        </div>
+                    )}
                 </SheetContent>
             </Sheet>
             <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={setSelectedAddOns} allAddOns={services.filter(s => s.type === 'addon')} initialSelected={selectedAddOns}/>
@@ -1019,20 +1035,33 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
             </DialogDescription>
           </DialogHeader>
           
-          <ScrollArea className="flex-1">
-            {FormContent}
-          </ScrollArea>
-          
-          <DialogFooter className="p-6 pt-4 border-t flex-shrink-0">
-            <div className="flex flex-col sm:flex-row sm:justify-end gap-2 w-full">
-                {onSendToFrontDesk && <Button variant="secondary" onClick={handleSendToFrontDesk}>Send to Front Desk</Button>}
-                <div className="flex-1" />
-                <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                <Button onClick={handleCompleteAppointment} disabled={warnings.length > 0}>
-                  Finalize & Record Sale
-                </Button>
-            </div>
-          </DialogFooter>
+           {view === 'checkout' ? (
+                <>
+                    <ScrollArea className="flex-1">
+                        {FormContent}
+                    </ScrollArea>
+                    <DialogFooter className="p-6 pt-4 border-t flex-shrink-0">
+                    <div className="flex flex-col sm:flex-row sm:justify-end gap-2 w-full">
+                        {onSendToFrontDesk && <Button variant="secondary" onClick={handleSendToFrontDesk}>Send to Front Desk</Button>}
+                        <div className="flex-1" />
+                        <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                        <Button onClick={handleCompleteAppointment} disabled={warnings.length > 0}>
+                        Finalize & Record Sale
+                        </Button>
+                    </div>
+                    </DialogFooter>
+                </>
+           ) : (
+                <div className="text-center p-8 space-y-4">
+                    <CheckCircle className="w-16 h-16 mx-auto text-green-500" />
+                    <h2 className="text-2xl font-bold">Checkout Complete!</h2>
+                    <p className="text-muted-foreground">Would you like to book {client.name}'s next appointment?</p>
+                    <div className="flex justify-center gap-4 pt-4">
+                        <Button variant="outline" onClick={() => onOpenChange(false)}>No, Thanks</Button>
+                        <Button onClick={() => onRebook(appointment)}>Book Next Appointment</Button>
+                    </div>
+                </div>
+           )}
         </DialogContent>
       </Dialog>
       <SelectAddOnsDialog
@@ -1087,4 +1116,3 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     </>
   );
 };
-
