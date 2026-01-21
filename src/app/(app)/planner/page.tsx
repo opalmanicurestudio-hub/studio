@@ -1073,11 +1073,11 @@ export default function PlannerPage() {
   const handleToday = () => {
     setCurrentDate(new Date());
   };
-
-  const handleDayClick = (day: Date) => {
-    setCurrentDate(day);
-  }
   
+  const handleJumpTo = (weeks: number) => {
+    setCurrentDate(addWeeks(new Date(), weeks));
+  };
+
   const handleDateSelect = (date: Date | undefined) => {
     if (date) {
       setCurrentDate(date);
@@ -1138,14 +1138,47 @@ export default function PlannerPage() {
             <Button variant="outline" onClick={handlePrevWeek} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
             <Button variant="outline" onClick={handleNextWeek} size="icon" className="h-8 w-8"><ChevronRight /></Button>
             <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="icon" className="h-8 w-8"><CalendarIcon /></Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0">
+                <Calendar
+                  mode="single"
+                  selected={currentDate}
+                  onSelect={handleDateSelect}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="h-8">
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  Jump To...
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem onClick={() => handleJumpTo(2)}>2 Weeks Out</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleJumpTo(4)}>4 Weeks Out</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleJumpTo(6)}>6 Weeks Out</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleJumpTo(8)}>8 Weeks Out</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
         </div>
         <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setIsKpiSheetOpen(true)}>
-                <BarChart className="w-4 h-4" />
+            <Button variant="outline" size="sm" onClick={() => setIsKpiSheetOpen(true)}>
+                <BarChart className="w-4 h-4 mr-2" />
+                Weekly KPIs
             </Button>
-            <Button variant="outline" size="icon" className="h-8 w-8 relative" onClick={() => setIsBillsSheetOpen(true)}>
-                <BellRing className={cn("h-4 w-4", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
+            <Button variant="outline" size="sm" className="relative" onClick={() => setIsBillsSheetOpen(true)}>
+                <BellRing className={cn("h-4 w-4 mr-2", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
+                Bills Due Today
                 {dailyBillInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setIsPickingListOpen(true)}>
+                <List className="w-4 h-4 mr-2" />
+                Picking List
             </Button>
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -1170,7 +1203,7 @@ export default function PlannerPage() {
                             "h-14 flex-1 flex-col py-1 min-w-[50px] md:min-w-[120px]",
                             isToday(day) && !isSameDay(day, currentDate) && "text-primary"
                         )}
-                        onClick={() => handleDayClick(day)}
+                        onClick={() => handleDateSelect(day)}
                     >
                         <span className="text-xs">{format(day, 'EEE')}</span>
                         <span className="text-lg font-bold">{format(day, 'd')}</span>
@@ -1395,6 +1428,7 @@ export default function PlannerPage() {
 
 
     
+
 
 
 
