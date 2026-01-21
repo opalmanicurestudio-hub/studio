@@ -44,6 +44,7 @@ import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { Badge } from '../ui/badge';
+import { nanoid } from 'nanoid';
 
 
 type EditableFormulaItem = {
@@ -93,7 +94,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   onSendToFrontDesk,
   onRebook,
 }) => {
-  const { inventory, services, staff, memberships, packages, clients, setClients } = useInventory();
+  const { inventory, services, staff, memberships, packages, clients, setClients, addStockCorrection, setTransactions } = useInventory();
   const { appointment, client, service } = appointmentData;
   const [formulaName, setFormulaName] = useState('Default Service Formula');
   const { toast } = useToast();
@@ -482,6 +483,24 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     }
 
     if (!client || !service) return;
+
+    if (appointment.isWalkIn && !clients.some(c => c.id === client.id)) {
+        const newClient: Client = {
+          id: `cli-${nanoid()}`,
+          name: client.name,
+          email: '', // Not captured at walk-in
+          phone: client.phone || '',
+          avatarUrl: '',
+          lifetimeValue: grandTotal - tipAmount, // First transaction
+          lastAppointment: new Date().toISOString(),
+          status: 'active',
+        };
+        setClients(prev => [...prev, newClient]);
+        toast({
+            title: "New Client Created",
+            description: `${client.name} has been automatically added to your client list.`,
+        });
+    }
     
     // Update Client's Package if redeemed
     if (redeemedOffer?.type === 'package') {
