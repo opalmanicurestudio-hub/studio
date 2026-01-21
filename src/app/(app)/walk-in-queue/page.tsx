@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -28,6 +27,8 @@ import { nanoid } from 'nanoid';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
+import { useToast } from '@/hooks/use-toast';
 
 const Timer = ({ startTime }: { startTime: string }) => {
     const [elapsed, setElapsed] = useState('');
@@ -286,6 +287,7 @@ export default function WalkInQueuePage() {
   const { services, clients, setAppointments, walkIns: allWalkIns, staff: allStaff, setStaff, setActivityLogs } = useInventory();
   const { firestore, user } = useFirebase();
   const tenantId = 'tenant-abc';
+  const { toast } = useToast();
   const [ticketToPrint, setTicketToPrint] = useState<WalkIn | null>(null);
   const [checkoutAppointment, setCheckoutAppointment] = useState<Appointment | null>(null);
   const [walkInToAssign, setWalkInToAssign] = useState<WalkIn | null>(null);
@@ -600,6 +602,34 @@ export default function WalkInQueuePage() {
     <div className="flex h-screen w-full flex-col">
       <AppHeader title="Smart Walk-in Queue" />
       <main className="flex-1 p-4 md:p-8 space-y-8">
+        <Card>
+            <CardHeader>
+                <CardTitle>Public Check-in Link</CardTitle>
+                <CardDescription>Share this link with your customers to let them join the queue from their own device.</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <div className="flex flex-col sm:flex-row items-center gap-2">
+                    <div className="relative flex-grow w-full">
+                         <Input value={`${typeof window !== 'undefined' ? window.location.origin : ''}/walk-in`} readOnly className="pl-9"/>
+                         <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 w-full sm:w-auto">
+                    <Button variant="outline" className="w-full" onClick={() => {
+                        const url = `${window.location.origin}/walk-in`;
+                        navigator.clipboard.writeText(url);
+                        toast({ title: 'Link Copied!', description: 'The public check-in link has been copied to your clipboard.' });
+                    }}>
+                        Copy
+                    </Button>
+                    <Button asChild className="w-full">
+                        <Link href="/walk-in" target="_blank">
+                            Open
+                        </Link>
+                    </Button>
+                    </div>
+                </div>
+            </CardContent>
+        </Card>
         
         <Card className="col-span-1 md:col-span-2 lg:col-span-3">
                 <CardHeader>
