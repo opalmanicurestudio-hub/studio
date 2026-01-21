@@ -18,6 +18,7 @@ export interface ReceiptData {
     price: number;
   }[];
   subtotal: number;
+  discount?: number;
   tax: number;
   tip: number;
   total: number;
@@ -93,6 +94,12 @@ export const PrintReceipt: React.FC<PrintReceiptProps> = ({ data }) => {
           <p>Subtotal</p>
           <p>${data.subtotal.toFixed(2)}</p>
         </div>
+        {data.discount && data.discount > 0 && (
+            <div className="flex justify-between">
+                <p>Discount</p>
+                <p>-${data.discount.toFixed(2)}</p>
+            </div>
+        )}
         <div className="flex justify-between">
           <p>Tax</p>
           <p>${data.tax.toFixed(2)}</p>

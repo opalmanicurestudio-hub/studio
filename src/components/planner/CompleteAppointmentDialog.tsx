@@ -120,6 +120,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
 
   const [promoCode, setPromoCode] = useState('');
   const [discount, setDiscount] = useState(0);
+  const [membershipDiscount, setMembershipDiscount] = useState(0);
 
   const [serviceStaffOverrides, setServiceStaffOverrides] = useState<Record<string, string>>({});
   const [tipAllocations, setTipAllocations] = useState<Record<string, number>>({});
@@ -175,6 +176,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         incidentMethods.reset();
         setPromoCode(client?.referredBy ? 'NEWCLIENT15' : '');
         setDiscount(0);
+        setMembershipDiscount(0);
 
         const initialOverrides: Record<string, string> = { [service.id]: appointment.staffId || '' };
         initialAddons.forEach(addon => {
@@ -231,14 +233,30 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     }, 0);
   }, [retailItems, inventory]);
   
+    useEffect(() => {
+        if (client && client.activeMembershipId) {
+            const membership = memberships.find(m => m.id === client.activeMembershipId);
+            if (membership?.retailDiscount && retailTotal > 0) {
+                const discountValue = retailTotal * (membership.retailDiscount / 100);
+                setMembershipDiscount(discountValue);
+            } else {
+                setMembershipDiscount(0);
+            }
+        } else {
+            setMembershipDiscount(0);
+        }
+    }, [client, retailTotal, memberships]);
+
   const subtotal = useMemo(() => {
     const isPerkApplied = !!redeemedOffer;
     const servicePrice = isPerkApplied ? 0 : (service?.price || 0);
     return servicePrice + selectedAddOns.reduce((acc, s) => acc + s.price, 0) + retailTotal + (applyAdditionalCharges ? additionalCharge : 0);
   }, [service, selectedAddOns, retailTotal, additionalCharge, applyAdditionalCharges, redeemedOffer]);
 
-  const mockTax = (subtotal - discount) * 0.07; // 7% tax for demo
-  const grandTotal = subtotal - discount + mockTax + tipAmount;
+  const totalDiscount = discount + membershipDiscount;
+  const subtotalAfterDiscounts = subtotal > totalDiscount ? subtotal - totalDiscount : 0;
+  const mockTax = subtotalAfterDiscounts * 0.07; // 7% tax for demo
+  const grandTotal = subtotalAfterDiscounts + mockTax + tipAmount;
   
   const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - grandTotal : 0;
 
@@ -483,8 +501,16 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
             }),
             ...(additionalCharge > 0 && applyAdditionalCharges ? [{ name: 'Additional Charges', quantity: 1, price: additionalCharge }] : [])
         ],
-        subtotal: subtotal, tax: mockTax, tip: tipAmount, total: grandTotal,
-        payment: { method: paymentTab, amountTendered: paymentTab === 'cash' ? amountTendered : grandTotal, changeDue: changeDue > 0 ? changeDue : 0 }
+        subtotal: subtotal,
+        discount: totalDiscount,
+        tax: mockTax,
+        tip: tipAmount,
+        total: grandTotal,
+        payment: {
+            method: paymentTab,
+            amountTendered: paymentTab === 'cash' ? amountTendered : grandTotal,
+            changeDue: changeDue > 0 ? changeDue : 0,
+        }
     };
     onConfirmCheckout({
       updatedInventory,
@@ -844,22 +870,10 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                         ))}
                         <div className='flex justify-between'><span>Retail:</span><span>${retailTotal.toFixed(2)}</span></div>
                         
-                        {additionalCharge > 0 && (
-                             <div className='flex justify-between items-center p-3 my-2 -mx-3 rounded-lg bg-amber-500/10'>
-                                <div className="space-y-1">
-                                    <Label htmlFor="apply-charges" className="font-medium text-amber-900 dark:text-amber-300">Apply Additional Charges?</Label>
-                                    <p className="text-xs text-amber-700 dark:text-amber-400">
-                                        Initial Cost: ${initialBreakEven.toFixed(2)} vs Final Cost: ${finalBreakEven.toFixed(2)}
-                                    </p>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                    <span className="font-semibold text-amber-900 dark:text-amber-300">+${additionalCharge.toFixed(2)}</span>
-                                    <Switch 
-                                        id="apply-charges" 
-                                        checked={applyAdditionalCharges} 
-                                        onCheckedChange={setApplyAdditionalCharges} 
-                                    />
-                                </div>
+                        {additionalCharge > 0 && applyAdditionalCharges && (
+                             <div className='flex justify-between text-amber-900 dark:text-amber-300 font-semibold'>
+                                <span>Additional Time:</span>
+                                <span>+${additionalCharge.toFixed(2)}</span>
                             </div>
                         )}
                         {discount > 0 && (
@@ -868,8 +882,14 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                                 <span>-${discount.toFixed(2)}</span>
                             </div>
                         )}
+                        {membershipDiscount > 0 && (
+                            <div className='flex justify-between text-primary font-semibold'>
+                                <span>Membership Discount:</span>
+                                <span>-${membershipDiscount.toFixed(2)}</span>
+                            </div>
+                        )}
                          <Separator className="my-2" />
-                        <div className='flex justify-between font-semibold'><span>Subtotal:</span><span>${(subtotal - discount).toFixed(2)}</span></div>
+                        <div className='flex justify-between font-semibold'><span>Subtotal:</span><span>${(subtotal - totalDiscount).toFixed(2)}</span></div>
                         <div className='flex justify-between'><span>Taxes (7%):</span><span>${mockTax.toFixed(2)}</span></div>
                       </div>
                       
