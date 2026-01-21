@@ -192,11 +192,12 @@ const DayTimeline = ({
                 client = {
                     id: item.clientId,
                     name: walkIn.customerName,
-                    email: '',
+                    email: walkIn.customerEmail || '',
                     phone: walkIn.customerPhone || '',
                     avatarUrl: '',
                     lifetimeValue: 0,
                     lastAppointment: walkIn.checkInTime,
+                    birthday: walkIn.customerBirthday,
                 };
             }
         }
@@ -1138,19 +1139,6 @@ export default function PlannerPage() {
             <Button variant="outline" onClick={handlePrevWeek} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
             <Button variant="outline" onClick={handleNextWeek} size="icon" className="h-8 w-8"><ChevronRight /></Button>
             <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" size="icon" className="h-8 w-8"><CalendarIcon /></Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0">
-                <Calendar
-                  mode="single"
-                  selected={currentDate}
-                  onSelect={handleDateSelect}
-                  initialFocus
-                />
-              </PopoverContent>
-            </Popover>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" className="h-8">
@@ -1159,10 +1147,10 @@ export default function PlannerPage() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent>
-                <DropdownMenuItem onClick={() => handleJumpTo(2)}>2 Weeks Out</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleJumpTo(4)}>4 Weeks Out</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleJumpTo(6)}>6 Weeks Out</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleJumpTo(8)}>8 Weeks Out</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleJumpTo(2)}>+ 2 Weeks</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleJumpTo(4)}>+ 4 Weeks</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleJumpTo(6)}>+ 6 Weeks</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleJumpTo(8)}>+ 8 Weeks</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
         </div>
@@ -1428,6 +1416,7 @@ export default function PlannerPage() {
 
 
     
+
 
 
 
