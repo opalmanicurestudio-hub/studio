@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
@@ -1167,7 +1168,7 @@ export default function PlannerPage() {
         <div className="md:hidden flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
               <TooltipProvider>
-                <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="w-4 w-4" /><span className="sr-only">Weekly KPIs</span></Button></TooltipTrigger><TooltipContent><p>Weekly KPIs</p></TooltipContent></Tooltip>
+                <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="w-4 h-4" /><span className="sr-only">Weekly KPIs</span></Button></TooltipTrigger><TooltipContent><p>Weekly KPIs</p></TooltipContent></Tooltip>
                 <Tooltip><TooltipTrigger asChild>
                     <Button variant="outline" size="icon" className="relative" onClick={() => setIsBillsSheetOpen(true)}>
                         <BellRing className={cn("h-4 w-4", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
@@ -1175,7 +1176,7 @@ export default function PlannerPage() {
                         <span className="sr-only">Bills Due Today</span>
                     </Button>
                 </TooltipTrigger><TooltipContent><p>Bills Due Today</p></TooltipContent></Tooltip>
-                <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsPickingListOpen(true)}><List className="w-4 w-4" /><span className="sr-only">Picking List</span></Button></TooltipTrigger><TooltipContent><p>Picking List</p></TooltipContent></Tooltip>
+                <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsPickingListOpen(true)}><List className="w-4 h-4" /><span className="sr-only">Picking List</span></Button></TooltipTrigger><TooltipContent><p>Picking List</p></TooltipContent></Tooltip>
             </TooltipProvider>
           </div>
           <div className="flex items-center gap-2">
@@ -1459,3 +1460,5 @@ export default function PlannerPage() {
     </div>
   );
 }
+
+    
