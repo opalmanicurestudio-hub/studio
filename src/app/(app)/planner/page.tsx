@@ -176,8 +176,8 @@ const DayTimeline = ({
             const positionedItems = layoutInfo.map(item => ({
                 ...item,
                 layout: {
-                    width: `${100 / item.layout.cols}%`,
-                    left: `${(100 / item.layout.cols) * item.layout.col}%`,
+                    width: `${'100 / item.layout.cols'}%`,
+                    left: `${'(100 / item.layout.cols) * item.layout.col'}%`,
                 }
             }));
 
@@ -314,7 +314,7 @@ const DayTimeline = ({
             <div className="grid grid-cols-[auto,1fr] min-w-max">
                 
                 <div className="sticky top-0 z-30 bg-background h-14 border-b border-r grid" style={{ width: isMobile ? '40px' : '48px' }} />
-                <div className="sticky top-0 z-20 grid col-start-2 bg-background" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(${isMobile ? '0' : '250px'}, 1fr))` }}>
+                <div className="sticky top-0 z-20 grid col-start-2 bg-background" style={{ gridTemplateColumns: `repeat(${'staff.length'}, minmax(${'isMobile ? 0 : 250px'}, 1fr))` }}>
                     {staff.map(staffMember => (
                         <div key={staffMember.id} className="p-2 h-14 border-b border-r text-center flex items-center justify-center">
                             {!isMobile && (
@@ -337,7 +337,7 @@ const DayTimeline = ({
                 </div>
 
                 {/* Main content grid */}
-                <div className="col-start-2 grid relative" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(${isMobile ? '0' : '250px'}, 1fr))` }}>
+                <div className="col-start-2 grid relative" style={{ gridTemplateColumns: `repeat(${'staff.length'}, minmax(${'isMobile ? 0 : 250px'}, 1fr))` }}>
                     {staffSchedules.map(({ staffMember, positionedItems }) => (
                         <div key={staffMember.id} className="relative border-r">
                             {/* Grid lines */}
@@ -1199,15 +1199,8 @@ export default function PlannerPage() {
                     </TooltipTrigger><TooltipContent><p>Bills Due Today</p></TooltipContent></Tooltip>
                     <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsPickingListOpen(true)}><List className="w-4 h-4" /><span className="sr-only">Picking List</span></Button></TooltipTrigger><TooltipContent><p>Picking List</p></TooltipContent></Tooltip>
                 </TooltipProvider>
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button size="sm"><PlusCircle className="mr-2 h-4 w-4"/>Add New</Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent>
-                        <DropdownMenuItem onClick={() => setIsAddAppointmentOpen(true)}>Appointment</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setIsAddEventOpen(true)}>Event</DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                <Button size="sm" onClick={() => setIsAddEventOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Event</Button>
+                <Button size="sm" onClick={() => setIsAddAppointmentOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Appointment</Button>
             </div>
         </div>
       </div>
