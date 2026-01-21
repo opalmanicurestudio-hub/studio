@@ -1164,29 +1164,33 @@ export default function PlannerPage() {
             </div>
         </div>
 
-        {/* Mobile buttons */}
-        <div className="flex items-center justify-between gap-2 md:hidden">
+        <div className="md:hidden flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
               <TooltipProvider>
-                <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="w-4 h-4" /><span className="sr-only">Weekly KPIs</span></Button></TooltipTrigger><TooltipContent><p>Weekly KPIs</p></TooltipContent></Tooltip>
+                <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="w-4 w-4" /><span className="sr-only">Weekly KPIs</span></Button></TooltipTrigger><TooltipContent><p>Weekly KPIs</p></TooltipContent></Tooltip>
                 <Tooltip><TooltipTrigger asChild>
-                    <Button variant="outline" size="icon" className="relative" onClick={()={() => setIsBillsSheetOpen(true)}>
+                    <Button variant="outline" size="icon" className="relative" onClick={() => setIsBillsSheetOpen(true)}>
                         <BellRing className={cn("h-4 w-4", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
                         {dailyBillInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
                         <span className="sr-only">Bills Due Today</span>
                     </Button>
                 </TooltipTrigger><TooltipContent><p>Bills Due Today</p></TooltipContent></Tooltip>
-                <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsPickingListOpen(true)}><List className="w-4 h-4" /><span className="sr-only">Picking List</span></Button></TooltipTrigger><TooltipContent><p>Picking List</p></TooltipContent></Tooltip>
+                <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsPickingListOpen(true)}><List className="w-4 w-4" /><span className="sr-only">Picking List</span></Button></TooltipTrigger><TooltipContent><p>Picking List</p></TooltipContent></Tooltip>
             </TooltipProvider>
           </div>
           <div className="flex items-center gap-2">
-            <Button size="sm" onClick={() => setIsAddEventOpen(true)}>+ Event</Button>
-            <Button size="sm" onClick={() => setIsAddAppointmentOpen(true)}>+ Appointment</Button>
+            <Button size="sm" onClick={() => setIsAddEventOpen(true)}>
+                <span className="md:hidden">+ Event</span>
+                <span className="hidden md:inline">Add Event</span>
+            </Button>
+            <Button size="sm" onClick={() => setIsAddAppointmentOpen(true)}>
+                <span className="md:hidden">+ Appointment</span>
+                <span className="hidden md:inline">Add Appointment</span>
+            </Button>
           </div>
         </div>
 
-        {/* Desktop buttons */}
-        <div className="hidden md:block">
+        <div className="hidden md:block space-y-4">
             <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-2">
                     <Button variant="outline" onClick={() => setCurrentDate(subWeeks(currentDate, 1))} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
@@ -1197,37 +1201,37 @@ export default function PlannerPage() {
                             <Button variant="outline" size="icon" className="h-8 w-8"><CalendarIcon className="h-4 w-4" /><span className="sr-only">Jump To...</span></Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="start">
-                           <DropdownMenuItem onClick={() => handleJumpTo(2)}>+ 2 Weeks</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleJumpTo(2)}>+ 2 Weeks</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleJumpTo(4)}>+ 4 Weeks</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleJumpTo(6)}>+ 6 Weeks</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleJumpTo(8)}>+ 8 Weeks</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleJumpTo(10)}>+ 10 Weeks</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleJumpTo(12)}>+ 12 Weeks</DropdownMenuItem>
-                             <DropdownMenuSeparator />
+                            <DropdownMenuSeparator />
                             <DropdownMenuItem onClick={() => handleJumpTo(-2)}>- 2 Weeks</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleJumpTo(-4)}>- 4 Weeks</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleJumpTo(-6)}>- 6 Weeks</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleJumpTo(-8)}>- 8 Weeks</DropdownMenuItem>
-                             <DropdownMenuItem onClick={()={() => handleJumpTo(-10)}>- 10 Weeks</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleJumpTo(-10)}>- 10 Weeks</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleJumpTo(-12)}>- 12 Weeks</DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
                 </div>
-                 <div className="flex items-center gap-2">
-                    <TooltipProvider>
-                        <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="w-4 h-4" /><span className="sr-only">Weekly KPIs</span></Button></TooltipTrigger><TooltipContent><p>Weekly KPIs</p></TooltipContent></Tooltip>
-                        <Tooltip><TooltipTrigger asChild>
-                            <Button variant="outline" size="icon" className="relative" onClick={() => setIsBillsSheetOpen(true)}>
-                                <BellRing className={cn("h-4 w-4", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
-                                {dailyBillInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
-                                <span className="sr-only">Bills Due Today</span>
-                            </Button>
-                        </TooltipTrigger><TooltipContent><p>Bills Due Today</p></TooltipContent></Tooltip>
-                        <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsPickingListOpen(true)}><List className="w-4 h-4" /><span className="sr-only">Picking List</span></Button></TooltipTrigger><TooltipContent><p>Picking List</p></TooltipContent></Tooltip>
-                    </TooltipProvider>
-                    <Button size="sm" onClick={() => setIsAddEventOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Event</Button>
-                    <Button size="sm" onClick={()={() => setIsAddAppointmentOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Appointment</Button>
-                </div>
+            </div>
+             <div className="flex items-center justify-end gap-2">
+                <TooltipProvider>
+                    <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="w-4 h-4" /><span className="sr-only">Weekly KPIs</span></Button></TooltipTrigger><TooltipContent><p>Weekly KPIs</p></TooltipContent></Tooltip>
+                    <Tooltip><TooltipTrigger asChild>
+                        <Button variant="outline" size="icon" className="relative" onClick={() => setIsBillsSheetOpen(true)}>
+                            <BellRing className={cn("h-4 w-4", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
+                            {dailyBillInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
+                            <span className="sr-only">Bills Due Today</span>
+                        </Button>
+                    </TooltipTrigger><TooltipContent><p>Bills Due Today</p></TooltipContent></Tooltip>
+                    <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsPickingListOpen(true)}><List className="w-4 h-4" /><span className="sr-only">Picking List</span></Button></TooltipTrigger><TooltipContent><p>Picking List</p></TooltipContent></Tooltip>
+                </TooltipProvider>
+                <Button size="sm" onClick={() => setIsAddEventOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Event</Button>
+                <Button size="sm" onClick={() => setIsAddAppointmentOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Appointment</Button>
             </div>
         </div>
       </div>
@@ -1273,7 +1277,7 @@ export default function PlannerPage() {
               staff={staffToDisplay}
               itemsByStaff={itemsToDisplay}
               onCompleteClick={handleCompleteClick} 
-              onUpdateStatus={handleUpdateStatus}
+              onUpdateStatus={onUpdateStatus}
               onDeleteAppointment={handleDeleteAppointment} 
               onPrintReceipt={handlePrintReceipt}
               onPrintTicket={handlePrintTicket}
@@ -1286,7 +1290,7 @@ export default function PlannerPage() {
               onReschedule={handleRescheduleClick}
               onOpenPickingList={() => setIsPickingListOpen(true)}
               onStartService={handleStartService}
-              onFinishService={handleFinishService}
+              onFinishService={confirmFinishService}
               onBookNewForClient={handleBookNewAppointmentForClient}
           />
       </main>
@@ -1455,6 +1459,3 @@ export default function PlannerPage() {
     </div>
   );
 }
-    
-
-    
