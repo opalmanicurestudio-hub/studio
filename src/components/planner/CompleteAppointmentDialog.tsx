@@ -84,7 +84,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   onConfirmCheckout,
   onSendToFrontDesk,
 }) => {
-  const { inventory, services, staff, memberships, packages } = useInventory();
+  const { inventory, services, staff, memberships, packages, clients, setClients } = useInventory();
   const { appointment, client, service } = appointmentData;
   const [formulaName, setFormulaName] = useState('Default Service Formula');
   const { toast } = useToast();
@@ -450,11 +450,28 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     }
 
     if (!client || !service) return;
+    
+    // Update Client's Package if redeemed
+    if (redeemedOffer?.type === 'package') {
+        const clientToUpdate = clients.find(c => c.id === appointment.clientId);
+        if (clientToUpdate) {
+            const updatedPackages = clientToUpdate.activePackages?.map(p => {
+                if (p.packageId === redeemedOffer.id) {
+                    return { ...p, sessionsRemaining: p.sessionsRemaining - 1 };
+                }
+                return p;
+            }).filter(p => p.sessionsRemaining > 0);
+
+            const updatedClient = { ...clientToUpdate, activePackages: updatedPackages };
+            setClients(prev => prev.map(c => c.id === updatedClient.id ? updatedClient : c));
+        }
+    }
+
 
     const receiptData: Omit<ReceiptData, 'business'> = {
         clientName: client.name, date: appointment.endTime,
         items: [
-            { name: service.name, quantity: 1, price: service.price },
+            { name: service.name, quantity: 1, price: redeemedOffer ? 0 : service.price },
             ...selectedAddOns.map(s => ({ name: s.name, quantity: 1, price: s.price })),
             ...retailItems.map(item => {
                 const product = inventory.find(p => p.id === item.id);
@@ -937,7 +954,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                 <div className="flex-1" />
                 <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
                 <Button onClick={handleCompleteAppointment} disabled={warnings.length > 0}>
-                  Finalize &amp; Record Sale
+                  Finalize & Record Sale
                 </Button>
             </div>
           </DialogFooter>
