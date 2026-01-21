@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { AlertCircle, CheckCircle, FileText, FlaskConical, PlusCircle, Trash2, Library, Wand, QrCode, Search, AlertTriangle, ShoppingCart, CreditCard, Banknote, Gift, Coins, ShieldAlert, DollarSign as DollarSignIcon, Users } from 'lucide-react';
+import { AlertCircle, CheckCircle, FileText, FlaskConical, PlusCircle, Trash2, Library, Wand, QrCode, Search, AlertTriangle, ShoppingCart, CreditCard, Banknote, Gift, Coins, ShieldAlert, DollarSign as DollarSignIcon, Users, Award, Repeat } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type StockCorrection, type CustomFormula, type Staff, AppointmentCheckoutState } from '@/lib/data';
 import { Input } from '../ui/input';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
@@ -36,6 +36,7 @@ import { differenceInMinutes, parseISO } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '../ui/sheet';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 
 
 type EditableFormulaItem = {
@@ -58,6 +59,10 @@ export type CheckoutData = {
     addOns: Service[];
     absorbedCost: number;
     tipAmount: number;
+    redeemedOffer?: {
+        type: 'membership' | 'package';
+        id: string;
+    } | null;
 };
 
 interface CompleteAppointmentDialogProps {
@@ -79,7 +84,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   onConfirmCheckout,
   onSendToFrontDesk,
 }) => {
-  const { inventory, services, staff } = useInventory();
+  const { inventory, services, staff, memberships, packages } = useInventory();
   const { appointment, client, service } = appointmentData;
   const [formulaName, setFormulaName] = useState('Default Service Formula');
   const { toast } = useToast();
@@ -99,6 +104,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   
   const [actualDuration, setActualDuration] = useState(service?.duration || 0);
   const [applyAdditionalCharges, setApplyAdditionalCharges] = useState(true);
+  const [redeemedOffer, setRedeemedOffer] = useState<{type: 'membership' | 'package', id: string} | null>(null);
 
   const [logIncident, setLogIncident] = useState(false);
   const incidentMethods = useForm<IncidentFormData>({
@@ -119,6 +125,30 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   const [tipAllocations, setTipAllocations] = useState<Record<string, number>>({});
   const isMobile = useIsMobile();
   
+  const applicableOffers = useMemo(() => {
+    if (!client || !service) return [];
+    const offers: { type: 'membership' | 'package'; offer: any; sessionsRemaining?: number }[] = [];
+    // Membership check
+    if (client.activeMembershipId) {
+        const membership = memberships.find(m => m.id === client.activeMembershipId);
+        if (membership?.includedServices?.some(s => s.id === service.id)) {
+            offers.push({ type: 'membership', offer: membership });
+        }
+    }
+    // Package check
+    if (client.activePackages) {
+        client.activePackages.forEach(p => {
+            if (p.sessionsRemaining > 0) {
+                const packageInfo = packages.find(pkg => pkg.id === p.packageId);
+                if (packageInfo?.serviceId === service.id) {
+                    offers.push({ type: 'package', offer: packageInfo, sessionsRemaining: p.sessionsRemaining });
+                }
+            }
+        });
+    }
+    return offers;
+}, [client, service, memberships, packages]);
+
   useEffect(() => {
     if (open && service && appointment) {
         const checkoutState = appointment.checkoutState;
@@ -135,6 +165,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         setAmountTendered(0);
         setTipAmount(checkoutState?.tipAmount || 0);
         setPaymentTab('card');
+        setRedeemedOffer(null);
         setActualDuration(checkoutState?.actualDuration || service.duration);
         setApplyAdditionalCharges(true);
         setLogIncident(false);
@@ -197,7 +228,12 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     }, 0);
   }, [retailItems, inventory]);
   
-  const subtotal = (service?.price || 0) + selectedAddOns.reduce((acc, s) => acc + s.price, 0) + retailTotal + (applyAdditionalCharges ? additionalCharge : 0);
+  const subtotal = useMemo(() => {
+    const isPerkApplied = !!redeemedOffer;
+    const servicePrice = isPerkApplied ? 0 : (service?.price || 0);
+    return servicePrice + selectedAddOns.reduce((acc, s) => acc + s.price, 0) + retailTotal + (applyAdditionalCharges ? additionalCharge : 0);
+  }, [service, selectedAddOns, retailTotal, additionalCharge, applyAdditionalCharges, redeemedOffer]);
+
   const mockTax = (subtotal - discount) * 0.07; // 7% tax for demo
   const grandTotal = subtotal - discount + mockTax + tipAmount;
   
@@ -441,6 +477,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
       addOns: selectedAddOns,
       absorbedCost,
       tipAmount,
+      redeemedOffer: redeemedOffer,
     });
   };
 
@@ -541,6 +578,41 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                       </div>
                   </CardContent>
               </Card>
+
+                {applicableOffers.length > 0 && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Award className="h-5 w-5 text-primary" />
+                        Available Offers
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <RadioGroup
+                        onValueChange={(value) => {
+                          if (value) {
+                            const [type, id] = value.split(':');
+                            setRedeemedOffer({ type: type as 'membership' | 'package', id });
+                          } else {
+                            setRedeemedOffer(null);
+                          }
+                        }}
+                      >
+                        {applicableOffers.map(({ type, offer, sessionsRemaining }) => (
+                          <div key={`${type}-${offer.id}`} className="flex items-center space-x-2 py-2">
+                            <RadioGroupItem value={`${type}:${offer.id}`} id={`${type}:${offer.id}`} />
+                            <Label htmlFor={`${type}:${offer.id}`} className="flex-1">
+                              <span className="font-medium">{type === 'membership' ? 'Redeem from Membership' : 'Use Package Session'}</span>
+                              <p className="text-xs text-muted-foreground">{offer.name}
+                                {type === 'package' && ` (${sessionsRemaining} left)`}
+                              </p>
+                            </Label>
+                          </div>
+                        ))}
+                      </RadioGroup>
+                    </CardContent>
+                  </Card>
+                )}
               
                <Card>
                   <CardHeader>
@@ -728,7 +800,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                           </div>
                       </div>
                       <div className="p-4 rounded-lg bg-muted/50 space-y-2 text-sm">
-                        <div className='flex justify-between'><span>Base Service Price:</span><span>${service.price.toFixed(2)}</span></div>
+                        <div className='flex justify-between'><span>Base Service Price:</span><span>${(redeemedOffer ? 0 : service.price).toFixed(2)}</span></div>
                         {selectedAddOns.map(addon => (
                             <div key={addon.id} className="flex justify-between pl-4"><span>+ {addon.name}</span><span>${addon.price.toFixed(2)}</span></div>
                         ))}

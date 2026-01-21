@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
@@ -458,6 +459,8 @@ export default function PlannerPage() {
     setActivityLogs,
     addStockCorrection,
     setTransactions,
+    clients,
+    setClients,
   } = useInventory();
   
   const { firestore, user, isUserLoading } = useFirebase();
@@ -602,7 +605,7 @@ export default function PlannerPage() {
         weeklyNetProfit: weeklyRevenue - weeklyCosts,
         absorbedCosts: absorbedCosts,
     }
-  }, [currentDate, appointments, weekStart, billDefinitions]);
+  }, [currentDate, appointments, weekStart, billDefinitions, services]);
   
   const itemsByStaff = useMemo(() => {
     const map = new Map<string, (Appointment | Event & { itemType: string })[]>();
@@ -742,6 +745,7 @@ export default function PlannerPage() {
       receiptData,
       newCorrections,
       incident,
+      redeemedOffer
     } = data;
 
     const allPerformedServices = [services.find(s => s.id === selectedAppointment.serviceId), ...addOns].filter((s): s is Service => !!s);
@@ -758,7 +762,7 @@ export default function PlannerPage() {
             type: 'income',
             context: 'Business',
             category: 'Service Revenue',
-            amount: service.price,
+            amount: redeemedOffer ? 0 : service.price,
             paymentMethod: receiptData.payment.method,
             hasReceipt: true,
             staffId: staffId,
@@ -821,6 +825,22 @@ export default function PlannerPage() {
         incident: incident,
     };
     setAppointments(prev => prev.map(apt => apt.id === selectedAppointment.id ? completedAppointment : apt));
+
+    // 6. Update client packages
+    if (redeemedOffer?.type === 'package') {
+        const clientToUpdate = clients.find(c => c.id === selectedAppointment.clientId);
+        if (clientToUpdate) {
+            const updatedPackages = clientToUpdate.activePackages?.map(p => {
+                if (p.packageId === redeemedOffer.id) {
+                    return { ...p, sessionsRemaining: p.sessionsRemaining - 1 };
+                }
+                return p;
+            }).filter(p => p.sessionsRemaining > 0);
+
+            const updatedClient = { ...clientToUpdate, activePackages: updatedPackages };
+            setClients(prev => prev.map(c => c.id === updatedClient.id ? updatedClient : c));
+        }
+    }
     
     toast({
         title: "Appointment Completed",
@@ -1033,7 +1053,7 @@ export default function PlannerPage() {
     const client = clients.find(c => c.id === selectedAppointment.clientId);
     const service = services.find(s => s.id === selectedAppointment.serviceId);
     return { appointment: selectedAppointment, client, service };
-  }, [selectedAppointment]);
+  }, [selectedAppointment, clients, services]);
   
   const handlePrintReceipt = (receiptData: Omit<ReceiptData, 'business'>) => {
     setReceiptToPrint({
@@ -1329,5 +1349,6 @@ export default function PlannerPage() {
 
 
     
+
 
 
