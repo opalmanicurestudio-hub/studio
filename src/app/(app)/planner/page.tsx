@@ -192,7 +192,7 @@ const DayTimeline = ({
         const service = services.find(s => s.id === item.serviceId);
 
         if (!client && item.isWalkIn) {
-            const walkIn = walkIns.find(w => `apt-walkin-${'w.id'}` === item.id);
+            const walkIn = walkIns.find(w => `apt-walkin-${w.id}` === item.id);
             if (walkIn) {
                 client = {
                     id: item.clientId,
@@ -1169,7 +1169,7 @@ export default function PlannerPage() {
         <div className="flex items-center justify-between gap-2 md:hidden">
           <div className="flex items-center gap-2">
               <TooltipProvider>
-                <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="w-4 h-4" /><span className="sr-only">Weekly KPIs</span></Button></TooltipTrigger><TooltipContent><p>Weekly KPIs</p></TooltipContent></Tooltip>
+                <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={()={() => setIsKpiSheetOpen(true)}><BarChart className="w-4 h-4" /><span className="sr-only">Weekly KPIs</span></Button></TooltipTrigger><TooltipContent><p>Weekly KPIs</p></TooltipContent></Tooltip>
                 <Tooltip><TooltipTrigger asChild>
                     <Button variant="outline" size="icon" className="relative" onClick={() => setIsBillsSheetOpen(true)}>
                         <BellRing className={cn("h-4 w-4", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
@@ -1200,7 +1200,7 @@ export default function PlannerPage() {
                         <DropdownMenuContent align="start">
                            <DropdownMenuItem onClick={() => handleJumpTo(2)}>+ 2 Weeks</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleJumpTo(4)}>+ 4 Weeks</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleJumpTo(6)}>+ 6 Weeks</DropdownMenuItem>
+                            <DropdownMenuItem onClick={()={() => handleJumpTo(6)}>+ 6 Weeks</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleJumpTo(8)}>+ 8 Weeks</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleJumpTo(10)}>+ 10 Weeks</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleJumpTo(12)}>+ 12 Weeks</DropdownMenuItem>
@@ -1457,3 +1457,6 @@ export default function PlannerPage() {
   );
 }
 
+
+
+    
