@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
@@ -9,11 +10,19 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { AlertCircle, CheckCircle, FileText, FlaskConical, PlusCircle, Trash2, Library, Wand, QrCode, Search, AlertTriangle, ShoppingCart, CreditCard, Banknote, Gift, Coins, ShieldAlert, DollarSign as DollarSignIcon, Users, Award, Repeat } from 'lucide-react';
+import { AlertCircle, CheckCircle, FileText, FlaskConical, PlusCircle, Trash2, Library, Wand, QrCode, Search, AlertTriangle, ShoppingCart, CreditCard, Banknote, Gift, Coins, ShieldAlert, DollarSign, Users, Award, Repeat } from 'lucide-react';
 import { type Appointment, type Client, type Service, type InventoryItem, type StockCorrection, type CustomFormula, type Staff, AppointmentCheckoutState } from '@/lib/data';
 import { Input } from '../ui/input';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
@@ -32,7 +41,6 @@ import { FormProvider, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { differenceInMinutes, parseISO } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
-import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '../ui/sheet';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { Badge } from '../ui/badge';
@@ -590,18 +598,420 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   if (!client || !service) {
     return null;
   }
+  
+  const FormContent = (
+      <div className="p-6 space-y-6">
+        <Card>
+            <CardContent className="p-4 flex items-center gap-4">
+                  <Avatar className="w-12 h-12">
+                    <AvatarImage src={client.avatarUrl} alt={client.name} />
+                    <AvatarFallback>{client.name.substring(0, 2)}</AvatarFallback>
+                </Avatar>
+                <div>
+                    <p className="font-semibold">{client.name}</p>
+                    <p className="text-sm text-muted-foreground">{service.name}</p>
+                </div>
+            </CardContent>
+        </Card>
 
-  const DialogComponent = isMobile ? Sheet : Dialog;
-  const ContentComponent = isMobile ? SheetContent : DialogContent;
+          {applicableOffers.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Award className="h-5 w-5 text-primary" />
+                  Available Offers
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <RadioGroup
+                  onValueChange={(value) => {
+                    if (value) {
+                      const [type, id] = value.split(':');
+                      setRedeemedOffer({ type: type as 'membership' | 'package', id });
+                    } else {
+                      setRedeemedOffer(null);
+                    }
+                  }}
+                >
+                  {applicableOffers.map(({ type, offer, sessionsRemaining }) => {
+                    const isMembership = type === 'membership';
+                    const isRedeemed = isMembership && hasRedeemedThisMonth;
+                    return (
+                      <div key={`${type}-${offer.id}`} className="flex items-center space-x-3 py-2">
+                          <RadioGroupItem
+                          value={`${type}:${offer.id}`}
+                          id={`${type}:${offer.id}`}
+                          disabled={isRedeemed}
+                          />
+                          <Label
+                          htmlFor={`${type}:${offer.id}`}
+                          className={cn("flex-1", isRedeemed && "text-muted-foreground")}
+                          >
+                          <div className="flex justify-between items-center">
+                              <div>
+                              <span className="font-medium">{isMembership ? 'Redeem from Membership' : 'Use Package Session'}</span>
+                              <p className="text-xs text-muted-foreground">{offer.name}
+                                  {type === 'package' && ` (${sessionsRemaining} left)`}
+                              </p>
+                              </div>
+                              {isRedeemed && (
+                              <Badge variant="secondary">Redeemed this month</Badge>
+                              )}
+                          </div>
+                          </Label>
+                      </div>
+                    );
+                  })}
+                </RadioGroup>
+              </CardContent>
+            </Card>
+          )}
+        
+          <Card>
+            <CardHeader>
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div>
+                        <CardTitle>Service Actuals</CardTitle>
+                        <CardDescription>Log what was actually used for this service.</CardDescription>
+                    </div>
+                </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="actual-duration">Actual Duration (minutes)</Label>
+                  <Input 
+                      id="actual-duration"
+                      type="number"
+                      value={actualServiceDuration}
+                      onChange={(e) => setActualDuration(parseInt(e.target.value) || 0)}
+                      readOnly={!!(appointment.actualStartTime && appointment.actualEndTime)}
+                  />
+                    {appointment.actualStartTime && appointment.actualEndTime && (
+                      <p className="text-xs text-muted-foreground">
+                          Service duration tracked from start to finish: {actualServiceDuration} min. (Scheduled: {service.duration} min)
+                      </p>
+                  )}
+                </div>
+                <Separator />
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <h4 className="font-medium">Product Formula</h4>
+                    {client.customFormulas && client.customFormulas.length > 0 && (
+                      <div className="w-full sm:w-auto sm:min-w-[200px]">
+                          <Select onValueChange={handleApplyClientFormula}>
+                              <SelectTrigger>
+                                  <SelectValue placeholder="Load a client formula..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                  {client.customFormulas.map(formula => (
+                                      <SelectItem key={formula.name} value={formula.name}>{formula.name}</SelectItem>
+                                  ))}
+                              </SelectContent>
+                          </Select>
+                      </div>
+                    )}
+                </div>
+                  <div className="p-3 rounded-md bg-muted/50 text-muted-foreground text-sm flex items-start gap-2">
+                    <FlaskConical className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                    <p>Currently applying: <span className="font-semibold text-foreground">{formulaName}</span></p>
+                  </div>
+                <div className="space-y-2 text-sm">
+                    {editableFormula.map((item, index) => {
+                        const inventoryItem = inventory.find(i => i.id === item.id);
+                        const unit = inventoryItem?.costingMethod === 'uses' 
+                          ? (inventoryItem.useUnit || 'uses') 
+                          : (inventoryItem?.unit || 'unit');
+                          
+                        return (
+                          <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md gap-2">
+                              <div>
+                                  <p className="font-medium">{item.name}</p>
+                                  <p className="text-xs text-muted-foreground">Cost: ${(item.costPerUnit || 0).toFixed(2)}/{unit}</p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                  <Input
+                                      type="number"
+                                      value={item.quantity}
+                                      onChange={(e) => handleQuantityChange(item.id, parseFloat(e.target.value) || 0)}
+                                      className="w-20 h-8 text-center"
+                                      step="0.1"
+                                  />
+                                  <span className="w-8 text-muted-foreground truncate">{unit}</span>
+                                  <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive flex-shrink-0" onClick={() => handleRemoveProduct(item.id)}>
+                                      <Trash2 className="h-4 w-4" />
+                                  </Button>
+                              </div>
+                          </div>
+                        )
+                    })}
+                </div>
+                <div className='flex gap-2'>
+                  <Button variant="outline" size="sm" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Browse Library</Button>
+                  <Button variant="outline" size="sm" onClick={() => setIsScannerOpen(true)}><QrCode className="mr-2 h-4 w-4"/>Scan Product</Button>
+                </div>
+            </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Retail &amp; Add-ons</CardTitle>
+            <CardDescription>Add any products the client is purchasing or extra services.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+                <h4 className="font-medium text-sm">Add-on Services</h4>
+                <div className="space-y-2 text-sm">
+                    {selectedAddOns.map((item) => (
+                        <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md">
+                            <p className="font-medium">{item.name}</p>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                        </div>
+                    ))}
+                </div>
+                <Button variant="outline" size="sm" onClick={() => setIsAddOnSelectorOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Select Add-ons</Button>
+                <Separator className="my-4"/>
+                <h4 className="font-medium text-sm">Retail Products</h4>
+                <div className="space-y-2 text-sm">
+                    {retailItems.map((item) => {
+                        const product = inventory.find(p => p.id === item.id);
+                        const price = product?.costPerUnit ? product.costPerUnit * 1.75 : 0;
+                        return (
+                        <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md">
+                            <div>
+                                <p className="font-medium">{item.name}</p>
+                                <p className="text-xs text-muted-foreground">Price: ${price.toFixed(2)}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <Input
+                                    type="number"
+                                    value={item.quantity}
+                                    onChange={(e) => handleRetailQuantityChange(item.id, parseInt(e.target.value) || 0)}
+                                    className="w-16 h-8 text-center"
+                                    min={1}
+                                />
+                                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveRetail(item.id)}>
+                                    <Trash2 className="h-4 w-4" />
+                                </Button>
+                            </div>
+                        </div>
+                    )})}
+                </div>
+                <div className='flex gap-2'>
+                  <Button variant="outline" size="sm" onClick={() => setIsRetailBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Browse Retail</Button>
+                  <Button variant="outline" size="sm" onClick={() => setIsScannerOpen(true)}><QrCode className="mr-2 h-4 w-4"/>Scan to Add</Button>
+                </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Incident Report</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardDescription>Log an incident related to this appointment.</CardDescription>
+              <Switch checked={logIncident} onCheckedChange={setLogIncident} />
+            </div>
+          </CardHeader>
+          {logIncident && (
+            <CardContent>
+                <FormProvider {...incidentMethods}>
+                  <LogIncidentForm />
+                </FormProvider>
+            </CardContent>
+          )}
+        </Card>
+        
+        <Card>
+            <CardHeader>
+                <CardTitle>Payment &amp; Checkout</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                      <Label>Staff &amp; Service Assignment</Label>
+                      <div className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+                          <span className="text-sm font-medium">{service.name}</span>
+                          <Select value={serviceStaffOverrides[service.id] || ''} onValueChange={(staffId) => handleStaffOverride(service.id, staffId)}>
+                              <SelectTrigger className="w-[150px] h-8"><SelectValue placeholder="Select Staff" /></SelectTrigger>
+                              <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+                          </Select>
+                      </div>
+                      {selectedAddOns.map(addon => (
+                          <div key={addon.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+                              <span className="text-sm pl-4">+ {addon.name}</span>
+                              <Select value={serviceStaffOverrides[addon.id] || ''} onValueChange={(staffId) => handleStaffOverride(addon.id, staffId)}>
+                                  <SelectTrigger className="w-[150px] h-8"><SelectValue placeholder="Select Staff" /></SelectTrigger>
+                                  <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+                              </Select>
+                          </div>
+                      ))}
+                  </div>
+
+                <div className="space-y-2">
+                    <Label htmlFor="promo-code">Promo Code</Label>
+                    <div className="flex gap-2">
+                        <Input id="promo-code" value={promoCode} onChange={e => setPromoCode(e.target.value)} placeholder="e.g., NEWCLIENT15" />
+                        <Button variant="outline" onClick={handleApplyPromo}>Apply</Button>
+                    </div>
+                </div>
+                <div className="p-4 rounded-lg bg-muted/50 space-y-2 text-sm">
+                  <div className='flex justify-between'><span>Base Service Price:</span><span>${(redeemedOffer ? 0 : service.price).toFixed(2)}</span></div>
+                  {selectedAddOns.map(addon => (
+                      <div key={addon.id} className="flex justify-between pl-4"><span>+ {addon.name}</span><span>${addon.price.toFixed(2)}</span></div>
+                  ))}
+                  <div className='flex justify-between'><span>Retail:</span><span>${retailTotal.toFixed(2)}</span></div>
+                  
+                  {additionalCharge > 0 && applyAdditionalCharges && (
+                        <div className='flex justify-between text-amber-900 dark:text-amber-300 font-semibold'>
+                          <span>Additional Time:</span>
+                          <span>+${additionalCharge.toFixed(2)}</span>
+                      </div>
+                  )}
+                  {discount > 0 && (
+                      <div className='flex justify-between text-primary font-semibold'>
+                          <span>Referral Discount:</span>
+                          <span>-${discount.toFixed(2)}</span>
+                      </div>
+                  )}
+                  {membershipDiscount > 0 && (
+                    <div className='flex justify-between text-primary font-semibold'>
+                        <span className="flex items-center gap-1.5"><Award className="w-3 h-3" />Membership Discount:</span>
+                        <span>-${membershipDiscount.toFixed(2)}</span>
+                    </div>
+                  )}
+                    <Separator className="my-2" />
+                  <div className='flex justify-between font-semibold'><span>Subtotal:</span><span>${(subtotalAfterDiscounts).toFixed(2)}</span></div>
+                  <div className='flex justify-between'><span>Taxes (7%):</span><span>${mockTax.toFixed(2)}</span></div>
+                </div>
+                
+                <div className="p-4 rounded-lg bg-primary/10 text-center">
+                    <p className="text-sm font-medium text-primary">Total Due</p>
+                    <p className="text-5xl font-bold text-primary">${(grandTotal - tipAmount).toFixed(2)}</p>
+                </div>
+
+                {absorbedCost > 0 && (
+                    <Alert variant="destructive" className="bg-orange-500/5 border-orange-500/30 text-orange-800 dark:text-orange-300 [&>svg]:text-orange-500">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertTitle>Absorbed Cost</AlertTitle>
+                        <AlertDescription>
+                            You are absorbing <span className="font-bold">${absorbedCost.toFixed(2)}</span> in extra costs for this service.
+                        </AlertDescription>
+                    </Alert>
+                )}
+
+                  {tipAmount > 0 && (
+                      <div className="space-y-2 pt-4 border-t">
+                          <Label>Tip Allocation</Label>
+                          <div className="space-y-3">
+                              {involvedStaff.map(staffMember => (
+                                  <div key={staffMember.id} className="flex items-center justify-between">
+                                      <Label htmlFor={`tip-${staffMember.id}`} className="text-sm">{staffMember.name}</Label>
+                                      <div className="relative w-28">
+                                          <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                          <Input
+                                              id={`tip-${staffMember.id}`}
+                                              type="number"
+                                              value={tipAllocations[staffMember.id] || ''}
+                                              onChange={(e) => handleTipAllocation(staffMember.id, e.target.value)}
+                                              placeholder="0.00"
+                                              className="h-8 text-right pr-2 pl-7"
+                                          />
+                                      </div>
+                                  </div>
+                              ))}
+                          </div>
+                          <div className="flex justify-between text-xs font-medium pt-2">
+                              <Button variant="link" size="xs" className="p-0 h-auto" onClick={splitTipEvenly}>Split Evenly</Button>
+                              <span>Remaining: <span className={remainingTip < 0 ? 'text-destructive' : ''}>${remainingTip.toFixed(2)}</span></span>
+                          </div>
+                      </div>
+                  )}
+
+                <Tabs value={paymentTab} onValueChange={setPaymentTab} className="w-full">
+                    <TabsList className="grid w-full grid-cols-3">
+                        <TabsTrigger value="card"><CreditCard className="w-4 h-4 mr-2"/>Card</TabsTrigger>
+                        <TabsTrigger value="cash"><Banknote className="w-4 h-4 mr-2"/>Cash</TabsTrigger>
+                        <TabsTrigger value="other"><Gift className="w-4 h-4 mr-2"/>Other</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="card" className="pt-4 space-y-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="tip-amount">Tip Amount</Label>
+                          <div className="relative">
+                              <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                              <Input id="tip-amount" type="number" value={tipAmount || ''} onChange={(e) => setTipAmount(parseFloat(e.target.value) || 0)} className="h-10 text-right pr-2 pl-7" placeholder="0.00" />
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">Enter tip after charging the client on your terminal.</p>
+                        </div>
+                    </TabsContent>
+                    <TabsContent value="cash" className="pt-4 space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label>Amount Tendered</Label>
+                                <div className='p-4 text-2xl font-bold text-center bg-muted rounded-md'>
+                                    ${amountTendered.toFixed(2)}
+                                </div>
+                            </div>
+                              <div className="space-y-2">
+                                <Label>Change Due</Label>
+                                  <div className={`p-4 text-2xl font-bold text-center rounded-md ${changeDue >= 0 ? 'bg-green-500/10 text-green-600' : 'bg-red-500/10 text-red-600'}`}>
+                                    ${Math.abs(changeDue).toFixed(2)}
+                                </div>
+                            </div>
+                        </div>
+                          {changeDue > 0 && (
+                          <Button variant="secondary" className="w-full" onClick={handleKeepTheChange}>
+                              <Coins className="w-4 h-4 mr-2" /> Keep the Change as Tip
+                          </Button>
+                          )}
+                        <div className="grid grid-cols-5 gap-2">
+                            {denominations.map(amount => (
+                                <Button key={amount} variant="outline" onClick={() => handleDenominationClick(amount)}>
+                                    {amount >= 1 ? `$${amount}` : `${amount * 100}¢`}
+                                </Button>
+                            ))}
+                        </div>
+                          <Button variant="secondary" className="w-full" onClick={() => setAmountTendered(0)}>Clear</Button>
+                    </TabsContent>
+                    <TabsContent value="other" className="pt-4">
+                          <Button variant="outline" className="w-full" size="lg">Record Manual Payment (Venmo, etc.)</Button>
+                    </TabsContent>
+                </Tabs>
+            </CardContent>
+        </Card>
+      </div>
+  );
+
+  if (isMobile) {
+    return (
+        <>
+            <Sheet open={open} onOpenChange={onOpenChange}>
+                <SheetContent side="right" className="w-full p-0 flex flex-col sm:max-w-full">
+                    <SheetHeader className="p-6 pb-4 border-b">
+                        <SheetTitle>Complete Appointment & Checkout</SheetTitle>
+                        <SheetDescription>
+                        Confirm products used, add retail sales, and finalize the appointment.
+                        </SheetDescription>
+                    </SheetHeader>
+                    <ScrollArea className="flex-1">
+                        {FormContent}
+                    </ScrollArea>
+                    <SheetFooter className="p-4 border-t bg-background flex-col sm:flex-col sm:space-x-0 gap-2">
+                        {onSendToFrontDesk && <Button variant="secondary" onClick={handleSendToFrontDesk}>Send to Front Desk</Button>}
+                        <Button onClick={handleCompleteAppointment} disabled={warnings.length > 0} size="lg">
+                            Finalize & Record Sale
+                        </Button>
+                    </SheetFooter>
+                </SheetContent>
+            </Sheet>
+            <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={setSelectedAddOns} allAddOns={services.filter(s => s.type === 'addon')} initialSelected={selectedAddOns}/>
+            <BrowseProductsDialog open={isProductBrowserOpen} onOpenChange={setIsProductBrowserOpen} onSelect={handleAddProduct} allProducts={inventory.filter(i => i.type === 'professional')} initialSelected={[]}/>
+            <BrowseProductsDialog open={isRetailBrowserOpen} onOpenChange={setIsRetailBrowserOpen} onSelect={handleAddRetail} allProducts={inventory.filter(i => i.type === 'retail')} initialSelected={retailItems}/>
+        </>
+    );
+  }
 
   return (
     <>
-      <DialogComponent open={open} onOpenChange={onOpenChange}>
-        <ContentComponent className={cn(
-          isMobile
-            ? "h-[95vh] flex flex-col p-0"
-            : "sm:max-w-4xl max-h-[90vh] flex flex-col p-0"
-        )}>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col p-0">
           <DialogHeader className="p-6 pb-4 border-b flex-shrink-0">
             <DialogTitle>Complete Appointment & Checkout</DialogTitle>
             <DialogDescription>
@@ -610,384 +1020,9 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
           </DialogHeader>
           
           <ScrollArea className="flex-1">
-            <div className="p-6 space-y-6">
-              <Card>
-                  <CardContent className="p-4 flex items-center gap-4">
-                       <Avatar className="w-12 h-12">
-                          <AvatarImage src={client.avatarUrl} alt={client.name} />
-                          <AvatarFallback>{client.name.substring(0, 2)}</AvatarFallback>
-                      </Avatar>
-                      <div>
-                          <p className="font-semibold">{client.name}</p>
-                          <p className="text-sm text-muted-foreground">{service.name}</p>
-                      </div>
-                  </CardContent>
-              </Card>
-
-                {applicableOffers.length > 0 && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Award className="h-5 w-5 text-primary" />
-                        Available Offers
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <RadioGroup
-                        onValueChange={(value) => {
-                          if (value) {
-                            const [type, id] = value.split(':');
-                            setRedeemedOffer({ type: type as 'membership' | 'package', id });
-                          } else {
-                            setRedeemedOffer(null);
-                          }
-                        }}
-                      >
-                        {applicableOffers.map(({ type, offer, sessionsRemaining }) => {
-                          const isMembership = type === 'membership';
-                          const isRedeemed = isMembership && hasRedeemedThisMonth;
-                          return (
-                            <div key={`${type}-${offer.id}`} className="flex items-center space-x-3 py-2">
-                                <RadioGroupItem
-                                value={`${type}:${offer.id}`}
-                                id={`${type}:${offer.id}`}
-                                disabled={isRedeemed}
-                                />
-                                <Label
-                                htmlFor={`${type}:${offer.id}`}
-                                className={cn("flex-1", isRedeemed && "text-muted-foreground")}
-                                >
-                                <div className="flex justify-between items-center">
-                                    <div>
-                                    <span className="font-medium">{isMembership ? 'Redeem from Membership' : 'Use Package Session'}</span>
-                                    <p className="text-xs text-muted-foreground">{offer.name}
-                                        {type === 'package' && ` (${sessionsRemaining} left)`}
-                                    </p>
-                                    </div>
-                                    {isRedeemed && (
-                                    <Badge variant="secondary">Redeemed this month</Badge>
-                                    )}
-                                </div>
-                                </Label>
-                            </div>
-                          );
-                        })}
-                      </RadioGroup>
-                    </CardContent>
-                  </Card>
-                )}
-              
-               <Card>
-                  <CardHeader>
-                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                          <div>
-                              <CardTitle>Service Actuals</CardTitle>
-                              <CardDescription>Log what was actually used for this service.</CardDescription>
-                          </div>
-                      </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="actual-duration">Actual Duration (minutes)</Label>
-                        <Input 
-                            id="actual-duration"
-                            type="number"
-                            value={actualServiceDuration}
-                            onChange={(e) => setActualDuration(parseInt(e.target.value) || 0)}
-                            readOnly={!!(appointment.actualStartTime && appointment.actualEndTime)}
-                        />
-                         {appointment.actualStartTime && appointment.actualEndTime && (
-                            <p className="text-xs text-muted-foreground">
-                                Service duration tracked from start to finish: {actualServiceDuration} min. (Scheduled: {service.duration} min)
-                            </p>
-                        )}
-                      </div>
-                      <Separator />
-                       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                          <h4 className="font-medium">Product Formula</h4>
-                          {client.customFormulas && client.customFormulas.length > 0 && (
-                            <div className="w-full sm:w-auto sm:min-w-[200px]">
-                                <Select onValueChange={handleApplyClientFormula}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Load a client formula..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {client.customFormulas.map(formula => (
-                                            <SelectItem key={formula.name} value={formula.name}>{formula.name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                          )}
-                      </div>
-                       <div className="p-3 rounded-md bg-muted/50 text-muted-foreground text-sm flex items-start gap-2">
-                          <FlaskConical className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                          <p>Currently applying: <span className="font-semibold text-foreground">{formulaName}</span></p>
-                        </div>
-                      <div className="space-y-2 text-sm">
-                          {editableFormula.map((item, index) => {
-                             const inventoryItem = inventory.find(i => i.id === item.id);
-                             const unit = inventoryItem?.costingMethod === 'uses' 
-                               ? (inventoryItem.useUnit || 'uses') 
-                               : (inventoryItem?.unit || 'unit');
-                                
-                             return (
-                               <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md gap-2">
-                                   <div>
-                                       <p className="font-medium">{item.name}</p>
-                                       <p className="text-xs text-muted-foreground">Cost: ${(item.costPerUnit || 0).toFixed(2)}/{unit}</p>
-                                   </div>
-                                   <div className="flex items-center gap-2">
-                                       <Input
-                                           type="number"
-                                           value={item.quantity}
-                                           onChange={(e) => handleQuantityChange(item.id, parseFloat(e.target.value) || 0)}
-                                           className="w-20 h-8 text-center"
-                                           step="0.1"
-                                       />
-                                       <span className="w-8 text-muted-foreground truncate">{unit}</span>
-                                       <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive flex-shrink-0" onClick={() => handleRemoveProduct(item.id)}>
-                                           <Trash2 className="h-4 w-4" />
-                                       </Button>
-                                   </div>
-                               </div>
-                             )
-                          })}
-                      </div>
-                      <div className='flex gap-2'>
-                        <Button variant="outline" size="sm" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Browse Library</Button>
-                        <Button variant="outline" size="sm" onClick={() => setIsScannerOpen(true)}><QrCode className="mr-2 h-4 w-4"/>Scan Product</Button>
-                      </div>
-                  </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Retail &amp; Add-ons</CardTitle>
-                  <CardDescription>Add any products the client is purchasing or extra services.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                     <h4 className="font-medium text-sm">Add-on Services</h4>
-                     <div className="space-y-2 text-sm">
-                          {selectedAddOns.map((item) => (
-                              <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md">
-                                  <p className="font-medium">{item.name}</p>
-                                  <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}>
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                              </div>
-                          ))}
-                      </div>
-                      <Button variant="outline" size="sm" onClick={() => setIsAddOnSelectorOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Select Add-ons</Button>
-                     <Separator className="my-4"/>
-                     <h4 className="font-medium text-sm">Retail Products</h4>
-                     <div className="space-y-2 text-sm">
-                          {retailItems.map((item) => {
-                             const product = inventory.find(p => p.id === item.id);
-                             const price = product?.costPerUnit ? product.costPerUnit * 1.75 : 0;
-                             return (
-                              <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md">
-                                  <div>
-                                      <p className="font-medium">{item.name}</p>
-                                      <p className="text-xs text-muted-foreground">Price: ${price.toFixed(2)}</p>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                      <Input
-                                          type="number"
-                                          value={item.quantity}
-                                          onChange={(e) => handleRetailQuantityChange(item.id, parseInt(e.target.value) || 0)}
-                                          className="w-16 h-8 text-center"
-                                          min={1}
-                                      />
-                                      <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveRetail(item.id)}>
-                                          <Trash2 className="h-4 w-4" />
-                                      </Button>
-                                  </div>
-                              </div>
-                          )})}
-                      </div>
-                      <div className='flex gap-2'>
-                        <Button variant="outline" size="sm" onClick={() => setIsRetailBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Browse Retail</Button>
-                        <Button variant="outline" size="sm" onClick={() => setIsScannerOpen(true)}><QrCode className="mr-2 h-4 w-4"/>Scan to Add</Button>
-                      </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Incident Report</CardTitle>
-                  <div className="flex items-center justify-between">
-                    <CardDescription>Log an incident related to this appointment.</CardDescription>
-                    <Switch checked={logIncident} onCheckedChange={setLogIncident} />
-                  </div>
-                </CardHeader>
-                {logIncident && (
-                  <CardContent>
-                     <FormProvider {...incidentMethods}>
-                        <LogIncidentForm />
-                     </FormProvider>
-                  </CardContent>
-                )}
-              </Card>
-              
-              <Card>
-                  <CardHeader>
-                      <CardTitle>Payment &amp; Checkout</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                       <div className="space-y-2">
-                            <Label>Staff &amp; Service Assignment</Label>
-                            <div className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
-                                <span className="text-sm font-medium">{service.name}</span>
-                                <Select value={serviceStaffOverrides[service.id] || ''} onValueChange={(staffId) => handleStaffOverride(service.id, staffId)}>
-                                    <SelectTrigger className="w-[150px] h-8"><SelectValue placeholder="Select Staff" /></SelectTrigger>
-                                    <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
-                                </Select>
-                            </div>
-                            {selectedAddOns.map(addon => (
-                                <div key={addon.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
-                                    <span className="text-sm pl-4">+ {addon.name}</span>
-                                    <Select value={serviceStaffOverrides[addon.id] || ''} onValueChange={(staffId) => handleStaffOverride(addon.id, staffId)}>
-                                        <SelectTrigger className="w-[150px] h-8"><SelectValue placeholder="Select Staff" /></SelectTrigger>
-                                        <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
-                                    </Select>
-                                </div>
-                            ))}
-                        </div>
-
-                      <div className="space-y-2">
-                          <Label htmlFor="promo-code">Promo Code</Label>
-                          <div className="flex gap-2">
-                              <Input id="promo-code" value={promoCode} onChange={e => setPromoCode(e.target.value)} placeholder="e.g., NEWCLIENT15" />
-                              <Button variant="outline" onClick={handleApplyPromo}>Apply</Button>
-                          </div>
-                      </div>
-                      <div className="p-4 rounded-lg bg-muted/50 space-y-2 text-sm">
-                        <div className='flex justify-between'><span>Base Service Price:</span><span>${(redeemedOffer ? 0 : service.price).toFixed(2)}</span></div>
-                        {selectedAddOns.map(addon => (
-                            <div key={addon.id} className="flex justify-between pl-4"><span>+ {addon.name}</span><span>${addon.price.toFixed(2)}</span></div>
-                        ))}
-                        <div className='flex justify-between'><span>Retail:</span><span>${retailTotal.toFixed(2)}</span></div>
-                        
-                        {additionalCharge > 0 && applyAdditionalCharges && (
-                             <div className='flex justify-between text-amber-900 dark:text-amber-300 font-semibold'>
-                                <span>Additional Time:</span>
-                                <span>+${additionalCharge.toFixed(2)}</span>
-                            </div>
-                        )}
-                        {discount > 0 && (
-                            <div className='flex justify-between text-primary font-semibold'>
-                                <span>Referral Discount:</span>
-                                <span>-${discount.toFixed(2)}</span>
-                            </div>
-                        )}
-                        {membershipDiscount > 0 && (
-                            <div className='flex justify-between text-primary font-semibold'>
-                                <span>Membership Discount:</span>
-                                <span>-${membershipDiscount.toFixed(2)}</span>
-                            </div>
-                        )}
-                         <Separator className="my-2" />
-                        <div className='flex justify-between font-semibold'><span>Subtotal:</span><span>${(subtotal - totalDiscount).toFixed(2)}</span></div>
-                        <div className='flex justify-between'><span>Taxes (7%):</span><span>${mockTax.toFixed(2)}</span></div>
-                      </div>
-                      
-                      <div className="p-4 rounded-lg bg-primary/10 text-center">
-                          <p className="text-sm font-medium text-primary">Total Due</p>
-                          <p className="text-5xl font-bold text-primary">${(grandTotal - tipAmount).toFixed(2)}</p>
-                      </div>
-
-                      {absorbedCost > 0 && (
-                          <Alert variant="destructive" className="bg-orange-500/5 border-orange-500/30 text-orange-800 dark:text-orange-300 [&>svg]:text-orange-500">
-                              <AlertCircle className="h-4 w-4" />
-                              <AlertTitle>Absorbed Cost</AlertTitle>
-                              <AlertDescription>
-                                  You are absorbing <span className="font-bold">${absorbedCost.toFixed(2)}</span> in extra costs for this service.
-                              </AlertDescription>
-                          </Alert>
-                      )}
-
-                       {tipAmount > 0 && (
-                            <div className="space-y-2 pt-4 border-t">
-                                <Label>Tip Allocation</Label>
-                                <div className="space-y-3">
-                                    {involvedStaff.map(staffMember => (
-                                        <div key={staffMember.id} className="flex items-center justify-between">
-                                            <Label htmlFor={`tip-${staffMember.id}`} className="text-sm">{staffMember.name}</Label>
-                                            <div className="relative w-28">
-                                                <DollarSignIcon className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                                <Input
-                                                    id={`tip-${staffMember.id}`}
-                                                    type="number"
-                                                    value={tipAllocations[staffMember.id] || ''}
-                                                    onChange={(e) => handleTipAllocation(staffMember.id, e.target.value)}
-                                                    placeholder="0.00"
-                                                    className="h-8 text-right pr-2 pl-7"
-                                                />
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                                <div className="flex justify-between text-xs font-medium pt-2">
-                                    <Button variant="link" size="xs" className="p-0 h-auto" onClick={splitTipEvenly}>Split Evenly</Button>
-                                    <span>Remaining: <span className={remainingTip < 0 ? 'text-destructive' : ''}>${remainingTip.toFixed(2)}</span></span>
-                                </div>
-                            </div>
-                        )}
-
-                      <Tabs value={paymentTab} onValueChange={setPaymentTab} className="w-full">
-                          <TabsList className="grid w-full grid-cols-3">
-                              <TabsTrigger value="card"><CreditCard className="w-4 h-4 mr-2"/>Card</TabsTrigger>
-                              <TabsTrigger value="cash"><Banknote className="w-4 h-4 mr-2"/>Cash</TabsTrigger>
-                              <TabsTrigger value="other"><Gift className="w-4 h-4 mr-2"/>Other</TabsTrigger>
-                          </TabsList>
-                          <TabsContent value="card" className="pt-4 space-y-4">
-                              <div className="space-y-2">
-                                <Label htmlFor="tip-amount">Tip Amount</Label>
-                                <div className="relative">
-                                    <DollarSignIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                    <Input id="tip-amount" type="number" value={tipAmount || ''} onChange={(e) => setTipAmount(parseFloat(e.target.value) || 0)} className="h-10 text-right pr-2 pl-7" placeholder="0.00" />
-                                </div>
-                                <p className="text-xs text-muted-foreground mt-1">Enter tip after charging the client on your terminal.</p>
-                              </div>
-                          </TabsContent>
-                          <TabsContent value="cash" className="pt-4 space-y-4">
-                              <div className="grid grid-cols-2 gap-4">
-                                  <div className="space-y-2">
-                                      <Label>Amount Tendered</Label>
-                                      <div className='p-4 text-2xl font-bold text-center bg-muted rounded-md'>
-                                          ${amountTendered.toFixed(2)}
-                                      </div>
-                                  </div>
-                                   <div className="space-y-2">
-                                      <Label>Change Due</Label>
-                                       <div className={`p-4 text-2xl font-bold text-center rounded-md ${changeDue >= 0 ? 'bg-green-500/10 text-green-600' : 'bg-red-500/10 text-red-600'}`}>
-                                          ${Math.abs(changeDue).toFixed(2)}
-                                      </div>
-                                  </div>
-                              </div>
-                               {changeDue > 0 && (
-                                <Button variant="secondary" className="w-full" onClick={handleKeepTheChange}>
-                                    <Coins className="w-4 h-4 mr-2" /> Keep the Change as Tip
-                                </Button>
-                               )}
-                              <div className="grid grid-cols-5 gap-2">
-                                  {denominations.map(amount => (
-                                      <Button key={amount} variant="outline" onClick={() => handleDenominationClick(amount)}>
-                                          {amount >= 1 ? `$${amount}` : `${amount * 100}¢`}
-                                      </Button>
-                                  ))}
-                              </div>
-                               <Button variant="secondary" className="w-full" onClick={() => setAmountTendered(0)}>Clear</Button>
-                          </TabsContent>
-                          <TabsContent value="other" className="pt-4">
-                               <Button variant="outline" className="w-full" size="lg">Record Manual Payment (Venmo, etc.)</Button>
-                          </TabsContent>
-                      </Tabs>
-                  </CardContent>
-              </Card>
-            </div>
+            {FormContent}
           </ScrollArea>
+          
           <DialogFooter className="p-6 pt-4 border-t flex-shrink-0">
             <div className="flex flex-col sm:flex-row sm:justify-end gap-2 w-full">
                 {onSendToFrontDesk && <Button variant="secondary" onClick={handleSendToFrontDesk}>Send to Front Desk</Button>}
@@ -998,8 +1033,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                 </Button>
             </div>
           </DialogFooter>
-        </ContentComponent>
-      </DialogComponent>
+        </DialogContent>
+      </Dialog>
       <SelectAddOnsDialog
         open={isAddOnSelectorOpen}
         onOpenChange={setIsAddOnSelectorOpen}
@@ -1052,3 +1087,4 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     </>
   );
 };
+
