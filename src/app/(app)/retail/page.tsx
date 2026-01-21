@@ -150,6 +150,7 @@ const CartContent = ({
     handleApplyPromo,
     appliedStoreCredit,
     setAppliedStoreCredit,
+    membershipDiscount,
 }: any) => {
     
   const selectedClient = useMemo(() => {
@@ -321,8 +322,14 @@ const CartContent = ({
                 </div>
                 {discount > 0 && (
                 <div className="flex justify-between text-sm text-primary font-medium">
-                    <span>Discount:</span>
+                    <span>Promo Code Discount:</span>
                     <span>-${discount.toFixed(2)}</span>
+                </div>
+                )}
+                {membershipDiscount > 0 && (
+                <div className="flex justify-between text-sm text-primary font-medium">
+                    <span className="flex items-center gap-1.5"><Award className="w-3 h-3" />Membership Discount:</span>
+                    <span>-${membershipDiscount.toFixed(2)}</span>
                 </div>
                 )}
                 <div className="flex justify-between text-sm">
@@ -483,6 +490,7 @@ export default function RetailPage() {
   const [amountTendered, setAmountTendered] = useState<number>(0);
   const [tipAmount, setTipAmount] = useState<number>(0);
   const [discount, setDiscount] = useState(0);
+  const [membershipDiscount, setMembershipDiscount] = useState(0);
   const [promoCode, setPromoCode] = useState('');
   
   const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
@@ -581,8 +589,31 @@ export default function RetailPage() {
   };
 
   const subtotal = useMemo(() => cart.reduce((acc, item) => acc + item.price * item.quantity, 0), [cart]);
-  const tax = (subtotal - discount) * 0.07; // Mock tax
-  const total = subtotal - discount - appliedStoreCredit + tax + tipAmount;
+  
+  const client = useMemo(() => clients.find(c => c.id === selectedClientId), [clients, selectedClientId]);
+
+  const retailTotal = useMemo(() => {
+    return cart.filter(item => item.type === 'product').reduce((acc, item) => acc + item.price * item.quantity, 0);
+  }, [cart]);
+
+  useEffect(() => {
+        if (client && client.activeMembershipId) {
+            const membership = memberships.find(m => m.id === client.activeMembershipId);
+            if (membership?.retailDiscount && retailTotal > 0) {
+                const discountValue = retailTotal * (membership.retailDiscount / 100);
+                setMembershipDiscount(discountValue);
+            } else {
+                setMembershipDiscount(0);
+            }
+        } else {
+            setMembershipDiscount(0);
+        }
+    }, [client, retailTotal, memberships]);
+
+  const totalDiscount = discount + membershipDiscount;
+  const subtotalAfterDiscounts = subtotal > totalDiscount ? subtotal - totalDiscount : 0;
+  const mockTax = subtotalAfterDiscounts * 0.07; // 7% tax for demo
+  const total = subtotalAfterDiscounts + mockTax + tipAmount;
   const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
 
   const handleApplyPromo = () => {
@@ -689,7 +720,8 @@ export default function RetailPage() {
             price: item.price,
         })),
         subtotal: subtotal,
-        tax: tax,
+        discount: totalDiscount,
+        tax: mockTax,
         tip: tipAmount,
         total: total,
         payment: {
@@ -981,7 +1013,7 @@ export default function RetailPage() {
                                           <Image src={product.imageUrl || `https://picsum.photos/seed/inv${product.id}/200/200`} alt={product.name} width={200} height={200} className="object-cover h-full w-full" />
                                       </div>
                                       <h3 className="text-sm font-medium leading-tight truncate">{product.name}</h3>
-                                      <p className="text-sm font-semibold">${(product.costPerUnit || 0 * 1.75).toFixed(2)}</p>
+                                      <p className="text-sm font-semibold">${((product.costPerUnit || 0) * 1.75).toFixed(2)}</p>
                                   </CardContent>
                               </Card>
                           ))}
@@ -1015,7 +1047,7 @@ export default function RetailPage() {
                     isAddClientOpen={isAddClientOpen}
                     setIsAddClientOpen={setIsAddClientOpen}
                     subtotal={subtotal}
-                    tax={tax}
+                    tax={mockTax}
                     tipAmount={tipAmount}
                     setTipAmount={setTipAmount}
                     total={total}
@@ -1037,6 +1069,7 @@ export default function RetailPage() {
                     handleApplyPromo={handleApplyPromo}
                     appliedStoreCredit={appliedStoreCredit}
                     setAppliedStoreCredit={setAppliedStoreCredit}
+                    membershipDiscount={membershipDiscount}
                 />
             </Card>
           </div>
@@ -1063,7 +1096,7 @@ export default function RetailPage() {
                             isAddClientOpen={isAddClientOpen}
                             setIsAddClientOpen={setIsAddClientOpen}
                             subtotal={subtotal}
-                            tax={tax}
+                            tax={mockTax}
                             tipAmount={tipAmount}
                             setTipAmount={setTipAmount}
                             total={total}
@@ -1085,6 +1118,7 @@ export default function RetailPage() {
                             handleApplyPromo={handleApplyPromo}
                             appliedStoreCredit={appliedStoreCredit}
                             setAppliedStoreCredit={setAppliedStoreCredit}
+                            membershipDiscount={membershipDiscount}
                         />
                     </SheetContent>
                 </Sheet>
@@ -1151,5 +1185,3 @@ export default function RetailPage() {
     </>
   );
 }
-
-    
