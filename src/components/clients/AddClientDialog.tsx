@@ -243,10 +243,27 @@ const ClientIntelAccordion = () => (
 
 
 const AddClientForm = ({ clients }: { clients: Client[] }) => {
-    const { register, control, watch, formState: { errors } } = useFormContext<ClientFormData>();
+    const { register, control, watch, setValue, formState: { errors } } = useFormContext<ClientFormData>();
     const referralSource = watch('intel.referralSource');
     const [tags, setTags] = useState<string[]>([]);
     const [tagInput, setTagInput] = useState('');
+    
+    const [birthDay, setBirthDay] = useState('');
+    const [birthMonth, setBirthMonth] = useState('');
+    const [birthYear, setBirthYear] = useState('');
+
+    useEffect(() => {
+        if (birthYear && birthMonth && birthDay) {
+            const date = new Date(parseInt(birthYear), parseInt(birthMonth) - 1, parseInt(birthDay));
+            if (date.getFullYear() === parseInt(birthYear) && (date.getMonth() + 1) === parseInt(birthMonth) && date.getDate() === parseInt(birthDay)) {
+                setValue('birthday', date, { shouldValidate: true, shouldDirty: true });
+            } else {
+                setValue('birthday', undefined, { shouldValidate: true, shouldDirty: true });
+            }
+        } else {
+            setValue('birthday', undefined, { shouldValidate: true, shouldDirty: true });
+        }
+    }, [birthDay, birthMonth, birthYear, setValue]);
     
     const handleAddTag = () => {
         if (tagInput.trim()) {
@@ -305,32 +322,42 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <PhoneInput name="phone" label="Phone Number" placeholder="e.g., (555) 123-4567" />
                      <div className="space-y-2">
-                        <Label htmlFor="birthday">Birthday</Label>
-                         <Controller
-                            name="birthday"
-                            control={control}
-                            render={({ field }) => (
-                                <Popover>
-                                    <PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), "w-full justify-start text-left font-normal", !field.value && "text-muted-foreground")}>
-                                    <span className="flex items-center">
-                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {field.value ? format(field.value, 'PPP') : "Pick a date"}
-                                    </span>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0">
-                                    <Calendar
-                                        mode="single"
-                                        selected={field.value}
-                                        onSelect={field.onChange}
-                                        captionLayout="dropdown-buttons"
-                                        fromYear={new Date().getFullYear() - 120}
-                                        toYear={new Date().getFullYear()}
-                                        initialFocus
-                                    />
-                                    </PopoverContent>
-                                </Popover>
-                            )}
-                        />
+                        <Label>Birthday</Label>
+                        <div className="grid grid-cols-3 gap-2">
+                            <Select value={birthMonth} onValueChange={setBirthMonth}>
+                                <SelectTrigger><SelectValue placeholder="Month" /></SelectTrigger>
+                                <SelectContent>
+                                    {Array.from({ length: 12 }, (_, i) => (
+                                        <SelectItem key={i + 1} value={(i + 1).toString()}>
+                                            {format(new Date(2000, i, 1), 'MMMM')}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <Select value={birthDay} onValueChange={setBirthDay}>
+                                <SelectTrigger><SelectValue placeholder="Day" /></SelectTrigger>
+                                <SelectContent>
+                                    {Array.from({ length: 31 }, (_, i) => (
+                                        <SelectItem key={i + 1} value={(i + 1).toString()}>
+                                            {i + 1}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <Select value={birthYear} onValueChange={setBirthYear}>
+                                <SelectTrigger><SelectValue placeholder="Year" /></SelectTrigger>
+                                <SelectContent>
+                                    {Array.from({ length: 100 }, (_, i) => {
+                                        const year = new Date().getFullYear() - i;
+                                        return (
+                                            <SelectItem key={year} value={year.toString()}>
+                                                {year}
+                                            </SelectItem>
+                                        );
+                                    })}
+                                </SelectContent>
+                            </Select>
+                        </div>
                     </div>
                 </div>
             </div>

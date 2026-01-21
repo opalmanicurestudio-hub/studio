@@ -2,7 +2,7 @@
 
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -69,6 +69,9 @@ export default function WalkInPage() {
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
   const [customerBirthday, setCustomerBirthday] = useState<Date | undefined>();
+  const [birthMonth, setBirthMonth] = useState('');
+  const [birthDay, setBirthDay] = useState('');
+  const [birthYear, setBirthYear] = useState('');
   const [selectedServices, setSelectedServices] = useState<Service[]>([]);
   const [preferredStaffId, setPreferredStaffId] = useState<string>('any');
   const [notes, setNotes] = useState('');
@@ -77,6 +80,19 @@ export default function WalkInPage() {
 
   const mainServices = useMemo(() => services.filter(s => s.type === 'service'), [services]);
   const addOnServices = useMemo(() => services.filter(s => s.type === 'addon'), [services]);
+
+  useEffect(() => {
+    if (birthYear && birthMonth && birthDay) {
+        const date = new Date(parseInt(birthYear), parseInt(birthMonth) - 1, parseInt(birthDay));
+        if (date.getFullYear() === parseInt(birthYear) && (date.getMonth() + 1) === parseInt(birthMonth) && date.getDate() === parseInt(birthDay)) {
+            setCustomerBirthday(date);
+        } else {
+             setCustomerBirthday(undefined);
+        }
+    } else {
+        setCustomerBirthday(undefined);
+    }
+  }, [birthMonth, birthDay, birthYear]);
 
   const handleServiceToggle = (service: Service) => {
     setSelectedServices(prev =>
@@ -142,6 +158,9 @@ export default function WalkInPage() {
     setCustomerPhone('');
     setCustomerEmail('');
     setCustomerBirthday(undefined);
+    setBirthMonth('');
+    setBirthDay('');
+    setBirthYear('');
     setSelectedServices([]);
     setPreferredStaffId('any');
     setNotes('');
@@ -257,32 +276,42 @@ export default function WalkInPage() {
                                 </div>
                             </div>
                              <div className="space-y-2">
-                                <Label htmlFor="birthday">Birthday (Optional)</Label>
-                                <Popover>
-                                    <PopoverTrigger asChild>
-                                        <Button
-                                            variant={"outline"}
-                                            className={cn(
-                                            "w-full justify-start text-left font-normal",
-                                            !customerBirthday && "text-muted-foreground"
-                                            )}
-                                        >
-                                            <CalendarIcon className="mr-2 h-4 w-4" />
-                                            {customerBirthday ? format(customerBirthday, "PPP") : <span>Pick a date</span>}
-                                        </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0">
-                                        <Calendar
-                                            mode="single"
-                                            selected={customerBirthday}
-                                            onSelect={setCustomerBirthday}
-                                            captionLayout="dropdown-buttons"
-                                            fromYear={new Date().getFullYear() - 120}
-                                            toYear={new Date().getFullYear()}
-                                            initialFocus
-                                        />
-                                    </PopoverContent>
-                                </Popover>
+                                <Label>Birthday (Optional)</Label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    <Select value={birthMonth} onValueChange={setBirthMonth}>
+                                        <SelectTrigger><SelectValue placeholder="Month" /></SelectTrigger>
+                                        <SelectContent>
+                                            {Array.from({ length: 12 }, (_, i) => (
+                                                <SelectItem key={i + 1} value={(i + 1).toString()}>
+                                                    {format(new Date(2000, i, 1), 'MMMM')}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <Select value={birthDay} onValueChange={setBirthDay}>
+                                        <SelectTrigger><SelectValue placeholder="Day" /></SelectTrigger>
+                                        <SelectContent>
+                                            {Array.from({ length: 31 }, (_, i) => (
+                                                <SelectItem key={i + 1} value={(i + 1).toString()}>
+                                                    {i + 1}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <Select value={birthYear} onValueChange={setBirthYear}>
+                                        <SelectTrigger><SelectValue placeholder="Year" /></SelectTrigger>
+                                        <SelectContent>
+                                            {Array.from({ length: 100 }, (_, i) => {
+                                                const year = new Date().getFullYear() - i;
+                                                return (
+                                                    <SelectItem key={year} value={year.toString()}>
+                                                        {year}
+                                                    </SelectItem>
+                                                );
+                                            })}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
                             </div>
                              <div className="space-y-2">
                                 <Label>Preferred Staff</Label>
