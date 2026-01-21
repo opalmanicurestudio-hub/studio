@@ -322,6 +322,9 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
                                         mode="single"
                                         selected={field.value}
                                         onSelect={field.onChange}
+                                        captionLayout="dropdown-buttons"
+                                        fromYear={new Date().getFullYear() - 120}
+                                        toYear={new Date().getFullYear()}
                                         initialFocus
                                     />
                                     </PopoverContent>
@@ -472,7 +475,7 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
             {/* Section 4: Notes */}
             <div className="space-y-4">
                 <h3 className="text-lg font-medium">Initial Consultation Notes</h3>
-                <Accordion type="multiple" className="w-full space-y-2">
+                <Accordion type="multiple" className="w-full space-y-2" defaultValue={['goals', 'routine', 'history', 'general']}>
                     <AccordionItem value="goals" className="border rounded-lg">
                         <AccordionTrigger className="p-3 text-base font-semibold">Client Goals</AccordionTrigger>
                         <AccordionContent className="p-4">

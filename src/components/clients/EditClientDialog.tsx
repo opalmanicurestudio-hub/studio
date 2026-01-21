@@ -243,14 +243,17 @@ const EditClientForm = ({ client }: { client: Client }) => {
                                 <PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), "w-full justify-start text-left font-normal", !field.value && "text-muted-foreground")}>
                                     <span className="flex items-center">
                                         <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {field.value ? format(field.value, "PPP") : "Pick a date"}
+                                        {field.value ? format(new Date(field.value), "PPP") : "Pick a date"}
                                     </span>
                                 </PopoverTrigger>
                                 <PopoverContent className="w-auto p-0">
                                 <Calendar
                                     mode="single"
-                                    selected={field.value}
+                                    selected={field.value ? new Date(field.value) : undefined}
                                     onSelect={field.onChange}
+                                    captionLayout="dropdown-buttons"
+                                    fromYear={new Date().getFullYear() - 120}
+                                    toYear={new Date().getFullYear()}
                                     initialFocus
                                 />
                                 </PopoverContent>

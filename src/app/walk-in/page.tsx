@@ -276,6 +276,9 @@ export default function WalkInPage() {
                                             mode="single"
                                             selected={customerBirthday}
                                             onSelect={setCustomerBirthday}
+                                            captionLayout="dropdown-buttons"
+                                            fromYear={new Date().getFullYear() - 120}
+                                            toYear={new Date().getFullYear()}
                                             initialFocus
                                         />
                                     </PopoverContent>
