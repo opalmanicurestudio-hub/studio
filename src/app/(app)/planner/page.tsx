@@ -23,6 +23,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuPortal,
 } from '@/components/ui/dropdown-menu';
 import {
   Dialog,
@@ -311,7 +314,7 @@ const DayTimeline = ({
             <div className="grid grid-cols-[auto,1fr] min-w-max">
                 
                 <div className="sticky top-0 z-30 bg-background h-14 border-b border-r grid" style={{ width: isMobile ? '40px' : '48px' }} />
-                <div className="sticky top-0 z-20 grid col-start-2 bg-background" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(${isMobile ? '0px' : '250px'}, 1fr))` }}>
+                <div className="sticky top-0 z-20 grid col-start-2 bg-background" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(${isMobile ? '0' : '250px'}, 1fr))` }}>
                     {staff.map(staffMember => (
                         <div key={staffMember.id} className="p-2 h-14 border-b border-r text-center flex items-center justify-center">
                             {!isMobile && (
@@ -334,7 +337,7 @@ const DayTimeline = ({
                 </div>
 
                 {/* Main content grid */}
-                <div className="col-start-2 grid relative" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(${isMobile ? '0px' : '250px'}, 1fr))` }}>
+                <div className="col-start-2 grid relative" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(${isMobile ? '0' : '250px'}, 1fr))` }}>
                     {staffSchedules.map(({ staffMember, positionedItems }) => (
                         <div key={staffMember.id} className="relative border-r">
                             {/* Grid lines */}
@@ -1127,73 +1130,77 @@ export default function PlannerPage() {
     <div className="flex h-screen w-full flex-col">
       <AppHeaderClient title="Planner" />
       
-      <div className="flex flex-wrap items-center justify-between gap-4 p-4 border-b">
-        <div className="flex items-center gap-2">
+      <div className="p-4 border-b space-y-4 md:space-y-0 md:flex md:items-center md:justify-between">
+        <div className="flex items-center justify-between">
             <h2 className="text-2xl font-semibold mr-2">{format(currentDate, 'MMMM yyyy')}</h2>
-            <Button variant="outline" onClick={() => setCurrentDate(subWeeks(currentDate, 1))} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
-            <Button variant="outline" onClick={() => setCurrentDate(addWeeks(currentDate, 1))} size="icon" className="h-8 w-8"><ChevronRight /></Button>
-            <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon" className="h-8 w-8">
-                  <CalendarIcon className="h-4 w-4" />
-                  <span className="sr-only">Jump To...</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuItem onClick={() => handleJumpTo(2)}>+ 2 Weeks</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleJumpTo(4)}>+ 4 Weeks</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleJumpTo(6)}>+ 6 Weeks</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleJumpTo(8)}>+ 8 Weeks</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleJumpTo(10)}>+ 10 Weeks</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleJumpTo(12)}>+ 12 Weeks</DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => handleJumpTo(-2)}>- 2 Weeks</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleJumpTo(-4)}>- 4 Weeks</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleJumpTo(-6)}>- 6 Weeks</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleJumpTo(-8)}>- 8 Weeks</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleJumpTo(-10)}>- 10 Weeks</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleJumpTo(-12)}>- 12 Weeks</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <div className="flex md:hidden items-center gap-2">
+                <Button variant="outline" onClick={() => setCurrentDate(subWeeks(currentDate, 1))} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
+                <Button variant="outline" onClick={() => setCurrentDate(addWeeks(currentDate, 1))} size="icon" className="h-8 w-8"><ChevronRight /></Button>
+                <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="icon" className="h-8 w-8"><CalendarIcon className="h-4 w-4" /><span className="sr-only">Jump To...</span></Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                        <DropdownMenuItem onClick={() => handleJumpTo(2)}>+ 2 Weeks</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleJumpTo(4)}>+ 4 Weeks</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleJumpTo(6)}>+ 6 Weeks</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleJumpTo(8)}>+ 8 Weeks</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleJumpTo(10)}>+ 10 Weeks</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleJumpTo(12)}>+ 12 Weeks</DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => handleJumpTo(-2)}>- 2 Weeks</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleJumpTo(-4)}>- 4 Weeks</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleJumpTo(-6)}>- 6 Weeks</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleJumpTo(-8)}>- 8 Weeks</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleJumpTo(-10)}>- 10 Weeks</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleJumpTo(-12)}>- 12 Weeks</DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            </div>
         </div>
-        <div className="flex items-center gap-2">
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="outline" size="icon" onClick={() => setIsKpiSheetOpen(true)}>
-                      <BarChart className="w-4 h-4" />
-                      <span className="sr-only">Weekly KPIs</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Weekly KPIs</p>
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="outline" size="icon" className="relative" onClick={() => setIsBillsSheetOpen(true)}>
-                      <BellRing className={cn("h-4 w-4", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
-                      {dailyBillInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
-                      <span className="sr-only">Bills Due Today</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Bills Due Today</p>
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="outline" size="icon" onClick={() => setIsPickingListOpen(true)}>
-                      <List className="w-4 h-4" />
-                      <span className="sr-only">Picking List</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Picking List</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+        
+        <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+                <TooltipProvider>
+                    <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="w-4 h-4" /><span className="sr-only">Weekly KPIs</span></Button></TooltipTrigger><TooltipContent><p>Weekly KPIs</p></TooltipContent></Tooltip>
+                    <Tooltip><TooltipTrigger asChild>
+                        <Button variant="outline" size="icon" className="relative" onClick={() => setIsBillsSheetOpen(true)}>
+                            <BellRing className={cn("h-4 w-4", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
+                            {dailyBillInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
+                            <span className="sr-only">Bills Due Today</span>
+                        </Button>
+                    </TooltipTrigger><TooltipContent><p>Bills Due Today</p></TooltipContent></Tooltip>
+                    <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsPickingListOpen(true)}><List className="w-4 h-4" /><span className="sr-only">Picking List</span></Button></TooltipTrigger><TooltipContent><p>Picking List</p></TooltipContent></Tooltip>
+                </TooltipProvider>
+            </div>
+            
+            <div className="hidden md:flex items-center gap-2">
+                <Button variant="outline" onClick={() => setCurrentDate(subWeeks(currentDate, 1))} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
+                <Button variant="outline" onClick={() => setCurrentDate(addWeeks(currentDate, 1))} size="icon" className="h-8 w-8"><ChevronRight /></Button>
+                <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="icon" className="h-8 w-8"><CalendarIcon className="h-4 w-4" /><span className="sr-only">Jump To...</span></Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                       <DropdownMenuItem onClick={() => handleJumpTo(2)}>+ 2 Weeks</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleJumpTo(4)}>+ 4 Weeks</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleJumpTo(6)}>+ 6 Weeks</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleJumpTo(8)}>+ 8 Weeks</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleJumpTo(10)}>+ 10 Weeks</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleJumpTo(12)}>+ 12 Weeks</DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => handleJumpTo(-2)}>- 2 Weeks</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleJumpTo(-4)}>- 4 Weeks</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleJumpTo(-6)}>- 6 Weeks</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleJumpTo(-8)}>- 8 Weeks</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleJumpTo(-10)}>- 10 Weeks</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleJumpTo(-12)}>- 12 Weeks</DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            </div>
+            
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                     <Button size="sm"><PlusCircle className="mr-2 h-4 w-4"/>Add New</Button>
@@ -1429,5 +1436,3 @@ export default function PlannerPage() {
     </div>
   );
 }
-
-    
