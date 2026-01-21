@@ -396,16 +396,23 @@ export function AppointmentCard({
         : service.name;
 
     const handleCardClick = () => {
-        if (appointment.status === 'confirmed') {
-            onStartService(appointment.id);
-        } else if (appointment.status === 'servicing') {
-            onFinishService(appointment);
-        } else if (appointment.status === 'ready_for_checkout') {
-            onCompleteClick(appointment);
-        } else {
-            setIsDetailsOpen(true);
-        }
+      setIsDetailsOpen(true);
     };
+
+    const handleStartClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        onStartService(appointment.id);
+    };
+
+    const handleFinishClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        onFinishService(appointment);
+    };
+    
+    const handleCheckoutClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        onCompleteClick(appointment);
+    }
 
     return (
     <div 
@@ -473,7 +480,16 @@ export function AppointmentCard({
         </div>
         <div className="mt-1 flex items-end justify-between">
             <div className="flex flex-col items-start">
-                <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[appointment.status]?.className, statusDisplay[appointment.status]?.bgClassName)}>
+                <Badge
+                    variant="secondary"
+                    className={cn(
+                        "text-[10px] h-5 px-1.5 capitalize",
+                        statusDisplay[appointment.status]?.className,
+                        statusDisplay[appointment.status]?.bgClassName,
+                        appointment.status === 'ready_for_checkout' && 'cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-orange-500'
+                    )}
+                    onClick={appointment.status === 'ready_for_checkout' ? handleCheckoutClick : undefined}
+                >
                    {appointment.status === 'ready_for_checkout' && <DollarSign className="w-3 h-3 mr-1" />}
                    {appointment.status === 'servicing' && <Clock className="w-3 h-3 mr-1 animate-spin" />}
                    {statusDisplay[appointment.status]?.text}
@@ -490,14 +506,14 @@ export function AppointmentCard({
                 )}
             </div>
              {appointment.status === 'confirmed' && (
-                  <div className="rounded-full bg-primary text-primary-foreground p-1 hover:bg-primary/90">
+                  <Button variant="ghost" size="icon" className="rounded-full bg-primary text-primary-foreground h-7 w-7 hover:bg-primary/90" onClick={handleStartClick}>
                     <Play className="w-3 h-3 fill-current" />
-                  </div>
+                  </Button>
               )}
                {appointment.status === 'servicing' && (
-                  <div className="rounded-full bg-primary text-primary-foreground p-1 hover:bg-primary/90">
+                  <Button variant="ghost" size="icon" className="rounded-full bg-primary text-primary-foreground h-7 w-7 hover:bg-primary/90" onClick={handleFinishClick}>
                     <Square className="w-3 h-3 fill-current" />
-                  </div>
+                  </Button>
               )}
         </div>
       </div>
