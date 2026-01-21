@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy, Save, Award, Repeat } from 'lucide-react';
+import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy, Save, Award, Repeat, CheckCircle, Percent } from 'lucide-react';
 import { appointments, services, inventory, type CustomFormula, Client, type Incident } from '@/lib/data';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
@@ -409,11 +409,43 @@ export default function ClientDetailPage() {
                                             {client.activeMembershipId && (() => {
                                                 const membership = memberships.find(m => m.id === client.activeMembershipId);
                                                 if (!membership) return null;
+                                                const hasRedeemedThisMonth = true; // Mock data
                                                 return (
                                                     <div className="p-4 rounded-lg bg-purple-500/10 border border-purple-500/20">
                                                         <h4 className="font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-2"><Award className="w-4 h-4" /> Active Membership</h4>
                                                         <p className="font-bold text-lg mt-1">{membership.name}</p>
                                                         <p className="text-xs text-muted-foreground">{membership.description}</p>
+                                                        
+                                                        <div className="mt-4 pt-4 border-t border-purple-500/20">
+                                                            <h5 className="text-sm font-semibold mb-2">Monthly Perks:</h5>
+                                                            <ul className="space-y-2 text-xs text-muted-foreground">
+                                                                {(membership.includedServices || []).map(s => (
+                                                                    <li key={s.id} className="flex items-center gap-2">
+                                                                        <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+                                                                        <span>1x {s.name}</span>
+                                                                        {hasRedeemedThisMonth && <Badge variant="secondary" className="text-[10px] ml-auto">Redeemed</Badge>}
+                                                                    </li>
+                                                                ))}
+                                                                {(membership.includedAddOns || []).map(s => (
+                                                                    <li key={s.id} className="flex items-center gap-2">
+                                                                        <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+                                                                        <span>1x {s.name}</span>
+                                                                    </li>
+                                                                ))}
+                                                                {(membership.includedProducts || []).map(p => (
+                                                                    <li key={p.id} className="flex items-center gap-2">
+                                                                        <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+                                                                        <span>1x {p.name}</span>
+                                                                    </li>
+                                                                ))}
+                                                                {membership.retailDiscount && (
+                                                                    <li className="flex items-center gap-2">
+                                                                        <Percent className="w-3.5 h-3.5 text-blue-500" />
+                                                                        <span>{membership.retailDiscount}% off retail products</span>
+                                                                    </li>
+                                                                )}
+                                                            </ul>
+                                                        </div>
                                                     </div>
                                                 )
                                             })()}
@@ -422,15 +454,16 @@ export default function ClientDetailPage() {
                                                     <h4 className="font-semibold">Active Packages</h4>
                                                     {client.activePackages.map((pack, index) => {
                                                          const packageDetails = packages.find(pkg => pkg.id === pack.packageId);
-                                                         if (!packageDetails) return null;
+                                                         const serviceDetails = services.find(s => s.id === packageDetails?.serviceId);
+                                                         if (!packageDetails || !serviceDetails) return null;
                                                          return (
                                                             <div key={index} className="p-3 rounded-md bg-muted/50 flex justify-between items-center">
                                                                 <div>
                                                                     <p className="font-medium text-sm flex items-center gap-2"><Repeat className="w-4 h-4 text-teal-500" /> {packageDetails.name}</p>
-                                                                    <p className="text-xs text-muted-foreground pl-6">{packageDetails.sessions} sessions total</p>
+                                                                    <p className="text-xs text-muted-foreground pl-6">Includes: {serviceDetails.name}</p>
                                                                 </div>
                                                                 <div className="text-right">
-                                                                    <p className="font-bold text-lg">{pack.sessionsRemaining}</p>
+                                                                    <p className="font-bold text-lg">{pack.sessionsRemaining}<span className="text-sm font-normal text-muted-foreground"> / {packageDetails.sessions}</span></p>
                                                                     <p className="text-xs text-muted-foreground">left</p>
                                                                 </div>
                                                             </div>
@@ -645,6 +678,7 @@ export default function ClientDetailPage() {
   );
 
     
+
 
 
 
