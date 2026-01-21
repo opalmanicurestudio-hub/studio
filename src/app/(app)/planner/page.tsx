@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
@@ -23,6 +22,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import {
   Dialog,
@@ -1065,18 +1065,12 @@ export default function PlannerPage() {
       }));
   };
 
-  const handleNextWeek = () => {
-    setCurrentDate(addWeeks(currentDate, 1));
-  };
-  const handlePrevWeek = () => {
-    setCurrentDate(subWeeks(currentDate, 1));
-  };
-  const handleToday = () => {
-    setCurrentDate(new Date());
+  const handleJumpTo = (weeks: number) => {
+    setCurrentDate(prevDate => addWeeks(prevDate, weeks));
   };
   
-  const handleJumpTo = (weeks: number) => {
-    setCurrentDate(addWeeks(new Date(), weeks));
+  const handleToday = () => {
+    setCurrentDate(new Date());
   };
 
   const handleDateSelect = (date: Date | undefined) => {
@@ -1136,8 +1130,8 @@ export default function PlannerPage() {
       <div className="flex flex-wrap items-center justify-between gap-4 p-4 border-b">
         <div className="flex items-center gap-2">
             <h2 className="text-2xl font-semibold mr-2">{format(currentDate, 'MMMM yyyy')}</h2>
-            <Button variant="outline" onClick={handlePrevWeek} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
-            <Button variant="outline" onClick={handleNextWeek} size="icon" className="h-8 w-8"><ChevronRight /></Button>
+            <Button variant="outline" onClick={() => setCurrentDate(subWeeks(currentDate, 1))} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
+            <Button variant="outline" onClick={() => setCurrentDate(addWeeks(currentDate, 1))} size="icon" className="h-8 w-8"><ChevronRight /></Button>
             <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -1151,6 +1145,15 @@ export default function PlannerPage() {
                 <DropdownMenuItem onClick={() => handleJumpTo(4)}>+ 4 Weeks</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => handleJumpTo(6)}>+ 6 Weeks</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => handleJumpTo(8)}>+ 8 Weeks</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleJumpTo(10)}>+ 10 Weeks</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleJumpTo(12)}>+ 12 Weeks</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => handleJumpTo(-2)}>- 2 Weeks</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleJumpTo(-4)}>- 4 Weeks</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleJumpTo(-6)}>- 6 Weeks</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleJumpTo(-8)}>- 8 Weeks</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleJumpTo(-10)}>- 10 Weeks</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleJumpTo(-12)}>- 12 Weeks</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
         </div>
@@ -1427,26 +1430,4 @@ export default function PlannerPage() {
   );
 }
 
-
-
-
-
-
-
-
-
     
-
-
-    
-
-
-
-
-
-
-
-
-
-
-
