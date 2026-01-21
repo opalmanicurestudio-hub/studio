@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -9,7 +10,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { useCollection, useFirebase, updateDocumentNonBlocking, useMemoFirebase } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
 import type { WalkIn, Staff, Appointment, Service, ActivityLog } from '@/lib/data';
-import { formatDistanceToNowStrict, parseISO, addMinutes, differenceInMinutes, differenceInSeconds } from 'date-fns';
+import { formatDistanceToNowStrict, parseISO, addMinutes, differenceInMinutes, differenceInSeconds, format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
@@ -147,6 +148,13 @@ const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange, onPrin
 
     const [elapsedTime, setElapsedTime] = useState<string | null>(null);
 
+    const assignedSlot = useMemo(() => {
+        if (!walkIn.serviceStartTime) return null;
+        const start = parseISO(walkIn.serviceStartTime);
+        const end = addMinutes(start, walkIn.estimatedDuration);
+        return `${format(start, 'h:mm a')} - ${format(end, 'h:mm a')}`;
+    }, [walkIn.serviceStartTime, walkIn.estimatedDuration]);
+
     useEffect(() => {
         let timer: NodeJS.Timeout | undefined;
 
@@ -181,9 +189,10 @@ const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange, onPrin
         <Card className="bg-primary/5 border-primary/20">
             <CardContent className="p-4">
                 <div className="flex justify-between items-start">
-                    <div>
+                    <div className="space-y-1">
                         <p className="font-bold text-xl">{walkIn.customerName}</p>
                         <p className="text-sm text-primary">Assigned to: {assignedStaff?.name || 'N/A'}</p>
+                        {assignedSlot && <p className="text-sm font-semibold">{assignedSlot}</p>}
                         {waitTime !== null && <p className="text-xs text-muted-foreground">Waited {waitTime} minutes</p>}
                     </div>
                     <div className="flex flex-col items-end gap-1">
