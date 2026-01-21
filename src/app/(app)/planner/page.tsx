@@ -315,7 +315,7 @@ const DayTimeline = ({
             <div className="grid grid-cols-[auto,1fr] min-w-max">
                 
                 <div className="sticky top-0 z-30 bg-background h-14 border-b border-r grid" style={{ width: isMobile ? '40px' : '48px' }} />
-                <div className="sticky top-0 z-20 grid col-start-2 bg-background" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(${isMobile ? '0' : '250px'}, 1fr))` }}>
+                <div className="sticky top-0 z-20 grid col-start-2 bg-background" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(${isMobile ? 250 : 250}, 1fr))` }}>
                     {staff.map(staffMember => (
                         <div key={staffMember.id} className="p-2 h-14 border-b border-r text-center flex items-center justify-center">
                             {!isMobile && (
@@ -338,7 +338,7 @@ const DayTimeline = ({
                 </div>
 
                 {/* Main content grid */}
-                <div className="col-start-2 grid relative" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(${isMobile ? '0' : '250px'}, 1fr))` }}>
+                <div className="col-start-2 grid relative" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(${isMobile ? 250 : 250}, 1fr))` }}>
                     {staffSchedules.map(({ staffMember, positionedItems }) => (
                         <div key={staffMember.id} className="relative border-r">
                             {/* Grid lines */}
@@ -1151,7 +1151,7 @@ export default function PlannerPage() {
                         <DropdownMenuItem onClick={() => handleJumpTo(4)}>+ 4 Weeks</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleJumpTo(6)}>+ 6 Weeks</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleJumpTo(8)}>+ 8 Weeks</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleJumpTo(10)}>+ 10 Weeks</DropdownMenuItem>
+                         <DropdownMenuItem onClick={() => handleJumpTo(10)}>+ 10 Weeks</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleJumpTo(12)}>+ 12 Weeks</DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={() => handleJumpTo(-2)}>- 2 Weeks</DropdownMenuItem>
@@ -1169,7 +1169,7 @@ export default function PlannerPage() {
         <div className="flex items-center justify-between gap-2 md:hidden">
           <div className="flex items-center gap-2">
               <TooltipProvider>
-                <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={()={() => setIsKpiSheetOpen(true)}><BarChart className="w-4 h-4" /><span className="sr-only">Weekly KPIs</span></Button></TooltipTrigger><TooltipContent><p>Weekly KPIs</p></TooltipContent></Tooltip>
+                <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="w-4 h-4" /><span className="sr-only">Weekly KPIs</span></Button></TooltipTrigger><TooltipContent><p>Weekly KPIs</p></TooltipContent></Tooltip>
                 <Tooltip><TooltipTrigger asChild>
                     <Button variant="outline" size="icon" className="relative" onClick={() => setIsBillsSheetOpen(true)}>
                         <BellRing className={cn("h-4 w-4", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
@@ -1200,7 +1200,7 @@ export default function PlannerPage() {
                         <DropdownMenuContent align="start">
                            <DropdownMenuItem onClick={() => handleJumpTo(2)}>+ 2 Weeks</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleJumpTo(4)}>+ 4 Weeks</DropdownMenuItem>
-                            <DropdownMenuItem onClick={()={() => handleJumpTo(6)}>+ 6 Weeks</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleJumpTo(6)}>+ 6 Weeks</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleJumpTo(8)}>+ 8 Weeks</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleJumpTo(10)}>+ 10 Weeks</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleJumpTo(12)}>+ 12 Weeks</DropdownMenuItem>
@@ -1287,7 +1287,7 @@ export default function PlannerPage() {
               onReschedule={handleRescheduleClick}
               onOpenPickingList={() => setIsPickingListOpen(true)}
               onStartService={handleStartService}
-              onFinishService={handleFinishService}
+              onFinishService={onFinishService}
               onBookNewForClient={handleBookNewAppointmentForClient}
           />
       </main>
@@ -1458,5 +1458,7 @@ export default function PlannerPage() {
 }
 
 
+
+    
 
     
