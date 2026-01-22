@@ -278,8 +278,19 @@ const FormContent = ({
                 <Separator className="my-4"/>
                 <h4 className="font-medium text-sm">Staff Assignment</h4>
                 <div className="space-y-2">
-                    <div className="flex items-center justify-between p-2 bg-muted/50 rounded-md"><span className="text-sm font-medium">{service.name}</span><Select value={serviceStaffOverrides[service.id] || ''} onValueChange={(staffId) => handleStaffOverride(service.id, staffId)}><SelectTrigger className="w-[150px] h-8"><SelectValue placeholder="Select Staff" /></SelectTrigger><SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select></div>
-                    {selectedAddOns.map(addon => (<div key={addon.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md"><span className="text-sm pl-4">+ {addon.name}</span><Select value={serviceStaffOverrides[addon.id] || ''} onValueChange={(staffId) => handleStaffOverride(addon.id, staffId)}><SelectTrigger className="w-[150px] h-8"><SelectValue placeholder="Select Staff" /></SelectTrigger><SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select></div>))}
+                    <div className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+                        <span className="text-sm font-medium">{service.name}</span>
+                        <span className="text-sm font-semibold pr-2">{staff.find(s => s.id === (serviceStaffOverrides[service.id] || appointment.staffId))?.name || 'Unassigned'}</span>
+                    </div>
+                    {selectedAddOns.map(addon => (
+                        <div key={addon.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+                            <span className="text-sm pl-4">+ {addon.name}</span>
+                            <Select value={serviceStaffOverrides[addon.id] || ''} onValueChange={(staffId) => handleStaffOverride(addon.id, staffId)}>
+                                <SelectTrigger className="w-[150px] h-8"><SelectValue placeholder="Select Staff" /></SelectTrigger>
+                                <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+                            </Select>
+                        </div>
+                    ))}
                 </div>
           </CardContent>
         </Card>
@@ -338,7 +349,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   return (
     <>
       <DialogComponent open={open} onOpenChange={onOpenChange}>
-        <ContentComponent side={isMobile ? 'bottom' : undefined} className={cn(isMobile ? "h-[90vh] flex flex-col p-0" : "sm:max-w-xl max-h-[90vh] flex flex-col p-0")}>
+        <ContentComponent side={isMobile ? "bottom" : undefined} className={cn(isMobile ? "h-[90vh] flex flex-col p-0" : "sm:max-w-xl max-h-[90vh] flex flex-col p-0")}>
             <DialogHeader className="p-6 pb-0">
                 <DialogTitle>Finish Service & Review</DialogTitle>
                 <DialogDescription>Confirm service details before sending to the front desk for checkout.</DialogDescription>
@@ -357,4 +368,3 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
     </>
   );
 };
-
