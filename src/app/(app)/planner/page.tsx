@@ -5,7 +5,7 @@
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square } from 'lucide-react';
-import { initialEvents, services, type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState } from '@/lib/data';
+import { services, type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState, events as initialEvents } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping } from 'date-fns';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -492,6 +492,7 @@ export default function PlannerPage() {
     setTransactions,
     clients,
     setClients,
+    walkIns,
     setWalkIns,
   } = useInventory();
   
@@ -562,7 +563,7 @@ export default function PlannerPage() {
   const { data: fetchedBillDefinitions } = useCollection<BillDefinition>(billDefinitionsQuery);
   const { data: fetchedBillInstances } = useCollection<BillInstance>(billInstancesQuery);
   const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
-  const { data: liveWalkIns } = useCollection<WalkIn>(walkInQuery);
+  const { data: liveWalkIns } = useCollection<WalkIn>(liveWalkIns);
 
   const appointments = useMemo(() => {
     if (!appointmentsFromDB) return [];
@@ -1487,3 +1488,4 @@ export default function PlannerPage() {
   );
 }
 
+    
