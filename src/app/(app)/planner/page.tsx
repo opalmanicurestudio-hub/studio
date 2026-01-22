@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
@@ -597,8 +596,8 @@ export default function PlannerPage() {
     if (!appointmentsFromDB) return [];
     return appointmentsFromDB.map(apt => ({
       ...apt,
-      startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime as any),
-      endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any),
+      startTime: (apt.startTime as any).toDate(),
+      endTime: (apt.endTime as any).toDate(),
     }));
   }, [appointmentsFromDB]);
 
@@ -606,8 +605,8 @@ export default function PlannerPage() {
     if (!fetchedEvents) return [];
     return fetchedEvents.map(evt => ({
       ...evt,
-      startTime: (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : parseISO(evt.startTime as any),
-      endTime: (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : parseISO(evt.endTime as any),
+      startTime: (evt.startTime as any).toDate(),
+      endTime: (evt.endTime as any).toDate(),
     }));
   }, [fetchedEvents]);
   
@@ -1534,3 +1533,6 @@ export default function PlannerPage() {
     </div>
   );
 }
+
+
+    
