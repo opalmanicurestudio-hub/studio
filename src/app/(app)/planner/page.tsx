@@ -5,7 +5,7 @@
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square } from 'lucide-react';
-import { services, events as initialEvents, type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState } from '@/lib/data';
+import { services, type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping } from 'date-fns';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -134,14 +134,14 @@ const DayTimeline = ({
             }));
             
             function positionCluster(cluster: any[]) {
-                cluster.sort((a,b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime());
+                cluster.sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
                 const columns: any[][] = [];
 
                 for(const item of cluster) {
                     let placed = false;
                     for (let i = 0; i < columns.length; i++) {
                         const col = columns[i];
-                        if (parseISO(col[col.length-1].endTime) <= parseISO(item.startTime)) {
+                        if (col[col.length-1].endTime <= item.startTime) {
                             col.push(item);
                             item.layout.col = i;
                             placed = true;
@@ -150,6 +150,7 @@ const DayTimeline = ({
                     }
                     if (!placed) {
                         columns.push([item]);
+                        item.layout.col = columns.length - 1;
                         item.layout.col = columns.length - 1;
                     }
                 }
@@ -161,12 +162,12 @@ const DayTimeline = ({
             let lastEventEnd: Date | null = null;
             let currentCluster: any[] = [];
             for (const item of layoutInfo) {
-                if (lastEventEnd !== null && parseISO(item.startTime) >= lastEventEnd) {
+                if (lastEventEnd !== null && item.startTime >= lastEventEnd) {
                     positionCluster(currentCluster);
                     currentCluster = [];
                 }
                 currentCluster.push(item);
-                lastEventEnd = new Date(Math.max(lastEventEnd?.getTime() || 0, parseISO(item.endTime).getTime()));
+                lastEventEnd = new Date(Math.max(lastEventEnd?.getTime() || 0, item.endTime.getTime()));
             }
 
             if (currentCluster.length > 0) {
@@ -211,7 +212,7 @@ const DayTimeline = ({
         const padBefore = service.padBefore || 0;
         const totalDuration = service.duration + padBefore + (service.padAfter || 0);
         
-        const actualStartTime = subMinutes(parseISO(item.startTime), padBefore);
+        const actualStartTime = subMinutes(item.startTime, padBefore);
         const minutesFromStart = differenceInMinutes(actualStartTime, dayStart);
         
         if (minutesFromStart < 0) return null;
@@ -245,11 +246,11 @@ const DayTimeline = ({
 
     const renderEvent = (item: any) => {
         const dayStart = setHours(startOfDay(date), START_HOUR);
-        const minutesFromStart = differenceInMinutes(parseISO(item.startTime), dayStart);
+        const minutesFromStart = differenceInMinutes(item.startTime, dayStart);
         
         if (minutesFromStart < 0) return null;
 
-        const duration = differenceInMinutes(parseISO(item.endTime), parseISO(item.startTime));
+        const duration = differenceInMinutes(item.endTime, item.startTime);
         const height = duration * (160/60);
         const top = minutesFromStart * (160/60);
 
@@ -474,7 +475,7 @@ const BillsDueSheet = ({ open, onOpenChange, billInstances, isMobile, onLogPayme
 export default function PlannerPage() {
   const isMobile = useIsMobile();
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
-  const [events, setEvents] = useState<Event[]>(initialEvents);
+  const [events, setEvents] = useState<Event[]>([]);
   
   const { 
     inventory, 
@@ -674,19 +675,25 @@ export default function PlannerPage() {
     events
       .filter(evt => isSameDay(parseISO(evt.startTime), currentDate))
       .forEach(evt => {
+          const eventWithDateObjects = {
+              ...evt,
+              startTime: parseISO(evt.startTime),
+              endTime: parseISO(evt.endTime),
+          };
+
           if (evt.staffId && map.has(evt.staffId)) {
               // Event with specific staff
-              map.get(evt.staffId)!.push({ ...evt, itemType: 'event' });
+              map.get(evt.staffId)!.push({ ...eventWithDateObjects, itemType: 'event' });
           } else if (evt.type === 'blocked' && !evt.staffId) {
               // Block all staff
               staff.forEach(s => {
-                  map.get(s.id)!.push({ ...evt, itemType: 'event' });
+                  map.get(s.id)!.push({ ...eventWithDateObjects, itemType: 'event' });
               });
           } else {
               // Personal/Business event for the owner (first staff member)
               const ownerId = staff[0]?.id;
               if (ownerId) {
-                  map.get(ownerId)!.push({ ...evt, itemType: 'event' });
+                  map.get(ownerId)!.push({ ...eventWithDateObjects, itemType: 'event' });
               }
           }
       });
@@ -1470,3 +1477,4 @@ export default function PlannerPage() {
     </div>
   );
 }
+
