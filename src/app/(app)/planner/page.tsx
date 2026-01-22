@@ -196,33 +196,31 @@ const DayTimeline = ({
 
     const renderAppointment = (item: any) => {
         const dayStart = setHours(startOfDay(date), START_HOUR);
-        let client = (clients || []).find(c => c.id === item.clientId);
+        
+        // Find service
         const service = (services || []).find(s => s.id === item.serviceId);
+        
+        // Try to find full client object
+        let client = (clients || []).find(c => c.id === item.clientId);
 
-        // Fallback for walk-ins that haven't been converted to full clients yet
-        if (!client && item.isWalkIn) {
-            // Use denormalized name first
-            if (item.clientName) {
-                client = { id: item.clientId, name: item.clientName, email: '', phone: '', avatarUrl: '', lifetimeValue: 0, lastAppointment: '' };
-            } else {
-                // Fallback to searching the walkIns collection
-                const walkIn = (walkIns || [])?.find(w => `apt-walkin-${w.id}` === item.id);
-                if (walkIn) {
-                    client = {
-                        id: item.clientId,
-                        name: walkIn.customerName,
-                        email: walkIn.customerEmail || '',
-                        phone: walkIn.customerPhone || '',
-                        avatarUrl: '',
-                        lifetimeValue: 0,
-                        lastAppointment: walkIn.checkInTime,
-                        birthday: walkIn.customerBirthday,
-                    };
-                }
-            }
+        // If client object isn't found BUT we have a denormalized name (from a walk-in)
+        // create a temporary client object.
+        if (!client && item.clientName) {
+            client = { 
+                id: item.clientId, 
+                name: item.clientName, 
+                email: '', 
+                phone: '', 
+                avatarUrl: '', 
+                lifetimeValue: 0, 
+                lastAppointment: '' 
+            };
         }
         
-        if (!client || !service) return null;
+        // If we still don't have a client or a service, we can't render the card.
+        if (!client || !service) {
+          return null;
+        }
 
         const padBefore = service.padBefore || 0;
         const totalDuration = service.duration + padBefore + (service.padAfter || 0);

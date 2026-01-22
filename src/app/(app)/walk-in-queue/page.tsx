@@ -193,7 +193,7 @@ const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange, onPrin
                     <div className="space-y-1">
                         <p className="font-bold text-xl">{walkIn.customerName}</p>
                         <p className="text-sm text-primary">Assigned to: {assignedStaff?.name || 'N/A'}</p>
-                        {assignedSlot && <p className="text-sm font-semibold">{assignedSlot}</p>}
+                        {assignedSlot && <p className="text-sm font-semibold">{format(parseISO(walkIn.serviceStartTime!), 'MMM d')} &middot; {assignedSlot}</p>}
                         {waitTime !== null && <p className="text-xs text-muted-foreground">Waited {waitTime} minutes</p>}
                     </div>
                     <div className="flex flex-col items-end gap-1">
@@ -372,7 +372,7 @@ export default function WalkInQueuePage() {
 
 
   const assignWalkIn = useCallback((walkInId: string, staffId: string) => {
-    if (!firestore || !walkIns || !staff || !services) return;
+    if (!firestore || !walkIns || !staff || !services || !clients) return;
 
     const walkIn = walkIns.find(w => w.id === walkInId);
     const staffMember = staff.find(s => s.id === staffId);
@@ -392,7 +392,7 @@ export default function WalkInQueuePage() {
     const staffUpdate = { status: 'busy' as const };
     updateDocumentNonBlocking(staffDocRef, staffUpdate);
 
-    const client = clients?.find(c => c.id === walkIn.clientId);
+    const client = clients.find(c => c.id === walkIn.clientId);
     const service = services.find(s => s.id === walkIn.serviceIds[0]);
     if (service) {
         const appointmentEndTime = addMinutes(now, walkIn.estimatedDuration);
@@ -845,6 +845,7 @@ export default function WalkInQueuePage() {
     </>
   );
 }
+
 
 
 
