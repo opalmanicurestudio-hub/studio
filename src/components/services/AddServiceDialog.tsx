@@ -184,8 +184,8 @@ const AddServiceForm = ({
                     {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}</div>
                     <div className="grid grid-cols-3 gap-4">
                         <div className="space-y-2"><Label htmlFor="duration">Duration (min)</Label><Input id="duration" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>{errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}</div>
-                        <div className="space-y-2"><Label htmlFor="pad-before">Pad Before (min)</Label><Input id="pad-before" type="number" placeholder="e.g., 0" {...register('padBefore')} /></div>
-                        <div className="space-y-2"><Label htmlFor="pad-after">Pad After (min)</Label><Input id="pad-after" type="number" placeholder="e.g., 15" {...register('padAfter')} /></div>
+                        <div className="space-y-2"><Label htmlFor="pad-before">Pad Before (min)</Label><Input id="pad-before" type="number" placeholder="e.g., 0" {...register('padBefore', { valueAsNumber: true })} /></div>
+                        <div className="space-y-2"><Label htmlFor="pad-after">Pad After (min)</Label><Input id="pad-after" type="number" placeholder="e.g., 15" {...register('padAfter', { valueAsNumber: true })} /></div>
                     </div>
                     <div className="space-y-2"><Label htmlFor="description">Description</Label><Textarea id="description" placeholder="Describe the service for your booking page..." {...register('description')} /></div>
                     <div className="space-y-2"><Label>Service Image</Label><Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/></div>
@@ -275,6 +275,7 @@ const AddServiceForm = ({
                                         <Label>Deposit Amount</Label>
                                         <Controller name="depositAmount" control={control} render={({ field }) => (
                                         <div className="relative">
+                                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                             <Input type="number" placeholder="25.00" {...field} className="pl-8" disabled={depositType === 'breakeven'}/>
                                         </div>
                                         )} />
@@ -448,7 +449,7 @@ export const AddServiceDialog = ({
   
   const formId = `add-service-form`;
   const title = `Add New ${methods.getValues('isAddon') ? 'Add-on' : 'Service'}`;
-  const description = "Create a new service for your menu.";
+  const description = "Use this wizard to add a new item to your inventory.";
 
   const formBody = (
      <FormProvider {...methods}>
@@ -457,19 +458,24 @@ export const AddServiceDialog = ({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <div className="flex-1 min-h-0 overflow-y-auto">
-            <div className="px-6 py-4">
-                <AddServiceForm 
-                    categories={categories}
-                    onNewCategory={onNewCategory}
-                    onScanClick={() => setIsScannerOpen(true)}
-                    breakEvenCost={breakEvenCost}
-                />
-            </div>
+        <div className="px-4 md:px-6 py-4">
+          <Progress value={(step / totalSteps) * 100} />
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-6">
+          {getStepContent()}
         </div>
         <DialogFooter className={isMobile ? "p-4 border-t" : "p-6 border-t"}>
-          <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
-          <Button type="submit" form={formId}>Save Service</Button>
+          <div className='flex justify-between w-full'>
+            <div>{step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}</div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
+              {step < totalSteps ? (
+                <Button onClick={handleNext} type="button">Next</Button>
+              ) : (
+                <Button type="submit" form={formId}>Save Product</Button>
+              )}
+            </div>
+          </div>
         </DialogFooter>
       </form>
     </FormProvider>
