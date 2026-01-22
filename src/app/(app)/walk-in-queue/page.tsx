@@ -319,7 +319,7 @@ const AssignStaffDialog = ({ open, onOpenChange, walkIn, staff, services, onAssi
 
 
 export default function WalkInQueuePage() {
-  const { services, clients, setAppointments, setActivityLogs } = useInventory();
+  const { clients, setAppointments, setActivityLogs } = useInventory();
   const { firestore, user } = useFirebase();
   const tenantId = 'tenant-abc';
   const { toast } = useToast();
@@ -341,8 +341,14 @@ export default function WalkInQueuePage() {
     return collection(firestore, 'tenants', tenantId, 'walkIns');
   }, [firestore, user, tenantId]);
 
+  const servicesQuery = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    return collection(firestore, `tenants/${tenantId}/services`);
+  }, [firestore, user, tenantId]);
+
   const { data: firestoreStaff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
   const { data: firestoreWalkIns, isLoading: walkInsLoading } = useCollection<WalkIn>(walkInQuery);
+  const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
   
   useEffect(() => {
     if (firestoreStaff) {
@@ -375,7 +381,7 @@ export default function WalkInQueuePage() {
 
 
   const assignWalkIn = useCallback((walkInId: string, staffId: string) => {
-    if (!firestore || !walkIns || !staff) return;
+    if (!firestore || !walkIns || !staff || !services) return;
 
     const walkIn = walkIns.find(w => w.id === walkInId);
     const staffMember = staff.find(s => s.id === staffId);
@@ -418,9 +424,9 @@ export default function WalkInQueuePage() {
         setAppointments(prev => {
             const newAptWithId = { ...newAppointment, id: `apt-walkin-${walkIn.id}` };
             if (prev.some(apt => apt.id === newAptWithId.id)) {
-                return prev.map(apt => apt.id === newAptWithId.id ? newAptWithId : apt);
+                return prev.map(apt => apt.id === newAptWithId.id ? newAptWithId as Appointment : apt);
             }
-            return [...prev, newAptWithId];
+            return [...prev, newAptWithId as Appointment];
         });
     }
   }, [firestore, tenantId, walkIns, staff, services, setAppointments, setStaff, setWalkIns]);
@@ -524,6 +530,7 @@ export default function WalkInQueuePage() {
   }
 
   const handleCompleteClick = (walkIn: WalkIn) => {
+    if (!services) return;
     const service = services.find(s => s.id === walkIn.serviceIds[0]);
     if (!service) return;
 
@@ -553,7 +560,7 @@ export default function WalkInQueuePage() {
 
     // Smart Assignment Logic
     useEffect(() => {
-        if (staffLoading || walkInsLoading || !staff || !walkIns || !firestore) {
+        if (staffLoading || walkInsLoading || !staff || !walkIns || !firestore || !services) {
             return;
         }
 
@@ -618,9 +625,9 @@ export default function WalkInQueuePage() {
             assignWalkIn(customerToAssign.id, staffToAssign.id);
         }
 
-  }, [staff, walkIns, staffLoading, walkInsLoading, firestore, assignWalkIn, assignmentMode, staffOrder]);
+  }, [staff, walkIns, staffLoading, walkInsLoading, firestore, assignWalkIn, assignmentMode, staffOrder, services]);
 
-  const ticketData: WalkInTicketData | null = ticketToPrint ? {
+  const ticketData: WalkInTicketData | null = ticketToPrint && services ? {
     id: ticketToPrint.id,
     name: ticketToPrint.customerName,
     services: services.filter(s => ticketToPrint.serviceIds.includes(s.id)),
@@ -629,7 +636,7 @@ export default function WalkInQueuePage() {
   } : null;
 
   const checkoutAppointmentData = useMemo(() => {
-    if (!checkoutAppointment) return null;
+    if (!checkoutAppointment || !services) return null;
     const clientData = clients.find(c => c.id === checkoutAppointment.clientId);
     const serviceData = services.find(s => s.id === checkoutAppointment.serviceId);
 
@@ -758,7 +765,7 @@ export default function WalkInQueuePage() {
                  <CardContent className="space-y-4">
                     {waitingQueue.length > 0 ? (
                         waitingQueue.map((walkIn, index) => (
-                            <WaitingCustomerCard key={walkIn.id} walkIn={walkIn} services={services} onPrintTicket={setTicketToPrint} onOpenAssignDialog={setWalkInToAssign} queuePosition={index + 1} />
+                            <WaitingCustomerCard key={walkIn.id} walkIn={walkIn} services={services || []} onPrintTicket={setTicketToPrint} onOpenAssignDialog={setWalkInToAssign} queuePosition={index + 1} />
                         ))
                     ) : (
                         <div className="text-center py-16 px-6 text-muted-foreground">
@@ -780,7 +787,7 @@ export default function WalkInQueuePage() {
                             <ServicingCustomerCard 
                                 key={walkIn.id} 
                                 walkIn={walkIn} 
-                                services={services} 
+                                services={services || []} 
                                 staff={staff || []}
                                 onStatusChange={handleWalkInStatusChange}
                                 onPrintTicket={setTicketToPrint}
@@ -805,7 +812,7 @@ export default function WalkInQueuePage() {
       onOpenChange={() => setWalkInToAssign(null)}
       walkIn={walkInToAssign}
       staff={staff || []}
-      services={services}
+      services={services || []}
       onAssign={handleManualAssign}
     />
 
@@ -854,3 +861,4 @@ export default function WalkInQueuePage() {
     </>
   );
 }
+
