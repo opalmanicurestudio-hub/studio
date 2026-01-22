@@ -5,7 +5,7 @@
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square } from 'lucide-react';
-import { appointments as initialAppointments, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem, type StockCorrection, type Staff, type AppointmentCheckoutState } from '@/lib/data';
+import { services, type Event, type EventChecklistItem, type StockCorrection, type Staff, type AppointmentCheckoutState } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping } from 'date-fns';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -49,7 +49,7 @@ import { AppointmentCard } from '@/components/planner/AppointmentCard';
 import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
 import { PrintTicket, type TicketData } from '@/components/planner/PrintTicket';
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
-import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, Timestamp, doc } from 'firebase/firestore';
 import { EditEventDialog } from '@/components/planner/EditEventDialog';
 import { BillDueDateCard } from '@/components/planner/BillDueDateCard';
@@ -67,6 +67,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { type Appointment } from '@/lib/data';
 
 
 const DayTimeline = ({ 
@@ -134,14 +135,14 @@ const DayTimeline = ({
             }));
             
             function positionCluster(cluster: any[]) {
-                cluster.sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
+                cluster.sort((a,b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime());
                 const columns: any[][] = [];
 
                 for(const item of cluster) {
                     let placed = false;
                     for (let i = 0; i < columns.length; i++) {
                         const col = columns[i];
-                        if (col[col.length-1].endTime <= item.startTime) {
+                        if (parseISO(col[col.length-1].endTime) <= parseISO(item.startTime)) {
                             col.push(item);
                             item.layout.col = i;
                             placed = true;
@@ -150,7 +151,6 @@ const DayTimeline = ({
                     }
                     if (!placed) {
                         columns.push([item]);
-                        item.layout.col = columns.length - 1;
                         item.layout.col = columns.length - 1;
                     }
                 }
@@ -162,12 +162,12 @@ const DayTimeline = ({
             let lastEventEnd: Date | null = null;
             let currentCluster: any[] = [];
             for (const item of layoutInfo) {
-                if (lastEventEnd !== null && item.startTime >= lastEventEnd) {
+                if (lastEventEnd !== null && parseISO(item.startTime) >= lastEventEnd) {
                     positionCluster(currentCluster);
                     currentCluster = [];
                 }
                 currentCluster.push(item);
-                lastEventEnd = new Date(Math.max(lastEventEnd?.getTime() || 0, item.endTime.getTime()));
+                lastEventEnd = new Date(Math.max(lastEventEnd?.getTime() || 0, parseISO(item.endTime).getTime()));
             }
 
             if (currentCluster.length > 0) {
@@ -212,7 +212,7 @@ const DayTimeline = ({
         const padBefore = service.padBefore || 0;
         const totalDuration = service.duration + padBefore + (service.padAfter || 0);
         
-        const actualStartTime = subMinutes(item.startTime, padBefore);
+        const actualStartTime = subMinutes(parseISO(item.startTime), padBefore);
         const minutesFromStart = differenceInMinutes(actualStartTime, dayStart);
         
         if (minutesFromStart < 0) return null;
@@ -246,11 +246,11 @@ const DayTimeline = ({
 
     const renderEvent = (item: any) => {
         const dayStart = setHours(startOfDay(date), START_HOUR);
-        const minutesFromStart = differenceInMinutes(item.startTime, dayStart);
+        const minutesFromStart = differenceInMinutes(parseISO(item.startTime), dayStart);
         
         if (minutesFromStart < 0) return null;
 
-        const duration = differenceInMinutes(item.endTime, item.startTime);
+        const duration = differenceInMinutes(parseISO(item.endTime), parseISO(item.startTime));
         const height = duration * (160/60);
         const top = minutesFromStart * (160/60);
 
@@ -482,8 +482,7 @@ export default function PlannerPage() {
     billDefinitions: mockDefinitions, 
     billInstances: mockInstances,
     staff,
-    appointments, 
-    setAppointments,
+    setAppointments: setAppointmentsInContext, // Use context setter for optimistic updates
     activityLogs, 
     setActivityLogs,
     addStockCorrection,
@@ -547,9 +546,20 @@ export default function PlannerPage() {
     if (isUserLoading || !user || !firestore) return null;
     return collection(firestore, 'tenants', tenantId, 'billInstances');
   }, [firestore, user, isUserLoading, tenantId]);
+  
+  const appointmentsQuery = useMemoFirebase(() => {
+    if (isUserLoading || !user || !firestore) return null;
+    return collection(firestore, 'tenants', tenantId, 'appointments');
+  }, [firestore, user, isUserLoading, tenantId]);
 
   const { data: fetchedBillDefinitions } = useCollection<BillDefinition>(billDefinitionsQuery);
   const { data: fetchedBillInstances } = useCollection<BillInstance>(billInstancesQuery);
+  const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
+
+  const appointments = useMemo(() => {
+    if (!appointmentsFromDB) return [];
+    return appointmentsFromDB;
+  }, [appointmentsFromDB]);
   
   const billDefinitions = useMemo(() => (fetchedBillDefinitions && fetchedBillDefinitions.length > 0) ? fetchedBillDefinitions : mockDefinitions, [fetchedBillDefinitions, mockDefinitions]);
   const billInstances = useMemo(() => (fetchedBillInstances && fetchedBillInstances.length > 0) ? fetchedBillInstances : mockInstances, [fetchedBillInstances, mockInstances]);
@@ -601,9 +611,10 @@ export default function PlannerPage() {
     const end = endOfDay(addDays(start, 6));
     const weekInterval = { start, end };
     
-    const appointmentsInWeek = appointments.filter(apt => 
-        apt.startTime >= weekInterval.start && apt.startTime <= weekInterval.end
-    );
+    const appointmentsInWeek = appointments.filter(apt => {
+        const aptStartTime = parseISO(apt.startTime);
+        return aptStartTime >= weekInterval.start && aptStartTime <= weekInterval.end;
+    });
 
     const completedAppointments = appointmentsInWeek.filter(apt => apt.status === 'completed');
     const confirmedAppointments = appointmentsInWeek.filter(apt => apt.status === 'confirmed');
@@ -648,7 +659,7 @@ export default function PlannerPage() {
 
     // Process appointments
     appointments
-      .filter(apt => isSameDay(apt.startTime, currentDate))
+      .filter(apt => isSameDay(parseISO(apt.startTime), currentDate))
       .forEach(apt => {
         const staffId = apt.staffId || staff[0]?.id;
         if (staffId && map.has(staffId)) {
@@ -658,7 +669,7 @@ export default function PlannerPage() {
 
     // Process events
     events
-      .filter(evt => isSameDay(evt.startTime, currentDate))
+      .filter(evt => isSameDay(parseISO(evt.startTime), currentDate))
       .forEach(evt => {
           if (evt.staffId && map.has(evt.staffId)) {
               // Event with specific staff
@@ -678,7 +689,7 @@ export default function PlannerPage() {
       });
 
     map.forEach(items => {
-        items.sort((a,b) => a.startTime.getTime() - b.startTime.getTime())
+        items.sort((a,b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime())
     });
 
     return map;
@@ -768,7 +779,7 @@ export default function PlannerPage() {
   };
 
   const handleCheckout = (data: CheckoutData) => {
-    if (!selectedAppointment) return;
+    if (!selectedAppointment || !firestore) return;
     
     const {
       serviceStaffOverrides,
@@ -852,14 +863,13 @@ export default function PlannerPage() {
     newCorrections.forEach(addStockCorrection);
     
     // 5. Update appointment
-    const completedAppointment: Appointment = { 
-        ...selectedAppointment, 
-        status: 'completed' as const,
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id);
+    updateDocumentNonBlocking(appointmentRef, {
+        status: 'completed',
         absorbedCost: absorbedCost,
         incident: incident,
-    };
-    setAppointments(prev => prev.map(apt => apt.id === selectedAppointment.id ? completedAppointment : apt));
-
+    });
+    
     // 6. Update client packages
     if (redeemedOffer?.type === 'package') {
         const clientToUpdate = clients.find(c => c.id === selectedAppointment.clientId);
@@ -876,17 +886,14 @@ export default function PlannerPage() {
         }
     }
     
-    // No toast here; the dialog transitions to the rebooking prompt
-    
-    // This is handled by the rebooking prompt now
-    // setIsCheckoutOpen(false); 
-    // setSelectedAppointment(null);
     handlePrintReceipt(receiptData);
   };
   
   const handleAddAppointment = (newAppointment: Omit<Appointment, 'id'>) => {
-    const newAptWithId = { ...newAppointment, id: `apt-${Date.now()}`, absorbedCost: 0 };
-    setAppointments(prev => [...prev, newAptWithId].sort((a,b) => a.startTime.getTime() - b.startTime.getTime()));
+    if (!firestore) return;
+    const newAptWithId = { ...newAppointment, id: nanoid() };
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', newAptWithId.id);
+    setDocumentNonBlocking(appointmentRef, newAptWithId, {});
     toast({
         title: "Appointment Booked",
         description: `Appointment with ${clients.find(c => c.id === newAppointment.clientId)?.name} has been added.`
@@ -896,7 +903,15 @@ export default function PlannerPage() {
   };
 
   const handleUpdateAppointment = (updatedAppointment: Appointment) => {
-    setAppointments(prev => prev.map(apt => apt.id === updatedAppointment.id ? updatedAppointment : apt));
+    if (!firestore) return;
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', updatedAppointment.id);
+    // Firestore doesn't like custom objects like Date, so we serialize
+    const dataToSave = {
+        ...updatedAppointment,
+        startTime: updatedAppointment.startTime.toISOString(),
+        endTime: updatedAppointment.endTime.toISOString()
+    }
+    updateDocumentNonBlocking(appointmentRef, dataToSave);
     toast({
         title: "Appointment Updated",
         description: `The appointment has been successfully updated.`
@@ -935,7 +950,7 @@ export default function PlannerPage() {
         handleAddTransaction(newTransaction)
     }
 
-    setEvents(prev => [...prev, newEventWithId].sort((a,b) => a.startTime.getTime() - b.startTime.getTime()));
+    setEvents(prev => [...prev, newEventWithId].sort((a,b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime()));
     toast({
         title: "Event Added",
         description: `"${newEvent.title}" has been added to your calendar.`
@@ -974,17 +989,12 @@ export default function PlannerPage() {
     }
   
   const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
-    setAppointments(prev =>
-      prev.map(apt =>
-        apt.id === appointmentId
-          ? {
-              ...apt,
-              status: 'ready_for_checkout',
-              checkoutState,
-            }
-          : apt
-      )
-    );
+    if (!firestore) return;
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+    updateDocumentNonBlocking(appointmentRef, {
+        status: 'ready_for_checkout',
+        checkoutState,
+    });
     setIsCheckoutOpen(false);
     setSelectedAppointment(null);
     toast({
@@ -994,7 +1004,9 @@ export default function PlannerPage() {
   };
 
   const handleUpdateStatus = (appointmentId: string, status: Appointment['status']) => {
-    setAppointments(prev => prev.map(apt => apt.id === appointmentId ? { ...apt, status } : apt));
+    if (!firestore) return;
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+    updateDocumentNonBlocking(appointmentRef, { status });
     toast({
         title: "Status Updated",
         description: `Appointment status changed to ${status}.`
@@ -1009,12 +1021,9 @@ export default function PlannerPage() {
   };
 
   const confirmStartService = () => {
-    if (!startConfirmAppointment) return;
-    setAppointments(prev => prev.map(apt => 
-      apt.id === startConfirmAppointment.id 
-        ? { ...apt, status: 'servicing', actualStartTime: new Date().toISOString() } 
-        : apt
-    ));
+    if (!startConfirmAppointment || !firestore) return;
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', startConfirmAppointment.id);
+    updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: new Date().toISOString() });
     toast({
         title: "Service Started",
         description: "The appointment is now marked as 'In Service'."
@@ -1027,23 +1036,13 @@ export default function PlannerPage() {
   };
 
   const confirmFinishService = () => {
-    if (!finishConfirmAppointment || !finishConfirmAppointment.actualStartTime) return;
+    if (!finishConfirmAppointment || !finishConfirmAppointment.actualStartTime || !firestore) return;
     
-    const endTime = new Date();
-    const updatedAppointment: Appointment = { 
-        ...finishConfirmAppointment, 
-        status: 'ready_for_checkout',
-        actualEndTime: endTime.toISOString() 
-    };
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', finishConfirmAppointment.id);
+    updateDocumentNonBlocking(appointmentRef, { status: 'ready_for_checkout', actualEndTime: new Date().toISOString() });
 
-    setAppointments(prev => prev.map(apt => 
-      apt.id === finishConfirmAppointment.id 
-        ? updatedAppointment
-        : apt
-    ));
-
-    const startTime = parseISO(finishConfirmAppointment.actualStartTime);
-    const duration = differenceInMinutes(endTime, startTime);
+    const startTime = parseISO(finishConfirmAppointment.actualStartTime as string);
+    const duration = differenceInMinutes(new Date(), startTime);
 
     toast({
         title: "Service Finished",
@@ -1054,7 +1053,9 @@ export default function PlannerPage() {
   };
 
   const handleDeleteAppointment = (appointmentId: string) => {
-    setAppointments(prev => prev.filter(apt => apt.id !== appointmentId));
+    if (!firestore) return;
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+    deleteDocumentNonBlocking(appointmentRef);
      toast({
         variant: "destructive",
         title: "Appointment Deleted",
@@ -1109,19 +1110,22 @@ export default function PlannerPage() {
     });
   }
 
-  const appointmentsForDay = appointments
-      .filter(apt => format(apt.startTime, 'yyyy-MM-dd') === format(currentDate, 'yyyy-MM-dd'))
-      .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
+  const appointmentsForDay = useMemo(() => {
+    return (appointments || [])
+      .filter(apt => isSameDay(parseISO(apt.startTime), currentDate))
+      .sort((a, b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime());
+  }, [appointments, currentDate]);
+
   const eventsForDay = events
-      .filter(evt => format(evt.startTime, 'yyyy-MM-dd') === format(currentDate, 'yyyy-MM-dd'))
-      .sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
+      .filter(evt => isSameDay(parseISO(evt.startTime), currentDate))
+      .sort((a,b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime());
   
   const [hasMounted, setHasMounted] = useState(false);
   useEffect(() => {
     setHasMounted(true);
   }, []);
 
-  if (!hasMounted) {
+  if (!hasMounted || isUserLoading || appointmentsLoading) {
     return (
       <div className="flex h-screen w-full flex-col">
         <AppHeaderClient title="Planner" />

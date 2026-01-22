@@ -228,8 +228,8 @@ export type Appointment = {
   clientId: string;
   serviceId: string;
   staffId?: string;
-  startTime: Date;
-  endTime: Date;
+  startTime: string;
+  endTime: string;
   status: 'confirmed' | 'completed' | 'cancelled' | 'deposit_pending' | 'ready_for_checkout' | 'servicing';
   addOnIds?: string[];
   inspirationPhotoUrl?: string;
@@ -251,8 +251,8 @@ export type Event = {
   id: string;
   title: string;
   type: 'personal' | 'business' | 'blocked';
-  startTime: Date;
-  endTime: Date;
+  startTime: string;
+  endTime: string;
   allDay?: boolean;
   staffId?: string;
   notes?: string;
@@ -745,46 +745,46 @@ export const services: Service[] = [
 
 const today = new Date();
 export const appointments: Appointment[] = [
-    // Today's appointments
-  { id: 'apt-0', clientId: 'cli-4', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 8), 0), endTime: setMinutes(setHours(startOfDay(today), 8), 50), status: 'completed', absorbedCost: 0, staffId: 'staff-1', isWalkIn: false, actualStartTime: setMinutes(setHours(startOfDay(today), 8), 2).toISOString(), actualEndTime: setMinutes(setHours(startOfDay(today), 8), 55).toISOString() },
-  { id: 'apt-1', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today,1)), 9), 30), endTime: setMinutes(setHours(startOfDay(subDays(today,1)), 10), 20), status: 'confirmed', inspirationPhotoUrl: 'https://images.unsplash.com/photo-1596796242339-3c368369b139?w=400', absorbedCost: 0 },
-  { id: 'apt-2', clientId: 'cli-2', serviceId: 'svc-7', startTime: setMinutes(setHours(startOfDay(today), 11), 0), endTime: setMinutes(setHours(startOfDay(today), 12), 30), status: 'completed', addOnIds: ['svc-addon-1'], absorbedCost: 0, staffId: 'staff-2' },
+  // Today's appointments
+  { id: 'apt-0', clientId: 'cli-4', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 8), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 8), 50).toISOString(), status: 'completed', absorbedCost: 0, staffId: 'staff-1', isWalkIn: false, actualStartTime: setMinutes(setHours(startOfDay(today), 8), 2).toISOString(), actualEndTime: setMinutes(setHours(startOfDay(today), 8), 55).toISOString() },
+  { id: 'apt-1', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today,1)), 9), 30).toISOString(), endTime: setMinutes(setHours(startOfDay(subDays(today,1)), 10), 20).toISOString(), status: 'confirmed', inspirationPhotoUrl: 'https://images.unsplash.com/photo-1596796242339-3c368369b139?w=400', absorbedCost: 0 },
+  { id: 'apt-2', clientId: 'cli-2', serviceId: 'svc-7', startTime: setMinutes(setHours(startOfDay(today), 11), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 12), 30).toISOString(), status: 'completed', addOnIds: ['svc-addon-1'], absorbedCost: 0, staffId: 'staff-2' },
   { 
     id: 'apt-walkin-test', 
     clientId: 'cli-2', // Marcus Holloway
     serviceId: 'svc-6', // Men's Haircut
-    startTime: setMinutes(setHours(startOfDay(today), 13), 0), 
-    endTime: setMinutes(setHours(startOfDay(today), 13), 45), 
+    startTime: setMinutes(setHours(startOfDay(today), 13), 0).toISOString(), 
+    endTime: setMinutes(setHours(startOfDay(today), 13), 45).toISOString(), 
     status: 'ready_for_checkout',
     isWalkIn: true, 
     staffId: 'staff-1' 
   },
-  { id: 'apt-6', clientId: 'cli-2', serviceId: 'svc-7', startTime: setMinutes(setHours(startOfDay(today), 14), 0), endTime: setMinutes(setHours(startOfDay(today), 15), 30), status: 'confirmed', absorbedCost: 0, staffId: 'staff-1' },
-  { id: 'apt-3', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 15), 0), endTime: setMinutes(setHours(startOfDay(today), 15), 50), status: 'confirmed', absorbedCost: 0 },
-  { id: 'apt-5', clientId: 'cli-5', serviceId: 'svc-4', startTime: setMinutes(setHours(startOfDay(today), 16), 0), endTime: setMinutes(setHours(startOfDay(today), 17), 15), status: 'confirmed', absorbedCost: 0, staffId: 'staff-2' },
+  { id: 'apt-6', clientId: 'cli-2', serviceId: 'svc-7', startTime: setMinutes(setHours(startOfDay(today), 14), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 15), 30).toISOString(), status: 'confirmed', absorbedCost: 0, staffId: 'staff-1' },
+  { id: 'apt-3', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 15), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 15), 50).toISOString(), status: 'confirmed', absorbedCost: 0 },
+  { id: 'apt-5', clientId: 'cli-5', serviceId: 'svc-4', startTime: setMinutes(setHours(startOfDay(today), 16), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 17), 15).toISOString(), status: 'confirmed', absorbedCost: 0, staffId: 'staff-2' },
 
   // Past appointments
-  { id: 'apt-4', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today, 2)), 10), 0), endTime: setMinutes(setHours(startOfDay(subDays(today,2)), 10), 50), status: 'completed', absorbedCost: 0, staffId: 'staff-1', actualStartTime: setMinutes(setHours(startOfDay(subDays(today, 2)), 10), 5).toISOString(), actualEndTime: setMinutes(setHours(startOfDay(subDays(today,2)), 11), 0).toISOString() },
+  { id: 'apt-4', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today, 2)), 10), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(subDays(today,2)), 10), 50).toISOString(), status: 'completed', absorbedCost: 0, staffId: 'staff-1', actualStartTime: setMinutes(setHours(startOfDay(subDays(today, 2)), 10), 5).toISOString(), actualEndTime: setMinutes(setHours(startOfDay(subDays(today,2)), 11), 0).toISOString() },
   
   // Future appointments
-  { id: 'apt-7', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 11), 0), endTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 11), 50), status: 'confirmed', absorbedCost: 0 },
-  { id: 'apt-8', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(addDays(today, 3)), 10), 0), endTime: setMinutes(setHours(startOfDay(addDays(today, 3)), 10), 50), status: 'confirmed', absorbedCost: 0, staffId: 'staff-1' },
+  { id: 'apt-7', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 11), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 11), 50).toISOString(), status: 'confirmed', absorbedCost: 0 },
+  { id: 'apt-8', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(addDays(today, 3)), 10), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(addDays(today, 3)), 10), 50).toISOString(), status: 'confirmed', absorbedCost: 0, staffId: 'staff-1' },
 ];
 
 export const events: Event[] = [
-    { id: 'evt-1', title: 'Lunch with Mom', type: 'personal', startTime: setMinutes(setHours(startOfDay(today), 12), 30), endTime: setMinutes(setHours(startOfDay(today), 13), 30)},
-    { id: 'evt-2', title: 'Content Planning', type: 'business', cost: 0, startTime: setMinutes(setHours(startOfDay(today), 9), 0), endTime: setMinutes(setHours(startOfDay(today), 9), 30), notes: 'Plan next week\'s social posts.', isWriteOff: true},
-    { id: 'evt-3', title: 'Pick up supplies', type: 'business', cost: 150, startTime: setMinutes(setHours(startOfDay(today), 17), 0), endTime: setMinutes(setHours(startOfDay(today), 17), 30), location: 'ProNailSupply Downtown', isWriteOff: true, checklist: [{id: 'cl-1', text: 'Nail Files', completed: false}, {id: 'cl-2', text: 'Cuticle Oil', completed: false}]},
-    { id: 'evt-4', title: 'Dentist', type: 'personal', startTime: setMinutes(setHours(startOfDay(addDays(today, 2)), 15), 0), endTime: setMinutes(setHours(startOfDay(addDays(today, 2)), 16), 0)},
-    { id: 'evt-5', title: 'Yoga Class', type: 'personal', startTime: setMinutes(setHours(startOfDay(today), 18), 0), endTime: setMinutes(setHours(startOfDay(today), 19), 0)},
-    { id: 'evt-6', title: 'Unavailable', type: 'blocked', startTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 14), 0), endTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 16), 0)},
+    { id: 'evt-1', title: 'Lunch with Mom', type: 'personal', startTime: setMinutes(setHours(startOfDay(today), 12), 30).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 13), 30).toISOString()},
+    { id: 'evt-2', title: 'Content Planning', type: 'business', cost: 0, startTime: setMinutes(setHours(startOfDay(today), 9), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 9), 30).toISOString(), notes: 'Plan next week\'s social posts.', isWriteOff: true},
+    { id: 'evt-3', title: 'Pick up supplies', type: 'business', cost: 150, startTime: setMinutes(setHours(startOfDay(today), 17), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 17), 30).toISOString(), location: 'ProNailSupply Downtown', isWriteOff: true, checklist: [{id: 'cl-1', text: 'Nail Files', completed: false}, {id: 'cl-2', text: 'Cuticle Oil', completed: false}]},
+    { id: 'evt-4', title: 'Dentist', type: 'personal', startTime: setMinutes(setHours(startOfDay(addDays(today, 2)), 15), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(addDays(today, 2)), 16), 0).toISOString()},
+    { id: 'evt-5', title: 'Yoga Class', type: 'personal', startTime: setMinutes(setHours(startOfDay(today), 18), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 19), 0).toISOString()},
+    { id: 'evt-6', title: 'Unavailable', type: 'blocked', startTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 14), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 16), 0).toISOString()},
     { 
         id: 'evt-7', 
         title: "Sofia's Wedding Prep",
         type: 'business',
         clientId: 'cli-5',
-        startTime: setMinutes(setHours(startOfDay(addDays(today, 2)), 9), 0),
-        endTime: setMinutes(setHours(startOfDay(addDays(today, 2)), 13), 0),
+        startTime: setMinutes(setHours(startOfDay(addDays(today, 2)), 9), 0).toISOString(),
+        endTime: setMinutes(setHours(startOfDay(addDays(today, 2)), 13), 0).toISOString(),
         location: "The Grand Ballroom",
         notes: "Booked from Quote #q-2. \n\nFull bridal party hair and makeup.",
         quoteId: 'q-2',

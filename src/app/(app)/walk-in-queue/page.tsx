@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -7,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { User, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal, Printer, UserPlus, ArrowUp, ArrowDown } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
-import { useCollection, useFirebase, updateDocumentNonBlocking, useMemoFirebase } from '@/firebase';
+import { useCollection, useFirebase, updateDocumentNonBlocking, useMemoFirebase, setDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
 import type { WalkIn, Staff, Appointment, Service, ActivityLog } from '@/lib/data';
 import { formatDistanceToNowStrict, parseISO, addMinutes, differenceInMinutes, differenceInSeconds, format } from 'date-fns';
@@ -376,22 +377,26 @@ export default function WalkInQueuePage() {
     const service = services.find(s => s.id === walkIn.serviceIds[0]);
     if (service) {
         const appointmentEndTime = addMinutes(now, walkIn.estimatedDuration);
-        const newAppointment: Appointment = {
-            id: `apt-walkin-${walkIn.id}`,
+        const newAppointment: Omit<Appointment, 'id'> = {
             clientId: walkIn.clientId || `walkin-${walkIn.id}`,
             serviceId: service.id,
             staffId: staffId,
-            startTime: now,
-            endTime: appointmentEndTime,
+            startTime: now.toISOString(),
+            endTime: appointmentEndTime.toISOString(),
             status: 'servicing',
             isWalkIn: true,
             addOnIds: walkIn.serviceIds.slice(1),
         };
+        const aptDocRef = doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkIn.id}`);
+        setDocumentNonBlocking(aptDocRef, newAppointment, {});
+
+        // Optimistically update context
         setAppointments(prev => {
-            if (prev.some(apt => apt.id === newAppointment.id)) {
-                return prev;
+            const newAptWithId = { ...newAppointment, id: `apt-walkin-${walkIn.id}` };
+            if (prev.some(apt => apt.id === newAptWithId.id)) {
+                return prev.map(apt => apt.id === newAptWithId.id ? newAptWithId : apt);
             }
-            return [...prev, newAppointment];
+            return [...prev, newAptWithId];
         });
     }
   }, [firestore, tenantId, walkIns, staff, services, setAppointments, setStaff, setWalkIns]);
