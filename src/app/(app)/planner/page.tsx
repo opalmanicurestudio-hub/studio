@@ -1181,12 +1181,10 @@ export default function PlannerPage() {
           </div>
           <div className="flex items-center gap-2">
             <Button size="sm" onClick={() => setIsAddEventOpen(true)}>
-                <span className="md:hidden">+ Event</span>
-                <span className="hidden md:inline">Add Event</span>
+                + Event
             </Button>
             <Button size="sm" onClick={() => setIsAddAppointmentOpen(true)}>
-                <span className="md:hidden">+ Appointment</span>
-                <span className="hidden md:inline">Add Appointment</span>
+                + Appointment
             </Button>
           </div>
         </div>
@@ -1278,7 +1276,7 @@ export default function PlannerPage() {
               staff={staffToDisplay}
               itemsByStaff={itemsToDisplay}
               onCompleteClick={handleCompleteClick} 
-              onUpdateStatus={onUpdateStatus}
+              onUpdateStatus={handleUpdateStatus}
               onDeleteAppointment={handleDeleteAppointment} 
               onPrintReceipt={handlePrintReceipt}
               onPrintTicket={handlePrintTicket}
@@ -1460,5 +1458,3 @@ export default function PlannerPage() {
     </div>
   );
 }
-
-    
