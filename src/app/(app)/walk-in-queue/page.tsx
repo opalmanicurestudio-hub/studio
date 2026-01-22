@@ -407,26 +407,31 @@ export default function WalkInQueuePage() {
     const service = services.find(s => s.id === walkIn.serviceIds[0]);
     if (service) {
         const appointmentEndTime = addMinutes(now, walkIn.estimatedDuration);
-        const newAppointment: Omit<Appointment, 'id'> = {
+        const newAppointmentForFirestore: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & { startTime: Date, endTime: Date } = {
             clientId: walkIn.clientId || `walkin-${walkIn.id}`,
             serviceId: service.id,
             staffId: staffId,
-            startTime: now.toISOString(),
-            endTime: appointmentEndTime.toISOString(),
+            startTime: now,
+            endTime: appointmentEndTime,
             status: 'confirmed',
             isWalkIn: true,
             addOnIds: walkIn.serviceIds.slice(1),
         };
         const aptDocRef = doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkIn.id}`);
-        setDocumentNonBlocking(aptDocRef, newAppointment, {});
+        setDocumentNonBlocking(aptDocRef, newAppointmentForFirestore, {});
 
         // Optimistically update context
         setAppointments(prev => {
-            const newAptWithId = { ...newAppointment, id: `apt-walkin-${walkIn.id}` };
+            const newAptWithId: Appointment = {
+                ...newAppointmentForFirestore,
+                id: `apt-walkin-${walkIn.id}`,
+                startTime: newAppointmentForFirestore.startTime.toISOString(),
+                endTime: newAppointmentForFirestore.endTime.toISOString(),
+            };
             if (prev.some(apt => apt.id === newAptWithId.id)) {
-                return prev.map(apt => apt.id === newAptWithId.id ? newAptWithId as Appointment : apt);
+                return prev.map(apt => apt.id === newAptWithId.id ? newAptWithId : apt);
             }
-            return [...prev, newAptWithId as Appointment];
+            return [...prev, newAptWithId];
         });
     }
   }, [firestore, tenantId, walkIns, staff, services, setAppointments, setStaff, setWalkIns]);
@@ -861,4 +866,5 @@ export default function WalkInQueuePage() {
     </>
   );
 }
+
 

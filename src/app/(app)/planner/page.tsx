@@ -571,8 +571,8 @@ export default function PlannerPage() {
     if (!appointmentsFromDB) return [];
     return appointmentsFromDB.map(apt => ({
       ...apt,
-      startTime: parseISO(apt.startTime as any),
-      endTime: parseISO(apt.endTime as any),
+      startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime as any),
+      endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any),
     }));
   }, [appointmentsFromDB]);
   
