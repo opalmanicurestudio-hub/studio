@@ -39,7 +39,9 @@ import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceip
 import { useIsMobile } from '@/hooks/use-mobile';
 import { CompleteAppointmentDialog, type CheckoutData } from '@/components/planner/CompleteAppointmentDialog';
 import { nanoid } from 'nanoid';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
+import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
+import { collection, doc, parseISO } from 'firebase/firestore';
 
 
 type CartItem = {
@@ -479,7 +481,7 @@ const CartContent = ({
 };
 
 export default function RetailPage() {
-  const { inventory, appointments, services, addStockCorrection, setTransactions, setClients, clients, setAppointments, memberships, packages } = useInventory();
+  const { inventory, services, addStockCorrection, setTransactions, setClients, clients, setAppointments, memberships, packages } = useInventory();
   const [activeTab, setActiveTab] = useState('products');
   const [searchTerm, setSearchTerm] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -498,7 +500,7 @@ export default function RetailPage() {
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannedData, setScannedData] = useState<string | null>(null);
-  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
   
   const [checkoutAppointment, setCheckoutAppointment] = useState<Appointment | null>(null);
 
@@ -506,6 +508,28 @@ export default function RetailPage() {
   const [isAddClientOpen, setIsAddClientOpen] = useState(false);
   
   const [appliedStoreCredit, setAppliedStoreCredit] = useState(0);
+
+  // Firestore data fetching
+  const { firestore, user } = useFirebase();
+  const tenantId = 'tenant-abc';
+
+  const appointmentsQuery = useMemoFirebase(() => {
+    if (!user || !firestore) return null;
+    return collection(firestore, 'tenants', tenantId, 'appointments');
+  }, [user, firestore, tenantId]);
+
+  const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
+  
+  // Memoized conversion to Date objects
+  const liveAppointments = useMemo(() => {
+    if (!appointmentsFromDB) return [];
+    return appointmentsFromDB.map(apt => ({
+      ...apt,
+      startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime as any),
+      endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any),
+    }));
+  }, [appointmentsFromDB]);
+
 
   const retailProducts = useMemo(() => {
     return inventory.filter(
@@ -618,7 +642,7 @@ export default function RetailPage() {
 
   const handleApplyPromo = () => {
     const selectedClient = clients.find(c => c.id === selectedClientId);
-    const service = services.find(s => s.id === appointments[0]?.serviceId);
+    const service = services.find(s => s.id === liveAppointments[0]?.serviceId);
     if (promoCode === 'NEWCLIENT15' && selectedClient && service && selectedClient.lifetimeValue < (service?.price || 0)) {
         setDiscount(15);
         toast({
@@ -756,7 +780,7 @@ export default function RetailPage() {
     if (data.startsWith('clarityflow://walk-in/')) {
         const walkInId = data.split('/').pop();
         const appointmentId = `apt-walkin-${walkInId}`;
-        const appointmentToCheckout = appointments.find(apt => apt.id === appointmentId);
+        const appointmentToCheckout = liveAppointments.find(apt => apt.id === appointmentId);
 
         if (appointmentToCheckout) {
             setCheckoutAppointment(appointmentToCheckout);
@@ -786,43 +810,42 @@ export default function RetailPage() {
   
   useEffect(() => {
     if (isScannerOpen) {
-      // Prevents multiple scanner instances
-      if (scannerRef.current) {
-        return;
-      }
-      
-      const scanner = new Html5QrcodeScanner(
-        'qr-reader',
-        {
-          fps: 10,
-          qrbox: { width: 250, height: 250 },
-          rememberLastUsedCamera: true,
-        },
-        false
-      );
-      scannerRef.current = scanner;
+        const qrCodeScanner = new Html5Qrcode('qr-reader');
+        scannerRef.current = qrCodeScanner;
 
-      const onScanSuccess = (decodedText: string) => {
-        setScannedData(decodedText);
-        setIsScannerOpen(false);
-      };
+        const onScanSuccess = (decodedText: string, decodedResult: any) => {
+            if (scannerRef.current && scannerRef.current.isScanning) {
+                scannerRef.current.stop();
+            }
+            setScannedData(decodedText);
+            setIsScannerOpen(false);
+        };
 
-      const onScanFailure = (error: any) => {
-        // ignore
-      };
+        const onScanFailure = (error: any) => { /* ignore */ };
 
-      scanner.render(onScanSuccess, onScanFailure);
+        qrCodeScanner.start(
+            { facingMode: "environment" },
+            { fps: 10, qrbox: { width: 250, height: 250 } },
+            onScanSuccess,
+            onScanFailure
+        ).catch(err => {
+            toast({
+                variant: 'destructive',
+                title: 'Camera Error',
+                description: 'Could not start the camera. Please check permissions and try again.',
+            });
+            setIsScannerOpen(false);
+        });
     }
 
     return () => {
-      if (scannerRef.current) {
-        scannerRef.current.clear().catch(error => {
-          console.error("Failed to clear html5-qrcode-scanner.", error);
-        });
-        scannerRef.current = null;
-      }
+        if (scannerRef.current && scannerRef.current.isScanning) {
+            scannerRef.current.stop().catch(err => {
+                console.error("Failed to stop QR Code scanner.", err);
+            });
+        }
     };
-  }, [isScannerOpen]);
+  }, [isScannerOpen, toast]);
     
   const denominations = [100, 50, 20, 10, 5, 1, 0.25, 0.10, 0.05, 0.01];
 
@@ -839,7 +862,7 @@ export default function RetailPage() {
   };
     
   const handleAppointmentCheckout = (data: CheckoutData) => {
-    if (!checkoutAppointment) return;
+    if (!checkoutAppointment || !firestore) return;
 
     const {
         newCorrections,
@@ -868,7 +891,8 @@ export default function RetailPage() {
             staffId: staffId,
             appointmentId: checkoutAppointment.id,
         };
-        setTransactions(prev => [...prev, { ...newTransaction, id: `txn-${Date.now()}` }]);
+        const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+        setDocumentNonBlocking(transactionsRef, newTransaction, {});
     });
         
     Object.entries(tipAllocations).forEach(([staffId, tipAmount]) => {
@@ -887,19 +911,19 @@ export default function RetailPage() {
                 tipAmount: tipAmount,
                 appointmentId: checkoutAppointment.id,
             };
-                 setTransactions(prev => [...prev, { ...newTransaction, id: `txn-${Date.now()}` }]);
+            const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+            setDocumentNonBlocking(transactionsRef, newTransaction, {});
             }
         });
         
     newCorrections.forEach(addStockCorrection);
-        
-    const completedAppointment: Appointment = { 
-        ...checkoutAppointment, 
-        status: 'completed' as const,
+    
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', checkoutAppointment.id);
+    updateDocumentNonBlocking(appointmentRef, { 
+        status: 'completed',
         absorbedCost: absorbedCost,
         incident: incident,
-    };
-    setAppointments(prev => prev.map(apt => apt.id === checkoutAppointment.id ? completedAppointment : apt));
+    });
         
     toast({
         title: "Appointment Completed",
@@ -1162,6 +1186,7 @@ export default function RetailPage() {
             onOpenChange={() => setCheckoutAppointment(null)}
             appointmentData={checkoutAppointmentData}
             onConfirmCheckout={handleAppointmentCheckout}
+            onRebook={() => {}}
         />
     )}
 
@@ -1185,3 +1210,5 @@ export default function RetailPage() {
     </>
   );
 }
+
+    
