@@ -294,7 +294,7 @@ const AssignStaffDialog = ({ open, onOpenChange, walkIn, staff, services, onAssi
 
 
 export default function WalkInQueuePage() {
-  const { services, clients, setAppointments, walkIns: allWalkIns, staff: allStaff, setStaff, setActivityLogs, setWalkIns } = useInventory();
+  const { services, clients, setAppointments, staff: allStaff, setStaff, setActivityLogs, setWalkIns } = useInventory();
   const { firestore, user } = useFirebase();
   const tenantId = 'tenant-abc';
   const { toast } = useToast();
@@ -315,22 +315,21 @@ export default function WalkInQueuePage() {
   }, [firestore, user, tenantId]);
 
   const { data: firestoreStaff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
-  const { data: firestoreWalkIns, isLoading: walkInsLoading } = useCollection<WalkIn>(walkInQuery);
+  const { data: walkIns, isLoading: walkInsLoading } = useCollection<WalkIn>(walkInQuery);
   
   const staff = useMemo(() => firestoreStaff && firestoreStaff.length > 0 ? firestoreStaff : allStaff, [firestoreStaff, allStaff]);
-  const walkIns = useMemo(() => firestoreWalkIns && firestoreWalkIns.length > 0 ? firestoreWalkIns : allWalkIns, [firestoreWalkIns, allWalkIns]);
+  
+  useEffect(() => {
+    if (walkIns) {
+      setWalkIns(walkIns);
+    }
+  }, [walkIns, setWalkIns]);
 
   useEffect(() => {
     if (staff) {
         setStaffOrder(staff);
     }
   }, [staff]);
-
-  useEffect(() => {
-    if (firestoreWalkIns) {
-      setWalkIns(firestoreWalkIns);
-    }
-  }, [firestoreWalkIns, setWalkIns]);
 
   const handleReorder = (index: number, direction: 'up' | 'down') => {
     const newOrder = [...staffOrder];
@@ -428,9 +427,9 @@ export default function WalkInQueuePage() {
   }, [walkIns]);
 
   const handleStaffStatusChange = (staffId: string, statusUpdate: Partial<Staff>) => {
-    if (!firestore) return;
+    if (!firestore || !staff) return;
     
-    const staffMember = staff?.find(s => s.id === staffId);
+    const staffMember = staff.find(s => s.id === staffId);
     if (!staffMember) return;
 
     let finalUpdate = { ...statusUpdate };
@@ -597,7 +596,7 @@ export default function WalkInQueuePage() {
 
     const displayClient = clientData || {
       id: checkoutAppointment.clientId,
-      name: checkoutAppointment.clientId.replace('walkin-', ''),
+      name: checkoutAppointment.isWalkIn ? checkoutAppointment.clientId.replace('walkin-', '') : 'Unknown Client',
       email: '',
       phone: '',
       avatarUrl: '',
