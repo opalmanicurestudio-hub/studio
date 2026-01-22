@@ -386,9 +386,8 @@ export default function WalkInQueuePage() {
     
     const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
     const walkInUpdate = {
-        status: 'servicing' as const,
+        status: 'assigned' as const,
         assignedStaffId: staffId,
-        serviceStartTime: now.toISOString(),
     };
     updateDocumentNonBlocking(walkInDocRef, walkInUpdate);
     setWalkIns(prev => prev.map(w => w.id === walkInId ? { ...w, ...walkInUpdate } : w));
@@ -408,7 +407,7 @@ export default function WalkInQueuePage() {
             staffId: staffId,
             startTime: now.toISOString(),
             endTime: appointmentEndTime.toISOString(),
-            status: 'servicing',
+            status: 'confirmed',
             isWalkIn: true,
             addOnIds: walkIn.serviceIds.slice(1),
         };

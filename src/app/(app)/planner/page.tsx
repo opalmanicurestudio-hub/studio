@@ -1043,8 +1043,19 @@ export default function PlannerPage() {
 
   const confirmStartService = () => {
     if (!startConfirmAppointment || !firestore) return;
+    const nowISO = new Date().toISOString();
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', startConfirmAppointment.id);
-    updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: new Date().toISOString() });
+    updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: nowISO });
+
+    if (startConfirmAppointment.isWalkIn) {
+        const walkInId = startConfirmAppointment.id.replace('apt-walkin-', '');
+        const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+        updateDocumentNonBlocking(walkInDocRef, {
+            status: 'servicing',
+            serviceStartTime: nowISO,
+        });
+    }
+
     toast({
         title: "Service Started",
         description: "The appointment is now marked as 'In Service'."
