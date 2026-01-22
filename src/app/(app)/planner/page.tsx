@@ -110,7 +110,6 @@ export default function PlannerPage() {
   const [mobileSelectedStaffId, setMobileSelectedStaffId] = useState<string>('');
 
   const [startConfirmAppointment, setStartConfirmAppointment] = useState<Appointment | null>(null);
-  const [finishConfirmAppointment, setFinishConfirmAppointment] = useState<Appointment | null>(null);
 
   const [appointmentToRebook, setAppointmentToRebook] = useState<Appointment | null>(null);
   const [initialClientIdForNewApt, setInitialClientIdForNewApt] = useState<string>('');
@@ -118,14 +117,6 @@ export default function PlannerPage() {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannedData, setScannedData] = useState<string | null>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
-
-
-  const finishDialogDuration = useMemo(() => {
-    if (!finishConfirmAppointment?.actualStartTime) return null;
-    const startTime = parseISO(finishConfirmAppointment.actualStartTime);
-    const duration = differenceInMinutes(new Date(), startTime);
-    return duration;
-  }, [finishConfirmAppointment]);
 
   // --- Data Fetching ---
   const billDefinitionsQuery = useMemoFirebase(() => {
@@ -194,13 +185,12 @@ export default function PlannerPage() {
 
 const events = useMemo(() => {
     if (!fetchedEvents) return [];
-    return fetchedEvents.map(evt => {
-        const startTime = (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : parseISO(evt.startTime as string);
-        const endTime = (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : parseISO(evt.endTime as string);
-        return { ...evt, startTime, endTime };
-    });
-}, [fetchedEvents]);
-
+    return fetchedEvents.map(evt => ({
+      ...evt,
+      startTime: (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : parseISO(evt.startTime as any),
+      endTime: (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : parseISO(evt.endTime as any),
+    }));
+  }, [fetchedEvents]);
   
   const billDefinitions = useMemo(() => (fetchedBillDefinitions && fetchedBillDefinitions.length > 0) ? fetchedBillDefinitions : [], [fetchedBillDefinitions]);
   const billInstances = useMemo(() => (fetchedBillInstances && fetchedBillInstances.length > 0) ? fetchedBillInstances : [], [fetchedBillInstances]);
@@ -695,6 +685,7 @@ const events = useMemo(() => {
     updateDocumentNonBlocking(appointmentRef, {
         status: 'ready_for_checkout',
         checkoutState,
+        actualEndTime: new Date().toISOString(),
     });
     setIsCheckoutOpen(false);
     setSelectedAppointment(null);
@@ -742,37 +733,13 @@ const events = useMemo(() => {
     });
     setStartConfirmAppointment(null);
   };
-
+  
   const handleFinishService = (appointment: Appointment) => {
-     setFinishConfirmAppointment(appointment);
+    const updatedAppointment = { ...appointment, actualEndTime: new Date().toISOString() };
+    setSelectedAppointment(updatedAppointment);
+    setIsCheckoutOpen(true);
   };
 
-  const confirmFinishService = () => {
-    if (!finishConfirmAppointment || !finishConfirmAppointment.actualStartTime || !firestore) return;
-    
-    const nowISO = new Date().toISOString();
-    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', finishConfirmAppointment.id);
-    updateDocumentNonBlocking(appointmentRef, { status: 'ready_for_checkout', actualEndTime: nowISO });
-
-    if (finishConfirmAppointment.isWalkIn) {
-      const walkInId = finishConfirmAppointment.id.replace('apt-walkin-', '');
-      const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
-      updateDocumentNonBlocking(walkInDocRef, {
-        status: 'ready_for_checkout',
-        serviceEndTime: nowISO,
-      });
-    }
-
-    const startTime = parseISO(finishConfirmAppointment.actualStartTime as string);
-    const duration = differenceInMinutes(new Date(), startTime);
-
-    toast({
-        title: "Service Finished",
-        description: `The service took ${duration} minutes. Client is ready for checkout.`
-    });
-
-    setFinishConfirmAppointment(null);
-  };
 
   const handleDeleteAppointment = (appointmentId: string) => {
     if (!firestore) return;
@@ -889,45 +856,45 @@ const events = useMemo(() => {
   useEffect(() => {
     let html5QrCode: Html5Qrcode | undefined;
     if (isScannerOpen) {
-        // Use a timeout to ensure the element is in the DOM and visible
-        const timer = setTimeout(() => {
-            const element = document.getElementById('qr-reader-planner');
-            if (element) {
-                html5QrCode = new Html5Qrcode('qr-reader-planner');
-                const onScanSuccess = (decodedText: string, decodedResult: any) => {
-                    if (html5QrCode?.isScanning) {
-                        html5QrCode.stop().catch(console.error);
-                    }
-                    setScannedData(decodedText);
-                    setIsScannerOpen(false);
-                };
+      // Use a timeout to ensure the element is in the DOM and visible
+      const timer = setTimeout(() => {
+        const element = document.getElementById('qr-reader-planner');
+        if (element) {
+            html5QrCode = new Html5Qrcode('qr-reader-planner');
+            const onScanSuccess = (decodedText: string, decodedResult: any) => {
+                if (html5QrCode?.isScanning) {
+                    html5QrCode.stop().catch(console.error);
+                }
+                setScannedData(decodedText);
+                setIsScannerOpen(false);
+            };
 
-                const onScanFailure = (error: any) => { /* ignore */ };
+            const onScanFailure = (error: any) => { /* ignore */ };
 
-                html5QrCode.start(
-                    { facingMode: "environment" },
-                    { fps: 10, qrbox: { width: 250, height: 250 } },
-                    onScanSuccess,
-                    onScanFailure
-                ).catch(err => {
-                    toast({
-                        variant: 'destructive',
-                        title: 'Camera Error',
-                        description: 'Could not start the camera. Please check permissions and try again.',
-                    });
-                    setIsScannerOpen(false);
+            html5QrCode.start(
+                { facingMode: "environment" },
+                { fps: 10, qrbox: { width: 250, height: 250 } },
+                onScanSuccess,
+                onScanFailure
+            ).catch(err => {
+                toast({
+                    variant: 'destructive',
+                    title: 'Camera Error',
+                    description: 'Could not start the camera. Please check permissions and try again.',
                 });
-            }
-        }, 300); // A small delay to allow dialog animation to complete
+                setIsScannerOpen(false);
+            });
+        }
+      }, 300); // A small delay to allow dialog animation to complete
 
-        return () => {
-            clearTimeout(timer);
-            if (html5QrCode && html5QrCode.isScanning) {
-                html5QrCode.stop().catch(err => {
-                    console.error("Failed to stop QR Code scanner.", err);
-                });
-            }
-        };
+      return () => {
+          clearTimeout(timer);
+          if (html5QrCode && html5QrCode.isScanning) {
+            html5QrCode.stop().catch(err => {
+                console.error("Failed to stop QR Code scanner.", err);
+            });
+          }
+      };
     }
 }, [isScannerOpen, handleScan, toast]);
   
@@ -1248,24 +1215,6 @@ const events = useMemo(() => {
                 <AlertDialogFooter>
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
                     <AlertDialogAction onClick={confirmStartService}>Start Service</AlertDialogAction>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-        </AlertDialog>
-
-        <AlertDialog open={!!finishConfirmAppointment} onOpenChange={(open) => !open && setFinishConfirmAppointment(null)}>
-            <AlertDialogContent>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>Finish Service?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                        {finishDialogDuration !== null ?
-                        `This will end the service. Total elapsed time: ${finishDialogDuration} minutes. ` : ''
-                        }
-                        The appointment status will be set to "Ready for Checkout".
-                    </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={confirmFinishService}>Finish &amp; Await Checkout</AlertDialogAction>
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>

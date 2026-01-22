@@ -778,7 +778,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                                       className="w-20 h-8 text-center"
                                       step="0.1"
                                   />
-                                  <span className="w-8 text-muted-foreground truncate">{unit}</span>
+                                  <span className="text-xs text-muted-foreground w-10 truncate">{unit}</span>
                                   <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive flex-shrink-0" onClick={() => handleRemoveProduct(item.id)}>
                                       <Trash2 className="h-4 w-4" />
                                   </Button>
