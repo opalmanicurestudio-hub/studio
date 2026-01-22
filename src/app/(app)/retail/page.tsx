@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
@@ -499,6 +498,7 @@ export default function RetailPage() {
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannedData, setScannedData] = useState<string | null>(null);
+  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
   
   const [checkoutAppointment, setCheckoutAppointment] = useState<Appointment | null>(null);
 
@@ -752,30 +752,30 @@ export default function RetailPage() {
     setAppliedStoreCredit(0);
   };
   
-    const handleScan = (data: string) => {
-        if (data.startsWith('clarityflow://walk-in/')) {
-            const walkInId = data.split('/').pop();
-            const appointmentId = `apt-walkin-${walkInId}`;
-            const appointmentToCheckout = appointments.find(apt => apt.id === appointmentId);
+  const handleScan = (data: string) => {
+    if (data.startsWith('clarityflow://walk-in/')) {
+        const walkInId = data.split('/').pop();
+        const appointmentId = `apt-walkin-${walkInId}`;
+        const appointmentToCheckout = appointments.find(apt => apt.id === appointmentId);
 
-            if (appointmentToCheckout) {
-                setCheckoutAppointment(appointmentToCheckout);
-            } else {
-                toast({
-                    variant: 'destructive',
-                    title: 'Appointment Not Found',
-                    description: 'Could not find a matching walk-in appointment.',
-                });
-            }
-        } else if (data.startsWith('clarityflow://product/')) {
-            const productId = data.split('/').pop();
-            const productToAdd = inventory.find(p => p.id === productId);
-            if (productToAdd) {
-                addToCart(productToAdd, 'product');
-                toast({ title: 'Product Added', description: `${productToAdd.name} added to cart.` });
-            }
+        if (appointmentToCheckout) {
+            setCheckoutAppointment(appointmentToCheckout);
+        } else {
+            toast({
+                variant: 'destructive',
+                title: 'Appointment Not Found',
+                description: 'Could not find a matching walk-in appointment.',
+            });
         }
-    };
+    } else if (data.startsWith('clarityflow://product/')) {
+        const productId = data.split('/').pop();
+        const productToAdd = inventory.find(p => p.id === productId);
+        if (productToAdd) {
+            addToCart(productToAdd, 'product');
+            toast({ title: 'Product Added', description: `${productToAdd.name} added to cart.` });
+        }
+    }
+  };
   
   useEffect(() => {
     if (scannedData) {
@@ -785,17 +785,22 @@ export default function RetailPage() {
   }, [scannedData, handleScan]);
   
   useEffect(() => {
-    let scanner: Html5QrcodeScanner | null = null;
     if (isScannerOpen) {
-      scanner = new Html5QrcodeScanner(
+      // Prevents multiple scanner instances
+      if (scannerRef.current) {
+        return;
+      }
+      
+      const scanner = new Html5QrcodeScanner(
         'qr-reader',
         {
           fps: 10,
           qrbox: { width: 250, height: 250 },
           rememberLastUsedCamera: true,
         },
-        /* verbose= */ false
+        false
       );
+      scannerRef.current = scanner;
 
       const onScanSuccess = (decodedText: string) => {
         setScannedData(decodedText);
@@ -803,188 +808,184 @@ export default function RetailPage() {
       };
 
       const onScanFailure = (error: any) => {
-        // This callback is required but we can choose to ignore scan failures.
+        // ignore
       };
 
       scanner.render(onScanSuccess, onScanFailure);
     }
 
     return () => {
-      if (scanner) {
-        // Using a try-catch block for more robust cleanup
-        try {
-          scanner.clear().catch(error => {
-            console.error("Failed to clear html5-qrcode-scanner.", error);
-          });
-        } catch (error) {
-          console.error("Error during scanner cleanup:", error);
-        }
+      if (scannerRef.current) {
+        scannerRef.current.clear().catch(error => {
+          console.error("Failed to clear html5-qrcode-scanner.", error);
+        });
+        scannerRef.current = null;
       }
     };
   }, [isScannerOpen]);
-
-    const denominations = [100, 50, 20, 10, 5, 1, 0.25, 0.10, 0.05, 0.01];
-
-    const handleDenominationClick = (amount: number) => {
-        setAmountTendered(prev => prev + amount);
-    };
-
-    const handleKeepTheChange = () => {
-        if (changeDue > 0) {
-            setTipAmount(prevTip => prevTip + changeDue);
-            setAmountTendered(total + changeDue); 
-            toast({ title: "Tip Added!", description: `$${changeDue.toFixed(2)} has been added as a tip.` });
-        }
-    };
     
-    const handleAppointmentCheckout = (data: CheckoutData) => {
-        if (!checkoutAppointment) return;
+  const denominations = [100, 50, 20, 10, 5, 1, 0.25, 0.10, 0.05, 0.01];
 
-        const {
-            newCorrections,
-            receiptData,
-            incident,
-            serviceStaffOverrides,
-            tipAllocations,
-            addOns,
-            absorbedCost,
-        } = data;
+  const handleDenominationClick = (amount: number) => {
+    setAmountTendered(prev => prev + amount);
+  };
+
+  const handleKeepTheChange = () => {
+    if (changeDue > 0) {
+        setTipAmount(prevTip => prevTip + changeDue);
+        setAmountTendered(total + changeDue); 
+        toast({ title: "Tip Added!", description: `$${changeDue.toFixed(2)} has been added as a tip.` });
+    }
+  };
+    
+  const handleAppointmentCheckout = (data: CheckoutData) => {
+    if (!checkoutAppointment) return;
+
+    const {
+        newCorrections,
+        receiptData,
+        incident,
+        serviceStaffOverrides,
+        tipAllocations,
+        addOns,
+        absorbedCost,
+    } = data;
         
-        const allPerformedServices = [services.find(s => s.id === checkoutAppointment.serviceId), ...addOns].filter((s): s is Service => !!s);
+    const allPerformedServices = [services.find(s => s.id === checkoutAppointment.serviceId), ...addOns].filter((s): s is Service => !!s);
         
-        allPerformedServices.forEach(service => {
-            const staffId = serviceStaffOverrides[service.id] || checkoutAppointment.staffId;
+    allPerformedServices.forEach(service => {
+        const staffId = serviceStaffOverrides[service.id] || checkoutAppointment.staffId;
+        const newTransaction: Omit<Transaction, 'id'> = {
+            date: new Date().toISOString(),
+            description: `Service: ${service.name}`,
+            clientOrVendor: clients.find(c => c.id === checkoutAppointment.clientId)?.name || 'N/A',
+            type: 'income',
+            context: 'Business',
+            category: 'Service Revenue',
+            amount: service.price,
+            paymentMethod: receiptData.payment.method,
+            hasReceipt: true,
+            staffId: staffId,
+            appointmentId: checkoutAppointment.id,
+        };
+        setTransactions(prev => [...prev, { ...newTransaction, id: `txn-${Date.now()}` }]);
+    });
+        
+    Object.entries(tipAllocations).forEach(([staffId, tipAmount]) => {
+        if (tipAmount > 0) {
             const newTransaction: Omit<Transaction, 'id'> = {
                 date: new Date().toISOString(),
-                description: `Service: ${service.name}`,
+                description: `Tip for Appointment #${checkoutAppointment.id.slice(-4)}`,
                 clientOrVendor: clients.find(c => c.id === checkoutAppointment.clientId)?.name || 'N/A',
                 type: 'income',
                 context: 'Business',
-                category: 'Service Revenue',
-                amount: service.price,
+                category: 'Tips',
+                amount: tipAmount,
                 paymentMethod: receiptData.payment.method,
                 hasReceipt: true,
                 staffId: staffId,
+                tipAmount: tipAmount,
                 appointmentId: checkoutAppointment.id,
             };
-            setTransactions(prev => [...prev, { ...newTransaction, id: `txn-${Date.now()}` }]);
-        });
-        
-        Object.entries(tipAllocations).forEach(([staffId, tipAmount]) => {
-            if (tipAmount > 0) {
-                const newTransaction: Omit<Transaction, 'id'> = {
-                    date: new Date().toISOString(),
-                    description: `Tip for Appointment #${checkoutAppointment.id.slice(-4)}`,
-                    clientOrVendor: clients.find(c => c.id === checkoutAppointment.clientId)?.name || 'N/A',
-                    type: 'income',
-                    context: 'Business',
-                    category: 'Tips',
-                    amount: tipAmount,
-                    paymentMethod: receiptData.payment.method,
-                    hasReceipt: true,
-                    staffId: staffId,
-                    tipAmount: tipAmount,
-                    appointmentId: checkoutAppointment.id,
-                };
                  setTransactions(prev => [...prev, { ...newTransaction, id: `txn-${Date.now()}` }]);
             }
         });
         
-        newCorrections.forEach(addStockCorrection);
+    newCorrections.forEach(addStockCorrection);
         
-        const completedAppointment: Appointment = { 
-            ...checkoutAppointment, 
-            status: 'completed' as const,
-            absorbedCost: absorbedCost,
-            incident: incident,
-        };
-        setAppointments(prev => prev.map(apt => apt.id === checkoutAppointment.id ? completedAppointment : apt));
-        
-        toast({
-            title: "Appointment Completed",
-            description: `Inventory levels have been updated and financial transactions logged.`
-        });
-        
-        setCheckoutAppointment(null);
-        setReceiptToPrint({
-            business: { name: 'ClarityFlow Salon', phone: '555-123-4567' },
-            ...receiptData
-        });
+    const completedAppointment: Appointment = { 
+        ...checkoutAppointment, 
+        status: 'completed' as const,
+        absorbedCost: absorbedCost,
+        incident: incident,
     };
+    setAppointments(prev => prev.map(apt => apt.id === checkoutAppointment.id ? completedAppointment : apt));
+        
+    toast({
+        title: "Appointment Completed",
+        description: `Inventory levels have been updated and financial transactions logged.`
+    });
+        
+    setCheckoutAppointment(null);
+    setReceiptToPrint({
+        business: { name: 'ClarityFlow Salon', phone: '555-123-4567' },
+        ...receiptData
+    });
+  };
 
-      const handleAddClient = (data: ClientFormData) => {
-        const { referringClientId } = data;
+  const handleAddClient = (data: ClientFormData) => {
+    const { referringClientId } = data;
         
-        const firstName = data.name.split(' ')[0].toUpperCase();
-        const referralCode = `${firstName}${nanoid(4)}`;
+    const firstName = data.name.split(' ')[0].toUpperCase();
+    const referralCode = `${firstName}${nanoid(4)}`;
 
-        const newClient: Client = {
-          id: `cli-${nanoid()}`,
-          name: data.name,
-          email: data.email || '',
-          phone: data.phone || '',
-          avatarUrl: data.avatarUrl || '',
-          lifetimeValue: 0,
-          lastAppointment: new Date().toISOString(),
-          status: 'active',
-          notes: data.notes,
-          referralCode: referralCode,
-          birthday: data.birthday ? data.birthday.toISOString() : undefined,
-          address: data.address,
-          emergencyContact: data.emergencyContact,
-          intel: {
-            referralSource: data.intel?.referralSource
-          }
-        };
+    const newClient: Client = {
+      id: `cli-${nanoid()}`,
+      name: data.name,
+      email: data.email || '',
+      phone: data.phone || '',
+      avatarUrl: data.avatarUrl || '',
+      lifetimeValue: 0,
+      lastAppointment: new Date().toISOString(),
+      status: 'active',
+      notes: data.notes,
+      referralCode: referralCode,
+      birthday: data.birthday ? data.birthday.toISOString() : undefined,
+      address: data.address,
+      emergencyContact: data.emergencyContact,
+      intel: {
+        referralSource: data.intel?.referralSource
+      }
+    };
         
-        let updatedClients = [...clients];
+    let updatedClients = [...clients];
         
-        if (referringClientId) {
-            const referrerIndex = updatedClients.findIndex(c => c.id === referringClientId);
-            if (referrerIndex !== -1) {
-                const referrer = { ...updatedClients[referrerIndex] };
+    if (referringClientId) {
+        const referrerIndex = updatedClients.findIndex(c => c.id === referringClientId);
+        if (referrerIndex !== -1) {
+            const referrer = { ...updatedClients[referrerIndex] };
                 
-                newClient.referredBy = referrer.name;
+            newClient.referredBy = referrer.name;
 
-                referrer.successfulReferrals = [...(referrer.successfulReferrals || []), newClient.name];
+            referrer.successfulReferrals = [...(referrer.successfulReferrals || []), newClient.name];
                 
-                updatedClients[referrerIndex] = referrer;
-            }
+            updatedClients[referrerIndex] = referrer;
         }
-        
-        updatedClients.push(newClient);
-        
-        setClients(updatedClients);
-        setSelectedClientId(newClient.id);
-
-        toast({
-          title: "Client Added",
-          description: `${newClient.name} has been added to your client list and selected.`,
-        });
-        setIsAddClientOpen(false);
     }
-    
-    const checkoutAppointmentData = useMemo(() => {
-        if (!checkoutAppointment) return null;
-        const clientData = clients.find(c => c.id === checkoutAppointment.clientId);
-        const serviceData = services.find(s => s.id === checkoutAppointment.serviceId);
-
-        const walkInClientName = checkoutAppointment.isWalkIn ?
-          (inventory.find(i => `apt-walkin-${i.id}` === checkoutAppointment.id) as any)?.customerName || 'Walk-in'
-          : 'Unknown Client';
-
-        const displayClient = clientData || {
-          id: checkoutAppointment.clientId,
-          name: checkoutAppointment.isWalkIn ? walkInClientName : 'Unknown Client',
-          email: '', phone: '', avatarUrl: '', lifetimeValue: 0, lastAppointment: '',
-        };
         
-        return {
-          appointment: checkoutAppointment,
-          client: displayClient,
-          service: serviceData,
-        };
-    }, [checkoutAppointment, clients, services, inventory]);
+    updatedClients.push(newClient);
+        
+    setClients(updatedClients);
+    setSelectedClientId(newClient.id);
+
+    toast({
+      title: "Client Added",
+      description: `${newClient.name} has been added to your client list and selected.`,
+    });
+    setIsAddClientOpen(false);
+  }
+    
+  const checkoutAppointmentData = useMemo(() => {
+    if (!checkoutAppointment) return null;
+    const clientData = clients.find(c => c.id === checkoutAppointment.clientId);
+    const serviceData = services.find(s => s.id === checkoutAppointment.serviceId);
+
+    const walkInClientName = checkoutAppointment.isWalkIn ?
+      (inventory.find(i => `apt-walkin-${i.id}` === checkoutAppointment.id) as any)?.customerName || 'Walk-in'
+      : 'Unknown Client';
+
+    const displayClient = clientData || {
+      id: checkoutAppointment.clientId,
+      name: checkoutAppointment.isWalkIn ? walkInClientName : 'Unknown Client',
+      email: '', phone: '', avatarUrl: '', lifetimeValue: 0, lastAppointment: '',
+    };
+        
+    return {
+      appointment: checkoutAppointment,
+      client: displayClient,
+      service: serviceData,
+    };
+  }, [checkoutAppointment, clients, services, inventory]);
 
 
   return (
@@ -1134,20 +1135,24 @@ export default function RetailPage() {
             </div>
         )}
 
-       <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
-            <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                    <DialogTitle>Scan Code</DialogTitle>
-                    <DialogDescription>
-                    Position a product barcode or appointment ticket QR code inside the frame.
-                    </DialogDescription>
-                </DialogHeader>
-                <div id="qr-reader" className="w-full" />
-                <DialogFooter>
-                    <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+       {isScannerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
+            <Card className="w-full max-w-md">
+                <CardHeader>
+                    <CardTitle>Scan Code</CardTitle>
+                    <CardDescription>
+                        Position a product barcode or appointment ticket QR code inside the frame.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <div id="qr-reader" className="w-full" />
+                </CardContent>
+                <CardFooter>
+                    <Button variant="outline" className="w-full" onClick={() => setIsScannerOpen(false)}>Cancel</Button>
+                </CardFooter>
+            </Card>
+        </div>
+       )}
     </div>
     <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients} onSave={handleAddClient} />
     
