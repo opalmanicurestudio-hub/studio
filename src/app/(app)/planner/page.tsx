@@ -3,7 +3,7 @@
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, QrCode } from 'lucide-react';
 import { type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping } from 'date-fns';
@@ -71,6 +71,7 @@ import { DayTimeline } from '@/components/planner/DayTimeline';
 import { nanoid } from 'nanoid';
 import { WeeklyKpiSheet } from '@/components/planner/WeeklyKpiSheet';
 import { BillsDueSheet } from '@/components/planner/BillsDueSheet';
+import { Html5Qrcode } from 'html5-qrcode';
 
 
 export default function PlannerPage() {
@@ -78,8 +79,6 @@ export default function PlannerPage() {
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   
   const { 
-    billDefinitions: mockDefinitions, 
-    billInstances: mockInstances,
     setAppointments: setAppointmentsInContext,
     setActivityLogs,
     addStockCorrection,
@@ -114,6 +113,10 @@ export default function PlannerPage() {
 
   const [appointmentToRebook, setAppointmentToRebook] = useState<Appointment | null>(null);
   const [initialClientIdForNewApt, setInitialClientIdForNewApt] = useState<string>('');
+
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [scannedData, setScannedData] = useState<string | null>(null);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
 
 
   const finishDialogDuration = useMemo(() => {
@@ -164,8 +167,8 @@ export default function PlannerPage() {
     return collection(firestore, `tenants/${tenantId}/events`);
   }, [firestore, user, tenantId]);
 
-  const { data: fetchedBillDefinitions } = useCollection<BillDefinition>(billDefinitionsQuery);
-  const { data: fetchedBillInstances } = useCollection<BillInstance>(billInstancesQuery);
+  const { data: fetchedBillDefinitions, isLoading: billDefinitionsLoading } = useCollection<BillDefinition>(billDefinitionsQuery);
+  const { data: fetchedBillInstances, isLoading: billInstancesLoading } = useCollection<BillInstance>(billInstancesQuery);
   const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
   const { data: clients, isLoading: clientsLoading } = useCollection<Client>(clientsQuery);
   const { data: walkIns, isLoading: walkInsLoading } = useCollection<WalkIn>(walkInQuery);
@@ -179,30 +182,27 @@ export default function PlannerPage() {
     }
   }, [staff, mobileSelectedStaffId]);
 
-  const appointments = useMemo(() => {
+ const appointments = useMemo(() => {
     if (!appointmentsFromDB) return [];
     return appointmentsFromDB.map(apt => {
         const startTime = (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime as any);
         const endTime = (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any);
         return { ...apt, startTime, endTime };
     });
-  }, [appointmentsFromDB]);
+}, [appointmentsFromDB]);
 
-  const events = useMemo(() => {
+const events = useMemo(() => {
     if (!fetchedEvents) return [];
-    return fetchedEvents.map(evt => {
-        const startTime = (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : parseISO(evt.startTime as any);
-        const endTime = (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : parseISO(evt.endTime as any);
-        return { 
-            ...evt, 
-            startTime,
-            endTime,
-        };
-    });
-  }, [fetchedEvents]);
+    return fetchedEvents.map(evt => ({
+        ...evt,
+        startTime: (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : parseISO(evt.startTime as any),
+        endTime: (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : parseISO(evt.endTime as any),
+    }));
+}, [fetchedEvents]);
+
   
-  const billDefinitions = useMemo(() => (fetchedBillDefinitions && fetchedBillDefinitions.length > 0) ? fetchedBillDefinitions : mockDefinitions, [fetchedBillDefinitions, mockDefinitions]);
-  const billInstances = useMemo(() => (fetchedBillInstances && fetchedBillInstances.length > 0) ? fetchedBillInstances : mockInstances, [fetchedBillInstances, mockInstances]);
+  const billDefinitions = useMemo(() => (fetchedBillDefinitions && fetchedBillDefinitions.length > 0) ? fetchedBillDefinitions : [], [fetchedBillDefinitions]);
+  const billInstances = useMemo(() => (fetchedBillInstances && fetchedBillInstances.length > 0) ? fetchedBillInstances : [], [fetchedBillInstances]);
 
 
   const weekStart = useMemo(() => {
@@ -439,7 +439,7 @@ export default function PlannerPage() {
       redeemedOffer
     } = data;
 
-    const allPerformedServices = [services.find(s => s.id === selectedAppointment.serviceId), ...addOns].filter((s): s is Service => !!s);
+    const allPerformedServices = [services?.find(s => s.id === selectedAppointment.serviceId), ...addOns].filter((s): s is Service => !!s);
     
     const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
 
@@ -798,9 +798,74 @@ export default function PlannerPage() {
     setHasMounted(true);
   }, []);
   
+  const handleScan = (data: string) => {
+    if (data.startsWith('clarityflow://walk-in/')) {
+        const walkInId = data.split('/').pop();
+        const appointmentId = `apt-walkin-${walkInId}`;
+        const appointmentToCheckout = appointments.find(apt => apt.id === appointmentId);
+
+        if (appointmentToCheckout) {
+            setSelectedAppointment(appointmentToCheckout);
+            setIsCheckoutOpen(true);
+        } else {
+            toast({
+                variant: 'destructive',
+                title: 'Appointment Not Found',
+                description: 'Could not find a matching walk-in appointment. The data may still be syncing. Please try again in a moment.',
+            });
+        }
+    }
+  };
+
+  useEffect(() => {
+    if (scannedData) {
+        handleScan(scannedData);
+        setScannedData(null); // Reset after processing
+    }
+  }, [scannedData, appointments]);
+
+  useEffect(() => {
+    if (isScannerOpen) {
+        const qrCodeScanner = new Html5Qrcode('qr-reader-planner');
+        scannerRef.current = qrCodeScanner;
+
+        const onScanSuccess = (decodedText: string, decodedResult: any) => {
+            if (scannerRef.current && scannerRef.current.isScanning) {
+                scannerRef.current.stop();
+            }
+            setScannedData(decodedText);
+            setIsScannerOpen(false);
+        };
+
+        const onScanFailure = (error: any) => { /* ignore */ };
+
+        qrCodeScanner.start(
+            { facingMode: "environment" },
+            { fps: 10, qrbox: { width: 250, height: 250 } },
+            onScanSuccess,
+            onScanFailure
+        ).catch(err => {
+            toast({
+                variant: 'destructive',
+                title: 'Camera Error',
+                description: 'Could not start the camera. Please check permissions and try again.',
+            });
+            setIsScannerOpen(false);
+        });
+    }
+
+    return () => {
+        if (scannerRef.current && scannerRef.current.isScanning) {
+            scannerRef.current.stop().catch(err => {
+                console.error("Failed to stop QR Code scanner.", err);
+            });
+        }
+    };
+  }, [isScannerOpen, toast]);
+  
   const showStaffColumnHeader = !isMobile || (staff || []).length === 1;
 
-  if (!hasMounted || isUserLoading || appointmentsLoading || servicesLoading || clientsLoading || walkInsLoading || staffLoading || eventsLoading) {
+  if (!hasMounted || isUserLoading || appointmentsLoading || servicesLoading || clientsLoading || walkInsLoading || staffLoading || eventsLoading || billDefinitionsLoading || billInstancesLoading) {
     return (
       <div className="flex h-screen w-full flex-col">
         <AppHeaderClient title="Planner" />
@@ -864,6 +929,7 @@ export default function PlannerPage() {
             </TooltipProvider>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setIsScannerOpen(true)}><QrCode className="w-4 h-4 mr-2"/>Scan</Button>
             <Button size="sm" onClick={() => setIsAddEventOpen(true)}>
                 + Event
             </Button>
@@ -912,6 +978,7 @@ export default function PlannerPage() {
                         </Button>
                     </TooltipTrigger><TooltipContent><p>Bills Due Today</p></TooltipContent></Tooltip>
                     <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsPickingListOpen(true)}><List className="w-4 h-4" /><span className="sr-only">Picking List</span></Button></TooltipTrigger><TooltipContent><p>Picking List</p></TooltipContent></Tooltip>
+                    <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}><QrCode className="h-4 w-4" /><span className="sr-only">Scan Ticket</span></Button></TooltipTrigger><TooltipContent><p>Scan Ticket</p></TooltipContent></Tooltip>
                 </TooltipProvider>
                 <Button size="sm" onClick={() => setIsAddEventOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Event</Button>
                 <Button size="sm" onClick={() => setIsAddAppointmentOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Appointment</Button>
@@ -1081,6 +1148,23 @@ export default function PlannerPage() {
               <Printer className="mr-2 h-4 w-4" />
               Print Ticket
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
+        <DialogContent className="sm:max-w-md p-0">
+          <DialogHeader className="p-4 pb-0">
+            <DialogTitle>Scan Ticket</DialogTitle>
+            <DialogDescription>
+              Position the walk-in ticket's QR code inside the frame to check out the client.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="p-4 relative">
+             <div id="qr-reader-planner" className="w-full rounded-md bg-muted" />
+          </div>
+           <DialogFooter className="p-4 pt-0">
+                <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

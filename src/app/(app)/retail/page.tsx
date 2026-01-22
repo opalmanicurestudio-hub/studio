@@ -39,7 +39,6 @@ import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceip
 import { useIsMobile } from '@/hooks/use-mobile';
 import { CompleteAppointmentDialog, type CheckoutData } from '@/components/planner/CompleteAppointmentDialog';
 import { nanoid } from 'nanoid';
-import { Html5Qrcode } from 'html5-qrcode';
 import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
 import { parseISO } from 'date-fns';
@@ -498,10 +497,6 @@ export default function RetailPage() {
   const [promoCode, setPromoCode] = useState('');
   
   const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
-
-  const [isScannerOpen, setIsScannerOpen] = useState(false);
-  const [scannedData, setScannedData] = useState<string | null>(null);
-  const scannerRef = useRef<Html5Qrcode | null>(null);
   
   const [checkoutAppointment, setCheckoutAppointment] = useState<Appointment | null>(null);
 
@@ -781,76 +776,6 @@ export default function RetailPage() {
     setAppliedStoreCredit(0);
   };
   
-  const handleScan = (data: string) => {
-    if (data.startsWith('clarityflow://walk-in/')) {
-        const walkInId = data.split('/').pop();
-        const appointmentId = `apt-walkin-${walkInId}`;
-        const appointmentToCheckout = liveAppointments.find(apt => apt.id === appointmentId);
-
-        if (appointmentToCheckout) {
-            setCheckoutAppointment(appointmentToCheckout);
-        } else {
-            toast({
-                variant: 'destructive',
-                title: 'Appointment Not Found',
-                description: 'Could not find a matching walk-in appointment. The data may still be syncing. Please try again in a moment.',
-            });
-        }
-    } else if (data.startsWith('clarityflow://product/')) {
-        const productId = data.split('/').pop();
-        const productToAdd = inventory.find(p => p.id === productId);
-        if (productToAdd) {
-            addToCart(productToAdd, 'product');
-            toast({ title: 'Product Added', description: `${productToAdd.name} added to cart.` });
-        }
-    }
-  };
-  
-  useEffect(() => {
-    if (scannedData) {
-        handleScan(scannedData);
-        setScannedData(null); // Reset after processing
-    }
-  }, [scannedData, handleScan]);
-  
-  useEffect(() => {
-    if (isScannerOpen) {
-        const qrCodeScanner = new Html5Qrcode('qr-reader');
-        scannerRef.current = qrCodeScanner;
-
-        const onScanSuccess = (decodedText: string, decodedResult: any) => {
-            if (scannerRef.current && scannerRef.current.isScanning) {
-                scannerRef.current.stop();
-            }
-            setScannedData(decodedText);
-            setIsScannerOpen(false);
-        };
-
-        const onScanFailure = (error: any) => { /* ignore */ };
-
-        qrCodeScanner.start(
-            { facingMode: "environment" },
-            { fps: 10, qrbox: { width: 250, height: 250 } },
-            onScanSuccess,
-            onScanFailure
-        ).catch(err => {
-            toast({
-                variant: 'destructive',
-                title: 'Camera Error',
-                description: 'Could not start the camera. Please check permissions and try again.',
-            });
-            setIsScannerOpen(false);
-        });
-    }
-
-    return () => {
-        if (scannerRef.current && scannerRef.current.isScanning) {
-            scannerRef.current.stop().catch(err => {
-                console.error("Failed to stop QR Code scanner.", err);
-            });
-        }
-    };
-  }, [isScannerOpen, toast]);
     
   const denominations = [100, 50, 20, 10, 5, 1, 0.25, 0.10, 0.05, 0.01];
 
@@ -990,12 +915,12 @@ export default function RetailPage() {
   }
     
   const checkoutAppointmentData = useMemo(() => {
-    if (!checkoutAppointment) return null;
+    if (!checkoutAppointment || !clients) return null;
     const clientData = clients?.find(c => c.id === checkoutAppointment.clientId);
     const serviceData = services.find(s => s.id === checkoutAppointment.serviceId);
 
-    const walkInClientName = checkoutAppointment.isWalkIn ? 
-        (walkIns?.find(w => `apt-walkin-${w.id}` === checkoutAppointment.id))?.customerName || 'Walk-in' 
+    const walkInClientName = checkoutAppointment.isWalkIn && walkIns ? 
+        (walkIns.find(w => `apt-walkin-${w.id}` === checkoutAppointment.id))?.customerName || 'Walk-in' 
         : 'Unknown Client';
 
     const displayClient = clientData || {
@@ -1031,10 +956,6 @@ export default function RetailPage() {
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                             <Input placeholder="Search items..." className="pl-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                         </div>
-                        <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
-                            <QrCode className="h-4 w-4" />
-                            <span className="sr-only">Scan</span>
-                        </Button>
                     </div>
                 </div>
                 <ScrollArea className="flex-1">
@@ -1158,25 +1079,6 @@ export default function RetailPage() {
                 </Sheet>
             </div>
         )}
-
-       {isScannerOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
-            <Card className="w-full max-w-md">
-                <CardHeader>
-                    <CardTitle>Scan Code</CardTitle>
-                    <CardDescription>
-                        Position a product barcode or appointment ticket QR code inside the frame.
-                    </CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <div id="qr-reader" className="w-full" />
-                </CardContent>
-                <CardFooter>
-                    <Button variant="outline" className="w-full" onClick={() => setIsScannerOpen(false)}>Cancel</Button>
-                </CardFooter>
-            </Card>
-        </div>
-       )}
     </div>
     <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={handleAddClient} />
     
@@ -1210,5 +1112,3 @@ export default function RetailPage() {
     </>
   );
 }
-
-    
