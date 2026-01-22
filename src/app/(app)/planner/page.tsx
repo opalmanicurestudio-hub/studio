@@ -78,11 +78,9 @@ export default function PlannerPage() {
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   
   const { 
-    inventory, 
     billDefinitions: mockDefinitions, 
     billInstances: mockInstances,
     setAppointments: setAppointmentsInContext,
-    activityLogs, 
     setActivityLogs,
     addStockCorrection,
     setTransactions,
@@ -192,11 +190,15 @@ export default function PlannerPage() {
 
   const events = useMemo(() => {
     if (!fetchedEvents) return [];
-    return fetchedEvents.map(evt => ({
-      ...evt,
-      startTime: evt.startTime.toDate(),
-      endTime: evt.endTime.toDate(),
-    }));
+    return fetchedEvents.map(evt => {
+        const startTime = (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : parseISO(evt.startTime as any);
+        const endTime = (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : parseISO(evt.endTime as any);
+        return { 
+            ...evt, 
+            startTime,
+            endTime,
+        };
+    });
   }, [fetchedEvents]);
   
   const billDefinitions = useMemo(() => (fetchedBillDefinitions && fetchedBillDefinitions.length > 0) ? fetchedBillDefinitions : mockDefinitions, [fetchedBillDefinitions, mockDefinitions]);
