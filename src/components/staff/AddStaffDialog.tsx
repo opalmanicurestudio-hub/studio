@@ -1,9 +1,8 @@
 
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useForm, Controller, FormProvider } from 'react-hook-form';
+import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
@@ -97,7 +96,7 @@ interface AddStaffDialogProps {
 }
 
 const AddStaffForm = ({ services }: { services: Service[] }) => {
-    const { register, control, watch, setValue, formState: { errors } } = useForm<AddStaffFormData>();
+    const { register, control, watch, setValue, formState: { errors } } = useFormContext<AddStaffFormData>();
     const payStructure = watch('payStructure');
     const selectedServiceIds = watch('services') || [];
     const [isServicesDialogOpen, setIsServicesDialogOpen] = useState(false);
@@ -108,7 +107,7 @@ const AddStaffForm = ({ services }: { services: Service[] }) => {
 
 
     return (
-        <FormProvider {...{register, control, watch, setValue, errors}}>
+        <>
             <div className="space-y-6">
                 <Accordion type="multiple" defaultValue={['item-1']} className="w-full space-y-4">
                     <AccordionItem value="item-1" className="border rounded-lg">
@@ -226,7 +225,7 @@ const AddStaffForm = ({ services }: { services: Service[] }) => {
                     setValue('services', newSelection.map(s => s.id), { shouldDirty: true });
                 }}
             />
-        </FormProvider>
+        </>
     )
 }
 
