@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { User, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal, Printer, UserPlus, ArrowUp, ArrowDown } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
-import { useCollection, useFirebase, updateDocumentNonBlocking, useMemoFirebase, setDocumentNonBlocking } from '@/firebase';
+import { useCollection, useFirebase, updateDocumentNonBlocking, useMemoFirebase, setDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
 import type { WalkIn, Staff, Appointment, Service, ActivityLog, Client } from '@/lib/data';
 import { formatDistanceToNowStrict, parseISO, addMinutes, differenceInMinutes, differenceInSeconds, format } from 'date-fns';
@@ -319,7 +319,6 @@ const AssignStaffDialog = ({ open, onOpenChange, walkIn, staff, services, onAssi
 
 
 export default function WalkInQueuePage() {
-  const { setAppointments, setActivityLogs } = useInventory();
   const { firestore, user } = useFirebase();
   const tenantId = 'tenant-abc';
   const { toast } = useToast();
@@ -343,10 +342,16 @@ export default function WalkInQueuePage() {
     if (!firestore || !user) return null;
     return collection(firestore, `tenants/${tenantId}/services`);
   }, [firestore, user, tenantId]);
+  
+  const clientsQuery = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    return collection(firestore, 'tenants', tenantId, 'clients');
+  }, [firestore, user, tenantId]);
 
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
   const { data: walkIns, isLoading: walkInsLoading } = useCollection<WalkIn>(walkInQuery);
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
+  const { data: clients, isLoading: clientsLoading } = useCollection<Client>(clientsQuery);
   
   useEffect(() => {
     if (staff) {
@@ -454,29 +459,28 @@ export default function WalkInQueuePage() {
     let finalUpdate = { ...statusUpdate };
     
     if (statusUpdate.hasOwnProperty('onBreak')) {
+        const activityLogsRef = collection(firestore, 'tenants', tenantId, 'activityLogs');
         if (statusUpdate.onBreak === true) { 
             finalUpdate.breakStartTime = new Date().toISOString();
-            const newLog: ActivityLog = {
-                id: `log-${nanoid()}`,
+            const newLog: Omit<ActivityLog, 'id'> = {
                 staffId,
                 type: 'break_start',
                 timestamp: finalUpdate.breakStartTime,
             };
-            setActivityLogs(prev => [...prev, newLog]);
+            addDocumentNonBlocking(activityLogsRef, newLog);
 
         } else if (statusUpdate.onBreak === false && staffMember.onBreak && staffMember.breakStartTime) { 
             const breakStart = parseISO(staffMember.breakStartTime);
             const breakEnd = new Date();
             const durationMinutes = differenceInMinutes(breakEnd, breakStart);
             
-            const newLog: ActivityLog = {
-                id: `log-${nanoid()}`,
+            const newLog: Omit<ActivityLog, 'id'> = {
                 staffId,
                 type: 'break_end',
                 timestamp: breakEnd.toISOString(),
                 durationMinutes,
             };
-            setActivityLogs(prev => [...prev, newLog]);
+            addDocumentNonBlocking(activityLogsRef, newLog);
             finalUpdate.breakStartTime = undefined; 
         }
     }
@@ -512,8 +516,8 @@ export default function WalkInQueuePage() {
       clientId: walkIn.clientId || `walkin-${walkIn.customerName}`,
       serviceId: service.id,
       staffId: walkIn.assignedStaffId,
-      startTime: parseISO(walkIn.serviceStartTime || walkIn.checkInTime),
-      endTime: addMinutes(parseISO(walkIn.serviceStartTime || walkIn.checkInTime), walkIn.estimatedDuration),
+      startTime: parseISO(walkIn.serviceStartTime || walkIn.checkInTime).toISOString(),
+      endTime: addMinutes(parseISO(walkIn.serviceStartTime || walkIn.checkInTime), walkIn.estimatedDuration).toISOString(),
       status: 'ready_for_checkout',
       isWalkIn: true,
       addOnIds: walkIn.serviceIds.slice(1),
@@ -609,13 +613,17 @@ export default function WalkInQueuePage() {
   } : null;
 
   const checkoutAppointmentData = useMemo(() => {
-    if (!checkoutAppointment || !services) return null;
+    if (!checkoutAppointment || !services || !clients) return null;
     const clientData = clients.find(c => c.id === checkoutAppointment.clientId);
     const serviceData = services.find(s => s.id === checkoutAppointment.serviceId);
 
+    const walkInClientName = checkoutAppointment.isWalkIn ?
+      (walkIns?.find(w => `apt-walkin-${w.id}` === checkoutAppointment.id))?.customerName || 'Walk-in'
+      : 'Unknown Client';
+
     const displayClient = clientData || {
       id: checkoutAppointment.clientId,
-      name: checkoutAppointment.isWalkIn ? checkoutAppointment.clientId.replace('walkin-', '') : 'Unknown Client',
+      name: checkoutAppointment.isWalkIn ? walkInClientName : 'Unknown Client',
       email: '',
       phone: '',
       avatarUrl: '',
@@ -628,7 +636,7 @@ export default function WalkInQueuePage() {
       client: displayClient,
       service: serviceData,
     };
-  }, [checkoutAppointment, clients, services]);
+  }, [checkoutAppointment, clients, services, walkIns]);
 
 
   return (
@@ -829,9 +837,11 @@ export default function WalkInQueuePage() {
             onOpenChange={() => setCheckoutAppointment(null)}
             appointmentData={checkoutAppointmentData}
             onConfirmCheckout={handleConfirmCheckout}
+            onRebook={() => {}}
           />
       )}
     </>
   );
 }
+
 
