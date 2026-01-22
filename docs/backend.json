@@ -345,7 +345,7 @@
         "checkInTime": { "type": "string", "format": "date-time" },
         "serviceStartTime": { "type": "string", "format": "date-time", "description": "The time the service actually began." },
         "serviceEndTime": { "type": "string", "format": "date-time", "description": "The time the service actually ended." },
-        "status": { "type": "string", "enum": ["waiting", "assigned", "servicing", "completed", "skipped", "cancelled"] },
+        "status": { "type": "string", "enum": ["waiting", "assigned", "servicing", "completed", "skipped", "cancelled", "ready_for_checkout"] },
         "assignedStaffId": { "type": "string", "description": "The ID of the staff member assigned to this customer." },
         "notes": { "type": "string" },
         "preferredStaffId": { "type": "string" },

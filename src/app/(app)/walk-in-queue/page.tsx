@@ -6,7 +6,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { User, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal, Printer, UserPlus, ArrowUp, ArrowDown } from 'lucide-react';
+import { User, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal, Printer, UserPlus, ArrowUp, ArrowDown, DollarSign } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { useCollection, useFirebase, updateDocumentNonBlocking, useMemoFirebase, setDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
@@ -233,6 +233,39 @@ const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange, onPrin
     )
 };
 
+const ReadyForCheckoutCard = ({ walkIn, services, staff, onCheckoutClick }: { walkIn: WalkIn, services: Service[], staff: Staff[], onCheckoutClick: (walkIn: WalkIn) => void }) => {
+    const walkInServices = services.filter(s => walkIn.serviceIds.includes(s.id));
+    const assignedStaff = staff.find(s => s.id === walkIn.assignedStaffId);
+    
+    return (
+        <Card className="bg-orange-500/5 border-orange-500/20">
+            <CardContent className="p-4">
+                <div className="flex justify-between items-start">
+                    <div className="space-y-1">
+                        <p className="font-bold text-xl">{walkIn.customerName}</p>
+                        <p className="text-sm text-muted-foreground">Finished with: {assignedStaff?.name || 'N/A'}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                        <Badge className="bg-orange-500 hover:bg-orange-500/90 text-orange-foreground capitalize flex items-center gap-1">
+                           <DollarSign className="h-3 w-3" />
+                            Awaiting Checkout
+                        </Badge>
+                    </div>
+                </div>
+                <div className="mt-4 space-y-2">
+                    <p className="font-semibold text-sm">Services:</p>
+                    <ul className="list-disc list-inside text-sm text-muted-foreground">
+                        {walkInServices.map(s => <li key={s.id}>{s.name}</li>)}
+                    </ul>
+                </div>
+                 <div className="mt-4 border-t pt-4 flex justify-end gap-2">
+                    <Button size="sm" onClick={() => onCheckoutClick(walkIn)}>Checkout Client</Button>
+                </div>
+            </CardContent>
+        </Card>
+    );
+};
+
 const AssignStaffDialog = ({ open, onOpenChange, walkIn, staff, services, onAssign }: { open: boolean, onOpenChange: (open: boolean) => void, walkIn: WalkIn | null, staff: Staff[], services: Service[], onAssign: (staffId: string) => void }) => {
   const [selectedStaffId, setSelectedStaffId] = useState('');
 
@@ -450,6 +483,11 @@ export default function WalkInQueuePage() {
   const servicingQueue = useMemo(() => {
     if (!walkIns) return [];
     return (walkIns || []).filter(w => w.status === 'assigned' || w.status === 'servicing').sort((a,b) => parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
+  }, [walkIns]);
+
+  const readyForCheckoutQueue = useMemo(() => {
+    if (!walkIns) return [];
+    return (walkIns || []).filter(w => w.status === 'ready_for_checkout').sort((a, b) => (parseISO(a.serviceEndTime || a.checkInTime)).getTime() - (parseISO(b.serviceEndTime || b.checkInTime)).getTime());
   }, [walkIns]);
 
   const handleStaffStatusChange = (staffId: string, statusUpdate: Partial<Staff>) => {
@@ -739,7 +777,7 @@ export default function WalkInQueuePage() {
                 </CardContent>
             </Card>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-start">
             <Card>
                 <CardHeader>
                     <CardTitle>Waiting Queue ({waitingQueue.length})</CardTitle>
@@ -782,6 +820,30 @@ export default function WalkInQueuePage() {
                             <Coffee className="w-12 h-12 mx-auto mb-4" />
                             <h3 className="font-semibold text-lg text-foreground">No Active Clients</h3>
                             <p>All staff members are currently available.</p>
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+             <Card>
+                <CardHeader>
+                    <CardTitle>Ready for Checkout ({readyForCheckoutQueue.length})</CardTitle>
+                    <CardDescription>Clients who have finished their service.</CardDescription>
+                </CardHeader>
+                 <CardContent className="space-y-4">
+                    {readyForCheckoutQueue.length > 0 ? (
+                        readyForCheckoutQueue.map(walkIn => (
+                            <ReadyForCheckoutCard 
+                                key={walkIn.id} 
+                                walkIn={walkIn} 
+                                services={services || []} 
+                                staff={staff || []}
+                                onCheckoutClick={handleCompleteClick}
+                            />
+                        ))
+                    ) : (
+                        <div className="text-center py-16 px-6 text-muted-foreground">
+                            <CheckCircle className="w-12 h-12 mx-auto mb-4" />
+                            <p>No clients are waiting for checkout.</p>
                         </div>
                     )}
                 </CardContent>
@@ -845,8 +907,3 @@ export default function WalkInQueuePage() {
     </>
   );
 }
-
-
-
-
-

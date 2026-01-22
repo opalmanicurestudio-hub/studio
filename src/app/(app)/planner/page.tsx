@@ -755,7 +755,7 @@ const events = useMemo(() => {
       const walkInId = finishConfirmAppointment.id.replace('apt-walkin-', '');
       const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
       updateDocumentNonBlocking(walkInDocRef, {
-        status: 'completed',
+        status: 'ready_for_checkout',
         serviceEndTime: nowISO,
       });
     }
@@ -1273,5 +1273,3 @@ const events = useMemo(() => {
     </div>
   );
 }
-
-

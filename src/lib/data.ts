@@ -297,7 +297,7 @@ export type WalkIn = {
     checkInTime: string; // ISO Date
     serviceStartTime?: string; // ISO Date
     serviceEndTime?: string; // ISO Date
-    status: 'waiting' | 'assigned' | 'servicing' | 'completed' | 'skipped' | 'cancelled';
+    status: 'waiting' | 'assigned' | 'servicing' | 'completed' | 'skipped' | 'cancelled' | 'ready_for_checkout';
     assignedStaffId?: string;
     notes?: string;
     preferredStaffId?: string;
