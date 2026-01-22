@@ -97,12 +97,15 @@ const Step1_BasicDetails = ({
     
     return (
   <div className="grid gap-6 py-4">
+    <div className="flex items-center justify-between p-4 border rounded-lg">
+        <div className='space-y-1'><Label htmlFor="is-addon">Is this an Add-on Service?</Label><p className='text-sm text-muted-foreground'>Add-ons can be appended to primary services.</p></div>
+        <Controller name="isAddon" control={control} render={({ field }) => ( <Switch id="is-addon" checked={field.value} onCheckedChange={field.onChange} /> )}/>
+    </div>
     <div className="space-y-2">
-      <Label htmlFor="product-name">Product Name</Label>
-      <Input id="product-name" placeholder="e.g., Signature Haircut" {...register('name')} />
+      <Label htmlFor="service-name">Service Name</Label>
+      <Input id="service-name" placeholder="e.g., Signature Haircut" {...register('name')} />
        {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
     </div>
-    <Controller name="type" control={control} render={({ field }) => ( <input type="hidden" {...field} /> )}/>
     <div className="space-y-2">
       <Label htmlFor="category">Category</Label>
       {isAddingCategory ? (
@@ -128,13 +131,31 @@ const Step1_BasicDetails = ({
       )}
        {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
     </div>
+
+    <div className="grid grid-cols-3 gap-4">
+        <div className="space-y-2">
+            <Label htmlFor="duration">Duration (min)</Label>
+            <Input id="duration" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>
+            {errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}
+        </div>
+        <div className="space-y-2">
+            <Label htmlFor="pad-before">Pad Before (min)</Label>
+            <Input id="pad-before" type="number" placeholder="e.g., 0" {...register('padBefore', { valueAsNumber: true })} />
+        </div>
+        <div className="space-y-2">
+            <Label htmlFor="pad-after">Pad After (min)</Label>
+            <Input id="pad-after" type="number" placeholder="e.g., 15" {...register('padAfter', { valueAsNumber: true })} />
+        </div>
+    </div>
+    
+    <div className="space-y-2">
+      <Label htmlFor="description">Description</Label>
+      <Textarea id="description" placeholder="Describe the service for your booking page..." {...register('description')} />
+    </div>
+
     <div className="space-y-2">
       <Label>Service Image</Label>
        <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/>
-    </div>
-    <div className="space-y-2">
-      <Label htmlFor="internal-notes">Internal Notes</Label>
-      <Textarea id="internal-notes" placeholder="Private usage instructions, formulation tips..." {...register('internalNotes')} />
     </div>
   </div>
     );
@@ -340,22 +361,19 @@ const Step4_VisibilityConfirmation = () => {
     );
 };
 
+
 export const AddServiceDialog: React.FC<{ 
   open: boolean;
   onOpenChange: (open: boolean) => void;
   categories: string[];
   onNewCategory: (category: string) => void;
   onServiceAdded: (service: Service) => void;
-  locations: Location[],
-  onAddLocationClick: () => void;
 }> = ({
   open,
   onOpenChange,
   categories,
   onNewCategory,
   onServiceAdded,
-  locations,
-  onAddLocationClick,
 }) => {
   const [step, setStep] = useState(1);
   const totalSteps = 4;
@@ -512,7 +530,7 @@ export const AddServiceDialog: React.FC<{
           default: return null;
       }
   }
-
+  
   const formId = `add-service-form`;
   const title = `Add New ${methods.getValues('isAddon') ? 'Add-on' : 'Service'}`;
   const description = "Use this wizard to add a new item to your inventory.";
