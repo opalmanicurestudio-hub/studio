@@ -311,7 +311,7 @@ export default function WalkInQueuePage() {
   
   const walkInQuery = useMemoFirebase(() => {
     if (!firestore || !user) return null;
-    return collection(firestore, 'tenants', tenantId, 'walkins');
+    return collection(firestore, 'tenants', tenantId, 'walkIns');
   }, [firestore, user, tenantId]);
 
   const { data: firestoreStaff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
@@ -345,7 +345,7 @@ export default function WalkInQueuePage() {
 
     if (!walkIn || !staffMember) return;
     
-    const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkins', walkInId);
+    const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
     const now = new Date();
     updateDocumentNonBlocking(walkInDocRef, {
         status: 'servicing',
@@ -463,7 +463,7 @@ export default function WalkInQueuePage() {
   
   const handleWalkInStatusChange = (walkInId: string, staffId: string, status: WalkIn['status']) => {
     if (!firestore) return;
-    const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkins', walkInId);
+    const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
     
     let update: Partial<WalkIn> = { status };
     
