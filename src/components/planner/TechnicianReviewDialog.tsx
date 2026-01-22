@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -279,6 +280,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 </div>
                 <div className='flex gap-2'>
                   <Button variant="outline" size="sm" onClick={() => setIsProductBrowserOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4"/>Browse Library</Button>
+                  <Button variant="outline" size="sm" type="button"><QrCode className="mr-2 h-4 w-4"/>Scan Product</Button>
                 </div>
             </CardContent>
         </Card>
@@ -287,7 +289,9 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
           <CardHeader><CardTitle>Add-ons & Staff</CardTitle></CardHeader>
           <CardContent className="space-y-3">
                 <h4 className="font-medium text-sm">Add-on Services</h4>
-                {selectedAddOns.map(item => (<div key={item.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md"><p className="text-sm font-medium">{item.name}</p><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}
+                <div className="space-y-2 text-sm">
+                    {selectedAddOns.map(item => (<div key={item.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md"><p className="font-medium">{item.name}</p><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}
+                </div>
                 <Button variant="outline" size="sm" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4"/>Select Add-ons</Button>
                 <Separator className="my-4"/>
                 <h4 className="font-medium text-sm">Staff Assignment</h4>
@@ -333,7 +337,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 <DialogTitle>Finish Service & Review</DialogTitle>
                 <DialogDescription>Confirm service details before sending to the front desk for checkout.</DialogDescription>
             </DialogHeader>
-            <ScrollArea className="flex-1">
+            <ScrollArea className="flex-1 min-h-0">
               <div className="p-6 pt-4">
                 {FormContent}
               </div>
