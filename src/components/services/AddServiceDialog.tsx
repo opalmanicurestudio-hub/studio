@@ -31,7 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { type InventoryItem, type Location, type ConsentForm } from '@/lib/data';
@@ -39,8 +39,8 @@ import { useToast } from '@/hooks/use-toast';
 import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Check, PlusCircle, QrCode, DollarSign, Package, Hammer, Trash2 } from 'lucide-react';
-import { services as allServices, type Service } from '@/lib/data';
+import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2 } from 'lucide-react';
+import { inventory, services as allServices, type Service } from '@/lib/data';
 import { BrowseProductsDialog } from './BrowseProductsDialog';
 import { SelectEquipmentDialog } from './SelectEquipmentDialog';
 import { SelectAddOnsDialog } from './SelectAddOnsDialog';
@@ -49,27 +49,27 @@ import { Switch } from '../ui/switch';
 import { useInventory } from '@/context/InventoryContext';
 
 const serviceSchema = z.object({
-    name: z.string().min(1, 'Service name is required'),
-    category: z.string().min(1, 'Category is required'),
-    duration: z.coerce.number({ invalid_type_error: 'Duration is required.' }).min(1, 'Duration must be at least 1 minute'),
-    padBefore: z.coerce.number().optional(),
-    padAfter: z.coerce.number().optional(),
-    description: z.string().optional(),
-    imageUrl: z.string().optional(),
-    isPrivate: z.boolean().optional(),
-    isAddon: z.boolean().optional(),
-    
-    products: z.array(z.any()).optional(),
-    equipment: z.array(z.any()).optional(),
-    addOns: z.array(z.any()).optional(),
-    
-    depositType: z.enum(['none', 'deposit', 'full', 'breakeven']),
-    depositSubType: z.enum(['flat', 'percentage']).optional(),
-    depositAmount: z.coerce.number().optional(),
-    
-    price: z.coerce.number().optional(),
-    confirmationMessage: z.string().optional(),
-    requiredFormIds: z.array(z.string()).optional(),
+  name: z.string().min(1, 'Service name is required'),
+  category: z.string().min(1, 'Category is required'),
+  duration: z.coerce.number({ invalid_type_error: 'Duration is required.' }).min(1, 'Duration must be at least 1 minute'),
+  padBefore: z.coerce.number().optional(),
+  padAfter: z.coerce.number().optional(),
+  description: z.string().optional(),
+  imageUrl: z.string().optional(),
+  isPrivate: z.boolean().optional(),
+  isAddon: z.boolean().optional(),
+  
+  products: z.array(z.any()).optional(),
+  equipment: z.array(z.any()).optional(),
+  addOns: z.array(z.any()).optional(),
+  
+  depositType: z.enum(['none', 'deposit', 'full', 'breakeven']),
+  depositSubType: z.enum(['flat', 'percentage']).optional(),
+  depositAmount: z.coerce.number().optional(),
+  
+  price: z.coerce.number().optional(),
+  confirmationMessage: z.string().optional(),
+  requiredFormIds: z.array(z.string()).optional(),
 });
 
 type ServiceFormData = z.infer<typeof serviceSchema>;
@@ -275,7 +275,6 @@ const AddServiceForm = ({
                                         <Label>Deposit Amount</Label>
                                         <Controller name="depositAmount" control={control} render={({ field }) => (
                                         <div className="relative">
-                                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                             <Input type="number" placeholder="25.00" {...field} className="pl-8" disabled={depositType === 'breakeven'}/>
                                         </div>
                                         )} />
@@ -326,43 +325,12 @@ export const AddServiceDialog = ({
   const methods = useForm<ServiceFormData>({
     resolver: zodResolver(serviceSchema),
     defaultValues: {
-      name: '',
-      type: 'service',
-      category: '',
-      duration: '',
-      padBefore: '',
-      padAfter: '',
-      description: '',
-      imageUrl: '',
       isPrivate: false,
       isAddon: false,
       products: [],
       equipment: [],
       addOns: [],
-      totalPurchaseCost: '',
-      numUnits: '',
-      shippingCost: '',
-      taxCost: '',
-      discounts: '',
-      costingMethod: 'uses',
-      containerSize: '',
-      containerUnit: undefined,
-      usesPerContainer: '',
-      restockingMarkup: '',
-      msrp: '',
-      markdownPrice: '',
-      supplier: '',
-      sku: '',
-      purchaseLink: '',
-      reorderPoint: '',
-      initialStock: '',
-      expirationDate: undefined,
-      primaryLocationId: undefined,
       depositType: 'none',
-      depositSubType: undefined,
-      depositAmount: '',
-      price: 0,
-      confirmationMessage: '',
       requiredFormIds: [],
     },
   });
@@ -384,11 +352,10 @@ export const AddServiceDialog = ({
     if (open) {
       methods.reset({
         name: '',
-        type: 'service',
         category: '',
-        duration: '',
-        padBefore: '',
-        padAfter: '',
+        duration: undefined,
+        padBefore: undefined,
+        padAfter: undefined,
         description: '',
         imageUrl: '',
         isPrivate: false,
@@ -396,29 +363,10 @@ export const AddServiceDialog = ({
         products: [],
         equipment: [],
         addOns: [],
-        totalPurchaseCost: '',
-        numUnits: '',
-        shippingCost: '',
-        taxCost: '',
-        discounts: '',
-        costingMethod: 'uses',
-        containerSize: '',
-        containerUnit: undefined,
-        usesPerContainer: '',
-        restockingMarkup: '',
-        msrp: '',
-        markdownPrice: '',
-        supplier: '',
-        sku: '',
-        purchaseLink: '',
-        reorderPoint: '',
-        initialStock: '',
-        expirationDate: undefined,
-        primaryLocationId: undefined,
         depositType: 'none',
         depositSubType: undefined,
-        depositAmount: '',
-        price: 0,
+        depositAmount: undefined,
+        price: undefined,
         confirmationMessage: '',
         requiredFormIds: [],
       });
@@ -432,7 +380,17 @@ export const AddServiceDialog = ({
       const productCost = (products || []).reduce((acc: number, p: any) => {
           const product = inventory.find(i => i.id === p.id);
           const quantity = p.quantityUsed || 1;
-          return acc + ((product?.costPerUnit || 0) * quantity);
+          let costPerUse = 0;
+            if (product) {
+                if (product.costingMethod === 'size' && product.size && product.size > 0) {
+                    costPerUse = (product.costPerUnit || 0) / product.size;
+                } else if (product.costingMethod === 'uses' && product.estimatedUses && product.estimatedUses > 0) {
+                    costPerUse = (product.costPerUnit || 0) / product.estimatedUses;
+                } else {
+                    costPerUse = product.costPerUnit || 0;
+                }
+            }
+          return acc + (costPerUse * quantity);
       }, 0);
 
       const equipmentDepreciation = (equipment || []).reduce((acc: any, eq: any) => {

@@ -244,7 +244,7 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
   );
 };
 
-const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUpdate, isSelected, onSelect }: { service: Service, onEditServiceOpen: (service: Service) => void, tmhr: number, appointments: Appointment[] | null, onPriceUpdate: (serviceId: string, newPrice: number) => void, isSelected: boolean, onSelect: () => void }) => {
+const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUpdate, isSelected, onSelectItem }: { service: Service, onEditServiceOpen: (service: Service) => void, tmhr: number, appointments: Appointment[] | null, onPriceUpdate: (serviceId: string, newPrice: number) => void, isSelected: boolean, onSelectItem: () => void }) => {
   const { toast } = useToast();
   const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
   
@@ -279,7 +279,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUp
             <Checkbox
                 id={`select-${service.id}`}
                 checked={isSelected}
-                onCheckedChange={onSelect}
+                onCheckedChange={onSelectItem}
                 aria-label={`Select ${service.name}`}
             />
           </div>
@@ -559,7 +559,10 @@ export default function ServicesPage() {
   const handleAddNewService = (newService: Service) => {
     if (!firestore) return;
     const serviceRef = doc(firestore, 'tenants', tenantId, 'services', newService.id);
-    setDocumentNonBlocking(serviceRef, newService, {});
+    const sanitizedData = Object.fromEntries(
+        Object.entries(newService).filter(([, value]) => value !== undefined)
+    );
+    setDocumentNonBlocking(serviceRef, sanitizedData, {});
 
     if (newService.category && !serviceCategories.includes(newService.category)) {
       setServiceCategories(prev => [...prev, newService.category as string]);
@@ -569,7 +572,10 @@ export default function ServicesPage() {
   const handleUpdateService = (updatedService: Service) => {
     if (!firestore) return;
     const serviceRef = doc(firestore, 'tenants', tenantId, 'services', updatedService.id);
-    updateDocumentNonBlocking(serviceRef, updatedService);
+    const sanitizedData = Object.fromEntries(
+        Object.entries(updatedService).filter(([, value]) => value !== undefined)
+    );
+    updateDocumentNonBlocking(serviceRef, sanitizedData);
 
     if (updatedService.category && !serviceCategories.includes(updatedService.category)) {
       setServiceCategories(prev => [...prev, updatedService.category as string]);
