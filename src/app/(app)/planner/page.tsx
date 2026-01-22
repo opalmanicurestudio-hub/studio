@@ -5,7 +5,7 @@
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square } from 'lucide-react';
-import { services, type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState, events as initialEvents } from '@/lib/data';
+import { events as initialEvents, services, type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping } from 'date-fns';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -49,7 +49,7 @@ import { AppointmentCard } from '@/components/planner/AppointmentCard';
 import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
 import { PrintTicket, type TicketData } from '@/components/planner/PrintTicket';
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
-import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, Timestamp, doc } from 'firebase/firestore';
 import { EditEventDialog } from '@/components/planner/EditEventDialog';
 import { BillDueDateCard } from '@/components/planner/BillDueDateCard';
@@ -563,14 +563,14 @@ export default function PlannerPage() {
   const { data: fetchedBillDefinitions } = useCollection<BillDefinition>(billDefinitionsQuery);
   const { data: fetchedBillInstances } = useCollection<BillInstance>(billInstancesQuery);
   const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
-  const { data: liveWalkIns } = useCollection<WalkIn>(liveWalkIns);
+  const { data: liveWalkIns } = useCollection<WalkIn>(walkInQuery);
 
   const appointments = useMemo(() => {
     if (!appointmentsFromDB) return [];
     return appointmentsFromDB.map(apt => ({
       ...apt,
-      startTime: parseISO(apt.startTime),
-      endTime: parseISO(apt.endTime),
+      startTime: parseISO(apt.startTime as any),
+      endTime: parseISO(apt.endTime as any),
     }));
   }, [appointmentsFromDB]);
   
@@ -1263,28 +1263,6 @@ export default function PlannerPage() {
         </div>
       </div>
       
-      <div className="flex items-center gap-2 p-2 border-b bg-background">
-        <ScrollArea className="w-full whitespace-nowrap">
-            <div className="flex items-center gap-2">
-                {weekDays.map((day, index) => (
-                    <Button 
-                        key={index} 
-                        variant={isSameDay(day, currentDate) ? 'secondary' : 'ghost'}
-                        className={cn(
-                            "h-14 flex-1 flex-col py-1 min-w-[50px] md:min-w-[120px]",
-                            isToday(day) && !isSameDay(day, currentDate) && "text-primary"
-                        )}
-                        onClick={() => handleDateSelect(day)}
-                    >
-                        <span className="text-xs">{format(day, 'EEE')}</span>
-                        <span className="text-lg font-bold">{format(day, 'd')}</span>
-                    </Button>
-                ))}
-            </div>
-            <ScrollBar orientation="horizontal" />
-        </ScrollArea>
-      </div>
-
       <main className="flex-1 flex flex-col min-h-0">
           {isMobile && staff.length > 1 && (
             <div className="p-4 border-b">
