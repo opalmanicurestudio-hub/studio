@@ -26,6 +26,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuPortal,
   DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
   Dialog,
@@ -310,7 +311,7 @@ const DayTimeline = ({
     }, [date, staff]); // Rerun when date or staff changes
 
     const gridStyle = {
-      gridTemplateColumns: isMobile ? '1fr' : `repeat(${staff.length}, 300px)`
+      gridTemplateColumns: `repeat(${staff.length}, minmax(${isMobile ? '0' : '250px'}, 1fr))`
     };
 
     return (
