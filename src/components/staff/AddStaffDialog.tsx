@@ -69,17 +69,21 @@ const addStaffSchema = z.object({
       licenseExpiry: z.date().optional(),
       documentUrl: z.string().optional(),
   }).optional(),
-}).refine(data => {
-    if (data.payStructure === 'commission') {
-        return data.commissionRate !== undefined && data.commissionRate !== null;
+}).superRefine((data, ctx) => {
+    if (data.payStructure === 'commission' && (data.commissionRate === undefined || data.commissionRate === null)) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Commission rate is required.",
+            path: ["commissionRate"],
+        });
     }
-    if (data.payStructure === 'hourly') {
-        return data.hourlyRate !== undefined && data.hourlyRate !== null;
+    if (data.payStructure === 'hourly' && (data.hourlyRate === undefined || data.hourlyRate === null)) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Hourly rate is required.",
+            path: ["hourlyRate"],
+        });
     }
-    return true;
-}, {
-    message: "A rate is required for this pay structure.",
-    path: ["commissionRate"],
 });
 
 
