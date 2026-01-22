@@ -691,11 +691,13 @@ const events = useMemo(() => {
     });
     
     const walkInId = appointmentId.replace('apt-walkin-', '');
-    const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
-    updateDocumentNonBlocking(walkInRef, {
-        status: 'ready_for_checkout',
-        serviceEndTime: new Date().toISOString()
-    })
+    if (walkIns?.find(w => w.id === walkInId)) {
+        const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+        updateDocumentNonBlocking(walkInRef, {
+            status: 'ready_for_checkout',
+            serviceEndTime: new Date().toISOString()
+        });
+    }
 
     setIsTechnicianReviewOpen(false);
     setSelectedAppointment(null);
@@ -1084,6 +1086,7 @@ const events = useMemo(() => {
             onConfirmCheckout={handleCheckout}
             onSendToFrontDesk={handleSendToFrontDesk}
             onRebook={handleRebook}
+            staff={staff || []}
         />
       )}
       {selectedAppointmentData && (
@@ -1095,6 +1098,7 @@ const events = useMemo(() => {
             }}
             appointmentData={selectedAppointmentData}
             onSendToFrontDesk={handleSendToFrontDesk}
+            staff={staff || []}
         />
       )}
       <AddAppointmentDialog 
@@ -1248,4 +1252,5 @@ const events = useMemo(() => {
     </div>
   );
 }
+
 
