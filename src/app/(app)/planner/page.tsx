@@ -73,6 +73,7 @@ import { nanoid } from 'nanoid';
 import { WeeklyKpiSheet } from '@/components/planner/WeeklyKpiSheet';
 import { BillsDueSheet } from '@/components/planner/BillsDueSheet';
 import { Html5Qrcode } from 'html5-qrcode';
+import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 
 
 export default function PlannerPage() {
@@ -91,6 +92,7 @@ export default function PlannerPage() {
   const tenantId = 'tenant-abc';
   
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
   const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
   const [isEditAppointmentOpen, setIsEditAppointmentOpen] = useState(false);
   const [isRescheduleOpen, setIsRescheduleOpen] = useState(false);
@@ -185,11 +187,11 @@ export default function PlannerPage() {
 
 const events = useMemo(() => {
     if (!fetchedEvents) return [];
-    return fetchedEvents.map(evt => ({
-      ...evt,
-      startTime: (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : parseISO(evt.startTime as any),
-      endTime: (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : parseISO(evt.endTime as any),
-    }));
+    return fetchedEvents.map(evt => {
+      const startTime = (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : parseISO(evt.startTime as any);
+      const endTime = (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : parseISO(evt.endTime as any);
+      return ({ ...evt, startTime, endTime });
+    });
   }, [fetchedEvents]);
   
   const billDefinitions = useMemo(() => (fetchedBillDefinitions && fetchedBillDefinitions.length > 0) ? fetchedBillDefinitions : [], [fetchedBillDefinitions]);
@@ -687,7 +689,15 @@ const events = useMemo(() => {
         checkoutState,
         actualEndTime: new Date().toISOString(),
     });
-    setIsCheckoutOpen(false);
+    
+    const walkInId = appointmentId.replace('apt-walkin-', '');
+    const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+    updateDocumentNonBlocking(walkInRef, {
+        status: 'ready_for_checkout',
+        serviceEndTime: new Date().toISOString()
+    })
+
+    setIsTechnicianReviewOpen(false);
     setSelectedAppointment(null);
     toast({
       title: 'Sent to Front Desk',
@@ -737,7 +747,7 @@ const events = useMemo(() => {
   const handleFinishService = (appointment: Appointment) => {
     const updatedAppointment = { ...appointment, actualEndTime: new Date().toISOString() };
     setSelectedAppointment(updatedAppointment);
-    setIsCheckoutOpen(true);
+    setIsTechnicianReviewOpen(true);
   };
 
 
@@ -870,22 +880,24 @@ const events = useMemo(() => {
             };
 
             const onScanFailure = (error: any) => { /* ignore */ };
-
-            html5QrCode.start(
-                { facingMode: "environment" },
-                { fps: 10, qrbox: { width: 250, height: 250 } },
-                onScanSuccess,
-                onScanFailure
-            ).catch(err => {
-                toast({
-                    variant: 'destructive',
-                    title: 'Camera Error',
-                    description: 'Could not start the camera. Please check permissions and try again.',
+            
+            setTimeout(() => {
+                html5QrCode?.start(
+                    { facingMode: "environment" },
+                    { fps: 10, qrbox: { width: 250, height: 250 } },
+                    onScanSuccess,
+                    onScanFailure
+                ).catch(err => {
+                    toast({
+                        variant: 'destructive',
+                        title: 'Camera Error',
+                        description: 'Could not start the camera. Please check permissions and try again.',
+                    });
+                    setIsScannerOpen(false);
                 });
-                setIsScannerOpen(false);
-            });
+            }, 300);
         }
-      }, 300); // A small delay to allow dialog animation to complete
+      }, 100); 
 
       return () => {
           clearTimeout(timer);
@@ -1074,6 +1086,17 @@ const events = useMemo(() => {
             onRebook={handleRebook}
         />
       )}
+      {selectedAppointmentData && (
+        <TechnicianReviewDialog
+            open={isTechnicianReviewOpen}
+            onOpenChange={(isOpen) => {
+                if(!isOpen) setSelectedAppointment(null);
+                setIsTechnicianReviewOpen(isOpen);
+            }}
+            appointmentData={selectedAppointmentData}
+            onSendToFrontDesk={handleSendToFrontDesk}
+        />
+      )}
       <AddAppointmentDialog 
         open={isAddAppointmentOpen}
         onOpenChange={(isOpen) => {
@@ -1225,3 +1248,4 @@ const events = useMemo(() => {
     </div>
   );
 }
+
