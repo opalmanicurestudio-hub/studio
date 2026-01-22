@@ -5,7 +5,7 @@
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square } from 'lucide-react';
-import { events as initialEventsData, type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState } from '@/lib/data';
+import { type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping } from 'date-fns';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -483,13 +483,11 @@ const BillsDueSheet = ({ open, onOpenChange, billInstances, isMobile, onLogPayme
 export default function PlannerPage() {
   const isMobile = useIsMobile();
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
-  const [events, setEvents] = useState<Event[]>(initialEventsData);
   
   const { 
     inventory, 
     billDefinitions: mockDefinitions, 
     billInstances: mockInstances,
-    staff,
     setAppointments: setAppointmentsInContext,
     activityLogs, 
     setActivityLogs,
@@ -534,13 +532,6 @@ export default function PlannerPage() {
     return duration;
   }, [finishConfirmAppointment]);
 
-
-  useEffect(() => {
-    if (staff && staff.length > 0 && !mobileSelectedStaffId) {
-      setMobileSelectedStaffId(staff[0].id);
-    }
-  }, [staff, mobileSelectedStaffId]);
-
   // --- Data Fetching ---
   const billDefinitionsQuery = useMemoFirebase(() => {
     if (isUserLoading || !user || !firestore) return null;
@@ -572,12 +563,30 @@ export default function PlannerPage() {
     return collection(firestore, `tenants/${tenantId}/services`);
   }, [firestore, user, tenantId]);
 
+  const staffQuery = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    return collection(firestore, `tenants/${tenantId}/staff`);
+  }, [firestore, user, tenantId]);
+
+  const eventsQuery = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    return collection(firestore, `tenants/${tenantId}/events`);
+  }, [firestore, user, tenantId]);
+
   const { data: fetchedBillDefinitions } = useCollection<BillDefinition>(billDefinitionsQuery);
   const { data: fetchedBillInstances } = useCollection<BillInstance>(billInstancesQuery);
   const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
   const { data: clients, isLoading: clientsLoading } = useCollection<Client>(clientsQuery);
   const { data: walkIns, isLoading: walkInsLoading } = useCollection<WalkIn>(walkInQuery);
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
+  const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
+  const { data: fetchedEvents, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
+
+  useEffect(() => {
+    if (staff && staff.length > 0 && !mobileSelectedStaffId) {
+      setMobileSelectedStaffId(staff[0].id);
+    }
+  }, [staff, mobileSelectedStaffId]);
 
   const appointments = useMemo(() => {
     if (!appointmentsFromDB) return [];
@@ -587,6 +596,15 @@ export default function PlannerPage() {
       endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any),
     }));
   }, [appointmentsFromDB]);
+
+  const events = useMemo(() => {
+    if (!fetchedEvents) return [];
+    return fetchedEvents.map(evt => ({
+      ...evt,
+      startTime: (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : parseISO(evt.startTime as any),
+      endTime: (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : parseISO(evt.endTime as any),
+    }));
+  }, [fetchedEvents]);
   
   const billDefinitions = useMemo(() => (fetchedBillDefinitions && fetchedBillDefinitions.length > 0) ? fetchedBillDefinitions : mockDefinitions, [fetchedBillDefinitions, mockDefinitions]);
   const billInstances = useMemo(() => (fetchedBillInstances && fetchedBillInstances.length > 0) ? fetchedBillInstances : mockInstances, [fetchedBillInstances, mockInstances]);
@@ -695,13 +713,13 @@ export default function PlannerPage() {
       });
 
     // Process events
-    events
-      .filter(evt => isSameDay(parseISO(evt.startTime), currentDate))
+    (events || [])
+      .filter(evt => isSameDay(evt.startTime, currentDate))
       .forEach(evt => {
           const eventWithDateObjects = {
               ...evt,
-              startTime: parseISO(evt.startTime),
-              endTime: parseISO(evt.endTime),
+              startTime: evt.startTime,
+              endTime: evt.endTime,
           };
 
           if (evt.staffId && map.has(evt.staffId)) {
@@ -730,7 +748,7 @@ export default function PlannerPage() {
 
   const staffToDisplay = useMemo(() => {
     if (isMobile) {
-        if (!mobileSelectedStaffId) return [];
+        if (!mobileSelectedStaffId || !staff) return [];
         const selected = (staff || []).find(s => s.id === mobileSelectedStaffId);
         return selected ? [selected] : [];
     }
@@ -967,7 +985,16 @@ export default function PlannerPage() {
   };
 
   const handleAddEvent = (newEvent: Omit<Event, 'id'>) => {
-    const newEventWithId = { ...newEvent, id: `evt-${Date.now()}` };
+    if (!firestore) return;
+    const newEventWithId = { ...newEvent, id: nanoid() };
+    const eventRef = doc(firestore, 'tenants', tenantId, 'events', newEventWithId.id);
+    const dataToSave = {
+        ...newEventWithId,
+        startTime: newEventWithId.startTime.toISOString(),
+        endTime: newEventWithId.endTime.toISOString(),
+    };
+    setDocumentNonBlocking(eventRef, dataToSave, {});
+
     if (newEvent.cost && newEvent.cost > 0 && newEvent.type !== 'blocked') {
         const newTransaction = {
             description: `Expense for: ${newEvent.title}`,
@@ -983,7 +1010,6 @@ export default function PlannerPage() {
         handleAddTransaction(newTransaction)
     }
 
-    setEvents(prev => [...prev, newEventWithId].sort((a,b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime()));
     toast({
         title: "Event Added",
         description: `"${newEvent.title}" has been added to your calendar.`
@@ -992,7 +1018,14 @@ export default function PlannerPage() {
   };
 
     const handleUpdateEvent = (updatedEvent: Event) => {
-        setEvents(prev => prev.map(e => e.id === updatedEvent.id ? updatedEvent : e));
+        if (!firestore) return;
+        const eventRef = doc(firestore, 'tenants', tenantId, 'events', updatedEvent.id);
+        const dataToSave = {
+            ...updatedEvent,
+            startTime: updatedEvent.startTime.toISOString(),
+            endTime: updatedEvent.endTime.toISOString(),
+        };
+        updateDocumentNonBlocking(eventRef, dataToSave);
         toast({
             title: "Event Updated",
             description: `"${updatedEvent.title}" has been updated.`
@@ -1108,15 +1141,16 @@ export default function PlannerPage() {
   };
   
   const handleChecklistItemToggle = (eventId: string, checklistItemId: string, completed: boolean) => {
-      setEvents(prevEvents => prevEvents.map(event => {
-          if (event.id === eventId) {
-              const updatedChecklist = event.checklist?.map(item => 
-                  item.id === checklistItemId ? { ...item, completed } : item
-              );
-              return { ...event, checklist: updatedChecklist };
-          }
-          return event;
-      }));
+      if (!firestore) return;
+      const eventToUpdate = events.find(e => e.id === eventId);
+      if (!eventToUpdate) return;
+      
+      const updatedChecklist = eventToUpdate.checklist?.map(item => 
+          item.id === checklistItemId ? { ...item, completed } : item
+      );
+      
+      const eventRef = doc(firestore, 'tenants', tenantId, 'events', eventId);
+      updateDocumentNonBlocking(eventRef, { checklist: updatedChecklist });
   };
 
   const handleJumpTo = (weeks: number) => {
@@ -1160,9 +1194,9 @@ export default function PlannerPage() {
       .sort((a, b) => apt.startTime.getTime() - b.startTime.getTime());
   }, [appointments, currentDate]);
 
-  const eventsForDay = events
-      .filter(evt => isSameDay(parseISO(evt.startTime), currentDate))
-      .sort((a,b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime());
+  const eventsForDay = (events || [])
+      .filter(evt => isSameDay(evt.startTime, currentDate))
+      .sort((a,b) => evt.startTime.getTime() - b.startTime.getTime());
   
   const [hasMounted, setHasMounted] = useState(false);
   useEffect(() => {
@@ -1171,7 +1205,7 @@ export default function PlannerPage() {
   
   const showStaffColumnHeader = !isMobile || (staff || []).length === 1;
 
-  if (!hasMounted || isUserLoading || appointmentsLoading || servicesLoading || clientsLoading || walkInsLoading) {
+  if (!hasMounted || isUserLoading || appointmentsLoading || servicesLoading || clientsLoading || walkInsLoading || staffLoading || eventsLoading) {
     return (
       <div className="flex h-screen w-full flex-col">
         <AppHeaderClient title="Planner" />
@@ -1387,7 +1421,7 @@ export default function PlannerPage() {
         onOpenChange={setIsAddEventOpen}
         onConfirm={handleAddEvent}
         appointments={appointments || []}
-        events={events}
+        events={events || []}
         staff={staff || []}
       />
        {selectedEvent && (
