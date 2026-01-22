@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -36,6 +35,9 @@ import { format, subDays, startOfDay, endOfDay, parseISO, isPast, differenceInDa
 import { cn } from '@/lib/utils';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { StaffDetailsSheet } from '@/components/staff/StaffDetailsSheet';
+import { useCollection, useFirebase, useMemoFirebase, setDocumentNonBlocking } from '@/firebase';
+import { collection, doc } from 'firebase/firestore';
+
 
 const StaffCard = ({ member, stats, services, onViewDetails }: { member: Staff, stats: any, services: Service[], onViewDetails: (member: Staff & { stats: any }) => void }) => {
     const [licenseInfo, setLicenseInfo] = useState<{
@@ -157,6 +159,22 @@ export default function StaffPage() {
   const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false);
   const [selectedStaffMember, setSelectedStaffMember] = useState<(Staff & { stats: any }) | null>(null);
 
+  const { firestore, user } = useFirebase();
+  const tenantId = 'tenant-abc';
+  
+  const staffQuery = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    return collection(firestore, 'tenants', tenantId, 'staff');
+  }, [firestore, user, tenantId]);
+
+  const { data: firestoreStaff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
+
+  useEffect(() => {
+    if (firestoreStaff) {
+      setStaff(firestoreStaff);
+    }
+  }, [firestoreStaff, setStaff]);
+
   useEffect(() => {
     // Set initial date range on client to avoid hydration mismatch
     setDateRange({ from: subDays(new Date(), 29), to: new Date() });
@@ -260,12 +278,15 @@ export default function StaffPage() {
   };
 
   const handleAddStaff = (newStaffData: Omit<Staff, 'id' | 'avatarUrl'>) => {
+    if (!firestore) return;
     const newStaff: Staff = {
       ...newStaffData,
       id: `staff-${nanoid()}`,
       avatarUrl: `https://picsum.photos/seed/${nanoid()}/100`,
     };
-    setStaff(prev => [...prev, newStaff]);
+    
+    const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', newStaff.id);
+    setDocumentNonBlocking(staffDocRef, newStaff, {});
   };
 
   return (
@@ -350,7 +371,7 @@ export default function StaffPage() {
         staffMember={selectedStaffMember}
         transactions={transactionsForSelectedStaff}
         services={services}
-        appointments={appointments}
+        appointments={appointments || []}
       />
     </div>
   );

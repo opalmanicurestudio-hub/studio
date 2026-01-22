@@ -254,6 +254,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
     const staffDataToSave: Omit<Staff, 'id' | 'avatarUrl'> = {
         ...data,
         commissionRate: data.commissionRate || 0,
+        hourlyRate: data.hourlyRate,
         services: data.services || [],
         compliance: data.compliance?.licenseExpiry 
             ? { ...data.compliance, licenseExpiry: data.compliance.licenseExpiry.toISOString() }
@@ -270,14 +271,14 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
   return (
     <DialogComponent open={open} onOpenChange={onOpenChange}>
         <ContentComponent side={isMobile ? "bottom" : undefined} className={isMobile ? "h-[90vh] p-0 flex flex-col" : "sm:max-w-2xl max-h-[90vh] flex flex-col"}>
-            <DialogHeader className="p-6 pb-0">
-                <DialogTitle>Add New Staff Member</DialogTitle>
-                <DialogDescription>
-                    Enter the details for your new team member. They will receive an invitation via email.
-                </DialogDescription>
-            </DialogHeader>
-             <FormProvider {...methods}>
+            <FormProvider {...methods}>
                 <form id="add-staff-form-comprehensive" onSubmit={handleSubmit(handleSave)} className="flex-1 flex flex-col overflow-hidden">
+                    <DialogHeader className="p-6 pb-0">
+                        <DialogTitle>Add New Staff Member</DialogTitle>
+                        <DialogDescription>
+                            Enter the details for your new team member. They will receive an invitation via email.
+                        </DialogDescription>
+                    </DialogHeader>
                     <div className="flex-1 overflow-y-auto px-6 py-4">
                         <AddStaffForm services={services} />
                     </div>
