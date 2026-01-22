@@ -22,7 +22,7 @@ import {
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
-import { services as initialServices, type Service, inventory as allInventory, type InventoryItem, type Appointment } from '@/lib/data';
+import { type Service, type InventoryItem, type Appointment } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -31,8 +31,8 @@ import { AddServiceDialog } from '@/components/services/AddServiceDialog';
 import { EditServiceDialog } from '@/components/services/EditServiceDialog';
 import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast';
-import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
-import { collection } from 'firebase/firestore';
+import { useCollection, useFirebase, useMemoFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
+import { collection, doc } from 'firebase/firestore';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -389,7 +389,6 @@ const EmptyState = ({ onAddNewService }: { onAddNewService: () => void }) => (
 
 
 export default function ServicesPage() {
-  const { services, setServices } = useInventory();
   const [isAddServiceDialogOpen, setIsAddServiceDialogOpen] = useState(false);
   const [isEditServiceDialogOpen, setIsEditServiceDialogOpen] = useState(false);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
@@ -403,6 +402,14 @@ export default function ServicesPage() {
 
   const { firestore, user, isUserLoading } = useFirebase();
   const tenantId = 'tenant-abc';
+  
+  const servicesQuery = useMemoFirebase(() => {
+    if (isUserLoading || !user || !firestore) return null;
+    return collection(firestore, 'tenants', tenantId, 'services');
+  }, [firestore, user, isUserLoading, tenantId]);
+
+  const { data: services, isLoading: areServicesLoading } = useCollection<Service>(servicesQuery);
+  
   const appointmentsQuery = useMemoFirebase(() => {
     if (isUserLoading || !user || !firestore) return null;
     return collection(firestore, 'tenants', tenantId, 'appointments');
@@ -423,39 +430,40 @@ export default function ServicesPage() {
   }, []);
 
   const handleBulkArchive = useCallback(() => {
-    setServices(prev =>
-        prev.map(item =>
-            selectedItems.has(item.id) ? { ...item, status: 'archived' } : item
-        )
-    );
+    if (!firestore) return;
+    selectedItems.forEach(id => {
+        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', id), { status: 'archived' });
+    });
     toast({ title: `${selectedItems.size} service(s) have been archived.` });
     setSelectedItems(new Set());
-  }, [selectedItems, setServices, toast]);
+  }, [selectedItems, firestore, tenantId, toast]);
 
   const handleBulkUnarchive = useCallback(() => {
-      setServices(prev =>
-          prev.map(item =>
-              selectedItems.has(item.id) ? { ...item, status: 'active' } : item
-          )
-      );
-      toast({ title: `${selectedItems.size} service(s) have been restored.` });
-      setSelectedItems(new Set());
-  }, [selectedItems, setServices, toast]);
+    if (!firestore) return;
+    selectedItems.forEach(id => {
+        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', id), { status: 'active' });
+    });
+    toast({ title: `${selectedItems.size} service(s) have been restored.` });
+    setSelectedItems(new Set());
+  }, [selectedItems, firestore, tenantId, toast]);
 
   const handleBulkDeleteClick = () => {
     setIsBulkDeleteConfirmOpen(true);
   };
   
   const handleBulkDeleteConfirm = useCallback(() => {
+    if (!firestore) return;
     const itemCount = selectedItems.size;
-    setServices(prev => prev.filter(item => !selectedItems.has(item.id)));
+    selectedItems.forEach(id => {
+        deleteDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', id));
+    });
     setSelectedItems(new Set());
     setIsBulkDeleteConfirmOpen(false);
     toast({
         title: "Services Deleted",
         description: `${itemCount} service(s) have been removed.`,
     })
-  }, [selectedItems, setServices, toast]);
+  }, [selectedItems, firestore, tenantId, toast]);
 
   useEffect(() => {
     const storedTmhr = localStorage.getItem('tmhr');
@@ -470,23 +478,63 @@ export default function ServicesPage() {
   };
   
   const handlePriceUpdate = (serviceId: string, newPrice: number) => {
-    setServices(prevServices => prevServices.map(s => {
-        if (s.id === serviceId) {
-             const breakEvenCost = s.cost;
-             const newProfit = newPrice - breakEvenCost;
-             const newMargin = newPrice > 0 ? (newProfit / newPrice) * 100 : 0;
-            return {
-                ...s,
-                price: newPrice,
-                profit: newProfit,
-                margin: newMargin
-            };
-        }
-        return s;
-    }));
+    if (!firestore || !services) return;
+    const serviceToUpdate = services.find(s => s.id === serviceId);
+    if (!serviceToUpdate) return;
+    
+    const breakEvenCost = serviceToUpdate.cost;
+    const newProfit = newPrice - breakEvenCost;
+    const newMargin = newPrice > 0 ? (newProfit / newPrice) * 100 : 0;
+
+    const serviceRef = doc(firestore, 'tenants', tenantId, 'services', serviceId);
+    updateDocumentNonBlocking(serviceRef, { 
+        price: newPrice,
+        profit: newProfit,
+        margin: newMargin
+    });
   };
   
+    const [serviceCategories, setServiceCategories] = useState<string[]>([]);
+    
+    useEffect(() => {
+        if (services) {
+            const allCategories = services.map(s => s.category).filter((c): c is string => !!c);
+            setServiceCategories([...new Set(allCategories)]);
+        }
+    }, [services]);
+
+  const handleNewCategory = (newCategory: string) => {
+    if (!serviceCategories.includes(newCategory)) {
+        setServiceCategories(prev => [...prev, newCategory]);
+    }
+  };
+  
+  const handleAddNewService = (newService: Service) => {
+    if (!firestore) return;
+    const serviceRef = doc(firestore, 'tenants', tenantId, 'services', newService.id);
+    setDocumentNonBlocking(serviceRef, newService, {});
+
+    if (newService.category && !serviceCategories.includes(newService.category)) {
+      setServiceCategories(prev => [...prev, newService.category as string]);
+    }
+  };
+
+  const handleUpdateService = (updatedService: Service) => {
+    if (!firestore) return;
+    const serviceRef = doc(firestore, 'tenants', tenantId, 'services', updatedService.id);
+    updateDocumentNonBlocking(serviceRef, updatedService);
+
+    if (updatedService.category && !serviceCategories.includes(updatedService.category)) {
+      setServiceCategories(prev => [...prev, updatedService.category as string]);
+    }
+    toast({
+        title: "Service Updated",
+        description: `${updatedService.name} has been updated successfully.`
+    })
+  };
+
   const filteredServices = useMemo(() => {
+    if (!services) return [];
     let servicesToFilter = services.filter(service => {
         return showArchived ? service.status === 'archived' : service.status !== 'archived';
     });
@@ -519,36 +567,7 @@ export default function ServicesPage() {
     return acc;
   }, {} as Record<string, Service[]>), [addOnServices]);
   
-  const [serviceCategories, setServiceCategories] = useState(() => {
-      const allCategories = initialServices.map(s => s.category).filter((c): c is string => !!c);
-      return [...new Set(allCategories)];
-  });
-
-  const handleNewCategory = (newCategory: string) => {
-    if (!serviceCategories.includes(newCategory)) {
-        setServiceCategories(prev => [...prev, newCategory]);
-    }
-  };
-  
-  const handleAddNewService = (newService: Service) => {
-    setServices(prev => [...prev, newService]);
-    if (newService.category && !serviceCategories.includes(newService.category)) {
-      setServiceCategories(prev => [...prev, newService.category as string]);
-    }
-  };
-
-  const handleUpdateService = (updatedService: Service) => {
-    setServices(prev => prev.map(s => s.id === updatedService.id ? updatedService : s));
-    if (updatedService.category && !serviceCategories.includes(updatedService.category)) {
-      setServiceCategories(prev => [...prev, updatedService.category as string]);
-    }
-    toast({
-        title: "Service Updated",
-        description: `${updatedService.name} has been updated successfully.`
-    })
-  };
-
-  const hasServices = services.length > 0;
+  const hasServices = services && services.length > 0;
 
   return (
     <div className="w-full">
@@ -621,7 +640,9 @@ export default function ServicesPage() {
             <TabsTrigger value="add-ons">Add-ons</TabsTrigger>
           </TabsList>
           <TabsContent value="services" className="mt-6 space-y-8">
-             {Object.keys(servicesByCategory).length > 0 ? (
+             {!hasServices && !areServicesLoading ? (
+                <EmptyState onAddNewService={() => setIsAddServiceDialogOpen(true)} />
+            ) : Object.keys(servicesByCategory).length > 0 ? (
                 Object.entries(servicesByCategory).map(([category, services]) => (
                     <ServiceCategory 
                         key={category} 
@@ -635,7 +656,13 @@ export default function ServicesPage() {
                         onSelectItem={handleItemSelect}
                     />
                 ))
-            ) : <EmptyState onAddNewService={() => setIsAddServiceDialogOpen(true)} />}
+            ) : !areServicesLoading ? (
+                 <Card>
+                    <CardContent className="text-center py-20">
+                        <p className="text-muted-foreground">No services match your filters.</p>
+                    </CardContent>
+                </Card>
+            ) : null}
           </TabsContent>
           <TabsContent value="add-ons" className="mt-6 space-y-8">
              {Object.keys(addOnsByCategory).length > 0 ? (
