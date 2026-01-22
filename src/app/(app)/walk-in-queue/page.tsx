@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -141,7 +140,7 @@ const WaitingCustomerCard = ({ walkIn, services, onPrintTicket, onOpenAssignDial
     );
 };
 
-const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange, onPrintTicket, onCompleteClick }: { walkIn: WalkIn, services: any[], staff: Staff[], onStatusChange: (walkInId: string, staffId: string, status: WalkIn['status']) => void, onPrintTicket: (data: WalkIn) => void, onCompleteClick: (walkIn: WalkIn) => void }) => {
+const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange, onPrintTicket, onFinishService }: { walkIn: WalkIn, services: any[], staff: Staff[], onStatusChange: (walkInId: string, staffId: string, status: WalkIn['status']) => void, onPrintTicket: (data: WalkIn) => void, onFinishService: (walkIn: WalkIn) => void }) => {
     const walkInServices = services.filter(s => walkIn.serviceIds.includes(s.id));
     const assignedStaff = staff.find(s => s.id === walkIn.assignedStaffId);
     
@@ -226,7 +225,7 @@ const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange, onPrin
                 </div>
                  <div className="mt-4 border-t pt-4 flex justify-end gap-2">
                     <Button variant="outline" size="sm" onClick={() => onStatusChange(walkIn.id, assignedStaff?.id || '', 'skipped')}>Mark as Skipped</Button>
-                    <Button size="sm" onClick={() => onCompleteClick(walkIn)}>Mark as Completed</Button>
+                    <Button size="sm" onClick={() => onFinishService(walkIn)}>Finish Service</Button>
                 </div>
             </CardContent>
         </Card>
@@ -489,6 +488,29 @@ export default function WalkInQueuePage() {
     if (!walkIns) return [];
     return (walkIns || []).filter(w => w.status === 'ready_for_checkout').sort((a, b) => (parseISO(a.serviceEndTime || a.checkInTime)).getTime() - (parseISO(b.serviceEndTime || b.checkInTime)).getTime());
   }, [walkIns]);
+  
+  const handleFinishService = (walkIn: WalkIn) => {
+    if (!firestore) return;
+    const nowISO = new Date().toISOString();
+    
+    const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkIn.id);
+    updateDocumentNonBlocking(walkInDocRef, {
+        status: 'ready_for_checkout',
+        serviceEndTime: nowISO,
+    });
+    
+    const appointmentId = `apt-walkin-${walkIn.id}`;
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+    updateDocumentNonBlocking(appointmentRef, {
+        status: 'ready_for_checkout',
+        actualEndTime: nowISO
+    });
+    
+    toast({
+        title: "Service Finished",
+        description: `${walkIn.customerName} is now ready for checkout.`
+    });
+  };
 
   const handleStaffStatusChange = (staffId: string, statusUpdate: Partial<Staff>) => {
     if (!firestore || !staff) return;
@@ -554,6 +576,7 @@ export default function WalkInQueuePage() {
     const tempAppointment: Appointment = {
       id: `apt-walkin-${walkIn.id}`,
       clientId: walkIn.clientId || `walkin-${walkIn.customerName}`,
+      clientName: walkIn.customerName,
       serviceId: service.id,
       staffId: walkIn.assignedStaffId,
       startTime: parseISO(walkIn.serviceStartTime || walkIn.checkInTime).toISOString(),
@@ -561,6 +584,8 @@ export default function WalkInQueuePage() {
       status: 'ready_for_checkout',
       isWalkIn: true,
       addOnIds: walkIn.serviceIds.slice(1),
+      actualStartTime: walkIn.serviceStartTime,
+      actualEndTime: walkIn.serviceEndTime
     };
     setCheckoutAppointment(tempAppointment);
   };
@@ -812,7 +837,7 @@ export default function WalkInQueuePage() {
                                 staff={staff || []}
                                 onStatusChange={handleWalkInStatusChange}
                                 onPrintTicket={setTicketToPrint}
-                                onCompleteClick={handleCompleteClick}
+                                onFinishService={handleFinishService}
                             />
                         ))
                     ) : (
