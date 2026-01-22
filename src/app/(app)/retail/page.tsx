@@ -17,7 +17,7 @@ import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle, UserPlus, Coins, Printer, Wallet, Award, Repeat, CheckCircle, Percent } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
-import { type InventoryItem, type StockCorrection, type Transaction, type Client, type Appointment, type Service, type AppointmentCheckoutState, Membership, Package, type ClientFormData } from '@/lib/data';
+import { type InventoryItem, type StockCorrection, type Transaction, type Client, type Appointment, type Service, type AppointmentCheckoutState, Membership, Package, type ClientFormData, type WalkIn } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -516,9 +516,11 @@ export default function RetailPage() {
 
   const clientsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/clients`), [firestore, tenantId]);
   const appointmentsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/appointments`), [firestore, tenantId]);
+  const walkInQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/walkIns`), [firestore, tenantId]);
 
   const { data: clients, setClients } = useCollection<Client>(clientsQuery);
   const { data: appointmentsFromDB, setAppointments } = useCollection<Appointment>(appointmentsQuery);
+  const { data: walkIns } = useCollection<WalkIn>(walkInQuery);
   
   // Memoized conversion to Date objects
   const liveAppointments = useMemo(() => {
@@ -791,7 +793,7 @@ export default function RetailPage() {
             toast({
                 variant: 'destructive',
                 title: 'Appointment Not Found',
-                description: 'Could not find a matching walk-in appointment.',
+                description: 'Could not find a matching walk-in appointment. The data may still be syncing. Please try again in a moment.',
             });
         }
     } else if (data.startsWith('clarityflow://product/')) {
@@ -992,13 +994,13 @@ export default function RetailPage() {
     const clientData = clients?.find(c => c.id === checkoutAppointment.clientId);
     const serviceData = services.find(s => s.id === checkoutAppointment.serviceId);
 
-    const walkInClientName = checkoutAppointment.isWalkIn ?
-      (inventory.find(i => `apt-walkin-${i.id}` === checkoutAppointment.id) as any)?.customerName || 'Walk-in'
-      : 'Unknown Client';
+    const walkInClientName = checkoutAppointment.isWalkIn ? 
+        (walkIns?.find(w => `apt-walkin-${w.id}` === checkoutAppointment.id))?.customerName || 'Walk-in' 
+        : 'Unknown Client';
 
     const displayClient = clientData || {
       id: checkoutAppointment.clientId,
-      name: checkoutAppointment.isWalkIn ? walkInClientName : 'Unknown Client',
+      name: checkoutAppointment.clientName || walkInClientName,
       email: '', phone: '', avatarUrl: '', lifetimeValue: 0, lastAppointment: '',
     };
         
@@ -1007,7 +1009,7 @@ export default function RetailPage() {
       client: displayClient,
       service: serviceData,
     };
-  }, [checkoutAppointment, clients, services, inventory]);
+  }, [checkoutAppointment, clients, services, walkIns]);
 
 
   return (
@@ -1208,3 +1210,5 @@ export default function RetailPage() {
     </>
   );
 }
+
+    
