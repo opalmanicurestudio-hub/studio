@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -153,7 +154,7 @@ const StaffCard = ({ member, stats, services, onViewDetails, onEdit }: { member:
 
 
 export default function StaffPage() {
-  const { setStaff: setStaffInContext, appointments, services, transactions, stockCorrections, inventory } = useInventory();
+  const { setStaff: setStaffInContext, appointments, transactions, stockCorrections, inventory } = useInventory();
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
   const [isEditStaffOpen, setIsEditStaffOpen] = useState(false);
   const [editingStaff, setEditingStaff] = useState<Staff | null>(null);
@@ -170,6 +171,13 @@ export default function StaffPage() {
   }, [firestore, user, tenantId]);
 
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
+
+  const servicesQuery = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    return collection(firestore, 'tenants', tenantId, 'services');
+  }, [firestore, user, tenantId]);
+
+  const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
 
   useEffect(() => {
     if (staff) {
@@ -386,7 +394,7 @@ export default function StaffPage() {
         {(staff || []).length > 0 ? (
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {staffWithStats.map((member) => (
-              <StaffCard key={member.id} member={member} stats={member.stats} services={services} onViewDetails={handleViewDetails} onEdit={handleEditClick} />
+              <StaffCard key={member.id} member={member} stats={member.stats} services={services || []} onViewDetails={handleViewDetails} onEdit={handleEditClick} />
             ))}
           </div>
         ) : (
@@ -403,21 +411,21 @@ export default function StaffPage() {
         open={isAddStaffOpen} 
         onOpenChange={setIsAddStaffOpen} 
         onSave={handleAddStaff}
-        services={services}
+        services={services || []}
       />
       <EditStaffDialog 
         open={isEditStaffOpen} 
         onOpenChange={setIsEditStaffOpen} 
         onSave={handleUpdateStaff}
         staffMember={editingStaff}
-        services={services}
+        services={services || []}
       />
        <StaffDetailsSheet
         open={isDetailsSheetOpen}
         onOpenChange={setIsDetailsSheetOpen}
         staffMember={selectedStaffMember}
         transactions={transactionsForSelectedStaff}
-        services={services}
+        services={services || []}
         appointments={appointments || []}
       />
     </div>
