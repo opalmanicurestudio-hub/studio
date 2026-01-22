@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
@@ -6,9 +5,9 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
   CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
-  CardDescription,
   CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -41,7 +40,8 @@ import { CompleteAppointmentDialog, type CheckoutData } from '@/components/plann
 import { nanoid } from 'nanoid';
 import { Html5Qrcode } from 'html5-qrcode';
 import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
-import { collection, doc, parseISO } from 'firebase/firestore';
+import { collection, doc } from 'firebase/firestore';
+import { parseISO } from 'date-fns';
 
 
 type CartItem = {
@@ -1210,5 +1210,3 @@ export default function RetailPage() {
     </>
   );
 }
-
-    
