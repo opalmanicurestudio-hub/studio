@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
@@ -7,7 +8,7 @@ import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, C
 import { type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping } from 'date-fns';
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { CompleteAppointmentDialog, type CheckoutData } from '@/components/planner/CompleteAppointmentDialog';
 import { useInventory } from '@/context/InventoryContext';
@@ -193,11 +194,11 @@ export default function PlannerPage() {
 
 const events = useMemo(() => {
     if (!fetchedEvents) return [];
-    return fetchedEvents.map(evt => ({
-        ...evt,
-        startTime: (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : parseISO(evt.startTime as any),
-        endTime: (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : parseISO(evt.endTime as any),
-    }));
+    return fetchedEvents.map(evt => {
+        const startTime = (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : parseISO(evt.startTime as string);
+        const endTime = (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : parseISO(evt.endTime as string);
+        return { ...evt, startTime, endTime };
+    });
 }, [fetchedEvents]);
 
   
@@ -798,7 +799,8 @@ const events = useMemo(() => {
     setHasMounted(true);
   }, []);
   
-  const handleScan = (data: string) => {
+  const handleScan = useCallback((data: string) => {
+    if (!appointments) return;
     if (data.startsWith('clarityflow://walk-in/')) {
         const walkInId = data.split('/').pop();
         const appointmentId = `apt-walkin-${walkInId}`;
@@ -815,51 +817,53 @@ const events = useMemo(() => {
             });
         }
     }
-  };
+  }, [appointments, toast]);
 
   useEffect(() => {
     if (scannedData) {
         handleScan(scannedData);
         setScannedData(null); // Reset after processing
     }
-  }, [scannedData, appointments]);
+  }, [scannedData, handleScan]);
 
   useEffect(() => {
+    let html5QrCode: Html5Qrcode | undefined;
     if (isScannerOpen) {
-        const qrCodeScanner = new Html5Qrcode('qr-reader-planner');
-        scannerRef.current = qrCodeScanner;
-
+      const element = document.getElementById('qr-reader-planner');
+      if (element) {
+        html5QrCode = new Html5Qrcode('qr-reader-planner');
         const onScanSuccess = (decodedText: string, decodedResult: any) => {
-            if (scannerRef.current && scannerRef.current.isScanning) {
-                scannerRef.current.stop();
-            }
-            setScannedData(decodedText);
-            setIsScannerOpen(false);
+          if (html5QrCode?.isScanning) {
+            html5QrCode.stop().catch(console.error);
+          }
+          setScannedData(decodedText);
+          setIsScannerOpen(false);
         };
 
         const onScanFailure = (error: any) => { /* ignore */ };
 
-        qrCodeScanner.start(
-            { facingMode: "environment" },
-            { fps: 10, qrbox: { width: 250, height: 250 } },
-            onScanSuccess,
-            onScanFailure
+        html5QrCode.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 250, height: 250 } },
+          onScanSuccess,
+          onScanFailure
         ).catch(err => {
-            toast({
-                variant: 'destructive',
-                title: 'Camera Error',
-                description: 'Could not start the camera. Please check permissions and try again.',
-            });
-            setIsScannerOpen(false);
+          toast({
+            variant: 'destructive',
+            title: 'Camera Error',
+            description: 'Could not start the camera. Please check permissions and try again.',
+          });
+          setIsScannerOpen(false);
         });
+      }
     }
 
     return () => {
-        if (scannerRef.current && scannerRef.current.isScanning) {
-            scannerRef.current.stop().catch(err => {
-                console.error("Failed to stop QR Code scanner.", err);
-            });
-        }
+      if (html5QrCode && html5QrCode.isScanning) {
+        html5QrCode.stop().catch(err => {
+          console.error("Failed to stop QR Code scanner.", err);
+        });
+      }
     };
   }, [isScannerOpen, toast]);
   
