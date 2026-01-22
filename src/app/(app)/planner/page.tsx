@@ -199,19 +199,26 @@ const DayTimeline = ({
         let client = (clients || []).find(c => c.id === item.clientId);
         const service = (services || []).find(s => s.id === item.serviceId);
 
+        // Fallback for walk-ins that haven't been converted to full clients yet
         if (!client && item.isWalkIn) {
-            const walkIn = (walkIns || [])?.find(w => `apt-walkin-${w.id}` === item.id);
-            if (walkIn) {
-                client = {
-                    id: item.clientId,
-                    name: walkIn.customerName,
-                    email: walkIn.customerEmail || '',
-                    phone: walkIn.customerPhone || '',
-                    avatarUrl: '',
-                    lifetimeValue: 0,
-                    lastAppointment: walkIn.checkInTime,
-                    birthday: walkIn.customerBirthday,
-                };
+            // Use denormalized name first
+            if (item.clientName) {
+                client = { id: item.clientId, name: item.clientName, email: '', phone: '', avatarUrl: '', lifetimeValue: 0, lastAppointment: '' };
+            } else {
+                // Fallback to searching the walkIns collection
+                const walkIn = (walkIns || [])?.find(w => `apt-walkin-${w.id}` === item.id);
+                if (walkIn) {
+                    client = {
+                        id: item.clientId,
+                        name: walkIn.customerName,
+                        email: walkIn.customerEmail || '',
+                        phone: walkIn.customerPhone || '',
+                        avatarUrl: '',
+                        lifetimeValue: 0,
+                        lastAppointment: walkIn.checkInTime,
+                        birthday: walkIn.customerBirthday,
+                    };
+                }
             }
         }
         

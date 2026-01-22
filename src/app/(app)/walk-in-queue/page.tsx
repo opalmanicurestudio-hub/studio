@@ -392,11 +392,13 @@ export default function WalkInQueuePage() {
     const staffUpdate = { status: 'busy' as const };
     updateDocumentNonBlocking(staffDocRef, staffUpdate);
 
+    const client = clients?.find(c => c.id === walkIn.clientId);
     const service = services.find(s => s.id === walkIn.serviceIds[0]);
     if (service) {
         const appointmentEndTime = addMinutes(now, walkIn.estimatedDuration);
-        const newAppointmentForFirestore: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & { startTime: Date, endTime: Date } = {
+        const newAppointmentForFirestore: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & { startTime: Date, endTime: Date, clientName: string } = {
             clientId: walkIn.clientId || `walkin-${walkIn.id}`,
+            clientName: client?.name || walkIn.customerName,
             serviceId: service.id,
             staffId: staffId,
             startTime: now,
@@ -408,7 +410,7 @@ export default function WalkInQueuePage() {
         const aptDocRef = doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkIn.id}`);
         setDocumentNonBlocking(aptDocRef, newAppointmentForFirestore, {});
     }
-  }, [firestore, tenantId, walkIns, staff, services]);
+  }, [firestore, tenantId, walkIns, staff, services, clients]);
 
   const handleManualAssign = (staffId: string) => {
     if (walkInToAssign) {
@@ -516,8 +518,8 @@ export default function WalkInQueuePage() {
       clientId: walkIn.clientId || `walkin-${walkIn.customerName}`,
       serviceId: service.id,
       staffId: walkIn.assignedStaffId,
-      startTime: parseISO(walkIn.serviceStartTime || walkIn.checkInTime).toISOString(),
-      endTime: addMinutes(parseISO(walkIn.serviceStartTime || walkIn.checkInTime), walkIn.estimatedDuration).toISOString(),
+      startTime: parseISO(walkIn.serviceStartTime || walkIn.checkInTime),
+      endTime: addMinutes(parseISO(walkIn.serviceStartTime || walkIn.checkInTime), walkIn.estimatedDuration),
       status: 'ready_for_checkout',
       isWalkIn: true,
       addOnIds: walkIn.serviceIds.slice(1),
@@ -843,5 +845,6 @@ export default function WalkInQueuePage() {
     </>
   );
 }
+
 
 

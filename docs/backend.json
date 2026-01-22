@@ -316,6 +316,10 @@
             "type": "string",
             "format": "date-time",
             "description": "The actual end time of the service, logged when staff finishes."
+        },
+        "clientName": {
+            "type": "string",
+            "description": "Denormalized name of the client."
         }
       },
       "required": [
