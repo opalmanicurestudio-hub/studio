@@ -193,12 +193,12 @@ export default function PlannerPage() {
 }, [appointmentsFromDB]);
 
 const events = useMemo(() => {
-    if (!fetchedEvents) return [];
-    return fetchedEvents.map(evt => {
-        const startTime = (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : parseISO(evt.startTime as string);
-        const endTime = (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : parseISO(evt.endTime as string);
-        return { ...evt, startTime, endTime };
-    });
+  if (!fetchedEvents) return [];
+  return fetchedEvents.map(evt => {
+    const startTime = (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : parseISO(evt.startTime as string);
+    const endTime = (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : parseISO(evt.endTime as string);
+    return { ...evt, startTime, endTime };
+  });
 }, [fetchedEvents]);
 
   
@@ -765,8 +765,19 @@ const events = useMemo(() => {
 
   const selectedAppointmentData = useMemo(() => {
     if (!selectedAppointment) return null;
-    const client = (clients || []).find(c => c.id === selectedAppointment.clientId);
+    let client = (clients || []).find(c => c.id === selectedAppointment.clientId);
     const service = (services || []).find(s => s.id === selectedAppointment.serviceId);
+
+    // If client is not found in the main client list (e.g., for a new walk-in)
+    // create a temporary client object using the denormalized name.
+    if (!client && selectedAppointment.clientName) {
+        client = {
+            id: selectedAppointment.clientId,
+            name: selectedAppointment.clientName,
+            email: '', phone: '', avatarUrl: '', lifetimeValue: 0, lastAppointment: ''
+        };
+    }
+
     return { appointment: selectedAppointment, client, service };
   }, [selectedAppointment, clients, services]);
   
@@ -1216,4 +1227,3 @@ const events = useMemo(() => {
     </div>
   );
 }
-

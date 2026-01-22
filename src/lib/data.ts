@@ -226,6 +226,7 @@ export type AppointmentCheckoutState = {
 export type Appointment = {
   id: string;
   clientId: string;
+  clientName?: string;
   serviceId: string;
   staffId?: string;
   startTime: string;
