@@ -844,7 +844,7 @@ const events = useMemo(() => {
   const appointmentsForDay = useMemo(() => {
     return (appointments || [])
       .filter(apt => isSameDay(apt.startTime, currentDate))
-      .sort((a, b) => apt.startTime.getTime() - b.startTime.getTime());
+      .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
   }, [appointments, currentDate]);
 
   const eventsForDay = (events || [])
@@ -1043,7 +1043,7 @@ const events = useMemo(() => {
                         </Button>
                     </TooltipTrigger><TooltipContent><p>Bills Due Today</p></TooltipContent></Tooltip>
                     <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsPickingListOpen(true)}><List className="w-4 h-4" /><span className="sr-only">Picking List</span></Button></TooltipTrigger><TooltipContent><p>Picking List</p></TooltipContent></Tooltip>
-                    <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}><QrCode className="h-4 w-4" /><span className="sr-only">Scan Ticket</span></Button></TooltipTrigger><TooltipContent><p>Scan Ticket</p></TooltipContent></Tooltip>
+                    <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}><QrCode className="w-4 h-4" /><span className="sr-only">Scan Ticket</span></Button></TooltipTrigger><TooltipContent><p>Scan Ticket</p></TooltipContent></Tooltip>
                 </TooltipProvider>
                 <Button size="sm" onClick={() => setIsAddEventOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Event</Button>
                 <Button size="sm" onClick={() => setIsAddAppointmentOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Appointment</Button>
