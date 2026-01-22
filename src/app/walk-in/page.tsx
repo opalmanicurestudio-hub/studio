@@ -19,7 +19,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { useFirebase, addDocumentNonBlocking } from '@/firebase';
-import { collection } from 'firebase/firestore';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 import { Service, Staff } from '@/lib/data';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { Progress } from '@/components/ui/progress';
@@ -141,8 +141,12 @@ export default function WalkInPage() {
     }
     
     try {
+        const q = query(walkInsRef, where("status", "==", "waiting"));
+        const querySnapshot = await getDocs(q);
+        const newPosition = querySnapshot.size + 1;
+        setQueuePosition(newPosition);
+
         await addDocumentNonBlocking(walkInsRef, newWalkIn);
-        setQueuePosition(Math.floor(Math.random() * 5) + 1); // Mock queue position
         setStep('confirmation');
     } catch (error) {
         console.error("Error adding walk-in:", error);
@@ -375,4 +379,3 @@ export default function WalkInPage() {
     </div>
   );
 }
-

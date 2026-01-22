@@ -294,7 +294,7 @@ const AssignStaffDialog = ({ open, onOpenChange, walkIn, staff, services, onAssi
 
 
 export default function WalkInQueuePage() {
-  const { services, clients, setAppointments, staff: allStaff, setStaff, setActivityLogs, setWalkIns } = useInventory();
+  const { services, clients, setAppointments, staff: allStaff, setStaff, setActivityLogs } = useInventory();
   const { firestore, user } = useFirebase();
   const tenantId = 'tenant-abc';
   const { toast } = useToast();
@@ -319,12 +319,6 @@ export default function WalkInQueuePage() {
   
   const staff = useMemo(() => firestoreStaff && firestoreStaff.length > 0 ? firestoreStaff : allStaff, [firestoreStaff, allStaff]);
   
-  useEffect(() => {
-    if (walkIns) {
-      setWalkIns(walkIns);
-    }
-  }, [walkIns, setWalkIns]);
-
   useEffect(() => {
     if (staff) {
         setStaffOrder(staff);
