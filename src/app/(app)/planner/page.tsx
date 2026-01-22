@@ -5,7 +5,7 @@
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square } from 'lucide-react';
-import { events as initialEventsData, services, type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState } from '@/lib/data';
+import { events as initialEventsData, type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping } from 'date-fns';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -67,7 +67,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import { WalkIn } from '@/lib/data';
+import { WalkIn, type Client, type Service } from '@/lib/data';
 
 
 const DayTimeline = ({ 
@@ -91,6 +91,8 @@ const DayTimeline = ({
     onFinishService,
     onBookNewForClient,
     walkIns,
+    clients,
+    services,
     showStaffColumnHeader,
 }: { 
     date: Date; 
@@ -113,6 +115,8 @@ const DayTimeline = ({
     onFinishService: (appointment: Appointment) => void;
     onBookNewForClient: (clientId: string) => void;
     walkIns: WalkIn[] | null;
+    clients: Client[] | null;
+    services: Service[] | null;
     showStaffColumnHeader: boolean;
 }) => {
     const START_HOUR = 0; // Start at midnight
@@ -120,7 +124,6 @@ const DayTimeline = ({
     const [tmhr, setTmhr] = useState(0);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const isMobile = useIsMobile();
-    const { clients } = useInventory();
 
     useEffect(() => {
       if (typeof window !== 'undefined') {
@@ -193,11 +196,11 @@ const DayTimeline = ({
 
     const renderAppointment = (item: any) => {
         const dayStart = setHours(startOfDay(date), START_HOUR);
-        let client = clients.find(c => c.id === item.clientId);
-        const service = services.find(s => s.id === item.serviceId);
+        let client = (clients || []).find(c => c.id === item.clientId);
+        const service = (services || []).find(s => s.id === item.serviceId);
 
         if (!client && item.isWalkIn) {
-            const walkIn = walkIns?.find(w => `apt-walkin-${w.id}` === item.id);
+            const walkIn = (walkIns || [])?.find(w => `apt-walkin-${w.id}` === item.id);
             if (walkIn) {
                 client = {
                     id: item.clientId,
@@ -487,19 +490,16 @@ export default function PlannerPage() {
     billDefinitions: mockDefinitions, 
     billInstances: mockInstances,
     staff,
-    setAppointments: setAppointmentsInContext, // Use context setter for optimistic updates
+    setAppointments: setAppointmentsInContext,
     activityLogs, 
     setActivityLogs,
     addStockCorrection,
     setTransactions,
-    clients,
     setClients,
-    walkIns: localWalkIns,
-    setWalkIns,
   } = useInventory();
   
   const { firestore, user, isUserLoading } = useFirebase();
-  const tenantId = 'tenant-abc'; // Replace with dynamic tenant ID
+  const tenantId = 'tenant-abc';
   
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
@@ -556,16 +556,28 @@ export default function PlannerPage() {
     if (isUserLoading || !user || !firestore) return null;
     return collection(firestore, 'tenants', tenantId, 'appointments');
   }, [firestore, user, isUserLoading, tenantId]);
-
+  
+  const clientsQuery = useMemoFirebase(() => {
+    if (isUserLoading || !user || !firestore) return null;
+    return collection(firestore, 'tenants', tenantId, 'clients');
+  }, [firestore, user, isUserLoading, tenantId]);
+  
   const walkInQuery = useMemoFirebase(() => {
     if (isUserLoading || !user || !firestore) return null;
     return collection(firestore, 'tenants', tenantId, 'walkIns');
   }, [firestore, user, isUserLoading, tenantId]);
 
+  const servicesQuery = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    return collection(firestore, `tenants/${tenantId}/services`);
+  }, [firestore, user, tenantId]);
+
   const { data: fetchedBillDefinitions } = useCollection<BillDefinition>(billDefinitionsQuery);
   const { data: fetchedBillInstances } = useCollection<BillInstance>(billInstancesQuery);
   const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
-  const { data: liveWalkIns } = useCollection<WalkIn>(walkInQuery);
+  const { data: clients, isLoading: clientsLoading } = useCollection<Client>(clientsQuery);
+  const { data: walkIns, isLoading: walkInsLoading } = useCollection<WalkIn>(walkInQuery);
+  const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
 
   const appointments = useMemo(() => {
     if (!appointmentsFromDB) return [];
@@ -626,7 +638,7 @@ export default function PlannerPage() {
     const end = endOfDay(addDays(start, 6));
     const weekInterval = { start, end };
     
-    const appointmentsInWeek = appointments.filter(apt => {
+    const appointmentsInWeek = (appointments || []).filter(apt => {
         const aptStartTime = apt.startTime;
         return aptStartTime >= weekInterval.start && aptStartTime <= weekInterval.end;
     });
@@ -635,21 +647,21 @@ export default function PlannerPage() {
     const confirmedAppointments = appointmentsInWeek.filter(apt => apt.status === 'confirmed');
 
     const weeklyRevenue = completedAppointments.reduce((acc, apt) => {
-        const service = services.find(s => s.id === apt.serviceId);
+        const service = (services || []).find(s => s.id === apt.serviceId);
         return acc + (service?.price || 0);
     }, 0);
     
     const projectedRevenue = weeklyRevenue + confirmedAppointments.reduce((acc, apt) => {
-        const service = services.find(s => s.id === apt.serviceId);
+        const service = (services || []).find(s => s.id === apt.serviceId);
         return acc + (service?.price || 0);
     }, 0);
     
     const weeklyCosts = completedAppointments.reduce((acc, apt) => {
-        const service = services.find(s => s.id === apt.serviceId);
+        const service = (services || []).find(s => s.id === apt.serviceId);
         return acc + (service?.cost || 0);
     }, 0);
     
-    const monthlyCosts = billDefinitions.reduce((acc, bill) => {
+    const monthlyCosts = (billDefinitions || []).reduce((acc, bill) => {
         if (bill.billingCycle === 'monthly') return acc + bill.amount;
         if (bill.billingCycle === 'weekly') return acc + (bill.amount * 4);
         if (bill.billingCycle === 'quarterly') return acc + (bill.amount / 3);
@@ -670,13 +682,13 @@ export default function PlannerPage() {
   
   const itemsByStaff = useMemo(() => {
     const map = new Map<string, (Appointment | Event & { itemType: string })[]>();
-    staff.forEach(s => map.set(s.id, []));
+    (staff || []).forEach(s => map.set(s.id, []));
 
     // Process appointments
-    appointments
+    (appointments || [])
       .filter(apt => isSameDay(apt.startTime, currentDate))
       .forEach(apt => {
-        const staffId = apt.staffId || staff[0]?.id;
+        const staffId = apt.staffId || (staff || [])[0]?.id;
         if (staffId && map.has(staffId)) {
           map.get(staffId)!.push({ ...apt, itemType: 'appointment' });
         }
@@ -697,12 +709,12 @@ export default function PlannerPage() {
               map.get(evt.staffId)!.push({ ...eventWithDateObjects, itemType: 'event' });
           } else if (evt.type === 'blocked' && !evt.staffId) {
               // Block all staff
-              staff.forEach(s => {
+              (staff || []).forEach(s => {
                   map.get(s.id)!.push({ ...eventWithDateObjects, itemType: 'event' });
               });
           } else {
               // Personal/Business event for the owner (first staff member)
-              const ownerId = staff[0]?.id;
+              const ownerId = (staff || [])[0]?.id;
               if (ownerId) {
                   map.get(ownerId)!.push({ ...eventWithDateObjects, itemType: 'event' });
               }
@@ -719,10 +731,10 @@ export default function PlannerPage() {
   const staffToDisplay = useMemo(() => {
     if (isMobile) {
         if (!mobileSelectedStaffId) return [];
-        const selected = staff.find(s => s.id === mobileSelectedStaffId);
+        const selected = (staff || []).find(s => s.id === mobileSelectedStaffId);
         return selected ? [selected] : [];
     }
-    return staff;
+    return staff || [];
   }, [isMobile, mobileSelectedStaffId, staff]);
 
   const itemsToDisplay = useMemo(() => {
@@ -824,7 +836,7 @@ export default function PlannerPage() {
         const newTransaction: Omit<Transaction, 'id'> = {
             date: new Date().toISOString(),
             description: `Service: ${service.name}`,
-            clientOrVendor: clients.find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
+            clientOrVendor: (clients || []).find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
             type: 'income',
             context: 'Business',
             category: 'Service Revenue',
@@ -842,7 +854,7 @@ export default function PlannerPage() {
             const newTransaction: Omit<Transaction, 'id'> = {
                 date: new Date().toISOString(),
                 description: `Tip for Appointment #${selectedAppointment.id.slice(-4)}`,
-                clientOrVendor: clients.find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
+                clientOrVendor: (clients || []).find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
                 type: 'income',
                 context: 'Business',
                 category: 'Tips',
@@ -867,7 +879,7 @@ export default function PlannerPage() {
             const newTransaction: Omit<Transaction, 'id'> = {
                 date: new Date().toISOString(),
                 description: `Retail Sale (${retailItems.length} items)`,
-                clientOrVendor: clients.find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
+                clientOrVendor: (clients || []).find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
                 type: 'income',
                 context: 'Business',
                 category: 'Retail',
@@ -893,7 +905,7 @@ export default function PlannerPage() {
     
     // 6. Update client packages
     if (redeemedOffer?.type === 'package') {
-        const clientToUpdate = clients.find(c => c.id === selectedAppointment.clientId);
+        const clientToUpdate = (clients || []).find(c => c.id === selectedAppointment.clientId);
         if (clientToUpdate) {
             const updatedPackages = clientToUpdate.activePackages?.map(p => {
                 if (p.packageId === redeemedOffer.id) {
@@ -903,7 +915,7 @@ export default function PlannerPage() {
             }).filter(p => p.sessionsRemaining > 0);
 
             const updatedClient = { ...clientToUpdate, activePackages: updatedPackages };
-            setClients(prev => prev.map(c => c.id === updatedClient.id ? updatedClient : c));
+            setClients(prev => (prev || []).map(c => c.id === updatedClient.id ? updatedClient : c));
         }
     }
     
@@ -917,7 +929,7 @@ export default function PlannerPage() {
     setDocumentNonBlocking(appointmentRef, newAptWithId, {});
     toast({
         title: "Appointment Booked",
-        description: `Appointment with ${clients.find(c => c.id === newAppointment.clientId)?.name} has been added.`
+        description: `Appointment with ${(clients || []).find(c => c.id === newAppointment.clientId)?.name} has been added.`
     })
     setIsAddAppointmentOpen(false);
     setInitialClientIdForNewApt('');
@@ -1123,8 +1135,8 @@ export default function PlannerPage() {
 
   const selectedAppointmentData = useMemo(() => {
     if (!selectedAppointment) return null;
-    const client = clients.find(c => c.id === selectedAppointment.clientId);
-    const service = services.find(s => s.id === selectedAppointment.serviceId);
+    const client = (clients || []).find(c => c.id === selectedAppointment.clientId);
+    const service = (services || []).find(s => s.id === selectedAppointment.serviceId);
     return { appointment: selectedAppointment, client, service };
   }, [selectedAppointment, clients, services]);
   
@@ -1157,9 +1169,9 @@ export default function PlannerPage() {
     setHasMounted(true);
   }, []);
   
-  const showStaffColumnHeader = !isMobile || staff.length === 1;
+  const showStaffColumnHeader = !isMobile || (staff || []).length === 1;
 
-  if (!hasMounted || isUserLoading || appointmentsLoading) {
+  if (!hasMounted || isUserLoading || appointmentsLoading || servicesLoading || clientsLoading || walkInsLoading) {
     return (
       <div className="flex h-screen w-full flex-col">
         <AppHeaderClient title="Planner" />
@@ -1279,7 +1291,7 @@ export default function PlannerPage() {
       </div>
       
       <main className="flex-1 flex flex-col min-h-0">
-          {isMobile && staff.length > 1 && (
+          {isMobile && (staff || []).length > 1 && (
             <div className="p-4 border-b">
               <Label htmlFor="staff-selector">Viewing Schedule For</Label>
               <Select value={mobileSelectedStaffId} onValueChange={setMobileSelectedStaffId}>
@@ -1287,7 +1299,7 @@ export default function PlannerPage() {
                   <SelectValue placeholder="Select a staff member" />
                 </SelectTrigger>
                 <SelectContent>
-                  {staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                  {(staff || []).map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -1312,7 +1324,9 @@ export default function PlannerPage() {
               onStartService={handleStartService}
               onFinishService={confirmFinishService}
               onBookNewForClient={handleBookNewAppointmentForClient}
-              walkIns={liveWalkIns}
+              walkIns={walkIns}
+              clients={clients}
+              services={services}
               showStaffColumnHeader={showStaffColumnHeader}
           />
       </main>
@@ -1338,10 +1352,10 @@ export default function PlannerPage() {
             }
             setIsAddAppointmentOpen(isOpen);
         }}
-        clients={clients}
-        services={services}
-        staff={staff}
-        appointments={appointments}
+        clients={clients || []}
+        services={services || []}
+        staff={staff || []}
+        appointments={appointments || []}
         onConfirm={handleAddAppointment}
         initialClientId={appointmentToRebook ? appointmentToRebook.clientId : initialClientIdForNewApt}
         appointmentToRebook={appointmentToRebook}
@@ -1351,9 +1365,9 @@ export default function PlannerPage() {
             open={isEditAppointmentOpen}
             onOpenChange={setIsEditAppointmentOpen}
             appointment={selectedAppointment}
-            clients={clients}
-            services={services}
-            appointments={appointments}
+            clients={clients || []}
+            services={services || []}
+            appointments={appointments || []}
             onConfirm={handleUpdateAppointment}
         />
        )}
@@ -1362,9 +1376,9 @@ export default function PlannerPage() {
                 open={isRescheduleOpen}
                 onOpenChange={setIsRescheduleOpen}
                 appointment={selectedAppointment}
-                clients={clients}
-                services={services}
-                appointments={appointments}
+                clients={clients || []}
+                services={services || []}
+                appointments={appointments || []}
                 onConfirm={handleUpdateAppointment}
             />
         )}
@@ -1372,9 +1386,9 @@ export default function PlannerPage() {
         open={isAddEventOpen}
         onOpenChange={setIsAddEventOpen}
         onConfirm={handleAddEvent}
-        appointments={appointments}
+        appointments={appointments || []}
         events={events}
-        staff={staff}
+        staff={staff || []}
       />
        {selectedEvent && (
         <EditEventDialog
@@ -1481,5 +1495,3 @@ export default function PlannerPage() {
     </div>
   );
 }
-
-    
