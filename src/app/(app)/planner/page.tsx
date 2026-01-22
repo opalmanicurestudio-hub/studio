@@ -5,7 +5,7 @@
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square } from 'lucide-react';
-import { services, type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState } from '@/lib/data';
+import { initialEvents, services, type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping } from 'date-fns';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -67,6 +67,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { WalkIn } from '@/lib/data';
 
 
 const DayTimeline = ({ 
@@ -89,6 +90,7 @@ const DayTimeline = ({
     onStartService,
     onFinishService,
     onBookNewForClient,
+    walkIns
 }: { 
     date: Date; 
     staff: Staff[];
@@ -109,13 +111,14 @@ const DayTimeline = ({
     onStartService: (appointmentId: string) => void;
     onFinishService: (appointment: Appointment) => void;
     onBookNewForClient: (clientId: string) => void;
+    walkIns: WalkIn[] | null;
 }) => {
     const START_HOUR = 0; // Start at midnight
     const hours = Array.from({ length: 24 - START_HOUR }, (_, i) => i + START_HOUR);
     const [tmhr, setTmhr] = useState(0);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const isMobile = useIsMobile();
-    const { walkIns, clients } = useInventory();
+    const { clients } = useInventory();
 
     useEffect(() => {
       if (typeof window !== 'undefined') {
@@ -192,7 +195,7 @@ const DayTimeline = ({
         const service = services.find(s => s.id === item.serviceId);
 
         if (!client && item.isWalkIn) {
-            const walkIn = walkIns.find(w => `apt-walkin-${w.id}` === item.id);
+            const walkIn = walkIns?.find(w => `apt-walkin-${w.id}` === item.id);
             if (walkIn) {
                 client = {
                     id: item.clientId,
@@ -475,7 +478,7 @@ const BillsDueSheet = ({ open, onOpenChange, billInstances, isMobile, onLogPayme
 export default function PlannerPage() {
   const isMobile = useIsMobile();
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
-  const [events, setEvents] = useState<Event[]>([]);
+  const [events, setEvents] = useState<Event[]>(initialEvents);
   
   const { 
     inventory, 
@@ -489,7 +492,6 @@ export default function PlannerPage() {
     setTransactions,
     clients,
     setClients,
-    walkIns,
     setWalkIns,
   } = useInventory();
   
@@ -552,9 +554,15 @@ export default function PlannerPage() {
     return collection(firestore, 'tenants', tenantId, 'appointments');
   }, [firestore, user, isUserLoading, tenantId]);
 
+  const walkInQuery = useMemoFirebase(() => {
+    if (isUserLoading || !user || !firestore) return null;
+    return collection(firestore, 'tenants', tenantId, 'walkIns');
+  }, [firestore, user, isUserLoading, tenantId]);
+
   const { data: fetchedBillDefinitions } = useCollection<BillDefinition>(billDefinitionsQuery);
   const { data: fetchedBillInstances } = useCollection<BillInstance>(billInstancesQuery);
   const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
+  const { data: liveWalkIns } = useCollection<WalkIn>(walkInQuery);
 
   const appointments = useMemo(() => {
     if (!appointmentsFromDB) return [];
@@ -1310,6 +1318,7 @@ export default function PlannerPage() {
               onStartService={handleStartService}
               onFinishService={confirmFinishService}
               onBookNewForClient={handleBookNewAppointmentForClient}
+              walkIns={liveWalkIns}
           />
       </main>
       {selectedAppointmentData && (
