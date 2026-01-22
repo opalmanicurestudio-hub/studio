@@ -5,13 +5,12 @@
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square } from 'lucide-react';
-import { appointments as initialAppointments, services, type Appointment, events as initialEvents, type Event, type EventChecklistItem, type StockCorrection, type Staff, type AppointmentCheckoutState } from '@/lib/data';
+import { type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping } from 'date-fns';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { CompleteAppointmentDialog, type CheckoutData } from '@/components/planner/CompleteAppointmentDialog';
-import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
@@ -62,6 +61,7 @@ import { PickingListDialog } from '@/components/planner/PickingListDialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { WalkIn, type Client, type Service } from '@/lib/data';
 
 
 const DayTimeline = ({ 
@@ -84,6 +84,10 @@ const DayTimeline = ({
     onStartService,
     onFinishService,
     onBookNewForClient,
+    walkIns,
+    clients,
+    services,
+    showStaffColumnHeader,
 }: { 
     date: Date; 
     staff: Staff[];
@@ -104,13 +108,16 @@ const DayTimeline = ({
     onStartService: (appointmentId: string) => void;
     onFinishService: (appointment: Appointment) => void;
     onBookNewForClient: (clientId: string) => void;
+    walkIns: WalkIn[] | null;
+    clients: Client[] | null;
+    services: Service[] | null;
+    showStaffColumnHeader: boolean;
 }) => {
     const START_HOUR = 0; // Start at midnight
     const hours = Array.from({ length: 24 - START_HOUR }, (_, i) => i + START_HOUR);
     const [tmhr, setTmhr] = useState(0);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const isMobile = useIsMobile();
-    const { walkIns, clients } = useInventory();
 
     useEffect(() => {
       if (typeof window !== 'undefined') {
@@ -183,26 +190,31 @@ const DayTimeline = ({
 
     const renderAppointment = (item: any) => {
         const dayStart = setHours(startOfDay(date), START_HOUR);
-        let client = clients.find(c => c.id === item.clientId);
-        const service = services.find(s => s.id === item.serviceId);
+        
+        // Find service
+        const service = (services || []).find(s => s.id === item.serviceId);
+        
+        // Try to find full client object
+        let client = (clients || []).find(c => c.id === item.clientId);
 
-        if (!client && item.isWalkIn) {
-            const walkIn = walkIns.find(w => `apt-walkin-${w.id}` === item.id);
-            if (walkIn) {
-                client = {
-                    id: item.clientId,
-                    name: walkIn.customerName,
-                    email: walkIn.customerEmail || '',
-                    phone: walkIn.customerPhone || '',
-                    avatarUrl: '',
-                    lifetimeValue: 0,
-                    lastAppointment: walkIn.checkInTime,
-                    birthday: walkIn.customerBirthday,
-                };
-            }
+        // If client object isn't found BUT we have a denormalized name (from a walk-in)
+        // create a temporary client object.
+        if (!client && item.clientName) {
+            client = { 
+                id: item.clientId, 
+                name: item.clientName, 
+                email: '', 
+                phone: '', 
+                avatarUrl: '', 
+                lifetimeValue: 0, 
+                lastAppointment: '' 
+            };
         }
         
-        if (!client || !service) return null;
+        // If we still don't have a client or a service, we can't render the card.
+        if (!client || !service) {
+          return null;
+        }
 
         const padBefore = service.padBefore || 0;
         const totalDuration = service.duration + padBefore + (service.padAfter || 0);
@@ -305,15 +317,19 @@ const DayTimeline = ({
         }
     }, [date, staff]); // Rerun when date or staff changes
 
+    const gridStyle = {
+      gridTemplateColumns: `repeat(${staff.length}, minmax(${isMobile ? '0' : '250px'}, 1fr))`
+    };
+
     return (
         <div className="flex-1 relative overflow-auto" ref={scrollContainerRef}>
             <div className="grid grid-cols-[auto,1fr] min-w-max">
                 
                 <div className="sticky top-0 z-30 bg-background h-14 border-b border-r grid" style={{ width: isMobile ? '40px' : '48px' }} />
-                <div className="sticky top-0 z-20 grid col-start-2 bg-background" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(${isMobile ? '0' : '250px'}, 1fr))` }}>
+                <div className="sticky top-0 z-20 grid col-start-2 bg-background" style={gridStyle}>
                     {staff.map(staffMember => (
                         <div key={staffMember.id} className="p-2 h-14 border-b border-r text-center flex items-center justify-center">
-                            {!isMobile && (
+                            {showStaffColumnHeader && (
                                 <div className="flex items-center justify-center gap-2 h-full">
                                     <Avatar className="w-6 h-6"><AvatarImage src={staffMember.avatarUrl} /><AvatarFallback>{staffMember.name.charAt(0)}</AvatarFallback></Avatar>
                                     <p className="font-semibold text-sm truncate">{staffMember.name}</p>
@@ -333,7 +349,7 @@ const DayTimeline = ({
                 </div>
 
                 {/* Main content grid */}
-                <div className="col-start-2 grid relative" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(${isMobile ? '0' : '250px'}, 1fr))` }}>
+                <div className="col-start-2 grid relative" style={gridStyle}>
                     {staffSchedules.map(({ staffMember, positionedItems }) => (
                         <div key={staffMember.id} className="relative border-r">
                             {/* Grid lines */}
