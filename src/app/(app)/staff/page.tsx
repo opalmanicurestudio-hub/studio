@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -153,7 +154,7 @@ const StaffCard = ({ member, stats, services, onViewDetails }: { member: Staff, 
 
 
 export default function StaffPage() {
-  const { staff, setStaff, appointments, services, transactions, stockCorrections, inventory } = useInventory();
+  const { setStaff: setStaffInContext, appointments, services, transactions, stockCorrections, inventory } = useInventory();
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false);
@@ -167,13 +168,13 @@ export default function StaffPage() {
     return collection(firestore, 'tenants', tenantId, 'staff');
   }, [firestore, user, tenantId]);
 
-  const { data: firestoreStaff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
+  const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
 
   useEffect(() => {
-    if (firestoreStaff) {
-      setStaff(firestoreStaff);
+    if (staff) {
+      setStaffInContext(staff);
     }
-  }, [firestoreStaff, setStaff]);
+  }, [staff, setStaffInContext]);
 
   useEffect(() => {
     // Set initial date range on client to avoid hydration mismatch
@@ -279,15 +280,23 @@ export default function StaffPage() {
 
   const handleAddStaff = (newStaffData: Omit<Staff, 'id' | 'avatarUrl'>) => {
     if (!firestore) return;
-    const newStaff: Staff = {
+
+    const fullStaffObject: Omit<Staff, 'id' | 'avatarUrl'> & { id: string; avatarUrl: string; } = {
       ...newStaffData,
       id: `staff-${nanoid()}`,
       avatarUrl: `https://picsum.photos/seed/${nanoid()}/100`,
     };
-    
-    const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', newStaff.id);
-    setDocumentNonBlocking(staffDocRef, newStaff, {});
+
+    // Firestore doesn't allow `undefined` values.
+    // We create a sanitized object by removing keys with undefined values.
+    const sanitizedData = Object.fromEntries(
+      Object.entries(fullStaffObject).filter(([_, value]) => value !== undefined)
+    );
+
+    const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', fullStaffObject.id);
+    setDocumentNonBlocking(staffDocRef, sanitizedData, {});
   };
+
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -343,7 +352,7 @@ export default function StaffPage() {
         </div>
 
 
-        {staff.length > 0 ? (
+        {(staff || []).length > 0 ? (
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {staffWithStats.map((member) => (
               <StaffCard key={member.id} member={member} stats={member.stats} services={services} onViewDetails={handleViewDetails} />
