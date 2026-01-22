@@ -69,6 +69,8 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/comp
 import { WalkIn, type Client, type Service } from '@/lib/data';
 import { DayTimeline } from '@/components/planner/DayTimeline';
 import { nanoid } from 'nanoid';
+import { WeeklyKpiSheet } from '@/components/planner/WeeklyKpiSheet';
+import { BillsDueSheet } from '@/components/planner/BillsDueSheet';
 
 
 export default function PlannerPage() {
@@ -181,11 +183,11 @@ export default function PlannerPage() {
 
   const appointments = useMemo(() => {
     if (!appointmentsFromDB) return [];
-    return appointmentsFromDB.map(apt => ({
-      ...apt,
-      startTime: apt.startTime.toDate(),
-      endTime: apt.endTime.toDate(),
-    }));
+    return appointmentsFromDB.map(apt => {
+        const startTime = (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime as any);
+        const endTime = (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any);
+        return { ...apt, startTime, endTime };
+    });
   }, [appointmentsFromDB]);
 
   const events = useMemo(() => {
@@ -1120,5 +1122,3 @@ export default function PlannerPage() {
     </div>
   );
 }
-
-    
