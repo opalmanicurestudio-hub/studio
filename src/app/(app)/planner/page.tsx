@@ -829,43 +829,47 @@ const events = useMemo(() => {
   useEffect(() => {
     let html5QrCode: Html5Qrcode | undefined;
     if (isScannerOpen) {
-      const element = document.getElementById('qr-reader-planner');
-      if (element) {
-        html5QrCode = new Html5Qrcode('qr-reader-planner');
-        const onScanSuccess = (decodedText: string, decodedResult: any) => {
-          if (html5QrCode?.isScanning) {
-            html5QrCode.stop().catch(console.error);
-          }
-          setScannedData(decodedText);
-          setIsScannerOpen(false);
+        // Use a timeout to ensure the element is in the DOM and visible
+        const timer = setTimeout(() => {
+            const element = document.getElementById('qr-reader-planner');
+            if (element) {
+                html5QrCode = new Html5Qrcode('qr-reader-planner');
+                const onScanSuccess = (decodedText: string, decodedResult: any) => {
+                    if (html5QrCode?.isScanning) {
+                        html5QrCode.stop().catch(console.error);
+                    }
+                    setScannedData(decodedText);
+                    setIsScannerOpen(false);
+                };
+
+                const onScanFailure = (error: any) => { /* ignore */ };
+
+                html5QrCode.start(
+                    { facingMode: "environment" },
+                    { fps: 10, qrbox: { width: 250, height: 250 } },
+                    onScanSuccess,
+                    onScanFailure
+                ).catch(err => {
+                    toast({
+                        variant: 'destructive',
+                        title: 'Camera Error',
+                        description: 'Could not start the camera. Please check permissions and try again.',
+                    });
+                    setIsScannerOpen(false);
+                });
+            }
+        }, 300); // A small delay to allow dialog animation to complete
+
+        return () => {
+            clearTimeout(timer);
+            if (html5QrCode && html5QrCode.isScanning) {
+                html5QrCode.stop().catch(err => {
+                    console.error("Failed to stop QR Code scanner.", err);
+                });
+            }
         };
-
-        const onScanFailure = (error: any) => { /* ignore */ };
-
-        html5QrCode.start(
-          { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 250, height: 250 } },
-          onScanSuccess,
-          onScanFailure
-        ).catch(err => {
-          toast({
-            variant: 'destructive',
-            title: 'Camera Error',
-            description: 'Could not start the camera. Please check permissions and try again.',
-          });
-          setIsScannerOpen(false);
-        });
-      }
     }
-
-    return () => {
-      if (html5QrCode && html5QrCode.isScanning) {
-        html5QrCode.stop().catch(err => {
-          console.error("Failed to stop QR Code scanner.", err);
-        });
-      }
-    };
-  }, [isScannerOpen, toast]);
+}, [isScannerOpen, handleScan, toast]);
   
   const showStaffColumnHeader = !isMobile || (staff || []).length === 1;
 
@@ -1212,3 +1216,4 @@ const events = useMemo(() => {
     </div>
   );
 }
+

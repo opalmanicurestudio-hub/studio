@@ -1,7 +1,8 @@
 
+
 'use client';
 
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -42,6 +43,7 @@ import { nanoid } from 'nanoid';
 import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
 import { parseISO } from 'date-fns';
+import { Html5Qrcode } from 'html5-qrcode';
 
 
 type CartItem = {
@@ -504,6 +506,8 @@ export default function RetailPage() {
   const [isAddClientOpen, setIsAddClientOpen] = useState(false);
   
   const [appliedStoreCredit, setAppliedStoreCredit] = useState(0);
+  
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
 
   // Firestore data fetching
   const { firestore, user } = useFirebase();
@@ -533,8 +537,27 @@ export default function RetailPage() {
       item => item.type === 'retail' && item.name.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [inventory, searchTerm]);
+  
+  const updateQuantity = useCallback((productId: string, newQuantity: number) => {
+    const cartItem = cart.find(item => item.id === productId);
+    if (!cartItem) return;
 
-  const addToCart = (item: InventoryItem | Membership | Package, type: 'product' | 'membership' | 'package') => {
+    if (newQuantity <= 0) {
+      setCart(cart.filter(item => item.id !== productId));
+    } else if (cartItem.type === 'product' && newQuantity > cartItem.stock) {
+        toast({
+            variant: 'destructive',
+            title: 'Not Enough Stock',
+            description: `Only ${cartItem.stock} units of ${cartItem.name} are available.`,
+        });
+    } else {
+      setCart(cart.map(item =>
+        item.id === productId ? { ...item, quantity: newQuantity } : item
+      ));
+    }
+  }, [cart, toast]);
+
+  const addToCart = useCallback((item: InventoryItem | Membership | Package, type: 'product' | 'membership' | 'package') => {
     const existingItem = cart.find(cartItem => cartItem.id === item.id);
     
     if (type === 'membership') {
@@ -588,26 +611,7 @@ export default function RetailPage() {
           description: `${item.name} is currently out of stock.`,
         });
     }
-  };
-
-  const updateQuantity = (productId: string, newQuantity: number) => {
-    const cartItem = cart.find(item => item.id === productId);
-    if (!cartItem) return;
-
-    if (newQuantity <= 0) {
-      setCart(cart.filter(item => item.id !== productId));
-    } else if (cartItem.type === 'product' && newQuantity > cartItem.stock) {
-        toast({
-            variant: 'destructive',
-            title: 'Not Enough Stock',
-            description: `Only ${cartItem.stock} units of ${cartItem.name} are available.`,
-        });
-    } else {
-      setCart(cart.map(item =>
-        item.id === productId ? { ...item, quantity: newQuantity } : item
-      ));
-    }
-  };
+  }, [cart, toast, updateQuantity]);
 
   const subtotal = useMemo(() => cart.reduce((acc, item) => acc + item.price * item.quantity, 0), [cart]);
   
@@ -654,6 +658,65 @@ export default function RetailPage() {
         })
     }
   }
+  
+  const handleScan = useCallback((data: string) => {
+    if (data.startsWith('clarityflow://product/')) {
+        const productId = data.split('/').pop();
+        if (productId) {
+            const product = inventory.find(p => p.id === productId);
+            if (product) {
+                addToCart(product, 'product');
+                toast({
+                    title: "Product Added",
+                    description: `${product.name} has been added to your cart.`,
+                });
+            } else {
+                 toast({
+                    variant: 'destructive',
+                    title: 'Product Not Found',
+                    description: 'The scanned product could not be found in your inventory.',
+                });
+            }
+        }
+    } else {
+        toast({
+            variant: 'destructive',
+            title: 'Invalid QR Code',
+            description: 'Please scan a valid ClarityFlow product QR code.',
+        });
+    }
+  }, [inventory, addToCart, toast]);
+
+  useEffect(() => {
+    let html5QrCode: Html5Qrcode | undefined;
+    if (isScannerOpen) {
+      const timer = setTimeout(() => {
+        const element = document.getElementById('qr-reader-retail');
+        if (element) {
+          html5QrCode = new Html5Qrcode('qr-reader-retail');
+          const onScanSuccess = (decodedText: string) => {
+            if (html5QrCode?.isScanning) {
+              html5QrCode.stop().catch(console.error);
+            }
+            handleScan(decodedText);
+            setIsScannerOpen(false);
+          };
+          const onScanFailure = () => { /* ignore */ };
+          html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } }, onScanSuccess, onScanFailure)
+            .catch(err => {
+              toast({ variant: 'destructive', title: 'Camera Error', description: 'Could not start the camera. Please check permissions and try again.' });
+              setIsScannerOpen(false);
+            });
+        }
+      }, 300);
+      return () => {
+          clearTimeout(timer);
+          if (html5QrCode && html5QrCode.isScanning) {
+            html5QrCode.stop().catch(err => console.error("Failed to stop QR Code scanner.", err));
+          }
+      };
+    }
+  }, [isScannerOpen, handleScan, toast]);
 
   const handleRetailCheckout = () => {
     const hasMembershipOrPackage = cart.some(item => item.type === 'membership' || item.type === 'package');
@@ -925,7 +988,7 @@ export default function RetailPage() {
 
     const displayClient = clientData || {
       id: checkoutAppointment.clientId,
-      name: checkoutAppointment.clientName || walkInClientName,
+      name: checkoutAppointment.isWalkIn ? walkInClientName : 'Unknown Client',
       email: '', phone: '', avatarUrl: '', lifetimeValue: 0, lastAppointment: '',
     };
         
@@ -956,6 +1019,9 @@ export default function RetailPage() {
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                             <Input placeholder="Search items..." className="pl-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                         </div>
+                        <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
+                            <QrCode className="h-4 w-4" />
+                        </Button>
                     </div>
                 </div>
                 <ScrollArea className="flex-1">
@@ -1109,6 +1175,23 @@ export default function RetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
+        <DialogContent className="sm:max-w-md p-0">
+            <DialogHeader className="p-4 pb-0">
+                <DialogTitle>Scan Product</DialogTitle>
+                <DialogDescription>
+                    Position the product's QR code inside the frame to add it to the cart.
+                </DialogDescription>
+            </DialogHeader>
+            <div className="p-4 relative">
+                <div id="qr-reader-retail" className="w-full rounded-md bg-muted" />
+            </div>
+            <DialogFooter className="p-4 pt-0">
+                <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button>
+            </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
+
