@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -247,108 +246,106 @@ export default function WalkInPage() {
               )}
               
               {step === 'details' && (
-                <div>
+                <form onSubmit={handleSubmit}>
                     <CardHeader>
                         <CardTitle>Your Details</CardTitle>
                         <CardDescription>Just a few more details to get you on the list.</CardDescription>
                     </CardHeader>
-                    <form onSubmit={handleSubmit}>
-                        <CardContent className="space-y-6">
-                             <div className="space-y-2">
-                                <Label htmlFor="name">Your Name</Label>
-                                <div className="relative">
-                                    <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                    <Input id="name" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Jane Doe" required className="pl-9" />
-                                </div>
+                    <CardContent className="space-y-6">
+                         <div className="space-y-2">
+                            <Label htmlFor="name">Your Name</Label>
+                            <div className="relative">
+                                <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input id="name" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Jane Doe" required className="pl-9" />
                             </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="phone">Phone Number (for SMS updates)</Label>
-                                <div className="relative">
-                                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                    <Input id="phone" type="tel" value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="(555) 123-4567" className="pl-9" />
-                                </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="phone">Phone Number (for SMS updates)</Label>
+                            <div className="relative">
+                                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input id="phone" type="tel" value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="(555) 123-4567" className="pl-9" />
                             </div>
-                             <div className="space-y-2">
-                                <Label htmlFor="email">Email Address</Label>
-                                <div className="relative">
-                                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                    <Input id="email" type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="jane.doe@example.com" className="pl-9" />
-                                </div>
+                        </div>
+                         <div className="space-y-2">
+                            <Label htmlFor="email">Email Address</Label>
+                            <div className="relative">
+                                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input id="email" type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="jane.doe@example.com" className="pl-9" />
                             </div>
-                             <div className="space-y-2">
-                                <Label>Birthday (Optional)</Label>
-                                <div className="grid grid-cols-3 gap-2">
-                                    <Select value={birthMonth} onValueChange={setBirthMonth}>
-                                        <SelectTrigger><SelectValue placeholder="Month" /></SelectTrigger>
-                                        <SelectContent>
-                                            {Array.from({ length: 12 }, (_, i) => (
-                                                <SelectItem key={i + 1} value={(i + 1).toString()}>
-                                                    {format(new Date(2000, i, 1), 'MMMM')}
+                        </div>
+                         <div className="space-y-2">
+                            <Label>Birthday (Optional)</Label>
+                            <div className="grid grid-cols-3 gap-2">
+                                <Select value={birthMonth} onValueChange={setBirthMonth}>
+                                    <SelectTrigger><SelectValue placeholder="Month" /></SelectTrigger>
+                                    <SelectContent>
+                                        {Array.from({ length: 12 }, (_, i) => (
+                                            <SelectItem key={i + 1} value={(i + 1).toString()}>
+                                                {format(new Date(2000, i, 1), 'MMMM')}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                <Select value={birthDay} onValueChange={setBirthDay}>
+                                    <SelectTrigger><SelectValue placeholder="Day" /></SelectTrigger>
+                                    <SelectContent>
+                                        {Array.from({ length: 31 }, (_, i) => (
+                                            <SelectItem key={i + 1} value={(i + 1).toString()}>
+                                                {i + 1}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                <Select value={birthYear} onValueChange={setBirthYear}>
+                                    <SelectTrigger><SelectValue placeholder="Year" /></SelectTrigger>
+                                    <SelectContent>
+                                        {Array.from({ length: 100 }, (_, i) => {
+                                            const year = new Date().getFullYear() - i;
+                                            return (
+                                                <SelectItem key={year} value={year.toString()}>
+                                                    {year}
                                                 </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                    <Select value={birthDay} onValueChange={setBirthDay}>
-                                        <SelectTrigger><SelectValue placeholder="Day" /></SelectTrigger>
-                                        <SelectContent>
-                                            {Array.from({ length: 31 }, (_, i) => (
-                                                <SelectItem key={i + 1} value={(i + 1).toString()}>
-                                                    {i + 1}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                    <Select value={birthYear} onValueChange={setBirthYear}>
-                                        <SelectTrigger><SelectValue placeholder="Year" /></SelectTrigger>
-                                        <SelectContent>
-                                            {Array.from({ length: 100 }, (_, i) => {
-                                                const year = new Date().getFullYear() - i;
-                                                return (
-                                                    <SelectItem key={year} value={year.toString()}>
-                                                        {year}
-                                                    </SelectItem>
-                                                );
-                                            })}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
+                                            );
+                                        })}
+                                    </SelectContent>
+                                </Select>
                             </div>
-                             <div className="space-y-2">
-                                <Label>Preferred Staff</Label>
-                                 <RadioGroup value={preferredStaffId} onValueChange={setPreferredStaffId} className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                     <StaffSelectionCard staff={{id: 'any', name: 'Any Available', avatarUrl: ''}} isSelected={preferredStaffId === 'any'} onSelect={() => setPreferredStaffId('any')} />
-                                     {staff.map(s => (
-                                         <StaffSelectionCard key={s.id} staff={s} isSelected={preferredStaffId === s.id} onSelect={() => setPreferredStaffId(s.id)} />
-                                     ))}
-                                 </RadioGroup>
+                        </div>
+                         <div className="space-y-2">
+                            <Label>Preferred Staff</Label>
+                             <RadioGroup value={preferredStaffId} onValueChange={setPreferredStaffId} className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                 <StaffSelectionCard staff={{id: 'any', name: 'Any Available', avatarUrl: ''}} isSelected={preferredStaffId === 'any'} onSelect={() => setPreferredStaffId('any')} />
+                                 {staff.map(s => (
+                                     <StaffSelectionCard key={s.id} staff={s} isSelected={preferredStaffId === s.id} onSelect={() => setPreferredStaffId(s.id)} />
+                                 ))}
+                             </RadioGroup>
+                        </div>
+                        <div className={`mt-4 space-y-2 transition-opacity ${preferredStaffId === 'any' ? 'opacity-50' : 'opacity-100'}`}>
+                            <div className="flex items-center justify-between rounded-lg border p-4">
+                                <Label htmlFor="wait-for-preferred" className="flex flex-col gap-1">
+                                    <span>Wait for {staff.find(s => s.id === preferredStaffId)?.name || 'Preferred Staff'}?</span>
+                                    <span className="text-xs font-normal text-muted-foreground">If unchecked, you may be assigned to the next available stylist.</span>
+                                </Label>
+                                <Switch
+                                    id="wait-for-preferred"
+                                    checked={waitForPreferred}
+                                    onCheckedChange={setWaitForPreferred}
+                                    disabled={preferredStaffId === 'any'}
+                                />
                             </div>
-                            <div className={`mt-4 space-y-2 transition-opacity ${preferredStaffId === 'any' ? 'opacity-50' : 'opacity-100'}`}>
-                                <div className="flex items-center justify-between rounded-lg border p-4">
-                                    <Label htmlFor="wait-for-preferred" className="flex flex-col gap-1">
-                                        <span>Wait for {staff.find(s => s.id === preferredStaffId)?.name || 'Preferred Staff'}?</span>
-                                        <span className="text-xs font-normal text-muted-foreground">If unchecked, you may be assigned to the next available stylist.</span>
-                                    </Label>
-                                    <Switch
-                                        id="wait-for-preferred"
-                                        checked={waitForPreferred}
-                                        onCheckedChange={setWaitForPreferred}
-                                        disabled={preferredStaffId === 'any'}
-                                    />
-                                </div>
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="preferences">Preferences or Special Needs (Optional)</Label>
-                                <Textarea id="preferences" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g., preference for a quiet environment, allergy to certain scents..." />
-                            </div>
-                        </CardContent>
-                        <CardFooter className="flex justify-between">
-                            <Button variant="ghost" onClick={() => setStep('services')}>
-                                <ArrowLeft className="mr-2 h-4 w-4" /> Back
-                            </Button>
-                            <Button type="submit">Join Waitlist</Button>
-                        </CardFooter>
-                    </form>
-                </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="preferences">Preferences or Special Needs (Optional)</Label>
+                            <Textarea id="preferences" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g., preference for a quiet environment, allergy to certain scents..." />
+                        </div>
+                    </CardContent>
+                    <CardFooter className="flex justify-between">
+                        <Button variant="ghost" onClick={() => setStep('services')} type="button">
+                            <ArrowLeft className="mr-2 h-4 w-4" /> Back
+                        </Button>
+                        <Button type="submit">Join Waitlist</Button>
+                    </CardFooter>
+                </form>
               )}
 
               {step === 'confirmation' && (
@@ -374,3 +371,5 @@ export default function WalkInPage() {
     </div>
   );
 }
+
+    
