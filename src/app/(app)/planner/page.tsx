@@ -5,7 +5,7 @@
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square } from 'lucide-react';
-import { events as initialEvents, services, type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState } from '@/lib/data';
+import { events as initialEventsData, services, type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping } from 'date-fns';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -90,7 +90,8 @@ const DayTimeline = ({
     onStartService,
     onFinishService,
     onBookNewForClient,
-    walkIns
+    walkIns,
+    showStaffColumnHeader,
 }: { 
     date: Date; 
     staff: Staff[];
@@ -112,6 +113,7 @@ const DayTimeline = ({
     onFinishService: (appointment: Appointment) => void;
     onBookNewForClient: (clientId: string) => void;
     walkIns: WalkIn[] | null;
+    showStaffColumnHeader: boolean;
 }) => {
     const START_HOUR = 0; // Start at midnight
     const hours = Array.from({ length: 24 - START_HOUR }, (_, i) => i + START_HOUR);
@@ -325,7 +327,7 @@ const DayTimeline = ({
                 <div className="sticky top-0 z-20 grid col-start-2 bg-background" style={gridStyle}>
                     {staff.map(staffMember => (
                         <div key={staffMember.id} className="p-2 h-14 border-b border-r text-center flex items-center justify-center">
-                            {!isMobile && (
+                            {showStaffColumnHeader && (
                                 <div className="flex items-center justify-center gap-2 h-full">
                                     <Avatar className="w-6 h-6"><AvatarImage src={staffMember.avatarUrl} /><AvatarFallback>{staffMember.name.charAt(0)}</AvatarFallback></Avatar>
                                     <p className="font-semibold text-sm truncate">{staffMember.name}</p>
@@ -478,7 +480,7 @@ const BillsDueSheet = ({ open, onOpenChange, billInstances, isMobile, onLogPayme
 export default function PlannerPage() {
   const isMobile = useIsMobile();
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
-  const [events, setEvents] = useState<Event[]>(initialEvents);
+  const [events, setEvents] = useState<Event[]>(initialEventsData);
   
   const { 
     inventory, 
@@ -492,7 +494,7 @@ export default function PlannerPage() {
     setTransactions,
     clients,
     setClients,
-    walkIns,
+    walkIns: localWalkIns,
     setWalkIns,
   } = useInventory();
   
@@ -1143,6 +1145,8 @@ export default function PlannerPage() {
   useEffect(() => {
     setHasMounted(true);
   }, []);
+  
+  const showStaffColumnHeader = !isMobile || staff.length === 1;
 
   if (!hasMounted || isUserLoading || appointmentsLoading) {
     return (
@@ -1298,6 +1302,7 @@ export default function PlannerPage() {
               onFinishService={confirmFinishService}
               onBookNewForClient={handleBookNewAppointmentForClient}
               walkIns={liveWalkIns}
+              showStaffColumnHeader={showStaffColumnHeader}
           />
       </main>
       {selectedAppointmentData && (
