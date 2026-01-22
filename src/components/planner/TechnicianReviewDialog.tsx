@@ -73,6 +73,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
   const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
   const [applyAdditionalCharges, setApplyAdditionalCharges] = useState(true);
+  const [formulaName, setFormulaName] = useState('Default Service Formula');
 
   const actualDuration = useMemo(() => {
     if (appointment.actualStartTime && appointment.actualEndTime) {
@@ -83,12 +84,14 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
 
   useEffect(() => {
     if (open && service && appointment) {
-        const initialFormula = (appointment.checkoutState?.formula || service.products?.map(p => ({
+        const checkoutState = appointment.checkoutState;
+        const initialFormula = checkoutState?.formula || service.products?.map(p => ({
             id: p.id, name: p.name, quantity: p.quantityUsed, unit: p.unit || 'uses', costPerUnit: p.costPerUnit || 0
-        }))) || [];
+        })) || [];
         setEditableFormula(initialFormula);
+        setFormulaName('Default Service Formula');
 
-        const initialAddons = (appointment.checkoutState?.addOns || (appointment.addOnIds || [])
+        const initialAddons = (checkoutState?.addOns || (appointment.addOnIds || [])
             .map(id => services.find(s => s.id === id))
             .filter((s): s is Service => !!s));
         setSelectedAddOns(initialAddons);
@@ -97,7 +100,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         initialAddons.forEach(addon => {
             initialOverrides[addon.id] = appointment.staffId || '';
         });
-        setServiceStaffOverrides(appointment.checkoutState?.serviceStaffOverrides || initialOverrides);
+        setServiceStaffOverrides(checkoutState?.serviceStaffOverrides || initialOverrides);
     }
   }, [service, open, appointment, services]);
   
@@ -153,8 +156,38 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const removeAddOn = (addOnId: string) => {
     setSelectedAddOns(prev => prev.filter(a => a.id !== addOnId));
   };
+
+  const handleApplyClientFormula = (formulaNameToApply: string) => {
+      if (!client || !service) return;
+
+      if (formulaNameToApply === "default") {
+          const defaultFormula = service?.products?.map(p => ({
+              id: p.id,
+              name: p.name,
+              quantity: p.quantityUsed,
+              unit: p.unit || 'uses',
+              costPerUnit: p.costPerUnit || 0,
+          })) || [];
+          setEditableFormula(defaultFormula);
+          setFormulaName('Default Service Formula');
+          return;
+      }
+
+      const formula = client.customFormulas?.find(f => f.name === formulaNameToApply);
+      if (!formula) return;
+      const newFormula: EditableFormulaItem[] = formula.items.map(item => {
+        const product = inventory.find(p => p.id === item.productId);
+        return {
+            id: item.productId, name: item.productName, quantity: item.quantityUsed, unit: item.unit, costPerUnit: product?.costPerUnit || 0,
+        }
+      });
+      setEditableFormula(newFormula);
+      setFormulaName(formula.name);
+  }
   
   const handleSend = () => {
+    if (!client || !service || !onSendToFrontDesk) return;
+
     const checkoutState: AppointmentCheckoutState = {
         formula: editableFormula,
         addOns: selectedAddOns,
@@ -189,33 +222,70 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             <CardContent className="space-y-4">
                 <div className="space-y-2"><Label>Actual Duration: <span className="font-bold">{actualDuration} min</span> (Scheduled: {service.duration} min)</Label></div>
                 <Separator />
-                <h4 className="font-medium">Product Formula</h4>
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                  <h4 className="font-medium">Product Formula</h4>
+                  {(client.customFormulas && client.customFormulas.length > 0) && (
+                    <div className="w-full sm:w-auto sm:min-w-[200px]">
+                      <Select onValueChange={handleApplyClientFormula} defaultValue="default">
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue placeholder="Load a formula..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="default">Default Service Formula</SelectItem>
+                          {client.customFormulas.map(formula => (
+                            <SelectItem key={formula.name} value={formula.name}>{formula.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </div>
+                <div className="p-3 rounded-md bg-muted/50 text-muted-foreground text-sm flex items-start gap-2">
+                    <FlaskConical className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                    <p>Currently applying: <span className="font-semibold text-foreground">{formulaName}</span></p>
+                </div>
                 <div className="space-y-2 text-sm">
                     {editableFormula.map((item, index) => {
                         const inventoryItem = inventory.find(i => i.id === item.id);
-                        const unit = inventoryItem?.costingMethod === 'uses' ? (inventoryItem.useUnit || 'uses') : (inventoryItem?.unit || 'unit');
+                        const unit = inventoryItem?.costingMethod === 'uses' 
+                          ? (inventoryItem.useUnit || 'uses') 
+                          : (inventoryItem?.unit || 'unit');
+                          
                         return (
-                            <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md gap-2">
-                                <p className="font-medium flex-1 truncate pr-2">{item.name}</p>
-                                <div className="flex items-center gap-2">
-                                    <Input type="number" value={item.quantity} onChange={(e) => {
+                          <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md gap-2">
+                              <div>
+                                  <p className="font-medium">{item.name}</p>
+                                  <p className="text-xs text-muted-foreground">Cost: ${(item.costPerUnit || 0).toFixed(2)}/{unit}</p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                  <Input
+                                      type="number"
+                                      value={item.quantity}
+                                      onChange={(e) => {
                                         const newQty = parseFloat(e.target.value) || 0;
                                         setEditableFormula(prev => prev.map(p => p.id === item.id ? {...p, quantity: newQty} : p))
-                                    }} className="w-20 h-8 text-center" step="0.1" />
-                                    <span className="text-xs text-muted-foreground w-10 truncate">{unit}</span>
-                                    <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive flex-shrink-0" onClick={() => removeProduct(item.id)}><Trash2 className="h-4 w-4" /></Button>
-                                </div>
-                            </div>
+                                      }}
+                                      className="w-20 h-8 text-center"
+                                      step="0.1"
+                                  />
+                                  <span className="text-xs text-muted-foreground w-10 truncate">{unit}</span>
+                                  <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive flex-shrink-0" onClick={() => removeProduct(item.id)}>
+                                      <Trash2 className="h-4 w-4" />
+                                  </Button>
+                              </div>
+                          </div>
                         )
                     })}
                 </div>
-                <Button variant="outline" size="sm" onClick={() => setIsProductBrowserOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4"/>Browse Library</Button>
+                <div className='flex gap-2'>
+                  <Button variant="outline" size="sm" onClick={() => setIsProductBrowserOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4"/>Browse Library</Button>
+                </div>
             </CardContent>
         </Card>
         
         <Card>
-            <CardHeader><CardTitle>Add-ons & Staff</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
+          <CardHeader><CardTitle>Add-ons & Staff</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
                 <h4 className="font-medium text-sm">Add-on Services</h4>
                 {selectedAddOns.map(item => (<div key={item.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md"><p className="text-sm font-medium">{item.name}</p><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}
                 <Button variant="outline" size="sm" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4"/>Select Add-ons</Button>
@@ -225,7 +295,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     <div className="flex items-center justify-between p-2 bg-muted/50 rounded-md"><span className="text-sm font-medium">{service.name}</span><Select value={serviceStaffOverrides[service.id] || ''} onValueChange={(staffId) => handleStaffOverride(service.id, staffId)}><SelectTrigger className="w-[150px] h-8"><SelectValue placeholder="Select Staff" /></SelectTrigger><SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select></div>
                     {selectedAddOns.map(addon => (<div key={addon.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md"><span className="text-sm pl-4">+ {addon.name}</span><Select value={serviceStaffOverrides[addon.id] || ''} onValueChange={(staffId) => handleStaffOverride(addon.id, staffId)}><SelectTrigger className="w-[150px] h-8"><SelectValue placeholder="Select Staff" /></SelectTrigger><SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select></div>))}
                 </div>
-            </CardContent>
+          </CardContent>
         </Card>
 
         {additionalCharge > 0 && (
@@ -264,7 +334,9 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 <DialogDescription>Confirm service details before sending to the front desk for checkout.</DialogDescription>
             </DialogHeader>
             <ScrollArea className="flex-1">
+              <div className="p-6 pt-4">
                 {FormContent}
+              </div>
             </ScrollArea>
             <DialogFooter className="p-6 pt-4 border-t">
                 <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
