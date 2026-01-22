@@ -45,6 +45,7 @@ import { cn } from '@/lib/utils';
 const InlineProfitTester = ({ service, tmhr, onPriceUpdate }: { service: Service, tmhr: number, onPriceUpdate: (newPrice: number) => void; }) => {
   const [testPrice, setTestPrice] = useState(service.price);
   const { toast } = useToast();
+  const { inventory } = useInventory();
 
   useEffect(() => {
     setTestPrice(service.price);
@@ -54,11 +55,31 @@ const InlineProfitTester = ({ service, tmhr, onPriceUpdate }: { service: Service
     const totalDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
     const timeCost = (totalDuration / 60) * tmhr;
     
-    const productCost = (service.products || []).reduce((acc, p) => acc + ((p.costPerUnit || 0) * (p.quantityUsed || 1)), 0);
+    const productCost = (service.products || []).reduce((acc, p) => {
+        const product = inventory.find(i => i.id === p.id);
+        if (!product) return acc;
+
+        let costPerUse = 0;
+        if (product.costingMethod === 'size' && product.size && product.size > 0) {
+            costPerUse = (product.costPerUnit || 0) / product.size;
+        } else if (product.costingMethod === 'uses' && product.estimatedUses && product.estimatedUses > 0) {
+            costPerUse = (product.costPerUnit || 0) / product.estimatedUses;
+        } else {
+            costPerUse = product.costPerUnit || 0;
+        }
+        
+        return acc + (costPerUse * (p.quantityUsed || 1));
+    }, 0);
+
     const equipmentDepreciation = (service.equipment || []).reduce((acc, eq) => {
-        const lifespanInMinutes = (eq.lifespanYears || 5) * 365 * 8 * 60; // Assuming 8hr work day
-        const costPerMinute = (eq.costPerUnit || 0) / lifespanInMinutes;
-        return acc + (costPerMinute * totalDuration);
+        const equipmentItem = inventory.find(i => i.id === eq.id);
+        if (!equipmentItem || !equipmentItem.lifespanYears || equipmentItem.lifespanYears === 0) return acc;
+
+        const annualDepreciation = (equipmentItem.costPerUnit || 0) / equipmentItem.lifespanYears;
+        const hourlyDepreciation = annualDepreciation / 2080; // Assuming 2080 work hours per year
+        const serviceDurationHours = totalDuration / 60;
+        
+        return acc + (hourlyDepreciation * serviceDurationHours);
     }, 0);
     
     const breakEvenPoint = timeCost + productCost + equipmentDepreciation;
@@ -67,7 +88,7 @@ const InlineProfitTester = ({ service, tmhr, onPriceUpdate }: { service: Service
     const marginValue = testPrice > 0 ? (profitValue / testPrice) * 100 : 0;
 
     return { profit: profitValue, margin: marginValue, breakEvenPoint };
-  }, [service, testPrice, tmhr]);
+  }, [service, testPrice, tmhr, inventory]);
   
   const handleUpdateClick = () => {
     onPriceUpdate(testPrice);
@@ -127,27 +148,53 @@ const InlineProfitTester = ({ service, tmhr, onPriceUpdate }: { service: Service
 };
 
 const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) => {
+  const { inventory } = useInventory();
   const { timeCost, productCosts, equipmentCosts, totalCost } = useMemo(() => {
     const totalDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
     const timeCost = (totalDuration / 60) * tmhr;
 
-    const productCosts = (service.products || []).map(p => ({
-      ...p,
-      cost: (p.costPerUnit || 0) * (p.quantityUsed || 1),
-      location: 'Back Room - Shelf A' // Mock location
-    }));
+    const productCosts = (service.products || []).map(p => {
+        const product = inventory.find(i => i.id === p.id);
+        let cost = 0;
+        if (product) {
+            let costPerUse = 0;
+            if (product.costingMethod === 'size' && product.size && product.size > 0) {
+                costPerUse = (product.costPerUnit || 0) / product.size;
+            } else if (product.costingMethod === 'uses' && product.estimatedUses && product.estimatedUses > 0) {
+                costPerUse = (product.costPerUnit || 0) / product.estimatedUses;
+            } else {
+                costPerUse = product.costPerUnit || 0;
+            }
+            cost = costPerUse * (p.quantityUsed || 1);
+        }
+      return {
+        ...p,
+        cost: cost,
+        location: 'Back Room - Shelf A' // Mock location
+      }
+    });
 
-    const equipmentCosts = (service.equipment || []).map(e => ({
-      ...e,
-      cost: (e.costPerUnit || 0) * 0.001 // Mock depreciation
-    }));
+    const equipmentCosts = (service.equipment || []).map(e => {
+        const equipmentItem = inventory.find(i => i.id === e.id);
+        let cost = 0;
+        if (equipmentItem && equipmentItem.lifespanYears && equipmentItem.lifespanYears > 0) {
+            const annualDepreciation = (equipmentItem.costPerUnit || 0) / equipmentItem.lifespanYears;
+            const hourlyDepreciation = annualDepreciation / 2080; // Assuming 2080 work hours per year
+            const serviceDurationHours = totalDuration / 60;
+            cost = hourlyDepreciation * serviceDurationHours;
+        }
+      return {
+        ...e,
+        cost: cost,
+      }
+    });
 
     const totalProductCost = productCosts.reduce((acc, p) => acc + p.cost, 0);
     const totalEquipmentCost = equipmentCosts.reduce((acc, e) => acc + e.cost, 0);
     const totalCost = timeCost + totalProductCost + totalEquipmentCost;
 
     return { timeCost, productCosts, equipmentCosts, totalCost };
-  }, [service, tmhr]);
+  }, [service, tmhr, inventory]);
 
   return (
     <div className="space-y-4 text-sm">
