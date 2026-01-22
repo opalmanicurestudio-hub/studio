@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
@@ -64,7 +63,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { WalkIn, type Client, type Service } from '@/lib/data';
 
 
-const DayTimeline = ({ 
+export const DayTimeline = ({ 
     date, 
     staff,
     itemsByStaff,
