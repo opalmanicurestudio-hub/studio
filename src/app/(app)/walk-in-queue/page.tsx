@@ -193,7 +193,7 @@ const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange, onPrin
                     <div className="space-y-1">
                         <p className="font-bold text-xl">{walkIn.customerName}</p>
                         <p className="text-sm text-primary">Assigned to: {assignedStaff?.name || 'N/A'}</p>
-                        {assignedSlot && <p className="text-sm font-semibold">{format(parseISO(walkIn.serviceStartTime!), 'MMM d')} &middot; {assignedSlot}</p>}
+                        {assignedSlot && <p className="text-sm font-semibold">{format(parseISO(walkIn.serviceStartTime!), 'MMM d, yyyy')} &middot; {assignedSlot}</p>}
                         {waitTime !== null && <p className="text-xs text-muted-foreground">Waited {waitTime} minutes</p>}
                     </div>
                     <div className="flex flex-col items-end gap-1">
@@ -518,8 +518,8 @@ export default function WalkInQueuePage() {
       clientId: walkIn.clientId || `walkin-${walkIn.customerName}`,
       serviceId: service.id,
       staffId: walkIn.assignedStaffId,
-      startTime: parseISO(walkIn.serviceStartTime || walkIn.checkInTime),
-      endTime: addMinutes(parseISO(walkIn.serviceStartTime || walkIn.checkInTime), walkIn.estimatedDuration),
+      startTime: parseISO(walkIn.serviceStartTime || walkIn.checkInTime).toISOString(),
+      endTime: addMinutes(parseISO(walkIn.serviceStartTime || walkIn.checkInTime), walkIn.estimatedDuration).toISOString(),
       status: 'ready_for_checkout',
       isWalkIn: true,
       addOnIds: walkIn.serviceIds.slice(1),
@@ -845,6 +845,7 @@ export default function WalkInQueuePage() {
     </>
   );
 }
+
 
 
 
