@@ -193,12 +193,12 @@ export default function PlannerPage() {
 }, [appointmentsFromDB]);
 
 const events = useMemo(() => {
-  if (!fetchedEvents) return [];
-  return fetchedEvents.map(evt => {
-    const startTime = (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : parseISO(evt.startTime as string);
-    const endTime = (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : parseISO(evt.endTime as string);
-    return { ...evt, startTime, endTime };
-  });
+    if (!fetchedEvents) return [];
+    return fetchedEvents.map(evt => {
+        const startTime = (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : parseISO(evt.startTime as string);
+        const endTime = (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : parseISO(evt.endTime as string);
+        return { ...evt, startTime, endTime };
+    });
 }, [fetchedEvents]);
 
   
@@ -425,7 +425,7 @@ const events = useMemo(() => {
     }
   };
 
-  const handleCheckout = (data: CheckoutData) => {
+  const handleCheckout = async (data: CheckoutData) => {
     if (!selectedAppointment || !firestore) return;
     
     const {
@@ -517,7 +517,14 @@ const events = useMemo(() => {
         incident: incident,
     });
     
-    // 6. Update client packages
+    // 6. Update Walk-in if applicable
+    if (selectedAppointment.isWalkIn) {
+      const walkInId = selectedAppointment.id.replace('apt-walkin-', '');
+      const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+      updateDocumentNonBlocking(walkInDocRef, { status: 'completed' });
+    }
+
+    // 7. Update client packages
     if (redeemedOffer?.type === 'package') {
         const clientToUpdate = (clients || []).find(c => c.id === selectedAppointment.clientId);
         if (clientToUpdate) {
@@ -528,22 +535,51 @@ const events = useMemo(() => {
                 return p;
             }).filter(p => p.sessionsRemaining > 0);
 
-            const updatedClient = { ...clientToUpdate, activePackages: updatedPackages };
-            setClients(prev => (prev || []).map(c => c.id === updatedClient.id ? updatedClient : c));
+            const clientDocRef = doc(firestore, 'tenants', tenantId, 'clients', clientToUpdate.id);
+            updateDocumentNonBlocking(clientDocRef, { activePackages: updatedPackages });
         }
     }
     
     handlePrintReceipt(receiptData);
   };
   
-  const handleAddAppointment = (newAppointment: Omit<Appointment, 'id'>) => {
+  const handleAddAppointment = async (newAppointment: Omit<Appointment, 'id'>) => {
     if (!firestore) return;
     const newAptWithId = { ...newAppointment, id: nanoid() };
+
+    let finalClientId = newAppointment.clientId;
+    let finalClientName = (clients || []).find(c => c.id === finalClientId)?.name || 'Walk-in Customer';
+
+    // Handle walk-in client creation if necessary
+    if (finalClientId && finalClientId.startsWith('walkin-')) {
+        const existingClient = (clients || []).find(c => c.name === newAppointment.clientName);
+        if (existingClient) {
+            finalClientId = existingClient.id;
+        } else {
+            const newId = `cli-${nanoid()}`;
+            const newClient: Client = {
+              id: newId,
+              name: newAppointment.clientName || 'Walk-in Customer',
+              email: '', 
+              phone: '',
+              avatarUrl: '',
+              lifetimeValue: 0,
+              lastAppointment: new Date().toISOString(),
+              status: 'active',
+            };
+            const clientDocRef = doc(firestore, 'tenants', tenantId, 'clients', newId);
+            await setDocumentNonBlocking(clientDocRef, newClient, {});
+            finalClientId = newId;
+            finalClientName = newClient.name;
+        }
+    }
+
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', newAptWithId.id);
-    setDocumentNonBlocking(appointmentRef, newAptWithId, {});
+    setDocumentNonBlocking(appointmentRef, { ...newAppointment, clientId: finalClientId, clientName: finalClientName }, {});
+    
     toast({
         title: "Appointment Booked",
-        description: `Appointment with ${(clients || []).find(c => c.id === newAppointment.clientId)?.name} has been added.`
+        description: `Appointment with ${finalClientName} has been added.`
     })
     setIsAddAppointmentOpen(false);
     setInitialClientIdForNewApt('');
@@ -711,8 +747,18 @@ const events = useMemo(() => {
   const confirmFinishService = () => {
     if (!finishConfirmAppointment || !finishConfirmAppointment.actualStartTime || !firestore) return;
     
+    const nowISO = new Date().toISOString();
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', finishConfirmAppointment.id);
-    updateDocumentNonBlocking(appointmentRef, { status: 'ready_for_checkout', actualEndTime: new Date().toISOString() });
+    updateDocumentNonBlocking(appointmentRef, { status: 'ready_for_checkout', actualEndTime: nowISO });
+
+    if (finishConfirmAppointment.isWalkIn) {
+      const walkInId = finishConfirmAppointment.id.replace('apt-walkin-', '');
+      const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+      updateDocumentNonBlocking(walkInDocRef, {
+        status: 'completed',
+        serviceEndTime: nowISO,
+      });
+    }
 
     const startTime = parseISO(finishConfirmAppointment.actualStartTime as string);
     const duration = differenceInMinutes(new Date(), startTime);
@@ -1227,4 +1273,5 @@ const events = useMemo(() => {
     </div>
   );
 }
+
 
