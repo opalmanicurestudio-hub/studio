@@ -87,6 +87,7 @@ interface CompleteAppointmentDialogProps {
   onConfirmCheckout: (data: CheckoutData) => void;
   onSendToFrontDesk?: (appointmentId: string, checkoutState: AppointmentCheckoutState) => void;
   onRebook: (appointment: Appointment) => void;
+  staff: Staff[];
 }
 
 export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps> = ({
@@ -96,8 +97,9 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   onConfirmCheckout,
   onSendToFrontDesk,
   onRebook,
+  staff,
 }) => {
-  const { inventory, services, staff, memberships, packages, clients, setClients, addStockCorrection, setTransactions } = useInventory();
+  const { inventory, services, memberships, packages, clients, setClients, addStockCorrection, setTransactions } = useInventory();
   const { firestore } = useFirebase();
   const tenantId = 'tenant-abc';
   const { appointment, client, service } = appointmentData;
@@ -803,7 +805,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                 <h4 className="font-medium text-sm">Add-on Services</h4>
                 <div className="space-y-2 text-sm">
                     {selectedAddOns.map((item) => (
-                        <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md">
+                        <div key={item.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
                             <p className="font-medium">{item.name}</p>
                             <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}>
                               <Trash2 className="h-4 w-4" />
@@ -870,21 +872,14 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
             <CardContent className="space-y-4">
                   <div className="space-y-2">
                       <Label>Staff &amp; Service Assignment</Label>
-                      <div className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
-                          <span className="text-sm font-medium">{service.name}</span>
-                          <Select value={serviceStaffOverrides[service.id] || ''} onValueChange={(staffId) => handleStaffOverride(service.id, staffId)}>
-                              <SelectTrigger className="w-[150px] h-8"><SelectValue placeholder="Select Staff" /></SelectTrigger>
-                              <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
-                          </Select>
-                      </div>
-                      {selectedAddOns.map(addon => (
-                          <div key={addon.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
-                              <span className="text-sm pl-4">+ {addon.name}</span>
-                              <Select value={serviceStaffOverrides[addon.id] || ''} onValueChange={(staffId) => handleStaffOverride(addon.id, staffId)}>
-                                  <SelectTrigger className="w-[150px] h-8"><SelectValue placeholder="Select Staff" /></SelectTrigger>
-                                  <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
-                              </Select>
-                          </div>
+                      {allServicesForAppointment.map(currentService => (
+                           <div key={currentService.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+                            <span className="text-sm font-medium">{currentService.name}</span>
+                            <Select value={serviceStaffOverrides[currentService.id] || ''} onValueChange={(staffId) => handleStaffOverride(currentService.id, staffId)}>
+                                <SelectTrigger className="w-[150px] h-8"><SelectValue placeholder="Select Staff" /></SelectTrigger>
+                                <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+                            </Select>
+                        </div>
                       ))}
                   </div>
 

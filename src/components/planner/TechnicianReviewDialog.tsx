@@ -56,18 +56,21 @@ interface TechnicianReviewDialogProps {
     service: Service | undefined;
   };
   onSendToFrontDesk: (appointmentId: string, checkoutState: AppointmentCheckoutState) => void;
+  staff: Staff[];
 }
 
 const FormContent = ({
   appointment,
   client,
   service,
+  staff,
 }: {
   appointment: Appointment,
   client: Client,
-  service: Service
+  service: Service,
+  staff: Staff[];
 }) => {
-  const { inventory, services, staff } = useInventory();
+  const { inventory, services } = useInventory();
   
   const [editableFormula, setEditableFormula] = useState<EditableFormulaItem[]>([]);
   const [selectedAddOns, setSelectedAddOns] = useState<Service[]>([]);
@@ -98,7 +101,7 @@ const FormContent = ({
             .filter((s): s is Service => !!s));
         setSelectedAddOns(initialAddons);
 
-        const initialOverrides: Record<string, string> = { [service.id]: appointment.staffId || '' };
+        const initialOverrides: Record<string, string> = {};
         initialAddons.forEach(addon => {
             initialOverrides[addon.id] = appointment.staffId || '';
         });
@@ -277,10 +280,10 @@ const FormContent = ({
                 <Button variant="outline" size="sm" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4"/>Select Add-ons</Button>
                 <Separator className="my-4"/>
                 <h4 className="font-medium text-sm">Staff Assignment</h4>
-                <div className="space-y-2">
+                 <div className="space-y-2">
                     <div className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
                         <span className="text-sm font-medium">{service.name}</span>
-                        <span className="text-sm font-semibold pr-2">{staff.find(s => s.id === (serviceStaffOverrides[service.id] || appointment.staffId))?.name || 'Unassigned'}</span>
+                        <span className="text-sm font-semibold pr-2">{staff.find(s => s.id === appointment.staffId)?.name || 'Unassigned'}</span>
                     </div>
                     {selectedAddOns.map(addon => (
                         <div key={addon.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
@@ -329,6 +332,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   onOpenChange,
   appointmentData,
   onSendToFrontDesk,
+  staff,
 }) => {
   const { appointment, client, service } = appointmentData;
   const isMobile = useIsMobile();
@@ -356,7 +360,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             </DialogHeader>
             <div className="flex-1 min-h-0 overflow-y-auto">
               <div className="p-6 pt-4">
-                  <FormContent appointment={appointment} client={client} service={service} />
+                  <FormContent appointment={appointment} client={client} service={service} staff={staff} />
               </div>
             </div>
             <DialogFooter className="p-6 pt-4 border-t">
