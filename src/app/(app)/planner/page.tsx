@@ -5,7 +5,7 @@
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square } from 'lucide-react';
-import { services, type Event, type EventChecklistItem, type StockCorrection, type Staff, type AppointmentCheckoutState } from '@/lib/data';
+import { services, events as initialEvents, type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping } from 'date-fns';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -49,7 +49,7 @@ import { AppointmentCard } from '@/components/planner/AppointmentCard';
 import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
 import { PrintTicket, type TicketData } from '@/components/planner/PrintTicket';
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
-import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, Timestamp, doc } from 'firebase/firestore';
 import { EditEventDialog } from '@/components/planner/EditEventDialog';
 import { BillDueDateCard } from '@/components/planner/BillDueDateCard';
@@ -67,7 +67,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import { type Appointment } from '@/lib/data';
 
 
 const DayTimeline = ({ 
@@ -558,7 +557,11 @@ export default function PlannerPage() {
 
   const appointments = useMemo(() => {
     if (!appointmentsFromDB) return [];
-    return appointmentsFromDB;
+    return appointmentsFromDB.map(apt => ({
+      ...apt,
+      startTime: parseISO(apt.startTime),
+      endTime: parseISO(apt.endTime),
+    }));
   }, [appointmentsFromDB]);
   
   const billDefinitions = useMemo(() => (fetchedBillDefinitions && fetchedBillDefinitions.length > 0) ? fetchedBillDefinitions : mockDefinitions, [fetchedBillDefinitions, mockDefinitions]);
@@ -612,7 +615,7 @@ export default function PlannerPage() {
     const weekInterval = { start, end };
     
     const appointmentsInWeek = appointments.filter(apt => {
-        const aptStartTime = parseISO(apt.startTime);
+        const aptStartTime = apt.startTime;
         return aptStartTime >= weekInterval.start && aptStartTime <= weekInterval.end;
     });
 
@@ -659,7 +662,7 @@ export default function PlannerPage() {
 
     // Process appointments
     appointments
-      .filter(apt => isSameDay(parseISO(apt.startTime), currentDate))
+      .filter(apt => isSameDay(apt.startTime, currentDate))
       .forEach(apt => {
         const staffId = apt.staffId || staff[0]?.id;
         if (staffId && map.has(staffId)) {
@@ -689,7 +692,7 @@ export default function PlannerPage() {
       });
 
     map.forEach(items => {
-        items.sort((a,b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime())
+        items.sort((a,b) => a.startTime.getTime() - b.startTime.getTime())
     });
 
     return map;
@@ -1112,8 +1115,8 @@ export default function PlannerPage() {
 
   const appointmentsForDay = useMemo(() => {
     return (appointments || [])
-      .filter(apt => isSameDay(parseISO(apt.startTime), currentDate))
-      .sort((a, b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime());
+      .filter(apt => isSameDay(apt.startTime, currentDate))
+      .sort((a, b) => apt.startTime.getTime() - b.startTime.getTime());
   }, [appointments, currentDate]);
 
   const eventsForDay = events
