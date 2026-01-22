@@ -927,8 +927,11 @@ export default function WalkInQueuePage() {
             appointmentData={checkoutAppointmentData}
             onConfirmCheckout={handleConfirmCheckout}
             onRebook={() => {}}
+            staff={staff || []}
           />
       )}
     </>
   );
 }
+
+    
