@@ -236,16 +236,24 @@ const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange, onPrin
 const AssignStaffDialog = ({ open, onOpenChange, walkIn, staff, services, onAssign }: { open: boolean, onOpenChange: (open: boolean) => void, walkIn: WalkIn | null, staff: Staff[], services: Service[], onAssign: (staffId: string) => void }) => {
   const [selectedStaffId, setSelectedStaffId] = useState('');
 
-  const eligibleStaff = useMemo(() => {
+  const staffWithStatus = useMemo(() => {
     if (!walkIn || !staff) return [];
     const requiredSkills = walkIn.serviceIds.flatMap(id => services.find(s => s.id === id)?.requiredSkills || []);
     const uniqueSkills = [...new Set(requiredSkills)];
 
-    return staff.filter(s => 
-      s.status === 'idle' && 
-      !s.onBreak && 
-      uniqueSkills.every(skill => (s.skillSet || []).includes(skill))
-    );
+    return staff.map(s => ({
+        ...s,
+        isQualified: uniqueSkills.every(skill => (s.skillSet || []).includes(skill)),
+    })).sort((a,b) => {
+        // Qualified and available first
+        if (a.isQualified && a.status === 'idle' && !a.onBreak && !(b.isQualified && b.status === 'idle' && !b.onBreak)) return -1;
+        if (!(a.isQualified && a.status === 'idle' && !a.onBreak) && b.isQualified && b.status === 'idle' && !b.onBreak) return 1;
+        // Then just qualified
+        if (a.isQualified && !b.isQualified) return -1;
+        if (!a.isQualified && b.isQualified) return 1;
+        // Then by name
+        return a.name.localeCompare(b.name);
+    });
   }, [walkIn, staff, services]);
 
   const handleAssign = () => {
@@ -264,23 +272,40 @@ const AssignStaffDialog = ({ open, onOpenChange, walkIn, staff, services, onAssi
         </DialogHeader>
         <div className="space-y-4 py-4">
           <RadioGroup value={selectedStaffId} onValueChange={setSelectedStaffId}>
-            {eligibleStaff.map(s => (
-              <Label key={s.id} htmlFor={`assign-${s.id}`} className="flex items-center gap-4 p-3 border rounded-md cursor-pointer hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:ring-2 has-[:checked]:ring-primary">
+            {staffWithStatus.map(s => (
+              <Label 
+                key={s.id} 
+                htmlFor={`assign-${s.id}`} 
+                className={cn(
+                    "flex items-center gap-4 p-3 border rounded-md cursor-pointer hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:ring-2 has-[:checked]:ring-primary",
+                    !s.isQualified && "cursor-not-allowed opacity-50"
+                )}
+              >
                 <Avatar className="w-12 h-12">
                   <AvatarImage src={s.avatarUrl} />
                   <AvatarFallback>{s.name.charAt(0)}</AvatarFallback>
                 </Avatar>
                 <div className="flex-1">
                   <p className="font-semibold">{s.name}</p>
+                   <div className="flex items-center gap-2">
+                        {s.onBreak ? (
+                             <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-yellow-200">On Break</Badge>
+                        ) : s.status === 'busy' ? (
+                             <Badge variant="outline" className="bg-red-100 text-red-800 border-red-200">Busy</Badge>
+                        ) : s.status === 'idle' ? (
+                            <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200">Idle</Badge>
+                        ) : null}
+                         {!s.isQualified && <Badge variant="destructive">Not Qualified</Badge>}
+                   </div>
                 </div>
-                <RadioGroupItem value={s.id} id={`assign-${s.id}`} />
+                <RadioGroupItem value={s.id} id={`assign-${s.id}`} disabled={!s.isQualified} />
               </Label>
             ))}
           </RadioGroup>
-          {eligibleStaff.length === 0 && (
-            <div className="text-center text-muted-foreground p-8">
-              <p>No eligible staff are available for the requested services.</p>
-            </div>
+          {staffWithStatus.filter(s => s.isQualified).length === 0 && (
+              <div className="text-center text-muted-foreground p-8">
+                <p>No qualified staff members for the requested services.</p>
+              </div>
           )}
         </div>
         <DialogFooter>
@@ -780,7 +805,7 @@ export default function WalkInQueuePage() {
       open={!!walkInToAssign}
       onOpenChange={() => setWalkInToAssign(null)}
       walkIn={walkInToAssign}
-      staff={staff}
+      staff={staff || []}
       services={services}
       onAssign={handleManualAssign}
     />
