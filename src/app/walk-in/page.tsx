@@ -23,7 +23,7 @@ import { collection, getDocs, query, where } from 'firebase/firestore';
 import { Service, Staff } from '@/lib/data';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { Progress } from '@/components/ui/progress';
-import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon } from 'lucide-react';
+import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -77,6 +77,8 @@ export default function WalkInPage() {
   const [notes, setNotes] = useState('');
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
   const [waitForPreferred, setWaitForPreferred] = useState<boolean>(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
 
   const mainServices = useMemo(() => services.filter(s => s.type === 'service'), [services]);
   const addOnServices = useMemo(() => services.filter(s => s.type === 'addon'), [services]);
@@ -110,6 +112,8 @@ export default function WalkInPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
     if (!customerName || selectedServices.length === 0 || !firestore) {
       toast({
         variant: 'destructive',
@@ -119,6 +123,7 @@ export default function WalkInPage() {
       return;
     }
     
+    setIsSubmitting(true);
     const tenantId = 'tenant-abc';
     const walkInsRef = collection(firestore, 'tenants', tenantId, 'walkIns');
 
@@ -155,6 +160,7 @@ export default function WalkInPage() {
             title: 'Something went wrong',
             description: 'Could not add you to the waitlist. Please see the front desk.',
         });
+        setIsSubmitting(false);
     }
   };
 
@@ -173,6 +179,7 @@ export default function WalkInPage() {
     setNotes('');
     setWaitForPreferred(false);
     setStep('services');
+    setIsSubmitting(false);
   };
 
   return (
@@ -351,7 +358,10 @@ export default function WalkInPage() {
                         <Button variant="ghost" onClick={() => setStep('services')} type="button">
                             <ArrowLeft className="mr-2 h-4 w-4" /> Back
                         </Button>
-                        <Button type="submit">Join Waitlist</Button>
+                        <Button type="submit" disabled={isSubmitting}>
+                            {isSubmitting && <Loader className="mr-2 h-4 w-4 animate-spin" />}
+                            Join Waitlist
+                        </Button>
                     </CardFooter>
                 </form>
               )}

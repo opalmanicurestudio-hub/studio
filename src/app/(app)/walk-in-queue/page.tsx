@@ -294,7 +294,7 @@ const AssignStaffDialog = ({ open, onOpenChange, walkIn, staff, services, onAssi
 
 
 export default function WalkInQueuePage() {
-  const { services, clients, setAppointments, staff: allStaff, setStaff, setActivityLogs } = useInventory();
+  const { services, clients, setAppointments, staff: allStaff, setStaff, setActivityLogs, walkIns: contextWalkins, setWalkIns } = useInventory();
   const { firestore, user } = useFirebase();
   const tenantId = 'tenant-abc';
   const { toast } = useToast();
@@ -315,9 +315,10 @@ export default function WalkInQueuePage() {
   }, [firestore, user, tenantId]);
 
   const { data: firestoreStaff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
-  const { data: walkIns, isLoading: walkInsLoading } = useCollection<WalkIn>(walkInQuery);
+  const { data: firestoreWalkIns, isLoading: walkInsLoading } = useCollection<WalkIn>(walkInQuery);
   
   const staff = useMemo(() => firestoreStaff && firestoreStaff.length > 0 ? firestoreStaff : allStaff, [firestoreStaff, allStaff]);
+  const walkIns = useMemo(() => firestoreWalkIns && firestoreWalkIns.length > 0 ? firestoreWalkIns : contextWalkins, [firestoreWalkIns, contextWalkins]);
   
   useEffect(() => {
     if (staff) {
@@ -345,16 +346,22 @@ export default function WalkInQueuePage() {
 
     if (!walkIn || !staffMember) return;
     
-    const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
     const now = new Date();
-    updateDocumentNonBlocking(walkInDocRef, {
-        status: 'servicing',
+    
+    const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+    const walkInUpdate = {
+        status: 'servicing' as const,
         assignedStaffId: staffId,
         serviceStartTime: now.toISOString(),
-    });
+    };
+    updateDocumentNonBlocking(walkInDocRef, walkInUpdate);
+    setWalkIns(prev => prev.map(w => w.id === walkInId ? { ...w, ...walkInUpdate } : w));
+
 
     const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
-    updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
+    const staffUpdate = { status: 'busy' as const };
+    updateDocumentNonBlocking(staffDocRef, staffUpdate);
+    setStaff(prev => prev.map(s => s.id === staffId ? { ...s, ...staffUpdate } : s));
 
     const service = services.find(s => s.id === walkIn.serviceIds[0]);
     if (service) {
@@ -378,7 +385,7 @@ export default function WalkInQueuePage() {
             return [...prev, newAppointment];
         });
     }
-  }, [firestore, tenantId, walkIns, staff, services, setAppointments]);
+  }, [firestore, tenantId, walkIns, staff, services, setAppointments, setStaff, setWalkIns]);
 
   const handleManualAssign = (staffId: string) => {
     if (walkInToAssign) {
