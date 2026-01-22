@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -294,7 +293,7 @@ const AssignStaffDialog = ({ open, onOpenChange, walkIn, staff, services, onAssi
 
 
 export default function WalkInQueuePage() {
-  const { services, clients, setAppointments, staff: allStaff, setStaff, setActivityLogs, walkIns: contextWalkins, setWalkIns } = useInventory();
+  const { services, clients, setAppointments, setActivityLogs } = useInventory();
   const { firestore, user } = useFirebase();
   const tenantId = 'tenant-abc';
   const { toast } = useToast();
@@ -304,6 +303,8 @@ export default function WalkInQueuePage() {
   const [assignmentMode, setAssignmentMode] = useState<'automatic' | 'ordered'>('automatic');
   const [staffOrder, setStaffOrder] = useState<Staff[]>([]);
   
+  const { staff, setStaff, walkIns, setWalkIns } = useInventory();
+
   const staffQuery = useMemoFirebase(() => {
     if (!firestore || !user) return null;
     return collection(firestore, 'tenants', tenantId, 'staff');
@@ -317,9 +318,18 @@ export default function WalkInQueuePage() {
   const { data: firestoreStaff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
   const { data: firestoreWalkIns, isLoading: walkInsLoading } = useCollection<WalkIn>(walkInQuery);
   
-  const staff = useMemo(() => firestoreStaff && firestoreStaff.length > 0 ? firestoreStaff : allStaff, [firestoreStaff, allStaff]);
-  const walkIns = useMemo(() => firestoreWalkIns && firestoreWalkIns.length > 0 ? firestoreWalkIns : contextWalkins, [firestoreWalkIns, contextWalkins]);
-  
+  useEffect(() => {
+    if (firestoreStaff) {
+      setStaff(firestoreStaff);
+    }
+  }, [firestoreStaff, setStaff]);
+
+  useEffect(() => {
+    if (firestoreWalkIns) {
+      setWalkIns(firestoreWalkIns);
+    }
+  }, [firestoreWalkIns, setWalkIns]);
+
   useEffect(() => {
     if (staff) {
         setStaffOrder(staff);
@@ -375,7 +385,6 @@ export default function WalkInQueuePage() {
             endTime: appointmentEndTime,
             status: 'servicing',
             isWalkIn: true,
-            actualStartTime: now.toISOString(),
             addOnIds: walkIn.serviceIds.slice(1),
         };
         setAppointments(prev => {
