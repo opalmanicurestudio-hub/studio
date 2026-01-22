@@ -45,6 +45,7 @@
     "firebase": "^11.9.1",
     "framer-motion": "^11.5.10",
     "genkit": "^1.20.0",
+    "html5-qrcode": "^2.3.8",
     "libphonenumber-js": "^1.11.4",
     "lucide-react": "^0.475.0",
     "nanoid": "^5.0.7",

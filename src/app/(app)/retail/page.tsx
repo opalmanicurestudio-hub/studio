@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
@@ -39,6 +40,7 @@ import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceip
 import { useIsMobile } from '@/hooks/use-mobile';
 import { CompleteAppointmentDialog, type CheckoutData } from '@/components/planner/CompleteAppointmentDialog';
 import { nanoid } from 'nanoid';
+import { Html5QrcodeScanner } from 'html5-qrcode';
 
 
 type CartItem = {
@@ -496,8 +498,6 @@ export default function RetailPage() {
   const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
-  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
-  const videoRef = useRef<HTMLVideoElement>(null);
   const [scannedData, setScannedData] = useState<string | null>(null);
   
   const [checkoutAppointment, setCheckoutAppointment] = useState<Appointment | null>(null);
@@ -752,13 +752,6 @@ export default function RetailPage() {
     setAppliedStoreCredit(0);
   };
   
-    useEffect(() => {
-        if (scannedData) {
-            handleScan(scannedData);
-            setScannedData(null); // Reset after processing
-        }
-    }, [scannedData]);
-    
     const handleScan = (data: string) => {
         if (data.startsWith('clarityflow://walk-in/')) {
             const walkInId = data.split('/').pop();
@@ -785,34 +778,50 @@ export default function RetailPage() {
     };
   
   useEffect(() => {
-    if (isScannerOpen) {
-      const getCameraPermission = async () => {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-          setHasCameraPermission(true);
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-          }
-        } catch (error) {
-          console.error('Error accessing camera:', error);
-          setHasCameraPermission(false);
-          toast({
-            variant: 'destructive',
-            title: 'Camera Access Denied',
-            description: 'Please enable camera permissions in your browser settings to use the scanner.',
-          });
-          setIsScannerOpen(false);
-        }
-      };
-      getCameraPermission();
-    } else {
-        if (videoRef.current && videoRef.current.srcObject) {
-            const stream = videoRef.current.srcObject as MediaStream;
-            stream.getTracks().forEach(track => track.stop());
-            videoRef.current.srcObject = null;
-        }
+    if (scannedData) {
+        handleScan(scannedData);
+        setScannedData(null); // Reset after processing
     }
-  }, [isScannerOpen, toast]);
+  }, [scannedData, handleScan]);
+  
+  useEffect(() => {
+    let scanner: Html5QrcodeScanner | null = null;
+    if (isScannerOpen) {
+      scanner = new Html5QrcodeScanner(
+        'qr-reader',
+        {
+          fps: 10,
+          qrbox: { width: 250, height: 250 },
+          rememberLastUsedCamera: true,
+        },
+        /* verbose= */ false
+      );
+
+      const onScanSuccess = (decodedText: string) => {
+        setScannedData(decodedText);
+        setIsScannerOpen(false);
+      };
+
+      const onScanFailure = (error: any) => {
+        // This callback is required but we can choose to ignore scan failures.
+      };
+
+      scanner.render(onScanSuccess, onScanFailure);
+    }
+
+    return () => {
+      if (scanner) {
+        // Using a try-catch block for more robust cleanup
+        try {
+          scanner.clear().catch(error => {
+            console.error("Failed to clear html5-qrcode-scanner.", error);
+          });
+        } catch (error) {
+          console.error("Error during scanner cleanup:", error);
+        }
+      }
+    };
+  }, [isScannerOpen]);
 
     const denominations = [100, 50, 20, 10, 5, 1, 0.25, 0.10, 0.05, 0.01];
 
@@ -1126,33 +1135,19 @@ export default function RetailPage() {
         )}
 
        <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
-        <DialogContent className="sm:max-w-md p-0">
-          <DialogHeader className="p-4 pb-0">
-            <DialogTitle>Scan Code</DialogTitle>
-            <DialogDescription>
-              Position a product barcode or appointment ticket QR code inside the frame.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="p-4 relative">
-             <video ref={videoRef} className="w-full aspect-square rounded-md bg-muted" autoPlay muted playsInline />
-             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="w-2/3 h-1/2 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
-            </div>
-            {hasCameraPermission === false && (
-                <Alert variant="destructive" className="mt-4">
-                    <AlertTriangle className="h-4 w-4" />
-                    <AlertTitle>Camera Access Required</AlertTitle>
-                    <AlertDescription>
-                        Please enable camera access to use the scanner.
-                    </AlertDescription>
-                </Alert>
-            )}
-          </div>
-           <DialogFooter className="p-4 pt-0 flex-col gap-2">
-                <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Scan Code</DialogTitle>
+                    <DialogDescription>
+                    Position a product barcode or appointment ticket QR code inside the frame.
+                    </DialogDescription>
+                </DialogHeader>
+                <div id="qr-reader" className="w-full" />
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     </div>
     <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients} onSave={handleAddClient} />
     
