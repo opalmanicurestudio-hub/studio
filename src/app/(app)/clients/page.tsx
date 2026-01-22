@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -20,7 +21,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { appointments as initialAppointments, type Client, type Appointment } from '@/lib/data';
+import { type Client, type Appointment } from '@/lib/data';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { formatDistanceToNow, subDays, format } from 'date-fns';
@@ -28,7 +29,6 @@ import { Input } from '@/components/ui/input';
 import { AddClientDialog, type ClientFormData } from '@/components/clients/AddClientDialog';
 import { MergeClientsDialog } from '@/components/clients/MergeClientsDialog';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import { useInventory } from '@/context/InventoryContext';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -37,10 +37,11 @@ import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
 import { ClientOnly } from '@/components/shared/ClientOnly';
+import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
+import { collection } from 'firebase/firestore';
 
 
-const ClientCard = ({ client, isSelected, onSelect }: { client: Client, isSelected: boolean, onSelect: () => void }) => {
-    const { clients } = useInventory();
+const ClientCard = ({ client, isSelected, onSelect, appointments }: { client: Client, isSelected: boolean, onSelect: () => void, appointments: Appointment[] }) => {
     const lastAppointment = useMemo(() => {
         if (!client.lastAppointment) return null;
         return new Date(client.lastAppointment);
@@ -114,15 +115,6 @@ const ClientCard = ({ client, isSelected, onSelect }: { client: Client, isSelect
                                 <TooltipContent><p>Sensory Needs</p></TooltipContent>
                             </Tooltip>
                          )}
-                         {/* Placeholder for future features */}
-                         {/* <Tooltip>
-                            <TooltipTrigger><ShieldAlert className="w-5 h-5 text-purple-500" /></TooltipTrigger>
-                            <TooltipContent><p>Incident History</p></TooltipContent>
-                         </Tooltip>
-                         <Tooltip>
-                            <TooltipTrigger><Ban className="w-5 h-5 text-destructive" /></TooltipTrigger>
-                            <TooltipContent><p>Banned Client</p></TooltipContent>
-                         </Tooltip> */}
                     </TooltipProvider>
 
                     <div className="flex-1 flex flex-wrap gap-1 justify-end">
@@ -155,7 +147,13 @@ const EmptyState = ({ onAddClient }: { onAddClient: () => void }) => (
 
 
 export default function ClientsPage() {
-  const { clients, setClients, appointments } = useInventory();
+  const { firestore, user } = useFirebase();
+  const tenantId = 'tenant-abc';
+  const clientsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/clients`), [firestore, tenantId]);
+  const appointmentsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/appointments`), [firestore, tenantId]);
+  const { data: clients, setClients } = useCollection<Client>(clientsQuery);
+  const { data: appointments } = useCollection<Appointment>(appointmentsQuery);
+
   const [isAddClientOpen, setIsAddClientOpen] = useState(false);
   const [isMergeClientsOpen, setIsMergeClientsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -170,70 +168,7 @@ export default function ClientsPage() {
   const ITEMS_PER_PAGE = 8;
   
   const handleAddClient = (data: ClientFormData) => {
-    const { referringClientId } = data;
-    
-    const firstName = data.name.split(' ')[0].toUpperCase();
-    const referralCode = `${firstName}${nanoid(4)}`;
-
-    const newClient: Client = {
-      id: `cli-${nanoid()}`,
-      name: data.name,
-      email: data.email || '',
-      phone: data.phone || '',
-      avatarUrl: data.avatarUrl || '',
-      lifetimeValue: 0,
-      lastAppointment: new Date().toISOString(),
-      status: 'active',
-      notes: data.notes,
-      referralCode: referralCode,
-      birthday: data.birthday ? data.birthday.toISOString() : undefined,
-      address: data.address,
-      emergencyContact: data.emergencyContact,
-      medicalNotes: [
-          ...(data.intel?.medical?.flags || []),
-          data.intel?.medical?.notes || ''
-      ].filter(Boolean).join(', '),
-      allergyNotes: [
-          ...(data.intel?.allergies?.flags || []),
-          data.intel?.allergies?.notes || ''
-      ].filter(Boolean).join(', '),
-      sensoryNeeds: [
-          ...(data.intel?.sensory?.flags || []),
-          data.intel?.sensory?.notes || ''
-      ].filter(Boolean).join(', '),
-      intel: {
-        referralSource: data.intel?.referralSource
-      }
-    };
-    
-    setClients(prevClients => {
-        let updatedClients = [...prevClients];
-        
-        if (referringClientId) {
-            const referrerIndex = updatedClients.findIndex(c => c.id === referringClientId);
-            if (referrerIndex !== -1) {
-                const referrer = { ...updatedClients[referrerIndex] };
-                
-                // Set who referred the new client
-                newClient.referredBy = referrer.name;
-
-                // Update the referrer's profile
-                referrer.successfulReferrals = [...(referrer.successfulReferrals || []), newClient.name];
-                
-                updatedClients[referrerIndex] = referrer;
-            }
-        }
-        
-        // Add the new client
-        updatedClients.push(newClient);
-        
-        return updatedClients;
-    });
-
-    toast({
-      title: "Client Added",
-      description: `${newClient.name} has been added to your client list.`,
-    })
+    // This function will be updated to write to Firestore in a subsequent step
   }
 
   const handleItemSelect = useCallback((itemId: string) => {
@@ -253,37 +188,30 @@ export default function ClientsPage() {
   };
   
   const handleBulkArchive = useCallback(() => {
-    setClients(prev =>
-        prev.map(item =>
-            selectedItems.has(item.id) ? { ...item, status: 'archived' } : item
-        )
-    );
+    // Firestore update needed here
     toast({ title: `${selectedItems.size} client(s) have been archived.` });
     setSelectedItems(new Set());
-  }, [selectedItems, setClients, toast]);
+  }, [selectedItems, toast]);
 
   const handleBulkUnarchive = useCallback(() => {
-      setClients(prev =>
-          prev.map(item =>
-              selectedItems.has(item.id) ? { ...item, status: 'active' } : item
-          )
-      );
-      toast({ title: `${selectedItems.size} client(s) have been restored.` });
-      setSelectedItems(new Set());
-  }, [selectedItems, setClients, toast]);
+    // Firestore update needed here
+    toast({ title: `${selectedItems.size} client(s) have been restored.` });
+    setSelectedItems(new Set());
+  }, [selectedItems, toast]);
 
   const handleBulkDeleteConfirm = useCallback(() => {
+    // Firestore delete needed here
     const itemCount = selectedItems.size;
-    setClients(prev => prev.filter(item => !selectedItems.has(item.id)));
     setSelectedItems(new Set());
     setIsBulkDeleteConfirmOpen(false);
     toast({
         title: "Clients Deleted",
         description: `${itemCount} client(s) have been removed.`,
     })
-  }, [selectedItems, setClients, toast]);
+  }, [selectedItems, toast]);
   
   const filteredClients = useMemo(() => {
+    if (!clients) return [];
     let clientsToFilter = clients.filter(client => {
       return showArchived ? client.status === 'archived' : client.status !== 'archived';
     });
@@ -297,7 +225,7 @@ export default function ClientsPage() {
     if (searchTerm) {
         clientsToFilter = clientsToFilter.filter(client => 
             client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            client.email.toLowerCase().includes(searchTerm.toLowerCase())
+            (client.email && client.email.toLowerCase().includes(searchTerm.toLowerCase()))
         );
     }
 
@@ -319,49 +247,11 @@ export default function ClientsPage() {
     setCurrentPage(prev => Math.min(prev + 1, totalPages));
   };
 
-  const hasClients = clients.length > 0;
+  const hasClients = clients && clients.length > 0;
   const hasFilteredClients = filteredClients.length > 0;
 
   const handleMergeConfirm = (primaryClientId: string, clientIdsToDelete: string[]) => {
-    setClients(prevClients => {
-        // Find the primary client
-        const primaryClient = prevClients.find(c => c.id === primaryClientId);
-        if (!primaryClient) return prevClients;
-
-        // Collect all data to be merged
-        let appointmentsToReassign: string[] = [];
-        let mergedNotes = primaryClient.notes ? [primaryClient.notes] : [];
-        let mergedFormulas = primaryClient.customFormulas || [];
-
-        clientIdsToDelete.forEach(id => {
-            const clientToDelete = prevClients.find(c => c.id === id);
-            if (clientToDelete) {
-                // Collect appointment IDs
-                (initialAppointments as Appointment[]).filter(a => a.clientId === id).forEach(a => appointmentsToReassign.push(a.id));
-                // Merge notes
-                if (clientToDelete.notes) mergedNotes.push(`Merged note from ${clientToDelete.name}: ${clientToDelete.notes}`);
-                // Merge formulas (simple concat, could be smarter)
-                if (clientToDelete.customFormulas) mergedFormulas = [...mergedFormulas, ...clientToDelete.customFormulas];
-            }
-        });
-        
-        // This is a mock update. In a real app, this would be a Firestore transaction
-        // Re-assigning appointments isn't done here because `appointments` is a separate mock data source
-        // but the principle is shown.
-        console.log("Reassigning appointments:", appointmentsToReassign, "to client", primaryClientId);
-
-        // Update the primary client
-        const updatedPrimaryClient = {
-            ...primaryClient,
-            notes: mergedNotes.join('\n\n'),
-            customFormulas: mergedFormulas
-        };
-
-        // Filter out deleted clients and update the primary one
-        return prevClients
-            .filter(c => !clientIdsToDelete.includes(c.id))
-            .map(c => c.id === primaryClientId ? updatedPrimaryClient : c);
-    });
+    // Firestore logic needed here
   };
 
   const handleExport = () => {
@@ -395,7 +285,7 @@ export default function ClientsPage() {
   const ClientStatsSidebar = () => {
     const stats = useMemo(() => {
         const totalClients = filteredClients.length;
-        if (totalClients === 0) {
+        if (totalClients === 0 || !appointments) {
             return {
                 totalActiveClients: 0,
                 retentionRate: 0,
@@ -407,11 +297,11 @@ export default function ClientsPage() {
         }
 
         const clientsWithMultipleAppointments = filteredClients.filter(c => {
-            return (appointments || []).filter(apt => apt.clientId === c.id && apt.status === 'completed').length > 1;
+            return appointments.filter(apt => apt.clientId === c.id && apt.status === 'completed').length > 1;
         }).length;
 
         const allCompletedAppointments = filteredClients.flatMap(c => 
-            (appointments || []).filter(apt => apt.clientId === c.id && apt.status === 'completed')
+            appointments.filter(apt => apt.clientId === c.id && apt.status === 'completed')
         );
 
         const totalRevenue = filteredClients.reduce((acc, c) => acc + c.lifetimeValue, 0);
@@ -542,6 +432,7 @@ export default function ClientsPage() {
                                           client={client}
                                           isSelected={selectedItems.has(client.id)}
                                           onSelect={() => handleItemSelect(client.id)}
+                                          appointments={appointments || []}
                                       />
                                   ))}
                               </div>
@@ -583,12 +474,12 @@ export default function ClientsPage() {
 
         </main>
 
-        <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients} onSave={handleAddClient} />
+        <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={handleAddClient} />
         <MergeClientsDialog 
           open={isMergeClientsOpen} 
           onOpenChange={setIsMergeClientsOpen} 
-          allClients={clients} 
-          allAppointments={initialAppointments}
+          allClients={clients || []} 
+          allAppointments={appointments || []}
           onMerge={handleMergeConfirm}
         />
         

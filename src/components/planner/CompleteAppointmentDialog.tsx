@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
@@ -45,6 +46,8 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { Badge } from '../ui/badge';
 import { nanoid } from 'nanoid';
+import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
+import { doc } from 'firebase/firestore';
 
 
 type EditableFormulaItem = {
@@ -95,6 +98,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   onRebook,
 }) => {
   const { inventory, services, staff, memberships, packages, clients, setClients, addStockCorrection, setTransactions } = useInventory();
+  const { firestore } = useFirebase();
+  const tenantId = 'tenant-abc';
   const { appointment, client, service } = appointmentData;
   const [formulaName, setFormulaName] = useState('Default Service Formula');
   const { toast } = useToast();
@@ -482,11 +487,15 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         incidentData = incidentMethods.getValues();
     }
 
-    if (!client || !service) return;
+    if (!client || !service || !firestore) return;
+    
+    let finalClientId = client.id;
 
-    if (appointment.isWalkIn && !clients.some(c => c.id === client.id)) {
+    // Check if it's a first-time walk-in and create a permanent client record
+    if (appointment.isWalkIn && client.id.startsWith('walkin-')) {
+        const newId = `cli-${nanoid()}`;
         const newClient: Client = {
-          id: `cli-${nanoid()}`,
+          id: newId,
           name: client.name,
           email: '', // Not captured at walk-in
           phone: client.phone || '',
@@ -495,13 +504,22 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
           lastAppointment: new Date().toISOString(),
           status: 'active',
         };
-        setClients(prev => [...prev, newClient]);
+        const clientDocRef = doc(firestore, 'tenants', tenantId, 'clients', newId);
+        await setDocumentNonBlocking(clientDocRef, newClient, {});
+        finalClientId = newId;
+        
         toast({
             title: "New Client Created",
             description: `${client.name} has been automatically added to your client list.`,
         });
     }
     
+    // Update appointment with new client ID if it was created
+    if (finalClientId !== client.id) {
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
+        await updateDocumentNonBlocking(appointmentRef, { clientId: finalClientId });
+    }
+
     // Update Client's Package if redeemed
     if (redeemedOffer?.type === 'package') {
         const clientToUpdate = clients.find(c => c.id === appointment.clientId);
@@ -514,7 +532,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
             }).filter(p => p.sessionsRemaining > 0);
 
             const updatedClient = { ...clientToUpdate, activePackages: updatedPackages };
-            setClients(prev => prev.map(c => c.id === updatedClient.id ? updatedClient : c));
+            const clientDocRef = doc(firestore, 'tenants', tenantId, 'clients', clientToUpdate.id);
+            updateDocumentNonBlocking(clientDocRef, { activePackages: updatedPackages });
         }
     }
 

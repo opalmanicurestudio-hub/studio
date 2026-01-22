@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
@@ -91,7 +92,7 @@ const MembershipProductCard = ({ membership, onClick }: { membership: Membership
                             ))}
                             {membership.retailDiscount && (
                                  <li className="flex items-center gap-1.5">
-                                    <Percent className="w-3 h-3 text-blue-500 flex-shrink-0" />
+                                    <Percent className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
                                     <span className="truncate">{membership.retailDiscount}% off retail</span>
                                 </li>
                             )}
@@ -481,7 +482,7 @@ const CartContent = ({
 };
 
 export default function RetailPage() {
-  const { inventory, services, addStockCorrection, setTransactions, setClients, clients, setAppointments, memberships, packages } = useInventory();
+  const { inventory, services, addStockCorrection, setTransactions, memberships, packages } = useInventory();
   const [activeTab, setActiveTab] = useState('products');
   const [searchTerm, setSearchTerm] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -513,12 +514,11 @@ export default function RetailPage() {
   const { firestore, user } = useFirebase();
   const tenantId = 'tenant-abc';
 
-  const appointmentsQuery = useMemoFirebase(() => {
-    if (!user || !firestore) return null;
-    return collection(firestore, 'tenants', tenantId, 'appointments');
-  }, [user, firestore, tenantId]);
+  const clientsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/clients`), [firestore, tenantId]);
+  const appointmentsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/appointments`), [firestore, tenantId]);
 
-  const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
+  const { data: clients, setClients } = useCollection<Client>(clientsQuery);
+  const { data: appointmentsFromDB, setAppointments } = useCollection<Appointment>(appointmentsQuery);
   
   // Memoized conversion to Date objects
   const liveAppointments = useMemo(() => {
@@ -614,7 +614,7 @@ export default function RetailPage() {
 
   const subtotal = useMemo(() => cart.reduce((acc, item) => acc + item.price * item.quantity, 0), [cart]);
   
-  const client = useMemo(() => clients.find(c => c.id === selectedClientId), [clients, selectedClientId]);
+  const client = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
 
   const retailTotal = useMemo(() => {
     return cart.filter(item => item.type === 'product').reduce((acc, item) => acc + item.price * item.quantity, 0);
@@ -641,7 +641,7 @@ export default function RetailPage() {
   const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
 
   const handleApplyPromo = () => {
-    const selectedClient = clients.find(c => c.id === selectedClientId);
+    const selectedClient = clients?.find(c => c.id === selectedClientId);
     const service = services.find(s => s.id === liveAppointments[0]?.serviceId);
     if (promoCode === 'NEWCLIENT15' && selectedClient && service && selectedClient.lifetimeValue < (service?.price || 0)) {
         setDiscount(15);
@@ -675,7 +675,7 @@ export default function RetailPage() {
         return;
     };
     
-    const selectedClient = clients.find(c => c.id === selectedClientId);
+    const selectedClient = clients?.find(c => c.id === selectedClientId);
 
     // Handle product stock corrections
     const productItems = cart.filter(item => item.type === 'product');
@@ -706,18 +706,18 @@ export default function RetailPage() {
     setTransactions(prev => [...prev, { ...newTransaction, id: `txn-${Date.now()}` }]);
     
     // Update Client State
-    if (selectedClient) {
+    if (selectedClient && firestore) {
         const membershipItem = cart.find(item => item.type === 'membership');
         const packageItems = cart.filter(item => item.type === 'package');
 
-        let updatedClient = { ...selectedClient };
+        let clientUpdate: Partial<Client> = {};
         
         if (appliedStoreCredit > 0) {
-            updatedClient.walletCredit = (updatedClient.walletCredit || 0) - appliedStoreCredit;
+            clientUpdate.walletCredit = (selectedClient.walletCredit || 0) - appliedStoreCredit;
         }
 
         if (membershipItem) {
-            updatedClient.activeMembershipId = membershipItem.id;
+            clientUpdate.activeMembershipId = membershipItem.id;
         }
 
         if (packageItems.length > 0) {
@@ -728,10 +728,13 @@ export default function RetailPage() {
                     sessionsRemaining: pack?.sessions || 0,
                 };
             });
-            updatedClient.activePackages = [...(updatedClient.activePackages || []), ...newPackages];
+            clientUpdate.activePackages = [...(selectedClient.activePackages || []), ...newPackages];
         }
 
-        setClients(prevClients => prevClients.map(c => c.id === updatedClient.id ? updatedClient : c));
+        if (Object.keys(clientUpdate).length > 0) {
+            const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id);
+            updateDocumentNonBlocking(clientDocRef, clientUpdate);
+        }
     }
 
 
@@ -881,7 +884,7 @@ export default function RetailPage() {
         const newTransaction: Omit<Transaction, 'id'> = {
             date: new Date().toISOString(),
             description: `Service: ${service.name}`,
-            clientOrVendor: clients.find(c => c.id === checkoutAppointment.clientId)?.name || 'N/A',
+            clientOrVendor: clients?.find(c => c.id === checkoutAppointment.clientId)?.name || 'N/A',
             type: 'income',
             context: 'Business',
             category: 'Service Revenue',
@@ -900,7 +903,7 @@ export default function RetailPage() {
             const newTransaction: Omit<Transaction, 'id'> = {
                 date: new Date().toISOString(),
                 description: `Tip for Appointment #${checkoutAppointment.id.slice(-4)}`,
-                clientOrVendor: clients.find(c => c.id === checkoutAppointment.clientId)?.name || 'N/A',
+                clientOrVendor: clients?.find(c => c.id === checkoutAppointment.clientId)?.name || 'N/A',
                 type: 'income',
                 context: 'Business',
                 category: 'Tips',
@@ -938,13 +941,13 @@ export default function RetailPage() {
   };
 
   const handleAddClient = (data: ClientFormData) => {
+    if (!firestore) return;
     const { referringClientId } = data;
         
     const firstName = data.name.split(' ')[0].toUpperCase();
     const referralCode = `${firstName}${nanoid(4)}`;
 
-    const newClient: Client = {
-      id: `cli-${nanoid()}`,
+    const newClient: Omit<Client, 'id'> = {
       name: data.name,
       email: data.email || '',
       phone: data.phone || '',
@@ -962,36 +965,31 @@ export default function RetailPage() {
       }
     };
         
-    let updatedClients = [...clients];
+    const newClientId = `cli-${nanoid()}`;
+    const clientDocRef = doc(firestore, `tenants/${tenantId}/clients/${newClientId}`);
+    setDocumentNonBlocking(clientDocRef, { ...newClient, id: newClientId }, {});
         
     if (referringClientId) {
-        const referrerIndex = updatedClients.findIndex(c => c.id === referringClientId);
-        if (referrerIndex !== -1) {
-            const referrer = { ...updatedClients[referrerIndex] };
-                
-            newClient.referredBy = referrer.name;
-
-            referrer.successfulReferrals = [...(referrer.successfulReferrals || []), newClient.name];
-                
-            updatedClients[referrerIndex] = referrer;
+        const referrer = clients?.find(c => c.id === referringClientId);
+        if (referrer) {
+            const referrerDocRef = doc(firestore, `tenants/${tenantId}/clients/${referringClientId}`);
+            const updatedReferrals = [...(referrer.successfulReferrals || []), newClient.name];
+            updateDocumentNonBlocking(referrerDocRef, { successfulReferrals: updatedReferrals });
         }
     }
         
-    updatedClients.push(newClient);
-        
-    setClients(updatedClients);
-    setSelectedClientId(newClient.id);
+    setSelectedClientId(newClientId);
 
     toast({
       title: "Client Added",
-      description: `${newClient.name} has been added to your client list and selected.`,
+      description: `${data.name} has been added to your client list and selected.`,
     });
     setIsAddClientOpen(false);
   }
     
   const checkoutAppointmentData = useMemo(() => {
     if (!checkoutAppointment) return null;
-    const clientData = clients.find(c => c.id === checkoutAppointment.clientId);
+    const clientData = clients?.find(c => c.id === checkoutAppointment.clientId);
     const serviceData = services.find(s => s.id === checkoutAppointment.serviceId);
 
     const walkInClientName = checkoutAppointment.isWalkIn ?
@@ -1094,7 +1092,7 @@ export default function RetailPage() {
                     handleDenominationClick={handleDenominationClick}
                     setAmountTendered={setAmountTendered}
                     handleCheckout={handleRetailCheckout}
-                    clients={clients}
+                    clients={clients || []}
                     updateQuantity={updateQuantity}
                     discount={discount}
                     setDiscount={setDiscount}
@@ -1143,7 +1141,7 @@ export default function RetailPage() {
                             handleDenominationClick={handleDenominationClick}
                             setAmountTendered={setAmountTendered}
                             handleCheckout={handleRetailCheckout}
-                            clients={clients}
+                            clients={clients || []}
                             updateQuantity={updateQuantity}
                             discount={discount}
                             setDiscount={setDiscount}
@@ -1178,7 +1176,7 @@ export default function RetailPage() {
         </div>
        )}
     </div>
-    <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients} onSave={handleAddClient} />
+    <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={handleAddClient} />
     
     {checkoutAppointmentData && (
         <CompleteAppointmentDialog
