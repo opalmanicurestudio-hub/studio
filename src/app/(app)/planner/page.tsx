@@ -511,11 +511,14 @@ const events = useMemo(() => {
     
     // 5. Update appointment
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id);
-    updateDocumentNonBlocking(appointmentRef, {
+    const updateData: any = {
         status: 'completed',
         absorbedCost: absorbedCost,
-        incident: incident,
-    });
+    };
+    if (incident) {
+        updateData.incident = incident;
+    }
+    updateDocumentNonBlocking(appointmentRef, updateData);
     
     // 6. Update Walk-in if applicable
     if (selectedAppointment.isWalkIn) {
