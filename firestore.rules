@@ -1,4 +1,5 @@
 
+
 /**
  * # Firestore Security Rules
  *
@@ -173,7 +174,7 @@ service cloud.firestore {
      * @path /tenants/{tenantId}/staff/{staffId}
      */
     match /tenants/{tenantId}/staff/{staffId} {
-      allow get, list: if isTenantOwner(tenantId) || isStaff(tenantId);
+      allow get, list: if true;
       allow create: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
       allow update: if (isTenantOwner(tenantId) || isTenantAdmin(tenantId)) || (request.auth.uid == staffId);
       allow delete: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);

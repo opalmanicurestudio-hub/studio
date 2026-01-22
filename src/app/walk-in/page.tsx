@@ -14,13 +14,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useInventory } from '@/context/InventoryContext';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
-import { useFirebase, addDocumentNonBlocking } from '@/firebase';
+import { useFirebase, addDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, getDocs, query, where } from 'firebase/firestore';
-import { Service, Staff } from '@/lib/data';
+import { type Service, type Staff } from '@/lib/data';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { Progress } from '@/components/ui/progress';
 import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader } from 'lucide-react';
@@ -59,10 +58,23 @@ const StaffSelectionCard = ({ staff, isSelected, onSelect }: { staff: Staff | { 
 
 
 export default function WalkInPage() {
-  const { services, staff } = useInventory();
   const { firestore } = useFirebase();
   const router = useRouter();
   const { toast } = useToast();
+  const tenantId = 'tenant-abc';
+
+  const servicesQuery = useMemoFirebase(() => {
+    if (!firestore) return null;
+    return collection(firestore, `tenants/${tenantId}/services`);
+  }, [firestore, tenantId]);
+
+  const staffQuery = useMemoFirebase(() => {
+    if (!firestore) return null;
+    return collection(firestore, `tenants/${tenantId}/staff`);
+  }, [firestore, tenantId]);
+
+  const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
+  const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
 
   const [step, setStep] = useState<Step>('services');
   const [customerName, setCustomerName] = useState('');
@@ -80,8 +92,8 @@ export default function WalkInPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
 
-  const mainServices = useMemo(() => services.filter(s => s.type === 'service'), [services]);
-  const addOnServices = useMemo(() => services.filter(s => s.type === 'addon'), [services]);
+  const mainServices = useMemo(() => (services || []).filter(s => s.type === 'service'), [services]);
+  const addOnServices = useMemo(() => (services || []).filter(s => s.type === 'addon'), [services]);
 
   useEffect(() => {
     if (birthYear && birthMonth && birthDay) {
@@ -124,7 +136,6 @@ export default function WalkInPage() {
     }
     
     setIsSubmitting(true);
-    const tenantId = 'tenant-abc';
     const walkInsRef = collection(firestore, 'tenants', tenantId, 'walkIns');
 
     const newWalkIn: any = {
@@ -181,6 +192,16 @@ export default function WalkInPage() {
     setStep('services');
     setIsSubmitting(false);
   };
+  
+  const isLoading = servicesLoading || staffLoading;
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen w-full flex-col items-center justify-center bg-muted/40 p-4">
+        <Loader className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen w-full flex-col items-center justify-center bg-muted/40 p-4">
@@ -330,7 +351,7 @@ export default function WalkInPage() {
                             <Label>Preferred Staff</Label>
                              <RadioGroup value={preferredStaffId} onValueChange={setPreferredStaffId} className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                  <StaffSelectionCard staff={{id: 'any', name: 'Any Available', avatarUrl: ''}} isSelected={preferredStaffId === 'any'} onSelect={() => setPreferredStaffId('any')} />
-                                 {staff.map(s => (
+                                 {(staff || []).map(s => (
                                      <StaffSelectionCard key={s.id} staff={s} isSelected={preferredStaffId === s.id} onSelect={() => setPreferredStaffId(s.id)} />
                                  ))}
                              </RadioGroup>
@@ -338,7 +359,7 @@ export default function WalkInPage() {
                         <div className={`mt-4 space-y-2 transition-opacity ${preferredStaffId === 'any' ? 'opacity-50' : 'opacity-100'}`}>
                             <div className="flex items-center justify-between rounded-lg border p-4">
                                 <Label htmlFor="wait-for-preferred" className="flex flex-col gap-1">
-                                    <span>Wait for {staff.find(s => s.id === preferredStaffId)?.name || 'Preferred Staff'}?</span>
+                                    <span>Wait for {staff?.find(s => s.id === preferredStaffId)?.name || 'Preferred Staff'}?</span>
                                     <span className="text-xs font-normal text-muted-foreground">If unchecked, you may be assigned to the next available stylist.</span>
                                 </Label>
                                 <Switch
