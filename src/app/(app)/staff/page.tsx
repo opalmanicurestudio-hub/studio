@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -36,11 +34,12 @@ import { format, subDays, startOfDay, endOfDay, parseISO, isPast, differenceInDa
 import { cn } from '@/lib/utils';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { StaffDetailsSheet } from '@/components/staff/StaffDetailsSheet';
-import { useCollection, useFirebase, useMemoFirebase, setDocumentNonBlocking } from '@/firebase';
+import { useCollection, useFirebase, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
+import { EditStaffDialog } from '@/components/staff/EditStaffDialog';
 
 
-const StaffCard = ({ member, stats, services, onViewDetails }: { member: Staff, stats: any, services: Service[], onViewDetails: (member: Staff & { stats: any }) => void }) => {
+const StaffCard = ({ member, stats, services, onViewDetails, onEdit }: { member: Staff, stats: any, services: Service[], onViewDetails: (member: Staff & { stats: any }) => void, onEdit: (member: Staff) => void }) => {
     const [licenseInfo, setLicenseInfo] = useState<{
         isExpired: boolean;
         isExpiringSoon: boolean;
@@ -140,7 +139,7 @@ const StaffCard = ({ member, stats, services, onViewDetails }: { member: Staff, 
                     <DropdownMenuItem onClick={() => onViewDetails(member)}>
                        <BarChart className="mr-2 h-4 w-4" /> View Activity
                     </DropdownMenuItem>
-                    <DropdownMenuItem>Edit Profile</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onEdit(member)}>Edit Profile</DropdownMenuItem>
                     <DropdownMenuItem>Change Role</DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem className="text-destructive">Remove from Team</DropdownMenuItem>
@@ -156,6 +155,8 @@ const StaffCard = ({ member, stats, services, onViewDetails }: { member: Staff, 
 export default function StaffPage() {
   const { setStaff: setStaffInContext, appointments, services, transactions, stockCorrections, inventory } = useInventory();
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
+  const [isEditStaffOpen, setIsEditStaffOpen] = useState(false);
+  const [editingStaff, setEditingStaff] = useState<Staff | null>(null);
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false);
   const [selectedStaffMember, setSelectedStaffMember] = useState<(Staff & { stats: any }) | null>(null);
@@ -277,11 +278,16 @@ export default function StaffPage() {
     setSelectedStaffMember(member);
     setIsDetailsSheetOpen(true);
   };
+  
+  const handleEditClick = (member: Staff) => {
+    setEditingStaff(member);
+    setIsEditStaffOpen(true);
+  };
 
   const handleAddStaff = (newStaffData: Omit<Staff, 'id' | 'avatarUrl'>) => {
     if (!firestore) return;
 
-    const fullStaffObject: Omit<Staff, 'id' | 'avatarUrl'> & { id: string; avatarUrl: string; } = {
+    const fullStaffObject = {
       ...newStaffData,
       id: `staff-${nanoid()}`,
       avatarUrl: `https://picsum.photos/seed/${nanoid()}/100`,
@@ -290,13 +296,38 @@ export default function StaffPage() {
     // Firestore doesn't allow `undefined` values.
     // We create a sanitized object by removing keys with undefined values.
     const sanitizedData = Object.fromEntries(
-      Object.entries(fullStaffObject).filter(([_, value]) => value !== undefined)
+        Object.entries(fullStaffObject).filter(([, value]) => {
+            if (typeof value === 'object' && value !== null) {
+                // For nested objects, ensure they are not empty after filtering
+                const nested = Object.fromEntries(Object.entries(value).filter(([_, v]) => v !== undefined && v !== ''));
+                return Object.keys(nested).length > 0;
+            }
+            return value !== undefined && value !== '';
+        })
     );
 
     const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', fullStaffObject.id);
     setDocumentNonBlocking(staffDocRef, sanitizedData, {});
   };
 
+  const handleUpdateStaff = (updatedStaffData: Staff) => {
+    if (!firestore) return;
+
+    const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', updatedStaffData.id);
+    
+    const sanitizedData = Object.fromEntries(
+        Object.entries(updatedStaffData).filter(([, value]) => {
+            if (typeof value === 'object' && value !== null) {
+                // For nested objects, ensure they are not empty after filtering
+                const nested = Object.fromEntries(Object.entries(value).filter(([_, v]) => v !== undefined));
+                return Object.keys(nested).length > 0;
+            }
+            return value !== undefined;
+        })
+    );
+
+    updateDocumentNonBlocking(staffDocRef, sanitizedData);
+  };
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -355,7 +386,7 @@ export default function StaffPage() {
         {(staff || []).length > 0 ? (
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {staffWithStats.map((member) => (
-              <StaffCard key={member.id} member={member} stats={member.stats} services={services} onViewDetails={handleViewDetails} />
+              <StaffCard key={member.id} member={member} stats={member.stats} services={services} onViewDetails={handleViewDetails} onEdit={handleEditClick} />
             ))}
           </div>
         ) : (
@@ -372,6 +403,13 @@ export default function StaffPage() {
         open={isAddStaffOpen} 
         onOpenChange={setIsAddStaffOpen} 
         onSave={handleAddStaff}
+        services={services}
+      />
+      <EditStaffDialog 
+        open={isEditStaffOpen} 
+        onOpenChange={setIsEditStaffOpen} 
+        onSave={handleUpdateStaff}
+        staffMember={editingStaff}
         services={services}
       />
        <StaffDetailsSheet
