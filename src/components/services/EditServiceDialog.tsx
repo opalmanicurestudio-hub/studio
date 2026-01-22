@@ -14,10 +14,19 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Progress } from '@/components/ui/progress';
 import {
   Select,
   SelectContent,
@@ -25,45 +34,46 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { PlusCircle, Package, Hammer, Trash2, QrCode, Check, DollarSign } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { type Service, type InventoryItem, consentForms } from '@/lib/data';
+import { type InventoryItem, type Location, type ConsentForm } from '@/lib/data';
+import { useToast } from '@/hooks/use-toast';
+import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2 } from 'lucide-react';
+import { services as allServices, type Service } from '@/lib/data';
 import { BrowseProductsDialog } from './BrowseProductsDialog';
 import { SelectEquipmentDialog } from './SelectEquipmentDialog';
 import { SelectAddOnsDialog } from './SelectAddOnsDialog';
-import { useToast } from '@/hooks/use-toast';
-import { useIsMobile } from '@/hooks/use-mobile';
-import { Sheet, SheetContent, SheetHeader, SheetDescription, SheetTitle } from '../ui/sheet';
 import { BrowseConsentFormsDialog } from './BrowseConsentFormsDialog';
+import { Switch } from '../ui/switch';
 import { useInventory } from '@/context/InventoryContext';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
 
 const serviceSchema = z.object({
-    id: z.string(),
-    name: z.string().min(1, 'Service name is required'),
-    type: z.enum(['service', 'addon']),
-    category: z.string().min(1, 'Category is required'),
-    duration: z.coerce.number({ invalid_type_error: 'Duration is required.' }).min(1, 'Duration must be at least 1 minute'),
-    padBefore: z.coerce.number().optional(),
-    padAfter: z.coerce.number().optional(),
-    description: z.string().optional(),
-    imageUrl: z.string().optional(),
-    isPrivate: z.boolean().optional(),
-    isAddon: z.boolean().optional(),
-    
-    products: z.array(z.any()).optional(),
-    equipment: z.array(z.any()).optional(),
-    addOns: z.array(z.any()).optional(),
-    
-    depositType: z.enum(['none', 'deposit', 'full', 'breakeven']),
-    depositSubType: z.enum(['flat', 'percentage']).optional(),
-    depositAmount: z.coerce.number().optional(),
-    
-    price: z.coerce.number().optional(),
-    confirmationMessage: z.string().optional(),
-    requiredFormIds: z.array(z.string()).optional(),
+  id: z.string(),
+  name: z.string().min(1, 'Service name is required'),
+  type: z.enum(['service', 'addon']),
+  category: z.string().min(1, 'Category is required'),
+  duration: z.coerce.number({ invalid_type_error: 'Duration is required.' }).min(1, 'Duration must be at least 1 minute'),
+  padBefore: z.coerce.number().optional(),
+  padAfter: z.coerce.number().optional(),
+  description: z.string().optional(),
+  imageUrl: z.string().optional(),
+  isPrivate: z.boolean().optional(),
+  isAddon: z.boolean().optional(),
+  
+  products: z.array(z.any()).optional(),
+  equipment: z.array(z.any()).optional(),
+  addOns: z.array(z.any()).optional(),
+  
+  depositType: z.enum(['none', 'deposit', 'full', 'breakeven']),
+  depositSubType: z.enum(['flat', 'percentage']).optional(),
+  depositAmount: z.coerce.number().optional(),
+  
+  price: z.coerce.number().optional(),
+  confirmationMessage: z.string().optional(),
+  requiredFormIds: z.array(z.string()).optional(),
 });
 
 type ServiceFormData = z.infer<typeof serviceSchema>;
@@ -80,7 +90,7 @@ const EditServiceForm = ({
     breakEvenCost: number;
     onScanClick: () => void;
 }) => {
-    const { inventory, services: allServices } = useInventory();
+    const { inventory, consentForms } = useInventory();
     const { register, control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
@@ -174,7 +184,7 @@ const EditServiceForm = ({
                     </div>
                     <div className="space-y-2"><Label htmlFor="service-name-edit">Name</Label><Input id="service-name-edit" placeholder="e.g., Signature Haircut" {...register('name')} />{errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}</div>
                     <div className="space-y-2"><Label htmlFor="category-edit">Category</Label>
-                    {isAddingCategory ? ( <div className="flex gap-2"><Input placeholder="Enter new category name..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()} /><Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button></div> ) : ( <div className="flex gap-2"><Controller name="category" control={control} render={({ field }) => ( <Select onValueChange={field.onChange} value={field.value}> <SelectTrigger> <SelectValue placeholder="Select a category" /> </SelectTrigger> <SelectContent> {categories.map(cat => ( <SelectItem key={cat} value={cat}>{cat}</SelectItem> ))} </SelectContent> </Select> )}/> <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"> <PlusCircle className="h-4 w-4" /> </Button> </div> )}
+                    {isAddingCategory ? ( <div className="flex gap-2"> <Input placeholder="Enter new category name..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()} /> <Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button> </div> ) : ( <div className="flex gap-2"> <Controller name="category" control={control} render={({ field }) => ( <Select onValueChange={field.onChange} value={field.value}> <SelectTrigger> <SelectValue placeholder="Select a category" /> </SelectTrigger> <SelectContent> {categories.map(cat => ( <SelectItem key={cat} value={cat}>{cat}</SelectItem> ))} </SelectContent> </Select> )}/> <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"> <PlusCircle className="h-4 w-4" /> </Button> </div> )}
                     {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}</div>
                     <div className="grid grid-cols-3 gap-4">
                         <div className="space-y-2"><Label htmlFor="duration-edit">Duration (min)</Label><Input id="duration-edit" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>{errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}</div>
@@ -375,7 +385,17 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
       const productCost = (products || []).reduce((acc: number, p: any) => {
           const product = inventory.find(i => i.id === p.id);
           const quantity = p.quantityUsed || 1;
-          return acc + ((product?.costPerUnit || 0) * quantity);
+          let costPerUse = 0;
+            if (product) {
+                if (product.costingMethod === 'size' && product.size && product.size > 0) {
+                    costPerUse = (product.costPerUnit || 0) / product.size;
+                } else if (product.costingMethod === 'uses' && product.estimatedUses && product.estimatedUses > 0) {
+                    costPerUse = (product.costPerUnit || 0) / product.estimatedUses;
+                } else {
+                    costPerUse = product.costPerUnit || 0;
+                }
+            }
+          return acc + (costPerUse * quantity);
       }, 0);
 
       const equipmentDepreciation = (equipment || []).reduce((acc: any, eq: any) => {
