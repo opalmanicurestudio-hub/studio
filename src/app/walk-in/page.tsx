@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -121,7 +122,7 @@ export default function WalkInPage() {
     const tenantId = 'tenant-abc';
     const walkInsRef = collection(firestore, 'tenants', tenantId, 'walkIns');
 
-    const newWalkIn = {
+    const newWalkIn: any = {
       customerName,
       customerPhone,
       customerEmail,
@@ -131,10 +132,13 @@ export default function WalkInPage() {
       estimatedDuration: totalDuration,
       checkInTime: new Date().toISOString(),
       status: 'waiting',
-      preferredStaffId: preferredStaffId === 'any' ? undefined : preferredStaffId,
       waitForPreferredStaff: preferredStaffId !== 'any' ? waitForPreferred : false,
       notes: notes,
     };
+    
+    if (preferredStaffId !== 'any') {
+      newWalkIn.preferredStaffId = preferredStaffId;
+    }
     
     try {
         await addDocumentNonBlocking(walkInsRef, newWalkIn);
@@ -372,4 +376,3 @@ export default function WalkInPage() {
   );
 }
 
-    
