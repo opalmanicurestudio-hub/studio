@@ -22,7 +22,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuPortal,
@@ -310,12 +309,16 @@ const DayTimeline = ({
         }
     }, [date, staff]); // Rerun when date or staff changes
 
+    const gridStyle = {
+      gridTemplateColumns: isMobile ? '1fr' : `repeat(${staff.length}, 300px)`
+    };
+
     return (
         <div className="flex-1 relative overflow-auto" ref={scrollContainerRef}>
             <div className="grid grid-cols-[auto,1fr] min-w-max">
                 
                 <div className="sticky top-0 z-30 bg-background h-14 border-b border-r grid" style={{ width: isMobile ? '40px' : '48px' }} />
-                <div className="sticky top-0 z-20 grid col-start-2 bg-background" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(${isMobile ? 250 : 250}, 1fr))` }}>
+                <div className="sticky top-0 z-20 grid col-start-2 bg-background" style={gridStyle}>
                     {staff.map(staffMember => (
                         <div key={staffMember.id} className="p-2 h-14 border-b border-r text-center flex items-center justify-center">
                             {!isMobile && (
@@ -338,7 +341,7 @@ const DayTimeline = ({
                 </div>
 
                 {/* Main content grid */}
-                <div className="col-start-2 grid relative" style={{ gridTemplateColumns: `repeat(${staff.length}, minmax(${isMobile ? 250 : 250}, 1fr))` }}>
+                <div className="col-start-2 grid relative" style={gridStyle}>
                     {staffSchedules.map(({ staffMember, positionedItems }) => (
                         <div key={staffMember.id} className="relative border-r">
                             {/* Grid lines */}
@@ -487,6 +490,7 @@ export default function PlannerPage() {
     clients,
     setClients,
     walkIns,
+    setWalkIns,
   } = useInventory();
   
   const { firestore, user, isUserLoading } = useFirebase();
