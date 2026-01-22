@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -293,7 +294,7 @@ const AssignStaffDialog = ({ open, onOpenChange, walkIn, staff, services, onAssi
 
 
 export default function WalkInQueuePage() {
-  const { services, clients, setAppointments, walkIns: allWalkIns, staff: allStaff, setStaff, setActivityLogs } = useInventory();
+  const { services, clients, setAppointments, walkIns: allWalkIns, staff: allStaff, setStaff, setActivityLogs, setWalkIns } = useInventory();
   const { firestore, user } = useFirebase();
   const tenantId = 'tenant-abc';
   const { toast } = useToast();
@@ -324,6 +325,12 @@ export default function WalkInQueuePage() {
         setStaffOrder(staff);
     }
   }, [staff]);
+
+  useEffect(() => {
+    if (firestoreWalkIns) {
+      setWalkIns(firestoreWalkIns);
+    }
+  }, [firestoreWalkIns, setWalkIns]);
 
   const handleReorder = (index: number, direction: 'up' | 'down') => {
     const newOrder = [...staffOrder];
