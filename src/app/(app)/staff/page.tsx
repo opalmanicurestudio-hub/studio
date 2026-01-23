@@ -154,7 +154,7 @@ const StaffCard = ({ member, stats, services, onViewDetails, onEdit }: { member:
 
 
 export default function StaffPage() {
-  const { setStaff: setStaffInContext, appointments, transactions, stockCorrections, inventory } = useInventory();
+  const { setStaff: setStaffInContext, inventory } = useInventory();
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
   const [isEditStaffOpen, setIsEditStaffOpen] = useState(false);
   const [editingStaff, setEditingStaff] = useState<Staff | null>(null);
@@ -169,15 +169,32 @@ export default function StaffPage() {
     if (!firestore || !user) return null;
     return collection(firestore, 'tenants', tenantId, 'staff');
   }, [firestore, user, tenantId]);
-
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
 
   const servicesQuery = useMemoFirebase(() => {
     if (!firestore || !user) return null;
     return collection(firestore, 'tenants', tenantId, 'services');
   }, [firestore, user, tenantId]);
-
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
+
+  const transactionsQuery = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    return collection(firestore, 'tenants', tenantId, 'transactions');
+  }, [firestore, user, tenantId]);
+  const { data: transactions } = useCollection<Transaction>(transactionsQuery);
+
+  const appointmentsQuery = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    return collection(firestore, 'tenants', tenantId, 'appointments');
+  }, [firestore, user, tenantId]);
+  const { data: appointments } = useCollection<Appointment>(appointmentsQuery);
+
+  const stockCorrectionsQuery = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    return collection(firestore, 'tenants', tenantId, 'stockCorrections');
+  }, [firestore, user, tenantId]);
+  const { data: stockCorrections } = useCollection<StockCorrection>(stockCorrectionsQuery);
+
 
   useEffect(() => {
     if (staff) {
@@ -191,7 +208,7 @@ export default function StaffPage() {
   }, []);
 
   const staffWithStats = useMemo(() => {
-    if (!staff || !transactions) return [];
+    if (!staff || !transactions || !appointments || !stockCorrections) return [];
     
     const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
     const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
@@ -221,7 +238,7 @@ export default function StaffPage() {
 
         let earnings = 0;
         if (member.payStructure === 'commission') {
-            earnings = serviceRevenue * (member.commissionRate / 100);
+            earnings = serviceRevenue * ((member.commissionRate || 0) / 100);
         }
         // Simplified for now - assuming salary/hourly is handled separately
         earnings += tips; 
@@ -431,3 +448,5 @@ export default function StaffPage() {
     </div>
   );
 }
+
+    
