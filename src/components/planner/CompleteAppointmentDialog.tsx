@@ -179,9 +179,9 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         })) || [];
         setEditableFormula(initialFormula);
         setRetailItems(checkoutState?.retailItems || []);
-        const initialAddons = checkoutState?.addOns || (appointment.addOnIds || [])
+        const initialAddons = (checkoutState?.addOns || (appointment.addOnIds || [])
             .map(id => services.find(s => s.id === id))
-            .filter((s): s is Service => !!s);
+            .filter((s): s is Service => !!s));
         setSelectedAddOns(initialAddons);
         setFormulaName('Default Service Formula');
         setAmountTendered(0);
@@ -203,7 +203,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         setServiceStaffOverrides(checkoutState?.serviceStaffOverrides || initialOverrides);
         setTipAllocations(checkoutState?.tipAllocations || {});
     }
-  }, [service, open, appointment, incidentMethods, client, services]);
+  }, [open, appointment.id]);
 
   const allServicesForAppointment = useMemo(() => [service, ...selectedAddOns].filter((s): s is Service => !!s), [service, selectedAddOns]);
 

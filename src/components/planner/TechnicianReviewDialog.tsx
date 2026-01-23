@@ -64,50 +64,31 @@ const FormContent = ({
   client,
   service,
   staff,
+  editableFormula, setEditableFormula,
+  selectedAddOns, setSelectedAddOns,
+  serviceStaffOverrides, setServiceStaffOverrides,
+  actualDuration, setActualDuration,
+  applyAdditionalCharges, setApplyAdditionalCharges,
 }: {
   appointment: Appointment,
   client: Client,
   service: Service,
   staff: Staff[];
+  editableFormula: EditableFormulaItem[];
+  setEditableFormula: React.Dispatch<React.SetStateAction<EditableFormulaItem[]>>;
+  selectedAddOns: Service[];
+  setSelectedAddOns: React.Dispatch<React.SetStateAction<Service[]>>;
+  serviceStaffOverrides: Record<string, string>;
+  setServiceStaffOverrides: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  actualDuration: number;
+  setActualDuration: React.Dispatch<React.SetStateAction<number>>;
+  applyAdditionalCharges: boolean;
+  setApplyAdditionalCharges: React.Dispatch<React.SetStateAction<boolean>>;
 }) => {
   const { inventory, services } = useInventory();
-  
-  const [editableFormula, setEditableFormula] = useState<EditableFormulaItem[]>([]);
-  const [selectedAddOns, setSelectedAddOns] = useState<Service[]>([]);
-  const [serviceStaffOverrides, setServiceStaffOverrides] = useState<Record<string, string>>({});
   const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
   const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
-  const [applyAdditionalCharges, setApplyAdditionalCharges] = useState(true);
   const [formulaName, setFormulaName] = useState('Default Service Formula');
-
-  const actualDuration = useMemo(() => {
-    if (appointment.actualStartTime && appointment.actualEndTime) {
-      return differenceInMinutes(parseISO(appointment.actualEndTime), parseISO(appointment.actualStartTime));
-    }
-    return service?.duration || 0;
-  }, [appointment, service]);
-
-  useEffect(() => {
-    if (service && appointment) {
-        const checkoutState = appointment.checkoutState;
-        const initialFormula = checkoutState?.formula || service.products?.map(p => ({
-            id: p.id, name: p.name, quantity: p.quantityUsed, unit: p.unit || 'uses', costPerUnit: p.costPerUnit || 0
-        })) || [];
-        setEditableFormula(initialFormula);
-        setFormulaName('Default Service Formula');
-
-        const initialAddons = (checkoutState?.addOns || (appointment.addOnIds || [])
-            .map(id => services.find(s => s.id === id))
-            .filter((s): s is Service => !!s));
-        setSelectedAddOns(initialAddons);
-
-        const initialOverrides: Record<string, string> = {};
-        initialAddons.forEach(addon => {
-            initialOverrides[addon.id] = appointment.staffId || '';
-        });
-        setServiceStaffOverrides(checkoutState?.serviceStaffOverrides || initialOverrides);
-    }
-  }, [service, appointment, services]);
   
   const { initialBreakEven, finalBreakEven, additionalCharge, absorbedCost } = useMemo(() => {
     if (!service) return { initialBreakEven: 0, finalBreakEven: 0, additionalCharge: 0, absorbedCost: 0 };
@@ -337,10 +318,52 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const { appointment, client, service } = appointmentData;
   const isMobile = useIsMobile();
   
+  const [editableFormula, setEditableFormula] = useState<EditableFormulaItem[]>([]);
+  const [selectedAddOns, setSelectedAddOns] = useState<Service[]>([]);
+  const [serviceStaffOverrides, setServiceStaffOverrides] = useState<Record<string, string>>({});
+  const [actualDuration, setActualDuration] = useState(service?.duration || 0);
+  const [applyAdditionalCharges, setApplyAdditionalCharges] = useState(true);
+
+  useEffect(() => {
+    if (open && service && appointment) {
+        const checkoutState = appointment.checkoutState;
+        const initialFormula = checkoutState?.formula || service.products?.map(p => ({
+            id: p.id, name: p.name, quantity: p.quantityUsed, unit: p.unit || 'uses', costPerUnit: p.costPerUnit || 0
+        })) || [];
+        setEditableFormula(initialFormula);
+
+        const initialAddons = (checkoutState?.addOns || (appointment.addOnIds || [])
+            .map(id => allServices.find(s => s.id === id))
+            .filter((s): s is Service => !!s));
+        setSelectedAddOns(initialAddons);
+
+        setActualDuration(checkoutState?.actualDuration || 
+            (appointment.actualStartTime && appointment.actualEndTime 
+                ? differenceInMinutes(parseISO(appointment.actualEndTime), parseISO(appointment.actualStartTime)) 
+                : service.duration));
+        
+        const initialOverrides: Record<string, string> = {};
+        initialAddons.forEach(addon => {
+            initialOverrides[addon.id] = appointment.staffId || '';
+        });
+        setServiceStaffOverrides(checkoutState?.serviceStaffOverrides || initialOverrides);
+    }
+  }, [service, appointment, open, allServices]);
+
+  
   const handleSend = () => {
-    // This function would gather the state from the FormContent and call onSendToFrontDesk
-    // For now, we assume state is managed inside FormContent and passed up correctly
-     onSendToFrontDesk(appointment.id, {} as AppointmentCheckoutState);
+    if (!client || !service) return;
+
+    const checkoutState: AppointmentCheckoutState = {
+        formula: editableFormula,
+        retailItems: [], // Retail is handled at front desk
+        addOns: selectedAddOns,
+        actualDuration,
+        serviceStaffOverrides,
+        tipAllocations: {},
+        tipAmount: 0,
+    };
+    onSendToFrontDesk(appointment.id, checkoutState);
   };
 
   if (!client || !service) {
@@ -360,7 +383,22 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             </DialogHeader>
             <div className="flex-1 min-h-0 overflow-y-auto">
               <div className="p-6 pt-4">
-                  <FormContent appointment={appointment} client={client} service={service} staff={staff} />
+                  <FormContent 
+                    appointment={appointment} 
+                    client={client} 
+                    service={service} 
+                    staff={staff} 
+                    editableFormula={editableFormula}
+                    setEditableFormula={setEditableFormula}
+                    selectedAddOns={selectedAddOns}
+                    setSelectedAddOns={setSelectedAddOns}
+                    serviceStaffOverrides={serviceStaffOverrides}
+                    setServiceStaffOverrides={setServiceStaffOverrides}
+                    actualDuration={actualDuration}
+                    setActualDuration={setActualDuration}
+                    applyAdditionalCharges={applyAdditionalCharges}
+                    setApplyAdditionalCharges={setApplyAdditionalCharges}
+                  />
               </div>
             </div>
             <DialogFooter className="p-6 pt-4 border-t">
