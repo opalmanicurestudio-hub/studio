@@ -40,7 +40,7 @@ import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceip
 import { useIsMobile } from '@/hooks/use-mobile';
 import { CompleteAppointmentDialog, type CheckoutData } from '@/components/planner/CompleteAppointmentDialog';
 import { nanoid } from 'nanoid';
-import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
 import { parseISO } from 'date-fns';
 import { Html5Qrcode } from 'html5-qrcode';
@@ -527,7 +527,12 @@ export default function RetailPage() {
   const clientsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/clients`), [firestore, tenantId]);
   const appointmentsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/appointments`), [firestore, tenantId]);
   const walkInQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/walkIns`), [firestore, tenantId]);
-
+  const staffQuery = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    return collection(firestore, `tenants/${tenantId}/staff`);
+  }, [firestore, user, tenantId]);
+  
+  const { data: staff } = useCollection<Staff>(staffQuery);
   const { data: clients, setClients } = useCollection<Client>(clientsQuery);
   const { data: appointmentsFromDB, setAppointments } = useCollection<Appointment>(appointmentsQuery);
   const { data: walkIns } = useCollection<WalkIn>(walkInQuery);
@@ -689,14 +694,33 @@ export default function RetailPage() {
                 });
             }
         }
+    } else if (data.startsWith('clarityflow://walk-in/')) {
+      const walkInId = data.split('/').pop();
+      const appointmentId = `apt-walkin-${walkInId}`;
+      const appointmentToCheckout = liveAppointments.find(apt => apt.id === appointmentId);
+
+      if (appointmentToCheckout && appointmentToCheckout.status === 'ready_for_checkout') {
+        setCheckoutAppointment(appointmentToCheckout);
+      } else if (appointmentToCheckout) {
+        toast({
+          title: 'Appointment Not Ready',
+          description: "This appointment is not yet marked as ready for checkout.",
+        });
+      } else {
+        toast({
+            variant: 'destructive',
+            title: 'Appointment Not Found',
+            description: 'Could not find a matching walk-in appointment.',
+        });
+      }
     } else {
         toast({
             variant: 'destructive',
             title: 'Invalid QR Code',
-            description: 'Please scan a valid ClarityFlow product QR code.',
+            description: 'Please scan a valid ClarityFlow product or ticket QR code.',
         });
     }
-  }, [inventory, addToCart, toast]);
+  }, [inventory, addToCart, toast, liveAppointments]);
 
   useEffect(() => {
     let html5QrCode: Html5Qrcode | undefined;
@@ -864,8 +888,8 @@ export default function RetailPage() {
     }
   };
     
-  const handleAppointmentCheckout = (data: CheckoutData) => {
-    if (!checkoutAppointment || !firestore) return;
+  const handleAppointmentCheckout = async (data: CheckoutData) => {
+    if (!checkoutAppointment || !firestore || !clients) return;
 
     const {
         newCorrections,
@@ -875,35 +899,39 @@ export default function RetailPage() {
         tipAllocations,
         addOns,
         absorbedCost,
+        redeemedOffer
     } = data;
         
     const allPerformedServices = [services.find(s => s.id === checkoutAppointment.serviceId), ...addOns].filter((s): s is Service => !!s);
         
+    const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+
+    // 1. Service Revenue Transactions
     allPerformedServices.forEach(service => {
         const staffId = serviceStaffOverrides[service.id] || checkoutAppointment.staffId;
         const newTransaction: Omit<Transaction, 'id'> = {
             date: new Date().toISOString(),
             description: `Service: ${service.name}`,
-            clientOrVendor: clients?.find(c => c.id === checkoutAppointment.clientId)?.name || 'N/A',
+            clientOrVendor: clients.find(c => c.id === checkoutAppointment.clientId)?.name || 'N/A',
             type: 'income',
             context: 'Business',
             category: 'Service Revenue',
-            amount: service.price,
+            amount: redeemedOffer ? 0 : service.price,
             paymentMethod: receiptData.payment.method,
             hasReceipt: true,
             staffId: staffId,
             appointmentId: checkoutAppointment.id,
         };
-        const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
-        setDocumentNonBlocking(transactionsRef, newTransaction, {});
+        addDocumentNonBlocking(transactionsRef, newTransaction);
     });
         
+    // 2. Tip Transactions
     Object.entries(tipAllocations).forEach(([staffId, tipAmount]) => {
         if (tipAmount > 0) {
             const newTransaction: Omit<Transaction, 'id'> = {
                 date: new Date().toISOString(),
                 description: `Tip for Appointment #${checkoutAppointment.id.slice(-4)}`,
-                clientOrVendor: clients?.find(c => c.id === checkoutAppointment.clientId)?.name || 'N/A',
+                clientOrVendor: clients.find(c => c.id === checkoutAppointment.clientId)?.name || 'N/A',
                 type: 'income',
                 context: 'Business',
                 category: 'Tips',
@@ -914,19 +942,59 @@ export default function RetailPage() {
                 tipAmount: tipAmount,
                 appointmentId: checkoutAppointment.id,
             };
-            const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
-            setDocumentNonBlocking(transactionsRef, newTransaction, {});
-            }
-        });
+            addDocumentNonBlocking(transactionsRef, newTransaction);
+        }
+    });
         
+    // 3. Update stock corrections
     newCorrections.forEach(addStockCorrection);
     
+    // 4. Update appointment
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', checkoutAppointment.id);
-    updateDocumentNonBlocking(appointmentRef, { 
+    const updateData: any = { 
         status: 'completed',
         absorbedCost: absorbedCost,
         incident: incident,
+    };
+    updateDocumentNonBlocking(appointmentRef, updateData);
+    
+    // 5. Update staff status
+    const staffIdsInvolved = new Set(Object.values(serviceStaffOverrides));
+    if (checkoutAppointment.staffId) {
+        staffIdsInvolved.add(checkoutAppointment.staffId);
+    }
+    staffIdsInvolved.forEach(staffId => {
+      if (staffId && staff) {
+        const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
+        updateDocumentNonBlocking(staffDocRef, {
+          status: 'idle',
+          lastServedTimestamp: new Date().toISOString(),
+        });
+      }
     });
+
+    // 6. Update Walk-in if applicable
+    if (checkoutAppointment.isWalkIn) {
+      const walkInId = checkoutAppointment.id.replace('apt-walkin-', '');
+      const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+      updateDocumentNonBlocking(walkInDocRef, { status: 'completed' });
+    }
+
+    // 7. Update client packages
+    if (redeemedOffer?.type === 'package') {
+        const clientToUpdate = clients.find(c => c.id === checkoutAppointment.clientId);
+        if (clientToUpdate) {
+            const updatedPackages = clientToUpdate.activePackages?.map(p => {
+                if (p.packageId === redeemedOffer.id) {
+                    return { ...p, sessionsRemaining: p.sessionsRemaining - 1 };
+                }
+                return p;
+            }).filter(p => p.sessionsRemaining > 0);
+
+            const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, clientToUpdate.id);
+            updateDocumentNonBlocking(clientDocRef, { activePackages: updatedPackages });
+        }
+    }
         
     toast({
         title: "Appointment Completed",
@@ -988,7 +1056,7 @@ export default function RetailPage() {
   }
     
   const checkoutAppointmentData = useMemo(() => {
-    if (!checkoutAppointment || !clients) return null;
+    if (!checkoutAppointment || !clients || !services) return null;
     const clientData = clients?.find(c => c.id === checkoutAppointment.clientId);
     const serviceData = services.find(s => s.id === checkoutAppointment.serviceId);
 
@@ -1165,6 +1233,7 @@ export default function RetailPage() {
             appointmentData={checkoutAppointmentData}
             onConfirmCheckout={handleAppointmentCheckout}
             onRebook={() => {}}
+            staff={staff || []}
         />
     )}
 
