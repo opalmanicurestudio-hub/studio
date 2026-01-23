@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -145,10 +146,22 @@ export default function CheckInPage() {
                     <div className="space-y-4">
                          <h4 className="font-medium text-center">How late will you be?</h4>
                         <RadioGroup defaultValue="15" className="grid grid-cols-4 gap-2" onValueChange={(val) => setLateTime(parseInt(val))}>
-                            <Label htmlFor="late-5" className="p-3 border rounded-md text-center cursor-pointer has-[:checked]:border-primary has-[:checked]:bg-primary/10">5 min</Label><RadioGroupItem value="5" id="late-5" className="sr-only" />
-                            <Label htmlFor="late-10" className="p-3 border rounded-md text-center cursor-pointer has-[:checked]:border-primary has-[:checked]:bg-primary/10">10 min</Label><RadioGroupItem value="10" id="late-10" className="sr-only" />
-                            <Label htmlFor="late-15" className="p-3 border rounded-md text-center cursor-pointer has-[:checked]:border-primary has-[:checked]:bg-primary/10">15 min</Label><RadioGroupItem value="15" id="late-15" className="sr-only" />
-                            <Label htmlFor="late-20" className="p-3 border rounded-md text-center cursor-pointer has-[:checked]:border-primary has-[:checked]:bg-primary/10">20+</Label><RadioGroupItem value="20" id="late-20" className="sr-only" />
+                            <div>
+                                <RadioGroupItem value="5" id="late-5" className="peer sr-only" />
+                                <Label htmlFor="late-5" className="p-3 border rounded-md text-center cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/10">5 min</Label>
+                            </div>
+                            <div>
+                                <RadioGroupItem value="10" id="late-10" className="peer sr-only" />
+                                <Label htmlFor="late-10" className="p-3 border rounded-md text-center cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/10">10 min</Label>
+                            </div>
+                            <div>
+                                <RadioGroupItem value="15" id="late-15" className="peer sr-only" />
+                                <Label htmlFor="late-15" className="p-3 border rounded-md text-center cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/10">15 min</Label>
+                            </div>
+                            <div>
+                                <RadioGroupItem value="20" id="late-20" className="peer sr-only" />
+                                <Label htmlFor="late-20" className="p-3 border rounded-md text-center cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/10">20+</Label>
+                            </div>
                         </RadioGroup>
                         <Button className="w-full" onClick={() => setShowLateConfirm(true)}>Confirm</Button>
                     </div>
