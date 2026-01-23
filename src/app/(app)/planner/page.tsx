@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
@@ -140,7 +141,7 @@ export default function PlannerPage() {
     return collection(firestore, 'tenants', tenantId, 'clients');
   }, [firestore, user, isUserLoading, tenantId]);
   
-  const walkInQuery = useMemoFirebase(() => {
+  const walkInsQuery = useMemoFirebase(() => {
     if (isUserLoading || !user || !firestore) return null;
     return collection(firestore, 'tenants', tenantId, 'walkIns');
   }, [firestore, user, isUserLoading, tenantId]);
@@ -1317,4 +1318,3 @@ const events = useMemo(() => {
     </div>
   );
 }
-
