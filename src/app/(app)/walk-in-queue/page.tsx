@@ -579,47 +579,47 @@ export default function WalkInQueuePage() {
         }
     };
 
-  const assignWalkIn = useCallback((walkInId: string, staffId: string) => {
-    if (!firestore || !walkIns || !staff || !services || !clients) return;
+    const assignWalkIn = useCallback((walkInId: string, staffId: string) => {
+        if (!firestore || !walkIns || !staff || !services || !clients) return;
 
-    const walkIn = walkIns.find(w => w.id === walkInId);
-    const staffMember = staff.find(s => s.id === staffId);
+        const walkIn = walkIns.find(w => w.id === walkInId);
+        const staffMember = staff.find(s => s.id === staffId);
 
-    if (!walkIn || !staffMember) return;
-    
-    const now = new Date();
-    
-    const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
-    const walkInUpdate = {
-        status: 'servicing' as const,
-        assignedStaffId: staffId,
-        serviceStartTime: now.toISOString(),
-    };
-    updateDocumentNonBlocking(walkInDocRef, walkInUpdate);
-
-    const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
-    const staffUpdate = { status: 'busy' as const };
-    updateDocumentNonBlocking(staffDocRef, staffUpdate);
-
-    const client = clients.find(c => c.id === walkIn.clientId);
-    const service = services.find(s => s.id === walkIn.serviceIds[0]);
-    if (service) {
-        const appointmentEndTime = addMinutes(now, walkIn.estimatedDuration);
-        const newAppointmentForFirestore: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & { startTime: Date, endTime: Date, clientName: string } = {
-            clientId: walkIn.clientId || `walkin-${walkIn.id}`,
-            clientName: client?.name || walkIn.customerName,
-            serviceId: service.id,
-            staffId: staffId,
-            startTime: now,
-            endTime: appointmentEndTime,
-            status: 'servicing',
-            isWalkIn: true,
-            addOnIds: walkIn.serviceIds.slice(1),
-            actualStartTime: now.toISOString(),
+        if (!walkIn || !staffMember) return;
+        
+        const now = new Date();
+        
+        const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+        const walkInUpdate = {
+            status: 'servicing' as const,
+            assignedStaffId: staffId,
+            serviceStartTime: now.toISOString(),
         };
-        const aptDocRef = doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkIn.id}`);
-        setDocumentNonBlocking(aptDocRef, newAppointmentForFirestore, {});
-    }
+        updateDocumentNonBlocking(walkInDocRef, walkInUpdate);
+
+        const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
+        const staffUpdate = { status: 'busy' as const };
+        updateDocumentNonBlocking(staffDocRef, staffUpdate);
+
+        const client = clients.find(c => c.id === walkIn.clientId);
+        const service = services.find(s => s.id === walkIn.serviceIds[0]);
+        if (service) {
+            const appointmentEndTime = addMinutes(now, walkIn.estimatedDuration);
+            const newAppointmentForFirestore: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & { startTime: Date, endTime: Date, clientName: string } = {
+                clientId: walkIn.clientId || `walkin-${walkIn.id}`,
+                clientName: client?.name || walkIn.customerName,
+                serviceId: service.id,
+                staffId: staffId,
+                startTime: now,
+                endTime: appointmentEndTime,
+                status: 'servicing',
+                isWalkIn: true,
+                addOnIds: walkIn.serviceIds.slice(1),
+                actualStartTime: now.toISOString(),
+            };
+            const aptDocRef = doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkIn.id}`);
+            setDocumentNonBlocking(aptDocRef, newAppointmentForFirestore, {});
+        }
   }, [firestore, tenantId, walkIns, staff, services, clients]);
 
   const handleStartServiceFromNotified = useCallback((walkIn: WalkIn) => {
@@ -655,7 +655,7 @@ export default function WalkInQueuePage() {
     assignWalkIn(walkIn.id, staffToAssign.id);
 
   }, [staff, services, assignWalkIn, toast, events]);
-
+  
   const handleManualAssign = (staffId: string) => {
     if (walkInToAssign) {
         assignWalkIn(walkInToAssign.id, staffId);
@@ -897,7 +897,7 @@ export default function WalkInQueuePage() {
     <>
     <div className="flex h-screen w-full flex-col">
       <AppHeader title="Smart Walk-in Queue" />
-      <main className="flex-1 p-4 md:p-8 space-y-8">
+      <main className="flex-1 p-4 md:p-8 space-y-8 flex flex-col">
         <Card>
             <CardHeader>
                 <CardTitle>Public Check-in Link</CardTitle>
@@ -991,13 +991,13 @@ export default function WalkInQueuePage() {
                 </CardContent>
             </Card>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-start">
-            <Card>
+        <div className="grid flex-1 grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-start min-h-0">
+            <Card className="flex flex-col h-full">
                 <CardHeader>
                     <CardTitle>Waiting Queue ({waitingQueue.length})</CardTitle>
                     <CardDescription>Customers waiting to be notified.</CardDescription>
                 </CardHeader>
-                 <CardContent className="space-y-4">
+                 <CardContent className="space-y-4 flex-1 overflow-y-auto p-6">
                     <Button onClick={handleNotifyNext} disabled={!canNotifyNext} className="w-full">
                         <Bell className="mr-2 h-4 w-4" />
                         Notify Next Client
@@ -1015,12 +1015,12 @@ export default function WalkInQueuePage() {
                     )}
                 </CardContent>
             </Card>
-             <Card>
+             <Card className="flex flex-col h-full">
                 <CardHeader>
                     <CardTitle>Notified ({notifiedQueue.length})</CardTitle>
                     <CardDescription>Clients who have been notified.</CardDescription>
                 </CardHeader>
-                 <CardContent className="space-y-4">
+                 <CardContent className="space-y-4 flex-1 overflow-y-auto p-6">
                     {notifiedQueue.length > 0 ? (
                         notifiedQueue.map(walkIn => (
                             <NotifiedCustomerCard 
@@ -1038,12 +1038,12 @@ export default function WalkInQueuePage() {
                     )}
                 </CardContent>
             </Card>
-             <Card>
+             <Card className="flex flex-col h-full">
                 <CardHeader>
                     <CardTitle>In-Progress ({servicingQueue.length})</CardTitle>
                     <CardDescription>Customers currently being serviced.</CardDescription>
                 </CardHeader>
-                 <CardContent className="space-y-4">
+                 <CardContent className="space-y-4 flex-1 overflow-y-auto p-6">
                     {servicingQueue.length > 0 ? (
                         servicingQueue.map(walkIn => (
                             <ServicingCustomerCard 
@@ -1065,12 +1065,12 @@ export default function WalkInQueuePage() {
                     )}
                 </CardContent>
             </Card>
-             <Card>
+             <Card className="flex flex-col h-full">
                 <CardHeader>
                     <CardTitle>Ready for Checkout ({readyForCheckoutQueue.length})</CardTitle>
                     <CardDescription>Clients who have finished their service.</CardDescription>
                 </CardHeader>
-                 <CardContent className="space-y-4">
+                 <CardContent className="space-y-4 flex-1 overflow-y-auto p-6">
                     {readyForCheckoutQueue.length > 0 ? (
                         readyForCheckoutQueue.map(walkIn => (
                             <ReadyForCheckoutCard 
