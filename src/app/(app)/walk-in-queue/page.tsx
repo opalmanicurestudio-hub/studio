@@ -456,6 +456,53 @@ export default function WalkInQueuePage() {
         setStaffOrder(newOrder);
     }
   };
+  
+    const canNotifyNext = useMemo(() => {
+        if (!staff || !walkIns) return false;
+        const idleStaff = staff.filter(s => s.status === 'idle' && !s.onBreak);
+        if (idleStaff.length === 0) return false;
+        const waitingCustomers = walkIns.filter(w => w.status === 'waiting');
+        if (waitingCustomers.length === 0) return false;
+        const notifiedCustomers = walkIns.filter(w => w.status === 'notified');
+        return notifiedCustomers.length < idleStaff.length;
+    }, [staff, walkIns]);
+
+    const handleNotifyNext = () => {
+        if (!canNotifyNext || !walkIns || !staff || !firestore || !services) {
+            toast({
+                variant: 'destructive',
+                title: 'Cannot Notify',
+                description: 'There are no waiting clients or no available staff.',
+            });
+            return;
+        }
+        
+        const idleStaff = staff.filter(s => s.status === 'idle' && !s.onBreak);
+        const waitingCustomers = walkIns.filter(w => w.status === 'waiting').sort((a,b) => (a.waitForPreferredStaff ? 0 : 1) - (b.waitForPreferredStaff ? 0 : 1) || parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
+        const customerToNotify = waitingCustomers[0];
+
+        const isAnyStaffQualified = idleStaff.some(staffMember => (customerToNotify.requiredSkills || []).every(skill => (staffMember.skillSet || []).includes(skill)));
+        const preferredStaff = customerToNotify.preferredStaffId ? idleStaff.find(s => s.id === customerToNotify.preferredStaffId) : null;
+        const isPreferredStaffQualifiedAndAvailable = preferredStaff ? (customerToNotify.requiredSkills || []).every(skill => (preferredStaff.skillSet || []).includes(skill)) : false;
+
+        if ((!customerToNotify.preferredStaffId && isAnyStaffQualified) || (customerToNotify.preferredStaffId && isPreferredStaffQualifiedAndAvailable)) {
+            const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', customerToNotify.id);
+            updateDocumentNonBlocking(walkInDocRef, {
+                status: 'notified',
+                notifiedTimestamp: new Date().toISOString()
+            });
+            toast({
+                title: 'Client Notified',
+                description: `${customerToNotify.customerName} has been notified it's their turn.`,
+            });
+        } else {
+            toast({
+                variant: 'destructive',
+                title: 'No Qualified Staff Available',
+                description: `There are no available staff members qualified for ${customerToNotify.customerName}'s requested services.`,
+            });
+        }
+    };
 
   const assignWalkIn = useCallback((walkInId: string, staffId: string) => {
     if (!firestore || !walkIns || !staff || !services || !clients) return;
@@ -699,41 +746,6 @@ export default function WalkInQueuePage() {
     return () => clearInterval(timer);
   }, [firestore, walkIns, handleWalkInStatusChange, toast]);
 
-
-    // Smart Assignment / Notification Logic
-    useEffect(() => {
-        if (staffLoading || walkInsLoading || !staff || !walkIns || !firestore || !services) {
-            return;
-        }
-    
-        const idleStaff = staff.filter(s => s.status === 'idle' && !s.onBreak);
-        if (idleStaff.length === 0) return;
-    
-        const waitingCustomers = walkIns.filter(w => w.status === 'waiting').sort((a,b) => (a.waitForPreferredStaff ? 0 : 1) - (b.waitForPreferredStaff ? 0 : 1) || parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
-        if (waitingCustomers.length === 0) return;
-    
-        const notifiedCustomers = walkIns.filter(w => w.status === 'notified');
-        if (notifiedCustomers.length >= idleStaff.length) return;
-    
-        const customerToNotify = waitingCustomers[0];
-    
-        const isAnyStaffQualified = idleStaff.some(staffMember => (customerToNotify.requiredSkills || []).every(skill => (staffMember.skillSet || []).includes(skill)));
-        const preferredStaff = customerToNotify.preferredStaffId ? idleStaff.find(s => s.id === customerToNotify.preferredStaffId) : null;
-        const isPreferredStaffQualifiedAndAvailable = preferredStaff ? (customerToNotify.requiredSkills || []).every(skill => (preferredStaff.skillSet || []).includes(skill)) : false;
-    
-        if ((!customerToNotify.preferredStaffId && isAnyStaffQualified) || (customerToNotify.preferredStaffId && isPreferredStaffQualifiedAndAvailable)) {
-            const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', customerToNotify.id);
-            updateDocumentNonBlocking(walkInDocRef, {
-                status: 'notified',
-                notifiedTimestamp: new Date().toISOString()
-            });
-            toast({
-                title: 'Client Notified',
-                description: `${customerToNotify.customerName} has been notified it's their turn.`,
-            });
-        }
-    }, [staff, walkIns, services, staffLoading, walkInsLoading, firestore, tenantId, toast]);
-
   const ticketData: WalkInTicketData | null = ticketToPrint && services ? {
     id: ticketToPrint.id,
     name: ticketToPrint.customerName,
@@ -874,6 +886,10 @@ export default function WalkInQueuePage() {
                     <CardDescription>Customers waiting to be notified.</CardDescription>
                 </CardHeader>
                  <CardContent className="space-y-4">
+                    <Button onClick={handleNotifyNext} disabled={!canNotifyNext} className="w-full">
+                        <Bell className="mr-2 h-4 w-4" />
+                        Notify Next Client
+                    </Button>
                     {waitingQueue.length > 0 ? (
                         waitingQueue.map((walkIn, index) => (
                             <WaitingCustomerCard key={walkIn.id} walkIn={walkIn} services={services || []} onPrintTicket={setTicketToPrint} onOpenAssignDialog={setWalkInToAssign} queuePosition={index + 1} />
@@ -1021,4 +1037,3 @@ export default function WalkInQueuePage() {
     </>
   );
 }
-
