@@ -56,6 +56,10 @@
             "type": "string",
             "enum": ["none", "pro"],
             "description": "The subscription tier of the tenant."
+        },
+        "queueSkipTimeMinutes": {
+            "type": "number",
+            "description": "Number of minutes a client has to claim their spot before being skipped."
         }
       },
       "required": [
@@ -343,9 +347,10 @@
         "requiredSkills": { "type": "array", "items": { "type": "string" } },
         "estimatedDuration": { "type": "number", "description": "Total estimated minutes for all requested services." },
         "checkInTime": { "type": "string", "format": "date-time" },
+        "notifiedTimestamp": { "type": "string", "format": "date-time", "description": "Timestamp for when the client was notified it's their turn." },
         "serviceStartTime": { "type": "string", "format": "date-time", "description": "The time the service actually began." },
         "serviceEndTime": { "type": "string", "format": "date-time", "description": "The time the service actually ended." },
-        "status": { "type": "string", "enum": ["waiting", "assigned", "servicing", "completed", "skipped", "cancelled", "ready_for_checkout"] },
+        "status": { "type": "string", "enum": ["waiting", "notified", "assigned", "servicing", "completed", "skipped", "cancelled", "ready_for_checkout"] },
         "assignedStaffId": { "type": "string", "description": "The ID of the staff member assigned to this customer." },
         "notes": { "type": "string" },
         "preferredStaffId": { "type": "string" },

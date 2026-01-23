@@ -1,11 +1,12 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { User, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal, Printer, UserPlus, ArrowUp, ArrowDown, DollarSign } from 'lucide-react';
+import { User, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal, Printer, UserPlus, ArrowUp, ArrowDown, DollarSign, Bell } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { useCollection, useFirebase, updateDocumentNonBlocking, useMemoFirebase, setDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
@@ -139,6 +140,60 @@ const WaitingCustomerCard = ({ walkIn, services, onPrintTicket, onOpenAssignDial
         </Card>
     );
 };
+
+const Countdown = ({ expiryTimestamp }: { expiryTimestamp: Date }) => {
+    const [remaining, setRemaining] = useState('');
+
+    useEffect(() => {
+        const timer = setInterval(() => {
+            const now = new Date();
+            const diffSeconds = differenceInSeconds(expiryTimestamp, now);
+
+            if (diffSeconds <= 0) {
+                setRemaining('00:00');
+                clearInterval(timer);
+                return;
+            }
+
+            const minutes = Math.floor(diffSeconds / 60);
+            const seconds = diffSeconds % 60;
+            setRemaining(`${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
+        }, 1000);
+        return () => clearInterval(timer);
+    }, [expiryTimestamp]);
+
+    return <span className="font-mono text-lg font-bold text-primary">{remaining}</span>;
+};
+
+const NotifiedCustomerCard = ({ walkIn, onStartService, onSkip, skipTimeMinutes }: { walkIn: WalkIn, onStartService: (walkIn: WalkIn) => void, onSkip: () => void, skipTimeMinutes: number }) => {
+    const expiryTimestamp = useMemo(() => {
+        if (!walkIn.notifiedTimestamp) return new Date();
+        return addMinutes(parseISO(walkIn.notifiedTimestamp), skipTimeMinutes);
+    }, [walkIn.notifiedTimestamp, skipTimeMinutes]);
+
+    return (
+        <Card className="border-primary ring-2 ring-primary">
+            <CardContent className="p-4">
+                <div className="flex justify-between items-start">
+                    <div>
+                        <p className="font-bold text-xl">{walkIn.customerName}</p>
+                        <p className="text-sm text-muted-foreground">Notified <Timer startTime={walkIn.notifiedTimestamp!} /></p>
+                    </div>
+                    <Badge className="bg-primary hover:bg-primary/90 flex items-center gap-1.5"><Bell className="w-3 h-3" /> Notified</Badge>
+                </div>
+                <div className="text-center my-4">
+                    <p className="text-sm text-muted-foreground">Time to claim spot:</p>
+                    <Countdown expiryTimestamp={expiryTimestamp} />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                    <Button variant="outline" onClick={onSkip}>Skip</Button>
+                    <Button onClick={() => onStartService(walkIn)}>Start Service</Button>
+                </div>
+            </CardContent>
+        </Card>
+    );
+};
+
 
 const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange, onPrintTicket, onFinishService }: { walkIn: WalkIn, services: any[], staff: Staff[], onStatusChange: (walkInId: string, staffId: string, status: WalkIn['status']) => void, onPrintTicket: (data: WalkIn) => void, onFinishService: (walkIn: WalkIn) => void }) => {
     const walkInServices = services.filter(s => walkIn.serviceIds.includes(s.id));
@@ -402,6 +457,21 @@ export default function WalkInQueuePage() {
     }
   };
 
+  const handleStartServiceFromNotified = useCallback((walkIn: WalkIn) => {
+    if (!staff || !services) return;
+    const idleStaff = staff.filter(s => s.status === 'idle' && !s.onBreak);
+    const qualifiedStaff = idleStaff.filter(s => (walkIn.requiredSkills || []).every(skill => (s.skillSet || []).includes(skill)));
+    
+    if(qualifiedStaff.length === 0) {
+      toast({ variant: 'destructive', title: 'No Qualified Staff Available' });
+      return;
+    }
+    
+    // Simplistic: assign to the first qualified idle staff. Could be enhanced with nextUp logic.
+    const staffToAssign = qualifiedStaff[0];
+    assignWalkIn(walkIn.id, staffToAssign.id);
+
+  }, [staff, services, assignWalkIn, toast]);
 
   const assignWalkIn = useCallback((walkInId: string, staffId: string) => {
     if (!firestore || !walkIns || !staff || !services || !clients) return;
@@ -415,8 +485,9 @@ export default function WalkInQueuePage() {
     
     const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
     const walkInUpdate = {
-        status: 'assigned' as const,
+        status: 'servicing' as const,
         assignedStaffId: staffId,
+        serviceStartTime: now.toISOString(),
     };
     updateDocumentNonBlocking(walkInDocRef, walkInUpdate);
 
@@ -435,9 +506,10 @@ export default function WalkInQueuePage() {
             staffId: staffId,
             startTime: now,
             endTime: appointmentEndTime,
-            status: 'confirmed',
+            status: 'servicing',
             isWalkIn: true,
             addOnIds: walkIn.serviceIds.slice(1),
+            actualStartTime: now.toISOString(),
         };
         const aptDocRef = doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkIn.id}`);
         setDocumentNonBlocking(aptDocRef, newAppointmentForFirestore, {});
@@ -477,6 +549,11 @@ export default function WalkInQueuePage() {
   const waitingQueue = useMemo(() => {
     if (!walkIns) return [];
     return (walkIns || []).filter(w => w.status === 'waiting').sort((a,b) => parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
+  }, [walkIns]);
+
+  const notifiedQueue = useMemo(() => {
+    if (!walkIns) return [];
+    return (walkIns || []).filter(w => w.status === 'notified').sort((a, b) => parseISO(a.notifiedTimestamp!).getTime() - parseISO(b.notifiedTimestamp!).getTime());
   }, [walkIns]);
   
   const servicingQueue = useMemo(() => {
@@ -551,7 +628,7 @@ export default function WalkInQueuePage() {
     updateDocumentNonBlocking(staffDocRef, finalUpdate);
   }
   
-  const handleWalkInStatusChange = (walkInId: string, staffId: string, status: WalkIn['status']) => {
+  const handleWalkInStatusChange = useCallback((walkInId: string, staffId: string, status: WalkIn['status']) => {
     if (!firestore) return;
     const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
     
@@ -559,14 +636,14 @@ export default function WalkInQueuePage() {
     
     updateDocumentNonBlocking(walkInDocRef, update);
 
-    if ((status === 'completed' || status === 'skipped') && staffId) {
+    if ((status === 'completed' || status === 'skipped' || status === 'cancelled') && staffId) {
         const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
         updateDocumentNonBlocking(staffDocRef, { 
             status: 'idle',
             lastServedTimestamp: new Date().toISOString(),
         });
     }
-  }
+  }, [firestore, tenantId]);
 
   const handleCompleteClick = (walkIn: WalkIn) => {
     if (!services) return;
@@ -599,75 +676,63 @@ export default function WalkInQueuePage() {
     setCheckoutAppointment(null);
   };
 
+  // Auto-skip timer
+  useEffect(() => {
+    const timer = setInterval(() => {
+        if (!firestore || !walkIns) return;
+        const now = new Date();
+        const skipTimeMinutes = 5; // Replace with tenant setting
 
-    // Smart Assignment Logic
+        walkIns.forEach(walkIn => {
+            if (walkIn.status === 'notified' && walkIn.notifiedTimestamp) {
+                const notifiedTime = parseISO(walkIn.notifiedTimestamp);
+                if (differenceInMinutes(now, notifiedTime) >= skipTimeMinutes) {
+                    handleWalkInStatusChange(walkIn.id, '', 'skipped');
+                    toast({
+                        title: 'Client Skipped',
+                        description: `${walkIn.customerName} was automatically skipped for not arriving in time.`,
+                    });
+                }
+            }
+        });
+    }, 10000); // Check every 10 seconds
+    return () => clearInterval(timer);
+  }, [firestore, walkIns, handleWalkInStatusChange, toast]);
+
+
+    // Smart Assignment / Notification Logic
     useEffect(() => {
         if (staffLoading || walkInsLoading || !staff || !walkIns || !firestore || !services) {
             return;
         }
-
+    
         const idleStaff = staff.filter(s => s.status === 'idle' && !s.onBreak);
         if (idleStaff.length === 0) return;
-
-        const waitingCustomers = walkIns.filter(w => w.status === 'waiting').sort((a, b) => parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
+    
+        const waitingCustomers = walkIns.filter(w => w.status === 'waiting').sort((a,b) => (a.waitForPreferredStaff ? 0 : 1) - (b.waitForPreferredStaff ? 0 : 1) || parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
         if (waitingCustomers.length === 0) return;
-
-        let customerToAssign: WalkIn | undefined;
-        let staffToAssign: Staff | undefined;
-
-        const preferredWaiters = waitingCustomers.filter(c => c.waitForPreferredStaff && c.preferredStaffId);
-        if(preferredWaiters.length > 0) {
-            for (const customer of preferredWaiters) {
-                const preferredStaff = idleStaff.find(s => s.id === customer.preferredStaffId);
-                if (preferredStaff && (customer.requiredSkills || []).every(skill => (preferredStaff.skillSet || []).includes(skill))) {
-                    customerToAssign = customer;
-                    staffToAssign = preferredStaff;
-                    break;
-                }
-            }
+    
+        const notifiedCustomers = walkIns.filter(w => w.status === 'notified');
+        if (notifiedCustomers.length >= idleStaff.length) return;
+    
+        const customerToNotify = waitingCustomers[0];
+    
+        const isAnyStaffQualified = idleStaff.some(staffMember => (customerToNotify.requiredSkills || []).every(skill => (staffMember.skillSet || []).includes(skill)));
+        const preferredStaff = customerToNotify.preferredStaffId ? idleStaff.find(s => s.id === customerToNotify.preferredStaffId) : null;
+        const isPreferredStaffQualifiedAndAvailable = preferredStaff ? (customerToNotify.requiredSkills || []).every(skill => (preferredStaff.skillSet || []).includes(skill)) : false;
+    
+        if ((!customerToNotify.preferredStaffId && isAnyStaffQualified) || (customerToNotify.preferredStaffId && isPreferredStaffQualifiedAndAvailable)) {
+            const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', customerToNotify.id);
+            updateDocumentNonBlocking(walkInDocRef, {
+                status: 'notified',
+                notifiedTimestamp: new Date().toISOString()
+            });
+            toast({
+                title: 'Client Notified',
+                description: `${customerToNotify.customerName} has been notified it's their turn.`,
+            });
         }
-        
-        if (customerToAssign && staffToAssign) {
-             assignWalkIn(customerToAssign.id, staffToAssign.id);
-             return;
-        }
-
-        const generalWaiters = waitingCustomers.filter(c => !c.waitForPreferredStaff && !preferredWaiters.find(p => p.id === c.id));
-        if (generalWaiters.length === 0) return;
-
-
-        if (assignmentMode === 'automatic') {
-            for (const customer of generalWaiters) {
-                const eligibleStaff = idleStaff.filter(s => (customer.requiredSkills || []).every(skill => (s.skillSet || []).includes(skill)));
-                if (eligibleStaff.length > 0) {
-                    let assignedStaffMember = eligibleStaff.sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0))[0];
-                    customerToAssign = customer;
-                    staffToAssign = assignedStaffMember;
-                    break;
-                }
-            }
-        } else { // Ordered Mode
-            for (const staffMember of staffOrder) {
-                const isAvailable = idleStaff.some(s => s.id === staffMember.id);
-                if (isAvailable) {
-                    for (const customer of generalWaiters) {
-                        const isQualified = (customer.requiredSkills || []).every(skill => (staffMember.skillSet || []).includes(skill));
-                        if (isQualified && !walkIns.find(w => w.id === customer.id)?.assignedStaffId) {
-                            customerToAssign = customer;
-                            staffToAssign = staffMember;
-                            break;
-                        }
-                    }
-                }
-                if (customerToAssign) break;
-            }
-        }
-        
-        if (customerToAssign && staffToAssign) {
-            assignWalkIn(customerToAssign.id, staffToAssign.id);
-        }
-
-  }, [staff, walkIns, staffLoading, walkInsLoading, firestore, assignWalkIn, assignmentMode, staffOrder, services]);
+    }, [staff, walkIns, services, staffLoading, walkInsLoading, firestore, tenantId, toast]);
 
   const ticketData: WalkInTicketData | null = ticketToPrint && services ? {
     id: ticketToPrint.id,
@@ -802,11 +867,11 @@ export default function WalkInQueuePage() {
                 </CardContent>
             </Card>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-start">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-start">
             <Card>
                 <CardHeader>
                     <CardTitle>Waiting Queue ({waitingQueue.length})</CardTitle>
-                    <CardDescription>Customers waiting to be assigned.</CardDescription>
+                    <CardDescription>Customers waiting to be notified.</CardDescription>
                 </CardHeader>
                  <CardContent className="space-y-4">
                     {waitingQueue.length > 0 ? (
@@ -824,7 +889,30 @@ export default function WalkInQueuePage() {
             </Card>
              <Card>
                 <CardHeader>
-                    <CardTitle>Assigned &amp; In-Progress ({servicingQueue.length})</CardTitle>
+                    <CardTitle>Notified ({notifiedQueue.length})</CardTitle>
+                    <CardDescription>Clients who have been notified.</CardDescription>
+                </CardHeader>
+                 <CardContent className="space-y-4">
+                    {notifiedQueue.length > 0 ? (
+                        notifiedQueue.map(walkIn => (
+                            <NotifiedCustomerCard 
+                                key={walkIn.id}
+                                walkIn={walkIn}
+                                onStartService={handleStartServiceFromNotified}
+                                onSkip={() => handleWalkInStatusChange(walkIn.id, '', 'skipped')}
+                                skipTimeMinutes={5}
+                            />
+                        ))
+                    ) : (
+                        <div className="text-center py-16 px-6 text-muted-foreground">
+                            <p>No clients currently notified.</p>
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+             <Card>
+                <CardHeader>
+                    <CardTitle>In-Progress ({servicingQueue.length})</CardTitle>
                     <CardDescription>Customers currently being serviced.</CardDescription>
                 </CardHeader>
                  <CardContent className="space-y-4">
@@ -933,5 +1021,3 @@ export default function WalkInQueuePage() {
     </>
   );
 }
-
-    

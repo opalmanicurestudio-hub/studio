@@ -295,9 +295,10 @@ export type WalkIn = {
     requiredSkills: string[];
     estimatedDuration: number;
     checkInTime: string; // ISO Date
+    notifiedTimestamp?: string; // ISO Date
     serviceStartTime?: string; // ISO Date
     serviceEndTime?: string; // ISO Date
-    status: 'waiting' | 'assigned' | 'servicing' | 'completed' | 'skipped' | 'cancelled' | 'ready_for_checkout';
+    status: 'waiting' | 'notified' | 'assigned' | 'servicing' | 'completed' | 'skipped' | 'cancelled' | 'ready_for_checkout';
     assignedStaffId?: string;
     notes?: string;
     preferredStaffId?: string;

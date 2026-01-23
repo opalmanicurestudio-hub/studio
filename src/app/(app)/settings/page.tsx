@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState } from 'react';
@@ -14,20 +15,21 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DollarSign, Gift, Save } from 'lucide-react';
+import { DollarSign, Gift, Save, ListChecks } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 export default function SettingsPage() {
   const { toast } = useToast();
   const [referrerReward, setReferrerReward] = useState('10.00');
   const [newClientDiscount, setNewClientDiscount] = useState('15.00');
+  const [queueSkipTime, setQueueSkipTime] = useState(5);
 
   const handleSaveSettings = () => {
     // In a real application, you would save these values to a Firestore document
     // for the current tenant's settings.
     toast({
       title: 'Settings Saved',
-      description: 'Your referral program settings have been updated.',
+      description: 'Your application settings have been updated.',
     });
   };
 
@@ -86,6 +88,39 @@ export default function SettingsPage() {
                 </div>
                 <p className="text-xs text-muted-foreground">
                   Discount applied to the new client's first service.
+                </p>
+              </div>
+            </CardContent>
+            <CardFooter>
+              <Button onClick={handleSaveSettings}>
+                <Save className="mr-2 h-4 w-4" />
+                Save Settings
+              </Button>
+            </CardFooter>
+          </Card>
+          
+           <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ListChecks className="w-5 h-5 text-primary" />
+                Walk-in Queue
+              </CardTitle>
+              <CardDescription>
+                Configure the behavior of your smart walk-in queue.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                <Label htmlFor="skip-timer">Skip Timer (minutes)</Label>
+                <Input
+                  id="skip-timer"
+                  type="number"
+                  value={queueSkipTime}
+                  onChange={(e) => setQueueSkipTime(Number(e.target.value))}
+                  placeholder="e.g., 5"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Time a client has to claim their spot after being notified before they are automatically skipped.
                 </p>
               </div>
             </CardContent>
