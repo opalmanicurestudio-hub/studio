@@ -22,7 +22,7 @@ import { collection, getDocs, query, where } from 'firebase/firestore';
 import { type Service, type Staff } from '@/lib/data';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { Progress } from '@/components/ui/progress';
-import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader } from 'lucide-react';
+import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -56,6 +56,56 @@ const StaffSelectionCard = ({ staff, isSelected, onSelect }: { staff: Staff | { 
     );
 };
 
+// Mocked business hours data. In a real app, this would be fetched from Firestore.
+const businessHoursData = {
+    monday: { isOpen: true, openTime: '09:00', closeTime: '17:00' },
+    tuesday: { isOpen: true, openTime: '09:00', closeTime: '17:00' },
+    wednesday: { isOpen: true, openTime: '09:00', closeTime: '19:00' },
+    thursday: { isOpen: true, openTime: '09:00', closeTime: '19:00' },
+    friday: { isOpen: true, openTime: '09:00', closeTime: '19:00' },
+    saturday: { isOpen: true, openTime: '10:00', closeTime: '16:00' },
+    sunday: { isOpen: false, openTime: '10:00', closeTime: '16:00' },
+};
+
+type DayHours = { isOpen: boolean; openTime: string; closeTime: string };
+type BusinessHours = Record<string, DayHours>;
+
+function isBusinessOpen(now: Date, hours: BusinessHours): { open: boolean, nextOpen?: { day: string, time: string } } {
+    const dayOfWeek = format(now, 'eeee').toLowerCase();
+    const currentTime = format(now, 'HH:mm');
+    
+    const todayHours = hours[dayOfWeek];
+
+    if (todayHours && todayHours.isOpen) {
+        if (currentTime >= todayHours.openTime && currentTime < todayHours.closeTime) {
+            return { open: true };
+        }
+    }
+
+    // If not open now, find the next open day
+    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    let currentDayIndex = now.getDay();
+    for (let i = 0; i < 7; i++) {
+        const nextDayIndex = (currentDayIndex + i) % 7;
+        const nextDayName = days[nextDayIndex];
+        const nextDayHours = hours[nextDayName];
+        if (nextDayHours.isOpen) {
+             // If we are checking today but past closing time
+            if (i === 0 && currentTime > nextDayHours.closeTime) {
+                continue;
+            }
+            return { 
+                open: false, 
+                nextOpen: { 
+                    day: i === 0 ? 'today' : i === 1 ? 'tomorrow' : `on ${nextDayName}`,
+                    time: nextDayHours.openTime 
+                } 
+            };
+        }
+    }
+    
+    return { open: false }; // No open days found
+}
 
 export default function WalkInPage() {
   const { firestore } = useFirebase();
@@ -94,6 +144,13 @@ export default function WalkInPage() {
 
   const mainServices = useMemo(() => (services || []).filter(s => s.type === 'service'), [services]);
   const addOnServices = useMemo(() => (services || []).filter(s => s.type === 'addon'), [services]);
+
+  const { open: businessIsOpen, nextOpen } = isBusinessOpen(new Date(), businessHoursData);
+  const [hasMounted, setHasMounted] = useState(false);
+  
+  useEffect(() => {
+      setHasMounted(true);
+  }, []);
 
   useEffect(() => {
     if (birthYear && birthMonth && birthDay) {
@@ -193,14 +250,53 @@ export default function WalkInPage() {
     setIsSubmitting(false);
   };
   
-  const isLoading = servicesLoading || staffLoading;
-
+  const isLoading = servicesLoading || staffLoading || !hasMounted;
+  
   if (isLoading) {
     return (
       <div className="flex min-h-screen w-full flex-col items-center justify-center bg-muted/40 p-4">
         <Loader className="h-8 w-8 animate-spin" />
       </div>
     );
+  }
+  
+  if (!businessIsOpen) {
+      return (
+          <div className="flex min-h-screen w-full flex-col items-center justify-center bg-muted/40 p-4">
+               <div className="w-full max-w-md mx-auto text-center">
+                    <header className="mb-8">
+                        <div className="inline-block p-3 bg-card rounded-full shadow-md mb-4">
+                            <ClarityFlowLogo />
+                        </div>
+                        <h1 className="text-3xl font-bold tracking-tight">ClarityFlow Salon</h1>
+                    </header>
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>We're Currently Closed</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <p className="text-muted-foreground">
+                                Our apologies, but we are not currently accepting walk-ins.
+                                {nextOpen && ` We will reopen ${nextOpen.day} at ${nextOpen.time}.`}
+                            </p>
+                            <Card className="text-left bg-background">
+                                <CardHeader><CardTitle className="text-base">Our Hours</CardTitle></CardHeader>
+                                <CardContent className="text-sm space-y-1">
+                                    {Object.entries(businessHoursData).map(([day, hours]) => (
+                                        <div key={day} className="flex justify-between">
+                                            <span className="capitalize font-medium">{day}</span>
+                                            <span className="text-muted-foreground">
+                                                {hours.isOpen ? `${hours.openTime} - ${hours.closeTime}` : 'Closed'}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </CardContent>
+                            </Card>
+                        </CardContent>
+                    </Card>
+               </div>
+          </div>
+      )
   }
 
   return (
@@ -393,7 +489,7 @@ export default function WalkInPage() {
                     <CheckCircle className="w-16 h-16 mx-auto text-green-500" />
                     <h2 className="text-2xl font-bold">You're on the list!</h2>
                     <p className="text-muted-foreground">
-                        You are number <span className="font-bold text-primary">{queuePosition}</span> in the queue. 
+                        You are number <span className="font-bold text-primary">{queuePosition}</span> in the queue.
                         We will send a text message to the provided phone number when it's your turn.
                     </p>
                     <p className="text-sm">Feel free to have a seat!</p>

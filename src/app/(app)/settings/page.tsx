@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState } from 'react';
@@ -13,9 +14,65 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DollarSign, Gift, Save, ListChecks, MessageSquare } from 'lucide-react';
+import { DollarSign, Gift, Save, ListChecks, MessageSquare, Clock, Building } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+
+const timeOptions = Array.from({ length: 48 }, (_, i) => {
+    const hour = Math.floor(i / 2);
+    const minute = i % 2 === 0 ? '00' : '30';
+    return `${hour.toString().padStart(2, '0')}:${minute}`;
+});
+
+const DayHoursRow = ({ day, hours, onHourChange, onStatusChange }: { day: string; hours: { isOpen: boolean, open: string, close: string }; onHourChange: (day: string, type: 'open' | 'close', value: string) => void; onStatusChange: (day: string, isOpen: boolean) => void }) => {
+    return (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 border-b last:border-b-0">
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+                <Switch checked={hours.isOpen} onCheckedChange={(checked) => onStatusChange(day, checked)} />
+                <span className="font-medium capitalize w-20">{day}</span>
+            </div>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+                <Select
+                    value={hours.open}
+                    onValueChange={(value) => onHourChange(day, 'open', value)}
+                    disabled={!hours.isOpen}
+                >
+                    <SelectTrigger className="w-full">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {timeOptions.map(time => (
+                            <SelectItem key={`open-${time}`} value={time}>{time}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+                <span className="text-muted-foreground">-</span>
+                <Select
+                    value={hours.close}
+                    onValueChange={(value) => onHourChange(day, 'close', value)}
+                    disabled={!hours.isOpen}
+                >
+                    <SelectTrigger className="w-full">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {timeOptions.map(time => (
+                            <SelectItem key={`close-${time}`} value={time}>{time}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            </div>
+        </div>
+    );
+};
 
 export default function SettingsPage() {
   const { toast } = useToast();
@@ -25,6 +82,30 @@ export default function SettingsPage() {
   const [smsMessage, setSmsMessage] = useState(
     "Hi {clientName}, your spot at {businessName} is ready! Please head to the front desk."
   );
+  
+  const [businessHours, setBusinessHours] = useState({
+    monday: { isOpen: true, open: '09:00', close: '17:00' },
+    tuesday: { isOpen: true, open: '09:00', close: '17:00' },
+    wednesday: { isOpen: true, open: '09:00', close: '17:00' },
+    thursday: { isOpen: true, open: '09:00', close: '19:00' },
+    friday: { isOpen: true, open: '09:00', close: '19:00' },
+    saturday: { isOpen: true, open: '10:00', close: '16:00' },
+    sunday: { isOpen: false, open: '09:00', close: '17:00' },
+  });
+
+  const handleHourChange = (day: string, type: 'open' | 'close', value: string) => {
+    setBusinessHours(prev => ({
+        ...prev,
+        [day]: { ...prev[day as keyof typeof prev], [type]: value }
+    }));
+  };
+
+  const handleStatusChange = (day: string, isOpen: boolean) => {
+      setBusinessHours(prev => ({
+          ...prev,
+          [day]: { ...prev[day as keyof typeof prev], isOpen }
+      }));
+  };
 
   const handleSaveSettings = () => {
     // In a real application, you would save these values to a Firestore document
@@ -46,6 +127,35 @@ export default function SettingsPage() {
               Manage your application-wide settings and configurations.
             </p>
           </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Building className="w-5 h-5 text-primary" />
+                Business Hours
+              </CardTitle>
+              <CardDescription>
+                Set your operating hours for the walk-in queue.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+               {Object.entries(businessHours).map(([day, hours]) => (
+                 <DayHoursRow
+                    key={day}
+                    day={day}
+                    hours={hours}
+                    onHourChange={handleHourChange}
+                    onStatusChange={handleStatusChange}
+                />
+               ))}
+            </CardContent>
+             <CardFooter className="pt-6">
+              <Button onClick={handleSaveSettings}>
+                <Save className="mr-2 h-4 w-4" />
+                Save Business Hours
+              </Button>
+            </CardFooter>
+          </Card>
 
           <Card>
             <CardHeader>

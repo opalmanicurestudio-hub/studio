@@ -60,6 +60,19 @@
         "queueSkipTimeMinutes": {
             "type": "number",
             "description": "Number of minutes a client has to claim their spot before being skipped."
+        },
+        "businessHours": {
+            "type": "object",
+            "description": "The operating hours for the business.",
+            "properties": {
+                "monday": { "$ref": "#/entities/DayHours" },
+                "tuesday": { "$ref": "#/entities/DayHours" },
+                "wednesday": { "$ref": "#/entities/DayHours" },
+                "thursday": { "$ref": "#/entities/DayHours" },
+                "friday": { "$ref": "#/entities/DayHours" },
+                "saturday": { "$ref": "#/entities/DayHours" },
+                "sunday": { "$ref": "#/entities/DayHours" }
+            }
         }
       },
       "required": [
@@ -69,6 +82,28 @@
         "subscriptionStatus",
         "subscriptionTier"
       ]
+    },
+    "DayHours": {
+        "title": "Day Hours",
+        "type": "object",
+        "description": "Operating hours for a single day of the week.",
+        "properties": {
+            "isOpen": {
+            "type": "boolean",
+            "description": "Whether the business is open on this day."
+            },
+            "openTime": {
+            "type": "string",
+            "description": "Opening time in HH:mm format (24-hour).",
+            "pattern": "^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$"
+            },
+            "closeTime": {
+            "type": "string",
+            "description": "Closing time in HH:mm format (24-hour).",
+            "pattern": "^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$"
+            }
+        },
+        "required": ["isOpen"]
     },
     "Staff": {
       "title": "Staff",
