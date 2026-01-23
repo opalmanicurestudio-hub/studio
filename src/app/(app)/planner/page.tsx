@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
@@ -972,7 +971,7 @@ const events = useMemo(() => {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => handleJumpTo(2)}>+ 2 Weeks</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleJumpTo(4)}>+ 4 Weeks</DropdownMenuItem>
+                        <DropdownMenuItem onClick={()={() => handleJumpTo(4)}>+ 4 Weeks</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleJumpTo(6)}>+ 6 Weeks</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleJumpTo(8)}>+ 8 Weeks</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleJumpTo(10)}>+ 10 Weeks</DropdownMenuItem>
@@ -1004,7 +1003,10 @@ const events = useMemo(() => {
             </TooltipProvider>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setIsScannerOpen(true)}><QrCode className="w-4 h-4 mr-2"/>Scan</Button>
+            <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
+              <QrCode className="w-4 h-4"/>
+              <span className="sr-only">Scan</span>
+            </Button>
             <Button size="sm" onClick={() => setIsAddEventOpen(true)}>
                 + Event
             </Button>
@@ -1035,7 +1037,7 @@ const events = useMemo(() => {
                             <DropdownMenuItem onClick={() => handleJumpTo(-2)}>- 2 Weeks</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleJumpTo(-4)}>- 4 Weeks</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleJumpTo(-6)}>- 6 Weeks</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleJumpTo(-8)}>- 8 Weeks</DropdownMenuItem>
+                            <DropdownMenuItem onClick={()={() => handleJumpTo(-8)}>- 8 Weeks</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleJumpTo(-10)}>- 10 Weeks</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleJumpTo(-12)}>- 12 Weeks</DropdownMenuItem>
                         </DropdownMenuContent>
@@ -1306,5 +1308,4 @@ const events = useMemo(() => {
 
 
 
-
-
+    
