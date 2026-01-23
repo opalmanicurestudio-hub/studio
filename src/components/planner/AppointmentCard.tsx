@@ -38,7 +38,8 @@ import {
   Users,
   Play,
   Square,
-  Repeat
+  Repeat,
+  Link as LinkIcon
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -297,6 +298,23 @@ export function AppointmentCard({
   const isMobile = useIsMobile();
   const { toast } = useToast();
 
+  const handleShareLink = () => {
+    if (!appointment.checkInToken) {
+        toast({
+            variant: 'destructive',
+            title: 'No Check-in Link',
+            description: 'This appointment does not have a check-in link associated with it.',
+        });
+        return;
+    }
+    const checkInUrl = `${window.location.origin}/check-in/${appointment.checkInToken}`;
+    navigator.clipboard.writeText(checkInUrl);
+    toast({
+        title: 'Link Copied',
+        description: 'The check-in link has been copied to your clipboard.',
+    });
+  };
+
   useEffect(() => {
     let timer: NodeJS.Timeout | undefined;
 
@@ -466,6 +484,9 @@ export function AppointmentCard({
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setIsDetailsOpen(true)}>
                     <FileText className="mr-2" /> View Details
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleShareLink}>
+                    <LinkIcon className="mr-2 h-4 w-4" /> Share Check-in Link
                 </DropdownMenuItem>
                  <DropdownMenuItem onClick={() => onPrintTicket({ appointment, client, service })}>
                     <TicketIcon className="mr-2" /> Print Ticket
