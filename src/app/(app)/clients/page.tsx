@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -37,8 +35,8 @@ import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
 import { ClientOnly } from '@/components/shared/ClientOnly';
-import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
-import { collection } from 'firebase/firestore';
+import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
+import { collection, doc } from 'firebase/firestore';
 
 
 const ClientCard = ({ client, isSelected, onSelect, appointments }: { client: Client, isSelected: boolean, onSelect: () => void, appointments: Appointment[] }) => {
@@ -188,27 +186,39 @@ export default function ClientsPage() {
   };
   
   const handleBulkArchive = useCallback(() => {
-    // Firestore update needed here
+    if (!firestore) return;
+    selectedItems.forEach(id => {
+      const clientDoc = doc(firestore, `tenants/${tenantId}/clients`, id);
+      updateDocumentNonBlocking(clientDoc, { status: 'archived' });
+    });
     toast({ title: `${selectedItems.size} client(s) have been archived.` });
     setSelectedItems(new Set());
-  }, [selectedItems, toast]);
+  }, [selectedItems, toast, firestore, tenantId]);
 
   const handleBulkUnarchive = useCallback(() => {
-    // Firestore update needed here
+    if (!firestore) return;
+    selectedItems.forEach(id => {
+      const clientDoc = doc(firestore, `tenants/${tenantId}/clients`, id);
+      updateDocumentNonBlocking(clientDoc, { status: 'active' });
+    });
     toast({ title: `${selectedItems.size} client(s) have been restored.` });
     setSelectedItems(new Set());
-  }, [selectedItems, toast]);
+  }, [selectedItems, toast, firestore, tenantId]);
 
   const handleBulkDeleteConfirm = useCallback(() => {
-    // Firestore delete needed here
+    if (!firestore) return;
     const itemCount = selectedItems.size;
+    selectedItems.forEach(id => {
+      const clientDoc = doc(firestore, `tenants/${tenantId}/clients`, id);
+      deleteDocumentNonBlocking(clientDoc);
+    });
     setSelectedItems(new Set());
     setIsBulkDeleteConfirmOpen(false);
     toast({
         title: "Clients Deleted",
         description: `${itemCount} client(s) have been removed.`,
     })
-  }, [selectedItems, toast]);
+  }, [selectedItems, toast, firestore, tenantId]);
   
   const filteredClients = useMemo(() => {
     if (!clients) return [];
