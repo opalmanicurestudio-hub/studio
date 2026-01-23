@@ -160,7 +160,7 @@ service cloud.firestore {
      * @principle Enforces document ownership and prevents enumeration of businesses.
      */
     match /tenants/{tenantId} {
-        allow get: if isTenantOwner(tenantId) || isStaff(tenantId);
+        allow get: if resource.data.userId == request.auth.uid || exists(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid));
         // Allow a user to query for their own tenant document.
         allow list: if request.query.where.size() > 0 && request.query.where[0] == 'userId' && request.query.where[1] == '==' && request.query.where[2] == request.auth.uid;
         allow create: if isSignedIn() && newDocIsOwnedByCurrentUser() && pathIdMatchesDataIdOnCreate(tenantId);
