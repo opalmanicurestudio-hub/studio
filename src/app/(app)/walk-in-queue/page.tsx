@@ -6,11 +6,11 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { User, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal, Printer, UserPlus, ArrowUp, ArrowDown, DollarSign, Bell } from 'lucide-react';
+import { User, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal, Printer, UserPlus, ArrowUp, ArrowDown, DollarSign, Bell, Lock } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { useCollection, useFirebase, updateDocumentNonBlocking, useMemoFirebase, setDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
-import type { WalkIn, Staff, Appointment, Service, ActivityLog, Client } from '@/lib/data';
+import type { WalkIn, Staff, Appointment, Service, ActivityLog, Client, Event } from '@/lib/data';
 import { formatDistanceToNowStrict, parseISO, addMinutes, differenceInMinutes, differenceInSeconds, format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -71,14 +71,34 @@ const Countdown = ({ expiryTimestamp }: { expiryTimestamp: Date }) => {
 };
 
 const StaffStatusCard = ({ staffMember, onStatusChange, isNextUp }: { staffMember: Staff, onStatusChange: (staffId: string, status: Partial<Staff>) => void, isNextUp: boolean }) => {
+    const { events } = useInventory();
+    
+    const isBlocked = useMemo(() => {
+        if (!events) return false;
+        const now = new Date();
+        return events.some(event => {
+            if (event.type !== 'blocked') return false;
+            const eventStart = parseISO(event.startTime);
+            const eventEnd = parseISO(event.endTime);
+            if (now >= eventStart && now < eventEnd) {
+                if (!event.staffId || event.staffId === 'all' || event.staffId === staffMember.id) {
+                    return true;
+                }
+            }
+            return false;
+        });
+    }, [events, staffMember.id]);
+
+
   const statusConfig = {
     idle: { label: 'Idle', color: 'bg-green-500' },
     busy: { label: 'Busy', color: 'bg-red-500' },
     onBreak: { label: 'On Break', color: 'bg-yellow-500' },
+    blocked: { label: 'Blocked', color: 'bg-gray-500' },
   };
 
-  const currentStatus = staffMember.onBreak ? 'onBreak' : staffMember.status || 'idle';
-  const { label, color } = statusConfig[currentStatus];
+  const currentStatus = isBlocked ? 'blocked' : staffMember.onBreak ? 'onBreak' : staffMember.status || 'idle';
+  const { label, color } = statusConfig[currentStatus as keyof typeof statusConfig];
 
   return (
     <Card className={cn("text-center relative", isNextUp && "border-primary ring-2 ring-primary")}>
@@ -320,28 +340,47 @@ const ReadyForCheckoutCard = ({ walkIn, services, staff, onCheckoutClick }: { wa
     );
 };
 
-const AssignStaffDialog = ({ open, onOpenChange, walkIn, staff, services, onAssign }: { open: boolean, onOpenChange: (open: boolean) => void, walkIn: WalkIn | null, staff: Staff[], services: Service[], onAssign: (staffId: string) => void }) => {
+const AssignStaffDialog = ({ open, onOpenChange, walkIn, staff, services, events, onAssign }: { open: boolean, onOpenChange: (open: boolean) => void, walkIn: WalkIn | null, staff: Staff[], services: Service[], events: Event[], onAssign: (staffId: string) => void }) => {
   const [selectedStaffId, setSelectedStaffId] = useState('');
 
   const staffWithStatus = useMemo(() => {
-    if (!walkIn || !staff) return [];
+    if (!walkIn || !staff || !events) return [];
     const requiredSkills = walkIn.serviceIds.flatMap(id => services.find(s => s.id === id)?.requiredSkills || []);
     const uniqueSkills = [...new Set(requiredSkills)];
+    const now = new Date();
 
-    return staff.map(s => ({
-        ...s,
-        isQualified: uniqueSkills.every(skill => (s.skillSet || []).includes(skill)),
-    })).sort((a,b) => {
-        // Qualified and available first
-        if (a.isQualified && a.status === 'idle' && !a.onBreak && !(b.isQualified && b.status === 'idle' && !b.onBreak)) return -1;
-        if (!(a.isQualified && a.status === 'idle' && !a.onBreak) && b.isQualified && b.status === 'idle' && !b.onBreak) return 1;
-        // Then just qualified
-        if (a.isQualified && !b.isQualified) return -1;
-        if (!a.isQualified && b.isQualified) return 1;
-        // Then by name
+    return staff.map(s => {
+        const isBlocked = events.some(event => {
+            if (event.type !== 'blocked') return false;
+            const eventStart = parseISO(event.startTime);
+            const eventEnd = parseISO(event.endTime);
+            if (now >= eventStart && now < eventEnd) {
+                if (!event.staffId || event.staffId === 'all' || event.staffId === s.id) {
+                    return true;
+                }
+            }
+            return false;
+        });
+
+        return {
+            ...s,
+            isQualified: uniqueSkills.every(skill => (s.skillSet || []).includes(skill)),
+            isBlocked,
+        };
+    }).sort((a, b) => {
+        const aAvailable = a.isQualified && !a.isBlocked && a.status === 'idle' && !a.onBreak;
+        const bAvailable = b.isQualified && !b.isBlocked && b.status === 'idle' && !b.onBreak;
+        if (aAvailable && !bAvailable) return -1;
+        if (!aAvailable && bAvailable) return 1;
+
+        const aQualified = a.isQualified && !a.isBlocked;
+        const bQualified = b.isQualified && !b.isBlocked;
+        if (aQualified && !bQualified) return -1;
+        if (!aQualified && bQualified) return 1;
+        
         return a.name.localeCompare(b.name);
     });
-  }, [walkIn, staff, services]);
+  }, [walkIn, staff, services, events]);
 
   const handleAssign = () => {
     if (selectedStaffId) {
@@ -365,7 +404,7 @@ const AssignStaffDialog = ({ open, onOpenChange, walkIn, staff, services, onAssi
                 htmlFor={`assign-${s.id}`} 
                 className={cn(
                     "flex items-center gap-4 p-3 border rounded-md cursor-pointer hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:ring-2 has-[:checked]:ring-primary",
-                    !s.isQualified && "cursor-not-allowed opacity-50"
+                    (!s.isQualified || s.isBlocked) && "cursor-not-allowed opacity-50"
                 )}
               >
                 <Avatar className="w-12 h-12">
@@ -375,7 +414,9 @@ const AssignStaffDialog = ({ open, onOpenChange, walkIn, staff, services, onAssi
                 <div className="flex-1">
                   <p className="font-semibold">{s.name}</p>
                    <div className="flex items-center gap-2">
-                        {s.onBreak ? (
+                        {s.isBlocked ? (
+                             <Badge variant="destructive" className="bg-gray-500">Blocked</Badge>
+                        ) : s.onBreak ? (
                              <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-yellow-200">On Break</Badge>
                         ) : s.status === 'busy' ? (
                              <Badge variant="outline" className="bg-red-100 text-red-800 border-red-200">Busy</Badge>
@@ -385,7 +426,7 @@ const AssignStaffDialog = ({ open, onOpenChange, walkIn, staff, services, onAssi
                          {!s.isQualified && <Badge variant="destructive">Not Qualified</Badge>}
                    </div>
                 </div>
-                <RadioGroupItem value={s.id} id={`assign-${s.id}`} disabled={!s.isQualified} />
+                <RadioGroupItem value={s.id} id={`assign-${s.id}`} disabled={!s.isQualified || s.isBlocked} />
               </Label>
             ))}
           </RadioGroup>
@@ -435,10 +476,25 @@ export default function WalkInQueuePage() {
     return collection(firestore, 'tenants', tenantId, 'clients');
   }, [firestore, user, tenantId]);
 
+  const eventsQuery = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    return collection(firestore, `tenants/${tenantId}/events`);
+  }, [firestore, user, tenantId]);
+
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
   const { data: walkIns, isLoading: walkInsLoading } = useCollection<WalkIn>(walkInQuery);
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
   const { data: clients, isLoading: clientsLoading } = useCollection<Client>(clientsQuery);
+  const { data: fetchedEvents, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
+
+  const events = useMemo(() => {
+    if (!fetchedEvents) return [];
+    return fetchedEvents.map(evt => {
+      const startTime = (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : parseISO(evt.startTime as any);
+      const endTime = (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : parseISO(evt.endTime as any);
+      return ({ ...evt, startTime, endTime });
+    });
+  }, [fetchedEvents]);
   
   useEffect(() => {
     if (staff) {
@@ -458,14 +514,33 @@ export default function WalkInQueuePage() {
   };
   
     const canNotifyNext = useMemo(() => {
-        if (!staff || !walkIns) return false;
-        const idleStaff = staff.filter(s => s.status === 'idle' && !s.onBreak);
+        if (!staff || !walkIns || !events) return false;
+        const now = new Date();
+        const idleStaff = staff.filter(s => {
+            if (s.status !== 'idle' || s.onBreak) return false;
+
+            // Check for blocking events
+            const isBlocked = events.some(event => {
+                if (event.type !== 'blocked') return false;
+                const eventStart = event.startTime;
+                const eventEnd = event.endTime;
+                if (now >= eventStart && now < eventEnd) {
+                    if (!event.staffId || event.staffId === 'all' || event.staffId === s.id) {
+                        return true;
+                    }
+                }
+                return false;
+            });
+            
+            return !isBlocked;
+        });
+
         if (idleStaff.length === 0) return false;
         const waitingCustomers = walkIns.filter(w => w.status === 'waiting');
         if (waitingCustomers.length === 0) return false;
         const notifiedCustomers = walkIns.filter(w => w.status === 'notified');
         return notifiedCustomers.length < idleStaff.length;
-    }, [staff, walkIns]);
+    }, [staff, walkIns, events]);
 
     const handleNotifyNext = () => {
         if (!canNotifyNext || !walkIns || !staff || !firestore || !services) {
@@ -548,8 +623,26 @@ export default function WalkInQueuePage() {
   }, [firestore, tenantId, walkIns, staff, services, clients]);
 
   const handleStartServiceFromNotified = useCallback((walkIn: WalkIn) => {
-    if (!staff || !services) return;
-    const idleStaff = staff.filter(s => s.status === 'idle' && !s.onBreak);
+    if (!staff || !services || !events) return;
+    const now = new Date();
+    const idleStaff = staff.filter(s => {
+        if (s.status !== 'idle' || s.onBreak) return false;
+
+        const isBlocked = events.some(event => {
+            if (event.type !== 'blocked') return false;
+            const eventStart = event.startTime;
+            const eventEnd = event.endTime;
+            if (now >= eventStart && now < eventEnd) {
+                if (!event.staffId || event.staffId === 'all' || event.staffId === s.id) {
+                    return true;
+                }
+            }
+            return false;
+        });
+        
+        return !isBlocked;
+    });
+
     const qualifiedStaff = idleStaff.filter(s => (walkIn.requiredSkills || []).every(skill => (s.skillSet || []).includes(skill)));
     
     if(qualifiedStaff.length === 0) {
@@ -561,7 +654,7 @@ export default function WalkInQueuePage() {
     const staffToAssign = qualifiedStaff[0];
     assignWalkIn(walkIn.id, staffToAssign.id);
 
-  }, [staff, services, assignWalkIn, toast]);
+  }, [staff, services, assignWalkIn, toast, events]);
 
   const handleManualAssign = (staffId: string) => {
     if (walkInToAssign) {
@@ -571,9 +664,28 @@ export default function WalkInQueuePage() {
   };
 
   const nextUpStaffId = useMemo(() => {
-    if (!staff) return null;
+    if (!staff || !events) return null;
+    const now = new Date();
     
-    const idleStaff = staff.filter(s => s.status === 'idle' && !s.onBreak);
+    const idleStaff = staff.filter(s => {
+        if (s.status !== 'idle' || s.onBreak) return false;
+        
+        // Check for blocking events
+        const isBlocked = events.some(event => {
+            if (event.type !== 'blocked') return false;
+            const eventStart = event.startTime;
+            const eventEnd = event.endTime;
+            if (now >= eventStart && now < eventEnd) {
+                if (!event.staffId || event.staffId === 'all' || event.staffId === s.id) {
+                    return true;
+                }
+            }
+            return false;
+        });
+        
+        return !isBlocked;
+    });
+
     if (idleStaff.length === 0) return null;
 
     if (assignmentMode === 'automatic') {
@@ -581,7 +693,7 @@ export default function WalkInQueuePage() {
         (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) -
         (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0)
         );
-        return sortedIdleStaff[0].id;
+        return sortedIdleStaff[0]?.id;
     } else { // 'ordered'
         for (const orderedStaffMember of staffOrder) {
             if (idleStaff.some(s => s.id === orderedStaffMember.id)) {
@@ -590,7 +702,7 @@ export default function WalkInQueuePage() {
         }
         return null;
     }
-  }, [staff, assignmentMode, staffOrder]);
+  }, [staff, assignmentMode, staffOrder, events]);
 
 
   const waitingQueue = useMemo(() => {
@@ -987,6 +1099,7 @@ export default function WalkInQueuePage() {
       walkIn={walkInToAssign}
       staff={staff || []}
       services={services || []}
+      events={events || []}
       onAssign={handleManualAssign}
     />
 
