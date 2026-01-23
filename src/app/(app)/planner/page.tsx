@@ -164,7 +164,7 @@ export default function PlannerPage() {
   const { data: fetchedBillInstances, isLoading: billInstancesLoading } = useCollection<BillInstance>(billInstancesQuery);
   const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
   const { data: clients, isLoading: clientsLoading } = useCollection<Client>(clientsQuery);
-  const { data: walkIns, isLoading: walkInsLoading } = useCollection<WalkIn>(walkInQuery);
+  const { data: walkIns, isLoading: walkInsLoading } = useCollection<WalkIn>(walkInsQuery);
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
   const { data: fetchedEvents, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
@@ -1007,12 +1007,24 @@ const events = useMemo(() => {
               <QrCode className="w-4 h-4"/>
               <span className="sr-only">Scan</span>
             </Button>
-            <Button size="sm" onClick={() => setIsAddEventOpen(true)}>
-                + Event
-            </Button>
-            <Button size="sm" onClick={() => setIsAddAppointmentOpen(true)}>
-                + Appointment
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm">
+                  <PlusCircle className="mr-2 h-4 w-4" />
+                  New
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => setIsAddAppointmentOpen(true)}>
+                  <Calendar className="mr-2 h-4 w-4" />
+                  <span>New Appointment</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setIsAddEventOpen(true)}>
+                  <TicketIcon className="mr-2 h-4 w-4" />
+                  <span>New Event</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
@@ -1305,3 +1317,4 @@ const events = useMemo(() => {
     </div>
   );
 }
+
