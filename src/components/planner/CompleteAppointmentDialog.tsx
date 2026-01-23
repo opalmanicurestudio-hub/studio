@@ -1,3 +1,5 @@
+
+
 'use client';
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
@@ -277,8 +279,9 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - grandTotal : 0;
 
   const involvedStaff = useMemo(() => {
-      const staffIds = new Set(Object.values(serviceStaffOverrides));
-      return staff.filter(s => staffIds.has(s.id));
+    if (!staff) return [];
+    const staffIds = new Set(Object.values(serviceStaffOverrides));
+    return staff.filter(s => staffIds.has(s.id));
   }, [serviceStaffOverrides, staff]);
 
   const remainingTip = useMemo(() => {
@@ -496,8 +499,9 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         const newClient: Client = {
           id: newId,
           name: client.name,
-          email: '', // Not captured at walk-in
+          email: client.email || '',
           phone: client.phone || '',
+          birthday: client.birthday,
           avatarUrl: '',
           lifetimeValue: grandTotal - tipAmount, // First transaction
           lastAppointment: new Date().toISOString(),

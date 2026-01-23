@@ -796,18 +796,25 @@ const events = useMemo(() => {
     let client = (clients || []).find(c => c.id === selectedAppointment.clientId);
     const service = (services || []).find(s => s.id === selectedAppointment.serviceId);
 
-    // If client is not found in the main client list (e.g., for a new walk-in)
-    // create a temporary client object using the denormalized name.
+    const walkIn = selectedAppointment.isWalkIn && walkIns
+      ? walkIns.find(w => `apt-walkin-${w.id}` === selectedAppointment.id)
+      : undefined;
+
     if (!client && selectedAppointment.clientName) {
         client = {
             id: selectedAppointment.clientId,
             name: selectedAppointment.clientName,
-            email: '', phone: '', avatarUrl: '', lifetimeValue: 0, lastAppointment: ''
+            email: walkIn?.customerEmail || '',
+            phone: walkIn?.customerPhone || '',
+            birthday: walkIn?.customerBirthday,
+            avatarUrl: '',
+            lifetimeValue: 0,
+            lastAppointment: ''
         };
     }
 
     return { appointment: selectedAppointment, client, service };
-  }, [selectedAppointment, clients, services]);
+  }, [selectedAppointment, clients, services, walkIns]);
   
   const handlePrintReceipt = (receiptData: Omit<ReceiptData, 'business'>) => {
     setReceiptToPrint({
@@ -1252,5 +1259,6 @@ const events = useMemo(() => {
     </div>
   );
 }
+
 
 
