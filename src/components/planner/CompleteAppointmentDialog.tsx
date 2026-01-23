@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
@@ -31,7 +29,6 @@ import { useInventory } from '@/context/InventoryContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
 import { useToast } from '@/hooks/use-toast';
-import { ScrollArea } from '../ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Label } from '../ui/label';
 import { Switch } from '../ui/switch';
@@ -631,7 +628,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
 
   const handleDenominationClick = (amount: number) => {
     setAmountTendered(prev => prev + amount);
-  }
+  };
   
   const actualServiceDuration = useMemo(() => {
     if (appointment.actualStartTime && appointment.actualEndTime) {
@@ -1027,9 +1024,9 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                     </SheetHeader>
                      {view === 'checkout' ? (
                         <>
-                            <ScrollArea className="flex-1">
+                            <div className="flex-1 min-h-0 overflow-y-auto">
                                 {FormContent}
-                            </ScrollArea>
+                            </div>
                             <SheetFooter className="p-4 border-t bg-background flex-col sm:flex-col sm:space-x-0 gap-2">
                                 {onSendToFrontDesk && <Button variant="secondary" onClick={handleSendToFrontDesk}>Send to Front Desk</Button>}
                                 <Button onClick={handleCompleteAppointment} disabled={warnings.length > 0} size="lg">
@@ -1061,40 +1058,39 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col p-0">
-          <DialogHeader className="p-6 pb-4 border-b flex-shrink-0">
-            <DialogTitle>Complete Appointment & Checkout</DialogTitle>
-            <DialogDescription>
-              Confirm products used, add retail sales, and finalize the appointment.
-            </DialogDescription>
-          </DialogHeader>
-          
-           {view === 'checkout' ? (
-                <>
-                    <ScrollArea className="flex-1">
-                        {FormContent}
-                    </ScrollArea>
-                    <DialogFooter className="p-6 pt-4 border-t flex-shrink-0">
-                    <div className="flex flex-col sm:flex-row sm:justify-end gap-2 w-full">
-                        {onSendToFrontDesk && <Button variant="secondary" onClick={handleSendToFrontDesk}>Send to Front Desk</Button>}
-                        <div className="flex-1" />
-                        <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                        <Button onClick={handleCompleteAppointment} disabled={warnings.length > 0}>
-                        Finalize & Record Sale
-                        </Button>
-                    </div>
-                    </DialogFooter>
-                </>
-           ) : (
-                <div className="text-center p-8 space-y-4">
-                    <CheckCircle className="w-16 h-16 mx-auto text-green-500" />
-                    <h2 className="text-2xl font-bold">Checkout Complete!</h2>
-                    <p className="text-muted-foreground">Would you like to book {client.name}'s next appointment?</p>
-                    <div className="flex justify-center gap-4 pt-4">
-                        <Button variant="outline" onClick={() => onOpenChange(false)}>No, Thanks</Button>
-                        <Button onClick={() => onRebook(appointment)}>Book Next Appointment</Button>
-                    </div>
+          {view === 'checkout' ? (
+            <>
+              <DialogHeader className="p-6 pb-4 border-b flex-shrink-0">
+                <DialogTitle>Complete Appointment & Checkout</DialogTitle>
+                <DialogDescription>
+                  Confirm products used, add retail sales, and finalize the appointment.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex-1 min-h-0 overflow-y-auto">
+                {FormContent}
+              </div>
+              <DialogFooter className="p-6 pt-4 border-t flex-shrink-0">
+                <div className="flex flex-col sm:flex-row sm:justify-end gap-2 w-full">
+                  {onSendToFrontDesk && <Button variant="secondary" onClick={handleSendToFrontDesk}>Send to Front Desk</Button>}
+                  <div className="flex-1" />
+                  <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                  <Button onClick={handleCompleteAppointment} disabled={warnings.length > 0}>
+                    Finalize & Record Sale
+                  </Button>
                 </div>
-           )}
+              </DialogFooter>
+            </>
+          ) : (
+            <div className="text-center p-8 space-y-4">
+              <CheckCircle className="w-16 h-16 mx-auto text-green-500" />
+              <h2 className="text-2xl font-bold">Checkout Complete!</h2>
+              <p className="text-muted-foreground">Would you like to book {client.name}'s next appointment?</p>
+              <div className="flex justify-center gap-4 pt-4">
+                <Button variant="outline" onClick={() => onOpenChange(false)}>No, Thanks</Button>
+                <Button onClick={() => onRebook(appointment)}>Book Next Appointment</Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
       <SelectAddOnsDialog
