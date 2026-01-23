@@ -217,7 +217,7 @@ const AppointmentDetails = ({
                 </div>
             )}
 
-            <Separator />
+            <Separator className="my-6" />
 
             <div className="space-y-4">
                 <h4 className="font-medium text-sm">Financials</h4>
@@ -242,7 +242,7 @@ const AppointmentDetails = ({
               </div>
             </div>
             
-            <Separator />
+            <Separator className="my-6" />
             
             <div className="space-y-4">
                 <h4 className="font-medium text-sm">Client Intel</h4>
@@ -292,6 +292,7 @@ export function AppointmentCard({
   const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
   const [elapsedTime, setElapsedTime] = useState<string | null>(null);
   const isMobile = useIsMobile();
+  const { toast } = useToast();
 
   useEffect(() => {
     let timer: NodeJS.Timeout | undefined;
@@ -446,8 +447,19 @@ export function AppointmentCard({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
-                <DropdownMenuItem onClick={() => onCompleteClick(appointment)}>
-                    <CheckCircle className="mr-2" /> Checkout
+                <DropdownMenuItem
+                  onClick={() => {
+                    if (appointment.status === 'completed') {
+                      toast({
+                        title: 'Already Completed',
+                        description: 'This appointment has already been checked out.',
+                      });
+                    } else {
+                      onCompleteClick(appointment);
+                    }
+                  }}
+                >
+                  <CheckCircle className="mr-2" /> Checkout
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setIsDetailsOpen(true)}>
                     <FileText className="mr-2" /> View Details
