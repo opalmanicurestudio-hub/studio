@@ -1,5 +1,4 @@
 
-
 /**
  * # Firestore Security Rules
  *
@@ -161,7 +160,7 @@ service cloud.firestore {
      * @principle Enforces document ownership and prevents enumeration of businesses.
      */
     match /tenants/{tenantId} {
-        allow get: if isTenantOwner(tenantId);
+        allow get: if isTenantOwner(tenantId) || isStaff(tenantId);
         // Allow a user to query for their own tenant document.
         allow list: if request.query.where.size() > 0 && request.query.where[0] == 'userId' && request.query.where[1] == '==' && request.query.where[2] == request.auth.uid;
         allow create: if isSignedIn() && newDocIsOwnedByCurrentUser() && pathIdMatchesDataIdOnCreate(tenantId);
@@ -216,7 +215,7 @@ service cloud.firestore {
      */
     match /tenants/{tenantId}/clients/{clientId} {
       allow get, list: if isTenantOwner(tenantId) || isStaff(tenantId);
-      allow write: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
+      allow write: if isTenantOwner(tenantId) || isStaff(tenantId);
     }
 
     /**
