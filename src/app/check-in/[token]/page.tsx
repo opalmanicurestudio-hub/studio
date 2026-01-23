@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -7,14 +6,15 @@ import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Clock, Car, MapPin, Check, AlertTriangle, X } from 'lucide-react';
-import { format, parseISO } from 'date-fns';
+import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard } from 'lucide-react';
+import { format, parseISO, addMinutes, addHours } from 'date-fns';
 import { Loader } from 'lucide-react';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { type Appointment, type Client, type Service } from '@/lib/data';
+import { type Transaction } from '@/lib/financial-data';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
-import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, doc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -75,7 +75,11 @@ export default function CheckInPage() {
     const [lateTime, setLateTime] = useState(0);
     const [showLateOptions, setShowLateOptions] = useState(false);
     const [isCancelled, setIsCancelled] = useState(false);
+    const [rescheduleStep, setRescheduleStep] = useState<'initial' | 'payment' | 'reschedule' | 'confirmed'>('initial');
     
+    const nextAvailableSlot = useMemo(() => addHours(new Date(), 2), []);
+
+
     useEffect(() => {
         if (data?.appointment?.checkInStatus) {
             setCurrentStatus(data.appointment.checkInStatus);
@@ -105,11 +109,57 @@ export default function CheckInPage() {
 
         if (autoCancelEnabled && lateTime > gracePeriod) {
             setIsCancelled(true);
+            setRescheduleStep('initial');
         } else {
             handleUpdateStatus('running_late', lateTime);
         }
         setShowLateOptions(false);
     };
+
+    const handlePayFee = () => {
+        if (!appointment || !data?.client || !firestore) return;
+        
+        const newTransaction: Omit<Transaction, 'id'> = {
+            date: new Date().toISOString(),
+            description: `Late cancellation fee for appointment #${appointment.id.slice(-6)}`,
+            clientOrVendor: data.client.name,
+            type: 'income',
+            context: 'Business',
+            category: 'Cancellation Fee',
+            amount: 25.00, // This should come from tenant settings
+            paymentMethod: 'Card Online',
+            hasReceipt: false,
+        };
+        const transactionsRef = collection(firestore, 'tenants', 'tenant-abc', 'transactions');
+        addDocumentNonBlocking(transactionsRef, newTransaction);
+        
+        toast({
+            title: 'Payment Successful!',
+            description: 'Your cancellation fee has been paid.',
+        });
+        setRescheduleStep('reschedule');
+    };
+
+    const handleReschedule = async () => {
+        if (!appointment || !firestore || !data?.service) return;
+
+        const newStartTime = nextAvailableSlot;
+        const newEndTime = addMinutes(newStartTime, data.service.duration);
+
+        const appointmentRef = doc(firestore, 'tenants', 'tenant-abc', 'appointments', appointment.id);
+        
+        await updateDocumentNonBlocking(appointmentRef, {
+            startTime: newStartTime.toISOString(),
+            endTime: newEndTime.toISOString(),
+            status: 'confirmed',
+            checkInStatus: 'pending',
+            lateTimeMinutes: 0,
+            automatedRescheduleOffered: false,
+        });
+
+        setRescheduleStep('confirmed');
+    };
+
 
     const isLoading = isUserLoading || appointmentsLoading || clientsLoading || servicesLoading;
 
@@ -133,6 +183,69 @@ export default function CheckInPage() {
     }
     
     const { appointment: appointmentWithDate, client, service } = data;
+
+    const renderCancellationFlow = () => {
+        switch (rescheduleStep) {
+            case 'initial':
+                return (
+                     <div className="p-4 bg-destructive/10 text-destructive text-center rounded-lg space-y-4">
+                        <AlertTriangle className="w-8 h-8 mx-auto"/>
+                        <h3 className="font-bold">Appointment Cancelled</h3>
+                        <p className="text-xs">
+                            Your appointment has been automatically cancelled as your arrival time is outside the 15-minute grace period.
+                        </p>
+                        <div className="pt-4 border-t border-destructive/20">
+                             <p className="text-sm">A cancellation fee of <strong>$25.00</strong> is required to rebook.</p>
+                             <Button className="mt-4 w-full bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => setRescheduleStep('payment')}>
+                                Pay Fee & Reschedule
+                             </Button>
+                        </div>
+                    </div>
+                );
+            case 'payment':
+                 return (
+                     <div className="p-4 bg-muted/50 text-center rounded-lg space-y-4">
+                        <CreditCard className="w-8 h-8 mx-auto text-primary"/>
+                        <h3 className="font-bold">Pay Cancellation Fee</h3>
+                        <p className="text-xs text-muted-foreground">
+                           Please confirm to pay the $25.00 cancellation fee with your card on file.
+                        </p>
+                        <div className="pt-4">
+                             <Button className="mt-4 w-full" onClick={handlePayFee}>
+                                Pay $25.00 Now
+                             </Button>
+                             <Button variant="link" size="sm" className="mt-2" onClick={() => setRescheduleStep('initial')}>Cancel</Button>
+                        </div>
+                    </div>
+                );
+            case 'reschedule':
+                 return (
+                     <div className="p-4 bg-muted/50 text-center rounded-lg space-y-4">
+                        <Check className="w-8 h-8 mx-auto text-green-500"/>
+                        <h3 className="font-bold">Payment Successful!</h3>
+                        <p className="text-xs text-muted-foreground">
+                           Our next available appointment is at <strong>{format(nextAvailableSlot, 'h:mm a')} today</strong>. Would you like to book it?
+                        </p>
+                        <div className="pt-4 grid grid-cols-2 gap-4">
+                             <Button variant="outline" onClick={() => { setIsCancelled(false); handleUpdateStatus('cancelled'); }}>
+                                No, Thanks
+                             </Button>
+                              <Button onClick={handleReschedule}>
+                                Yes, Book It!
+                             </Button>
+                        </div>
+                    </div>
+                );
+            case 'confirmed':
+                 return (
+                     <div className="p-4 bg-green-500/10 text-green-700 dark:text-green-300 rounded-lg text-center">
+                        <p className="font-semibold">You're all set!</p>
+                        <p className="text-sm">Your appointment has been rescheduled for {format(nextAvailableSlot, 'MMM d, h:mm a')}. We'll see you soon!</p>
+                    </div>
+                );
+        }
+    }
+
 
     return (
         <Card className="w-full max-w-md">
@@ -159,25 +272,7 @@ export default function CheckInPage() {
                     </div>
                 </div>
                 
-                {isCancelled ? (
-                     <div className="p-4 bg-destructive/10 text-destructive text-center rounded-lg space-y-4">
-                        <AlertTriangle className="w-8 h-8 mx-auto"/>
-                        <h3 className="font-bold">Appointment Cancelled</h3>
-                        <p className="text-xs">
-                            Your appointment has been automatically cancelled as your arrival time is outside the 15-minute grace period.
-                        </p>
-                        <div className="pt-4 border-t border-destructive/20">
-                             <p className="text-sm">A cancellation fee of <strong>$25.00</strong> is required.</p>
-                             <Button className="mt-4 w-full bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => {
-                                 toast({ title: 'Payment Successful!', description: 'Please contact us to reschedule.' });
-                                 handleUpdateStatus('cancelled');
-                                 setIsCancelled(false);
-                             }}>
-                                Pay Fee & Reschedule
-                             </Button>
-                        </div>
-                    </div>
-                ) : showLateOptions ? (
+                {isCancelled ? renderCancellationFlow() : showLateOptions ? (
                     <div className="space-y-4">
                          <h4 className="font-medium text-center">How late will you be?</h4>
                         <RadioGroup 
