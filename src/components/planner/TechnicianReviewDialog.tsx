@@ -24,7 +24,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { FlaskConical, PlusCircle, Trash2, QrCode, AlertTriangle } from 'lucide-react';
-import { type Appointment, type Client, type Service, type InventoryItem, type StockCorrection, type CustomFormula, type Staff, AppointmentCheckoutState } from '@/lib/data';
+import { type Appointment, type Client, type Service, type InventoryItem, type StockCorrection, type CustomFormula, type Staff, AppointmentCheckoutState, Incident } from '@/lib/data';
 import { Input } from '../ui/input';
 import { useInventory } from '@/context/InventoryContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
@@ -316,6 +316,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   staff,
 }) => {
   const { appointment, client, service } = appointmentData;
+  const { inventory, services } = useInventory();
   const isMobile = useIsMobile();
   
   const [editableFormula, setEditableFormula] = useState<EditableFormulaItem[]>([]);
@@ -333,7 +334,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         setEditableFormula(initialFormula);
 
         const initialAddons = (checkoutState?.addOns || (appointment.addOnIds || [])
-            .map(id => allServices.find(s => s.id === id))
+            .map(id => services.find(s => s.id === id))
             .filter((s): s is Service => !!s));
         setSelectedAddOns(initialAddons);
 
@@ -348,11 +349,11 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         });
         setServiceStaffOverrides(checkoutState?.serviceStaffOverrides || initialOverrides);
     }
-  }, [service, appointment, open, allServices]);
+  }, [service, appointment, open, services]);
 
   
   const handleSend = () => {
-    if (!client || !service) return;
+    if (!client || !service || !onSendToFrontDesk) return;
 
     const checkoutState: AppointmentCheckoutState = {
         formula: editableFormula,
