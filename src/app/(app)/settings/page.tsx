@@ -25,11 +25,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { format } from 'date-fns';
 
 const timeOptions = Array.from({ length: 48 }, (_, i) => {
-    const hour = Math.floor(i / 2);
-    const minute = i % 2 === 0 ? '00' : '30';
-    return `${hour.toString().padStart(2, '0')}:${minute}`;
+    const totalMinutes = i * 30;
+    const hours24 = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    
+    const date = new Date(2000, 0, 1, hours24, minutes);
+
+    return {
+        value: format(date, 'HH:mm'),
+        label: format(date, 'h:mm a'),
+    };
 });
 
 const DayHoursRow = ({ day, hours, onHourChange, onStatusChange }: { day: string; hours: { isOpen: boolean, open: string, close: string }; onHourChange: (day: string, type: 'open' | 'close', value: string) => void; onStatusChange: (day: string, isOpen: boolean) => void }) => {
@@ -50,7 +58,7 @@ const DayHoursRow = ({ day, hours, onHourChange, onStatusChange }: { day: string
                     </SelectTrigger>
                     <SelectContent>
                         {timeOptions.map(time => (
-                            <SelectItem key={`open-${time}`} value={time}>{time}</SelectItem>
+                            <SelectItem key={`open-${time.value}`} value={time.value}>{time.label}</SelectItem>
                         ))}
                     </SelectContent>
                 </Select>
@@ -65,7 +73,7 @@ const DayHoursRow = ({ day, hours, onHourChange, onStatusChange }: { day: string
                     </SelectTrigger>
                     <SelectContent>
                         {timeOptions.map(time => (
-                            <SelectItem key={`close-${time}`} value={time}>{time}</SelectItem>
+                            <SelectItem key={`close-${time.value}`} value={time.value}>{time.label}</SelectItem>
                         ))}
                     </SelectContent>
                 </Select>
