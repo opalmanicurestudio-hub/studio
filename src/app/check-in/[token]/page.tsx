@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -29,7 +30,27 @@ export default function CheckInPage() {
         return query(collection(firestore, 'tenants', 'tenant-abc', 'appointments'), where('checkInToken', '==', token));
     }, [firestore, token]);
     const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
-    const appointment = useMemo(() => appointmentsFromDB?.[0], [appointmentsFromDB]);
+
+    const appointment = useMemo(() => {
+        if (!appointmentsFromDB?.[0]) return null;
+        const aptData = appointmentsFromDB[0];
+        try {
+            // Firestore Timestamps need to be converted to JS Dates
+            const startTime = (aptData.startTime as any)?.toDate ? (aptData.startTime as any).toDate() : new Date(aptData.startTime);
+            const endTime = (aptData.endTime as any)?.toDate ? (aptData.endTime as any).toDate() : new Date(aptData.endTime);
+            
+            // Check if the conversion resulted in a valid date
+            if (isNaN(startTime.getTime())) {
+                console.error("Invalid startTime:", aptData.startTime);
+                return null;
+            }
+
+            return { ...aptData, startTime, endTime };
+        } catch (e) {
+            console.error("Error parsing appointment dates", e);
+            return null;
+        }
+    }, [appointmentsFromDB]);
 
     // Fetch all clients and services
     const clientsQuery = useMemoFirebase(() => firestore ? collection(firestore, 'tenants', 'tenant-abc', 'clients') : null, [firestore]);
@@ -99,7 +120,7 @@ export default function CheckInPage() {
         );
     }
     
-    const { client, service } = data;
+    const { appointment: appointmentWithDate, client, service } = data;
 
     return (
         <Card className="w-full max-w-md">
@@ -117,7 +138,7 @@ export default function CheckInPage() {
                         </Avatar>
                         <div>
                              <p className="font-semibold">{service.name}</p>
-                             <p className="text-sm text-muted-foreground">{format(new Date(appointment.startTime), 'EEEE, MMMM d')} at {format(new Date(appointment.startTime), 'h:mm a')}</p>
+                             <p className="text-sm text-muted-foreground">{format(appointmentWithDate.startTime, 'EEEE, MMMM d')} at {format(appointmentWithDate.startTime, 'h:mm a')}</p>
                         </div>
                     </div>
                     <div className="text-sm text-muted-foreground space-y-2 pt-3 border-t">
