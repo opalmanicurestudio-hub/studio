@@ -44,6 +44,15 @@ import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, up
 import { collection, doc } from 'firebase/firestore';
 import { parseISO } from 'date-fns';
 import { Html5Qrcode } from 'html5-qrcode';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 
 type CartItem = {
@@ -499,6 +508,7 @@ export default function RetailPage() {
   const [promoCode, setPromoCode] = useState('');
   
   const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
+  const [receiptDataForPrompt, setReceiptDataForPrompt] = useState<ReceiptData | null>(null);
   
   const [checkoutAppointment, setCheckoutAppointment] = useState<Appointment | null>(null);
 
@@ -818,7 +828,7 @@ export default function RetailPage() {
         }
     };
     
-    setReceiptToPrint({
+    setReceiptDataForPrompt({
       business: { name: 'ClarityFlow Salon', phone: '555-123-4567' },
       ...receiptData
     });
@@ -838,7 +848,6 @@ export default function RetailPage() {
     setPromoCode('');
     setAppliedStoreCredit(0);
   };
-  
     
   const denominations = [100, 50, 20, 10, 5, 1, 0.25, 0.10, 0.05, 0.01];
 
@@ -924,7 +933,7 @@ export default function RetailPage() {
     });
         
     setCheckoutAppointment(null);
-    setReceiptToPrint({
+    setReceiptDataForPrompt({
         business: { name: 'ClarityFlow Salon', phone: '555-123-4567' },
         ...receiptData
     });
@@ -1157,6 +1166,28 @@ export default function RetailPage() {
             onRebook={() => {}}
         />
     )}
+
+    <AlertDialog open={!!receiptDataForPrompt} onOpenChange={() => setReceiptDataForPrompt(null)}>
+        <AlertDialogContent>
+            <AlertDialogHeader>
+                <AlertDialogTitle>Print Receipt?</AlertDialogTitle>
+                <AlertDialogDescription>
+                    Would you like to print a receipt for this transaction?
+                </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+                <AlertDialogCancel>No, Thanks</AlertDialogCancel>
+                <AlertDialogAction onClick={() => {
+                    if (receiptDataForPrompt) {
+                        setReceiptToPrint(receiptDataForPrompt);
+                    }
+                    setReceiptDataForPrompt(null);
+                }}>
+                    Print Receipt
+                </AlertDialogAction>
+            </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
     <Dialog open={!!receiptToPrint} onOpenChange={(open) => !open && setReceiptToPrint(null)}>
         <DialogContent className="max-w-sm print-content">

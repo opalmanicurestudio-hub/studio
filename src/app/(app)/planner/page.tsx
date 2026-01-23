@@ -107,6 +107,7 @@ export default function PlannerPage() {
   const { toast } = useToast();
     
   const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
+  const [receiptDataForPrompt, setReceiptDataForPrompt] = useState<ReceiptData | null>(null);
   const [ticketToPrint, setTicketToPrint] = useState<TicketData | null>(null);
   
   const [mobileSelectedStaffId, setMobileSelectedStaffId] = useState<string>('');
@@ -141,7 +142,7 @@ export default function PlannerPage() {
     return collection(firestore, 'tenants', tenantId, 'clients');
   }, [firestore, user, isUserLoading, tenantId]);
   
-  const walkInQuery = useMemoFirebase(() => {
+  const walkInsQuery = useMemoFirebase(() => {
     if (isUserLoading || !user || !firestore) return null;
     return collection(firestore, 'tenants', tenantId, 'walkIns');
   }, [firestore, user, isUserLoading, tenantId]);
@@ -165,7 +166,7 @@ export default function PlannerPage() {
   const { data: fetchedBillInstances, isLoading: billInstancesLoading } = useCollection<BillInstance>(billInstancesQuery);
   const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
   const { data: clients, isLoading: clientsLoading } = useCollection<Client>(clientsQuery);
-  const { data: walkIns, isLoading: walkInsLoading } = useCollection<WalkIn>(walkInQuery);
+  const { data: walkIns, isLoading: walkInsLoading } = useCollection<WalkIn>(walkInsQuery);
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
   const { data: fetchedEvents, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
@@ -549,7 +550,10 @@ const events = useMemo(() => {
         }
     }
     
-    handlePrintReceipt(receiptData);
+    setReceiptDataForPrompt({
+        business: { name: 'ClarityFlow Salon', phone: '555-123-4567' },
+        ...receiptData
+    });
   };
   
   const handleAddAppointment = async (newAppointment: Omit<Appointment, 'id'>) => {
@@ -835,11 +839,8 @@ const events = useMemo(() => {
     return { appointment: selectedAppointment, client, service };
   }, [selectedAppointment, clients, services, walkIns]);
   
-  const handlePrintReceipt = (receiptData: Omit<ReceiptData, 'business'>) => {
-    setReceiptToPrint({
-        business: { name: 'ClarityFlow Salon', phone: '555-123-4567' },
-        ...receiptData
-    });
+  const handlePrintReceipt = (receiptData: ReceiptData) => {
+    setReceiptToPrint(receiptData);
   };
 
   const handlePrintTicket = (ticketData: Omit<TicketData, 'business'>) => {
@@ -1243,6 +1244,28 @@ const events = useMemo(() => {
                 onConfirm={handleLogPaymentConfirm}
             />
       )}
+
+      <AlertDialog open={!!receiptDataForPrompt} onOpenChange={() => setReceiptDataForPrompt(null)}>
+        <AlertDialogContent>
+            <AlertDialogHeader>
+                <AlertDialogTitle>Print Receipt?</AlertDialogTitle>
+                <AlertDialogDescription>
+                    Would you like to print a receipt for this transaction?
+                </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+                <AlertDialogCancel>No, Thanks</AlertDialogCancel>
+                <AlertDialogAction onClick={() => {
+                    if (receiptDataForPrompt) {
+                        handlePrintReceipt(receiptDataForPrompt);
+                    }
+                    setReceiptDataForPrompt(null);
+                }}>
+                    Print Receipt
+                </AlertDialogAction>
+            </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={!!receiptToPrint} onOpenChange={(open) => !open && setReceiptToPrint(null)}>
         <DialogContent className="max-w-sm print-content">
