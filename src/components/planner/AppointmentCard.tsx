@@ -39,7 +39,8 @@ import {
   Play,
   Square,
   Repeat,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Car
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -519,21 +520,41 @@ export function AppointmentCard({
             </DropdownMenu>
         </div>
         <div className="mt-1 flex items-end justify-between">
-            <div className="flex flex-col items-start">
-                <Badge
-                    variant="secondary"
-                    className={cn(
-                        "text-[10px] h-5 px-1.5 capitalize",
-                        statusDisplay[appointment.status]?.className,
-                        statusDisplay[appointment.status]?.bgClassName,
-                        appointment.status === 'ready_for_checkout' && 'cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-orange-500'
+            <div className="flex flex-col items-start gap-1">
+                <div className="flex items-center gap-1 flex-wrap">
+                    <Badge
+                        variant="secondary"
+                        className={cn(
+                            "text-[10px] h-5 px-1.5 capitalize",
+                            statusDisplay[appointment.status]?.className,
+                            statusDisplay[appointment.status]?.bgClassName,
+                            appointment.status === 'ready_for_checkout' && 'cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-orange-500'
+                        )}
+                        onClick={appointment.status === 'ready_for_checkout' ? handleCheckoutClick : undefined}
+                    >
+                        {appointment.status === 'ready_for_checkout' && <DollarSign className="w-3 h-3 mr-1" />}
+                        {appointment.status === 'servicing' && <Clock className="w-3 h-3 mr-1 animate-spin" />}
+                        {statusDisplay[appointment.status]?.text}
+                    </Badge>
+                     {appointment.checkInStatus === 'on_my_way' && (
+                        <Badge variant="outline" className="text-[10px] h-5 px-1.5 capitalize border-blue-500/30 text-blue-800 dark:text-blue-300 bg-blue-500/10">
+                            <Car className="w-3 h-3 mr-1" />
+                            On My Way
+                        </Badge>
                     )}
-                    onClick={appointment.status === 'ready_for_checkout' ? handleCheckoutClick : undefined}
-                >
-                   {appointment.status === 'ready_for_checkout' && <DollarSign className="w-3 h-3 mr-1" />}
-                   {appointment.status === 'servicing' && <Clock className="w-3 h-3 mr-1 animate-spin" />}
-                   {statusDisplay[appointment.status]?.text}
-                </Badge>
+                    {appointment.checkInStatus === 'arrived' && (
+                        <Badge variant="outline" className="text-[10px] h-5 px-1.5 capitalize border-green-500/30 text-green-800 dark:text-green-300 bg-green-500/10">
+                            <CheckCircle className="w-3 h-3 mr-1" />
+                            Arrived
+                        </Badge>
+                    )}
+                    {appointment.checkInStatus === 'running_late' && (
+                        <Badge variant="destructive" className="text-[10px] h-5 px-1.5 capitalize">
+                            <AlertTriangle className="w-3 h-3 mr-1" />
+                            {appointment.lateTimeMinutes}m late
+                        </Badge>
+                    )}
+                </div>
                 {appointment.status === 'servicing' && elapsedTime ? (
                     <p className="font-mono text-sm font-semibold text-yellow-600 dark:text-yellow-400 mt-1">{elapsedTime}</p>
                 ) : finalDuration !== null ? (
