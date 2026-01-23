@@ -1060,9 +1060,34 @@ const events = useMemo(() => {
             </div>
         </div>
       </div>
+
+       <div className="border-b">
+        <ScrollArea className="w-full whitespace-nowrap md:whitespace-normal">
+            <div className="flex w-max md:w-full">
+                {weekDays.map(day => (
+                    <button
+                        key={day.toISOString()}
+                        onClick={() => setCurrentDate(day)}
+                        className={cn(
+                            "flex-1 p-3 text-center min-w-[70px] md:min-w-0 transition-colors hover:bg-muted/50",
+                            isSameDay(day, currentDate) && (isMobile ? "border-b-2 border-primary" : "bg-muted")
+                        )}
+                    >
+                        <p className={cn("text-xs", isSameDay(day, currentDate) ? "text-primary font-semibold" : "text-muted-foreground")}>
+                            {format(day, 'EEE')}
+                        </p>
+                        <p className={cn("text-xl md:text-2xl font-bold mt-1", !isSameDay(day, currentDate) && "text-muted-foreground")}>
+                            {format(day, 'd')}
+                        </p>
+                    </button>
+                ))}
+            </div>
+            <ScrollBar orientation="horizontal" className="md:hidden" />
+        </ScrollArea>
+    </div>
       
       <main className="flex-1 flex flex-col min-h-0">
-          {isMobile && (staff || []).length > 1 && (
+          {isMobile && (
             <div className="p-4 border-b">
               <Label htmlFor="staff-selector">Viewing Schedule For</Label>
               <Select value={mobileSelectedStaffId} onValueChange={setMobileSelectedStaffId}>
@@ -1278,6 +1303,7 @@ const events = useMemo(() => {
     </div>
   );
 }
+
 
 
 
