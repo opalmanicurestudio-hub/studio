@@ -8,7 +8,7 @@ import Image from 'next/image';
 import { type Service } from '@/lib/data';
 import { Separator } from '@/components/ui/separator';
 import { ClarityFlowLogo } from '../shared/AppSidebar';
-import { Clock, Scissors, Brush, User } from 'lucide-react';
+import { Clock, Scissors, CheckCircle, User } from 'lucide-react';
 
 export interface WalkInTicketData {
   id: string;
@@ -21,7 +21,7 @@ export interface WalkInTicketData {
 const getServiceIcon = (serviceName: string) => {
     const name = serviceName.toLowerCase();
     if (name.includes('cut') || name.includes('trim')) return <Scissors className="w-4 h-4 text-gray-500" />;
-    if (name.includes('color') || name.includes('polish') || name.includes('gel') || name.includes('manicure') || name.includes('balayage')) return <Brush className="w-4 h-4 text-gray-500" />;
+    if (name.includes('color') || name.includes('polish') || name.includes('gel') || name.includes('manicure') || name.includes('balayage')) return <CheckCircle className="w-4 h-4 text-gray-500" />;
     if (name.includes('facial')) return <User className="w-4 h-4 text-gray-500" />;
     return <Clock className="w-4 h-4 text-gray-500" />;
 };
