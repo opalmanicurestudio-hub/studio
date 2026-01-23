@@ -1,12 +1,13 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, CalendarIcon } from 'lucide-react';
+import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, CalendarIcon, ChevronDown } from 'lucide-react';
 import { format, parseISO, addMinutes, addHours, isBefore, startOfDay, setHours, setMinutes } from 'date-fns';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { type Appointment, type Client, type Service } from '@/lib/data';
@@ -20,6 +21,7 @@ import { cn } from '@/lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 
 export default function CheckInPage() {
     const params = useParams();
@@ -79,7 +81,6 @@ export default function CheckInPage() {
     const [isCancelled, setIsCancelled] = useState(false);
     const [rescheduleStep, setRescheduleStep] = useState<'initial' | 'payment' | 'reschedule' | 'confirmed'>('initial');
     
-    const [showDatePicker, setShowDatePicker] = useState(false);
     const [newRescheduleDate, setNewRescheduleDate] = useState<Date | undefined>();
     
     const nextAvailableSlot = useMemo(() => addHours(new Date(), 2), []);
@@ -165,6 +166,132 @@ export default function CheckInPage() {
         setRescheduleStep('confirmed');
     };
 
+    const renderCancellationFlow = () => {
+        switch (rescheduleStep) {
+            case 'initial':
+                return (
+                    <div className="p-4 bg-destructive/10 text-destructive text-center rounded-lg space-y-4">
+                        <AlertTriangle className="w-8 h-8 mx-auto"/>
+                        <h3 className="font-bold">Appointment Cancelled</h3>
+                        <p className="text-xs">
+                            Your appointment has been automatically cancelled as your arrival time is outside the 15-minute grace period.
+                        </p>
+                        <div className="pt-4 border-t border-destructive/20">
+                                <p className="text-sm">A cancellation fee of <strong>$25.00</strong> is required to rebook.</p>
+                                <Button className="mt-4 w-full bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => setRescheduleStep('payment')}>
+                                Pay Fee & Reschedule
+                                </Button>
+                        </div>
+                    </div>
+                );
+            case 'payment':
+                 return (
+                     <div className="p-4 bg-muted/50 text-center rounded-lg space-y-4">
+                        <CreditCard className="w-8 h-8 mx-auto text-primary"/>
+                        <h3 className="font-bold">Pay Cancellation Fee</h3>
+                        <p className="text-xs text-muted-foreground">
+                           Please confirm to pay the $25.00 cancellation fee with your card on file.
+                        </p>
+                        <div className="pt-4">
+                             <Button className="mt-4 w-full" onClick={handlePayFee}>
+                                Pay $25.00 Now
+                             </Button>
+                             <Button variant="link" size="sm" className="mt-2" onClick={() => setRescheduleStep('initial')}>Cancel</Button>
+                        </div>
+                    </div>
+                );
+            case 'reschedule':
+                return (
+                    <div className="p-4 bg-muted/50 rounded-lg space-y-4">
+                        <Check className="w-8 h-8 mx-auto text-green-500"/>
+                        <h3 className="font-bold text-center">Payment Successful!</h3>
+                        
+                        <Card className="bg-background">
+                            <CardContent className="p-4">
+                                 <p className="text-sm font-semibold text-center mb-4">
+                                    Our next available appointment is at <strong>{format(nextAvailableSlot, 'h:mm a')} today</strong>.
+                                </p>
+                                <Button className="w-full" onClick={() => handleReschedule()}>
+                                    Book for {format(nextAvailableSlot, 'h:mm a')}
+                                </Button>
+                            </CardContent>
+                        </Card>
+    
+                         <Accordion type="single" collapsible>
+                            <AccordionItem value="item-1" className="border-none">
+                                <AccordionTrigger className="text-sm justify-center [&[data-state=open]>svg]:rotate-180">
+                                    Choose a different time
+                                    <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200 ml-2" />
+                                </AccordionTrigger>
+                                <AccordionContent>
+                                    <div className="space-y-4 pt-4">
+                                         <div className="space-y-2">
+                                            <Label>Select a new date and time</Label>
+                                            <Popover>
+                                                <PopoverTrigger asChild>
+                                                    <Button
+                                                        variant={"outline"}
+                                                        className={cn(
+                                                            "w-full justify-start text-left font-normal",
+                                                            !newRescheduleDate && "text-muted-foreground"
+                                                        )}
+                                                    >
+                                                        <CalendarIcon className="mr-2 h-4 w-4" />
+                                                        {newRescheduleDate ? format(newRescheduleDate, "PPP") : <span>Pick a date</span>}
+                                                    </Button>
+                                                </PopoverTrigger>
+                                                <PopoverContent className="w-auto p-0">
+                                                    <Calendar
+                                                        mode="single"
+                                                        selected={newRescheduleDate}
+                                                        onSelect={(date) => setNewRescheduleDate(date || new Date())}
+                                                        initialFocus
+                                                        disabled={(date) => isBefore(date, startOfDay(new Date()))}
+                                                    />
+                                                </PopoverContent>
+                                            </Popover>
+                                            <Select onValueChange={(time) => {
+                                                if (!newRescheduleDate) return;
+                                                const [hours, minutes] = time.split(':').map(Number);
+                                                setNewRescheduleDate(setMinutes(setHours(newRescheduleDate, hours), minutes));
+                                            }}>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="Select a time" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {Array.from({ length: 12 }, (_, i) => i + 8).map(hour => {
+                                                        const displayHour = hour % 12 === 0 ? 12 : hour % 12;
+                                                        const period = hour < 12 ? 'AM' : 'PM';
+                                                        return (
+                                                            <React.Fragment key={hour}>
+                                                                <SelectItem value={`${hour}:00`}>{`${displayHour}:00 ${period}`}</SelectItem>
+                                                                <SelectItem value={`${hour}:30`}>{`${displayHour}:30 ${period}`}</SelectItem>
+                                                            </React.Fragment>
+                                                        )
+                                                    })}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <Button onClick={() => handleReschedule(newRescheduleDate)} disabled={!newRescheduleDate} className="w-full">Confirm New Time</Button>
+                                    </div>
+                                </AccordionContent>
+                            </AccordionItem>
+                        </Accordion>
+                         <Button variant="link" size="sm" className="mt-2 w-full" onClick={() => { setIsCancelled(false); handleUpdateStatus('cancelled'); }}>
+                            No, Thanks. Cancel appointment.
+                        </Button>
+                    </div>
+                );
+            case 'confirmed':
+                 return (
+                     <div className="p-4 bg-green-500/10 text-green-700 dark:text-green-300 rounded-lg text-center">
+                        <p className="font-semibold">You're all set!</p>
+                        <p className="text-sm">Your appointment has been rescheduled. We'll see you soon!</p>
+                    </div>
+                );
+        }
+    }
+
 
     const isLoading = isUserLoading || appointmentsLoading || clientsLoading || servicesLoading;
 
@@ -188,129 +315,6 @@ export default function CheckInPage() {
     }
     
     const { appointment: appointmentWithDate, client, service } = data;
-
-    const renderCancellationFlow = () => {
-        switch (rescheduleStep) {
-            case 'initial':
-                return (
-                     <div className="p-4 bg-destructive/10 text-destructive text-center rounded-lg space-y-4">
-                        <AlertTriangle className="w-8 h-8 mx-auto"/>
-                        <h3 className="font-bold">Appointment Cancelled</h3>
-                        <p className="text-xs">
-                            Your appointment has been automatically cancelled as your arrival time is outside the 15-minute grace period.
-                        </p>
-                        <div className="pt-4 border-t border-destructive/20">
-                             <p className="text-sm">A cancellation fee of <strong>$25.00</strong> is required to rebook.</p>
-                             <Button className="mt-4 w-full bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => setRescheduleStep('payment')}>
-                                Pay Fee & Reschedule
-                             </Button>
-                        </div>
-                    </div>
-                );
-            case 'payment':
-                 return (
-                     <div className="p-4 bg-muted/50 text-center rounded-lg space-y-4">
-                        <CreditCard className="w-8 h-8 mx-auto text-primary"/>
-                        <h3 className="font-bold">Pay Cancellation Fee</h3>
-                        <p className="text-xs text-muted-foreground">
-                           Please confirm to pay the $25.00 cancellation fee with your card on file.
-                        </p>
-                        <div className="pt-4">
-                             <Button className="mt-4 w-full" onClick={handlePayFee}>
-                                Pay $25.00 Now
-                             </Button>
-                             <Button variant="link" size="sm" className="mt-2" onClick={() => setRescheduleStep('initial')}>Cancel</Button>
-                        </div>
-                    </div>
-                );
-            case 'reschedule':
-                 return (
-                     <div className="p-4 bg-muted/50 text-center rounded-lg space-y-4">
-                        <Check className="w-8 h-8 mx-auto text-green-500"/>
-                        <h3 className="font-bold">Payment Successful!</h3>
-                        
-                        {showDatePicker ? (
-                            <div className="space-y-4 text-left pt-4">
-                                <Label>Select a new date and time</Label>
-                                <Popover>
-                                    <PopoverTrigger asChild>
-                                        <Button
-                                            variant={"outline"}
-                                            className={cn(
-                                                "w-full justify-start text-left font-normal",
-                                                !newRescheduleDate && "text-muted-foreground"
-                                            )}
-                                        >
-                                            <CalendarIcon className="mr-2 h-4 w-4" />
-                                            {newRescheduleDate ? format(newRescheduleDate, "PPP") : <span>Pick a date</span>}
-                                        </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0">
-                                        <Calendar
-                                            mode="single"
-                                            selected={newRescheduleDate}
-                                            onSelect={(date) => setNewRescheduleDate(date || new Date())}
-                                            initialFocus
-                                            disabled={(date) => isBefore(date, startOfDay(new Date()))}
-                                        />
-                                    </PopoverContent>
-                                </Popover>
-                                <Select onValueChange={(time) => {
-                                    if (!newRescheduleDate) return;
-                                    const [hours, minutes] = time.split(':').map(Number);
-                                    setNewRescheduleDate(setMinutes(setHours(newRescheduleDate, hours), minutes));
-                                }}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select a time" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {Array.from({ length: 12 }, (_, i) => i + 8).map(hour => {
-                                            const displayHour = hour % 12 === 0 ? 12 : hour % 12;
-                                            const period = hour < 12 ? 'AM' : 'PM';
-                                            return (
-                                                <React.Fragment key={hour}>
-                                                    <SelectItem value={`${hour}:00`}>{`${displayHour}:00 ${period}`}</SelectItem>
-                                                    <SelectItem value={`${hour}:30`}>{`${displayHour}:30 ${period}`}</SelectItem>
-                                                </React.Fragment>
-                                            )
-                                        })}
-                                    </SelectContent>
-                                </Select>
-                                <div className="grid grid-cols-2 gap-2 pt-4">
-                                    <Button variant="outline" onClick={() => setShowDatePicker(false)}>Back</Button>
-                                    <Button onClick={() => handleReschedule(newRescheduleDate)} disabled={!newRescheduleDate}>Confirm New Time</Button>
-                                </div>
-                            </div>
-                        ) : (
-                            <>
-                                <p className="text-sm text-muted-foreground">
-                                Our next available appointment is at <strong>{format(nextAvailableSlot, 'h:mm a')} today</strong>.
-                                </p>
-                                <div className="pt-4 grid grid-cols-1 gap-2">
-                                    <Button onClick={() => handleReschedule()}>
-                                        Book for {format(nextAvailableSlot, 'h:mm a')}
-                                    </Button>
-                                    <Button variant="outline" onClick={() => {setShowDatePicker(true); setNewRescheduleDate(new Date())}}>
-                                        Choose a different time
-                                    </Button>
-                                    <Button variant="link" size="sm" className="mt-2" onClick={() => { setIsCancelled(false); handleUpdateStatus('cancelled'); }}>
-                                        No, Thanks
-                                    </Button>
-                                </div>
-                            </>
-                        )}
-                    </div>
-                );
-            case 'confirmed':
-                 return (
-                     <div className="p-4 bg-green-500/10 text-green-700 dark:text-green-300 rounded-lg text-center">
-                        <p className="font-semibold">You're all set!</p>
-                        <p className="text-sm">Your appointment has been rescheduled. We'll see you soon!</p>
-                    </div>
-                );
-        }
-    }
-
 
     return (
         <Card className="w-full max-w-md">
