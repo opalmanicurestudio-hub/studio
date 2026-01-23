@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Clock, Car, MapPin, Check, AlertTriangle, X } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { Loader } from 'lucide-react';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { type Appointment, type Client, type Service } from '@/lib/data';
@@ -16,11 +16,14 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, doc } from 'firebase/firestore';
+import { useToast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
 
 export default function CheckInPage() {
     const params = useParams();
     const router = useRouter();
     const token = params.token as string;
+    const { toast } = useToast();
 
     const { firestore, isUserLoading } = useFirebase();
 
@@ -36,8 +39,8 @@ export default function CheckInPage() {
         const aptData = appointmentsFromDB[0];
         try {
             // Firestore Timestamps need to be converted to JS Dates
-            const startTime = (aptData.startTime as any)?.toDate ? (aptData.startTime as any).toDate() : new Date(aptData.startTime);
-            const endTime = (aptData.endTime as any)?.toDate ? (aptData.endTime as any).toDate() : new Date(aptData.endTime);
+            const startTime = (aptData.startTime as any)?.toDate ? (aptData.startTime as any).toDate() : parseISO(aptData.startTime as any);
+            const endTime = (aptData.endTime as any)?.toDate ? (aptData.endTime as any).toDate() : parseISO(aptData.endTime as any);
             
             // Check if the conversion resulted in a valid date
             if (isNaN(startTime.getTime())) {
@@ -71,6 +74,7 @@ export default function CheckInPage() {
     const [currentStatus, setCurrentStatus] = useState<Appointment['checkInStatus']>('pending');
     const [lateTime, setLateTime] = useState(0);
     const [showLateOptions, setShowLateOptions] = useState(false);
+    const [isCancelled, setIsCancelled] = useState(false);
     
     useEffect(() => {
         if (data?.appointment?.checkInStatus) {
@@ -95,7 +99,15 @@ export default function CheckInPage() {
     };
 
     const handleConfirmLate = () => {
-        handleUpdateStatus('running_late', lateTime);
+        // These would come from tenant settings in a real app
+        const gracePeriod = 15;
+        const autoCancelEnabled = true;
+
+        if (autoCancelEnabled && lateTime > gracePeriod) {
+            setIsCancelled(true);
+        } else {
+            handleUpdateStatus('running_late', lateTime);
+        }
         setShowLateOptions(false);
     };
 
@@ -147,30 +159,25 @@ export default function CheckInPage() {
                     </div>
                 </div>
                 
-                {currentStatus === 'pending' && !showLateOptions && (
-                    <div className="grid grid-cols-2 gap-4">
-                        <Button size="lg" onClick={() => setShowLateOptions(true)} variant="outline">Running Late?</Button>
-                        <Button size="lg" onClick={() => handleUpdateStatus('on_my_way')}>
-                            <Car className="mr-2" /> On My Way
-                        </Button>
+                {isCancelled ? (
+                     <div className="p-4 bg-destructive/10 text-destructive text-center rounded-lg space-y-4">
+                        <AlertTriangle className="w-8 h-8 mx-auto"/>
+                        <h3 className="font-bold">Appointment Cancelled</h3>
+                        <p className="text-xs">
+                            Your appointment has been automatically cancelled as your arrival time is outside the 15-minute grace period.
+                        </p>
+                        <div className="pt-4 border-t border-destructive/20">
+                             <p className="text-sm">A cancellation fee of <strong>$25.00</strong> is required.</p>
+                             <Button className="mt-4 w-full bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => {
+                                 toast({ title: 'Payment Successful!', description: 'Please contact us to reschedule.' });
+                                 handleUpdateStatus('cancelled');
+                                 setIsCancelled(false);
+                             }}>
+                                Pay Fee & Reschedule
+                             </Button>
+                        </div>
                     </div>
-                )}
-                
-                {currentStatus === 'on_my_way' && (
-                    <div className="space-y-4">
-                        <div className="p-4 bg-green-500/10 text-green-700 dark:text-green-300 rounded-lg text-center"><p className="font-semibold">Great! We'll see you soon.</p></div>
-                        <Button size="lg" className="w-full" onClick={() => handleUpdateStatus('arrived')}><Check className="mr-2" /> I've Arrived</Button>
-                    </div>
-                )}
-                
-                {currentStatus === 'arrived' && (
-                    <div className="p-4 bg-blue-500/10 text-blue-700 dark:text-blue-300 rounded-lg text-center">
-                        <p className="font-semibold">You're checked in!</p>
-                        <p className="text-sm">Please have a seat, we'll be with you shortly.</p>
-                    </div>
-                )}
-                 
-                 {showLateOptions && (
+                ) : showLateOptions ? (
                     <div className="space-y-4">
                          <h4 className="font-medium text-center">How late will you be?</h4>
                         <RadioGroup 
@@ -211,14 +218,29 @@ export default function CheckInPage() {
                              </Button>
                         </div>
                     </div>
-                )}
-                
-                {currentStatus === 'running_late' && !showLateOptions && (
+                ) : currentStatus === 'pending' ? (
+                    <div className="grid grid-cols-2 gap-4">
+                        <Button size="lg" onClick={() => setShowLateOptions(true)} variant="outline">Running Late?</Button>
+                        <Button size="lg" onClick={() => handleUpdateStatus('on_my_way')}>
+                            <Car className="mr-2" /> On My Way
+                        </Button>
+                    </div>
+                ) : currentStatus === 'on_my_way' ? (
+                    <div className="space-y-4">
+                        <div className="p-4 bg-green-500/10 text-green-700 dark:text-green-300 rounded-lg text-center"><p className="font-semibold">Great! We'll see you soon.</p></div>
+                        <Button size="lg" className="w-full" onClick={() => handleUpdateStatus('arrived')}><Check className="mr-2" /> I've Arrived</Button>
+                    </div>
+                ) : currentStatus === 'arrived' ? (
+                    <div className="p-4 bg-blue-500/10 text-blue-700 dark:text-blue-300 rounded-lg text-center">
+                        <p className="font-semibold">You're checked in!</p>
+                        <p className="text-sm">Please have a seat, we'll be with you shortly.</p>
+                    </div>
+                ) : currentStatus === 'running_late' ? (
                     <div className="p-4 bg-yellow-500/10 text-yellow-700 dark:text-yellow-300 rounded-lg text-center">
                         <p className="font-semibold">Thank you for letting us know!</p>
                         <p className="text-sm">We've noted you'll be about {lateTime} minutes late. See you soon.</p>
                     </div>
-                )}
+                ) : null}
             </CardContent>
         </Card>
     );
