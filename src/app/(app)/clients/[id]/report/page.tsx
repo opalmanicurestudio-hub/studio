@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -7,7 +8,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { notFound, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Printer, Sparkles, Loader, User, Calendar, DollarSign, AlertTriangle, FileText, FlaskConical, Gift } from 'lucide-react';
-import { useInventory } from '@/context/InventoryContext';
 import { format, formatDistanceToNow } from 'date-fns';
 import { Separator } from '@/components/ui/separator';
 import { generateClientReport } from '@/ai/flows/generate-client-report';
@@ -17,28 +17,45 @@ import { Badge } from '@/components/ui/badge';
 import type { Client, Appointment, Service } from '@/lib/data';
 import { cn } from '@/lib/utils';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { useFirebase, useCollection, useDoc, useMemoFirebase } from '@/firebase';
+import { collection, doc, query, where } from 'firebase/firestore';
 
 const ClientReportPage = () => {
     const params = useParams<{ id: string }>();
-    const { clients, appointments, services } = useInventory();
+    const { id: clientId } = params;
+    const { firestore, isUserLoading } = useFirebase();
+    const tenantId = 'tenant-abc';
+
     const [aiSummary, setAiSummary] = useState<{ summary: string; talkingPoints: string[] } | null>(null);
-    const [isPageLoading, setIsPageLoading] = useState(true);
     const [isLoadingAi, setIsLoadingAi] = useState(false);
     const [aiError, setAiError] = useState<string | null>(null);
     const [generationDate, setGenerationDate] = useState<Date | null>(null);
 
-    const client = useMemo(() => clients.find((c) => c.id === params.id), [clients, params.id]);
-    
+    const clientDocRef = useMemoFirebase(() => {
+        if (!firestore || !clientId) return null;
+        return doc(firestore, `tenants/${tenantId}/clients/${clientId}`);
+    }, [firestore, tenantId, clientId]);
+    const { data: client, isLoading: clientLoading } = useDoc<Client>(clientDocRef);
+
+    const appointmentsQuery = useMemoFirebase(() => {
+        if (!firestore || !clientId) return null;
+        return query(collection(firestore, `tenants/${tenantId}/appointments`), where('clientId', '==', clientId));
+    }, [firestore, tenantId, clientId]);
+    const { data: appointments, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
+
+    const servicesQuery = useMemoFirebase(() => {
+        if (!firestore) return null;
+        return collection(firestore, `tenants/${tenantId}/services`);
+    }, [firestore, tenantId]);
+    const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
+
     const clientAppointments = useMemo(() => {
-        if (!client) return [];
-        return appointments
-            .filter(apt => apt.clientId === client.id)
-            .sort((a,b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
-    }, [client, appointments]);
+        if (!appointments) return [];
+        return [...appointments].sort((a,b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+    }, [appointments]);
 
     useEffect(() => {
         if (client) {
-            setIsPageLoading(false);
             setGenerationDate(new Date());
         }
     }, [client]);
@@ -51,18 +68,18 @@ const ClientReportPage = () => {
         setAiSummary(null);
 
         try {
-            const firstAppointment = clientAppointments.length > 0 ? clientAppointments[clientAppointments.length - 1].startTime : new Date();
+            const firstAppointment = clientAppointments.length > 0 ? new Date(clientAppointments[clientAppointments.length - 1].startTime) : new Date();
 
             const report = await generateClientReport({
                 clientName: client.name,
                 totalAppointments: clientAppointments.filter(a => a.status === 'completed').length,
                 lifetimeValue: client.lifetimeValue,
-                lastSeen: formatDistanceToNow(new Date(client.lastAppointment), { addSuffix: true }),
+                lastSeen: client.lastAppointment ? formatDistanceToNow(new Date(client.lastAppointment), { addSuffix: true }) : 'N/A',
                 memberSince: format(new Date(firstAppointment), 'MMMM yyyy'),
                 hasIncidents: !!client.intel?.hasIncidents,
                 hasAllergies: !!client.allergyNotes,
                 hasMedicalNotes: !!client.medicalNotes,
-                clientNotes: client.notes
+                clientNotes: JSON.stringify(client.notes)
             });
             setAiSummary(report);
         } catch (error: any) {
@@ -72,6 +89,8 @@ const ClientReportPage = () => {
             setIsLoadingAi(false);
         }
     };
+    
+    const isPageLoading = isUserLoading || clientLoading || appointmentsLoading || servicesLoading;
 
     if (isPageLoading) {
       return (
@@ -192,14 +211,14 @@ const ClientReportPage = () => {
                             <CardHeader className="pb-2"><CardTitle className="text-base font-medium flex items-center gap-2"><DollarSign/>Financials</CardTitle></CardHeader>
                             <CardContent className="space-y-1 text-sm">
                                 <div className="flex justify-between"><span>Lifetime Value:</span> <span className="font-semibold">${client.lifetimeValue.toFixed(2)}</span></div>
-                                <div className="flex justify-between"><span>Avg. Spend/Apt:</span> <span className="font-semibold">${(client.lifetimeValue / (clientAppointments.length || 1)).toFixed(2)}</span></div>
+                                <div className="flex justify-between"><span>Avg. Spend/Apt:</span> <span className="font-semibold">${(clientAppointments.length > 0 ? client.lifetimeValue / clientAppointments.length : 0).toFixed(2)}</span></div>
                             </CardContent>
                         </Card>
                          <Card>
                             <CardHeader className="pb-2"><CardTitle className="text-base font-medium flex items-center gap-2"><Calendar/>Activity</CardTitle></CardHeader>
                             <CardContent className="space-y-1 text-sm">
                                 <div className="flex justify-between"><span>Total Appointments:</span> <span className="font-semibold">{clientAppointments.length}</span></div>
-                                <div className="flex justify-between"><span>Last Seen:</span> <span className="font-semibold">{formatDistanceToNow(new Date(client.lastAppointment), { addSuffix: true })}</span></div>
+                                <div className="flex justify-between"><span>Last Seen:</span> <span className="font-semibold">{client.lastAppointment ? formatDistanceToNow(new Date(client.lastAppointment), { addSuffix: true }) : 'N/A'}</span></div>
                             </CardContent>
                         </Card>
                          <Card>
@@ -217,7 +236,7 @@ const ClientReportPage = () => {
                             <h2 className="text-xl font-semibold mb-4">Appointment History</h2>
                             <div className="border rounded-lg">
                                 {clientAppointments.slice(0, 5).map((apt, index) => {
-                                    const service = services.find(s => s.id === apt.serviceId);
+                                    const service = services?.find(s => s.id === apt.serviceId);
                                     return (
                                         <div key={apt.id} className={`p-4 ${index < 4 ? 'border-b' : ''}`}>
                                             <div className="flex justify-between items-center">
