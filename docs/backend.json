@@ -73,6 +73,18 @@
                 "saturday": { "$ref": "#/entities/DayHours" },
                 "sunday": { "$ref": "#/entities/DayHours" }
             }
+        },
+        "lateArrivalGracePeriod": {
+            "type": "number",
+            "description": "Grace period in minutes before an appointment is marked as late."
+        },
+        "autoCancelLateArrivals": {
+            "type": "boolean",
+            "description": "If true, automatically cancels appointments for clients who are late beyond the grace period."
+        },
+        "cancellationFee": {
+            "type": "number",
+            "description": "Fee charged for late cancellations or no-shows."
         }
       },
       "required": [

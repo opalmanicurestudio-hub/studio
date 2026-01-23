@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState } from 'react';
@@ -94,12 +95,16 @@ export default function SettingsPage() {
   const [businessHours, setBusinessHours] = useState({
     monday: { isOpen: true, open: '09:00', close: '17:00' },
     tuesday: { isOpen: true, open: '09:00', close: '17:00' },
-    wednesday: { isOpen: true, open: '09:00', close: '17:00' },
+    wednesday: { isOpen: true, open: '09:00', close: '19:00' },
     thursday: { isOpen: true, open: '09:00', close: '19:00' },
     friday: { isOpen: true, open: '09:00', close: '19:00' },
     saturday: { isOpen: true, open: '10:00', close: '16:00' },
     sunday: { isOpen: false, open: '09:00', close: '17:00' },
   });
+
+  const [lateGracePeriod, setLateGracePeriod] = useState(15);
+  const [cancellationFee, setCancellationFee] = useState('25.00');
+  const [autoCancel, setAutoCancel] = useState(false);
 
   const handleHourChange = (day: string, type: 'open' | 'close', value: string) => {
     setBusinessHours(prev => ({
@@ -115,12 +120,10 @@ export default function SettingsPage() {
       }));
   };
 
-  const handleSaveSettings = () => {
-    // In a real application, you would save these values to a Firestore document
-    // for the current tenant's settings.
+  const handleSaveSettings = (section: string) => {
     toast({
-      title: 'Settings Saved',
-      description: 'Your application settings have been updated.',
+      title: `${section} Settings Saved`,
+      description: `Your ${section.toLowerCase()} settings have been updated.`,
     });
   };
 
@@ -158,10 +161,73 @@ export default function SettingsPage() {
                ))}
             </CardContent>
              <CardFooter className="pt-6">
-              <Button onClick={handleSaveSettings}>
+              <Button onClick={() => handleSaveSettings('Business Hours')}>
                 <Save className="mr-2 h-4 w-4" />
                 Save Business Hours
               </Button>
+            </CardFooter>
+          </Card>
+          
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="w-5 h-5 text-primary" />
+                Scheduling Policies
+              </CardTitle>
+              <CardDescription>
+                Define rules for appointments, cancellations, and late arrivals.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                <Label htmlFor="late-grace-period">Late Arrival Grace Period (minutes)</Label>
+                <Input
+                    id="late-grace-period"
+                    type="number"
+                    value={lateGracePeriod}
+                    onChange={(e) => setLateGracePeriod(Number(e.target.value))}
+                    placeholder="e.g., 15"
+                />
+                <p className="text-xs text-muted-foreground">
+                    Time after which a client is considered late.
+                </p>
+                </div>
+                <div className="space-y-2">
+                <Label htmlFor="cancellation-fee">Late Cancellation / No-Show Fee</Label>
+                <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                    id="cancellation-fee"
+                    type="number"
+                    value={cancellationFee}
+                    onChange={(e) => setCancellationFee(e.target.value)}
+                    placeholder="25.00"
+                    className="pl-8"
+                    />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                    Fee charged for late cancellations or no-shows.
+                </p>
+                </div>
+                <div className="flex items-center justify-between rounded-lg border p-4 md:col-span-2">
+                <div className="space-y-0.5">
+                    <Label htmlFor="auto-cancel" className="font-semibold">Auto-Cancel Late Arrivals</Label>
+                    <p className="text-xs text-muted-foreground">
+                        Automatically cancel appointments if the client is late beyond the grace period.
+                    </p>
+                </div>
+                <Switch
+                    id="auto-cancel"
+                    checked={autoCancel}
+                    onCheckedChange={setAutoCancel}
+                />
+                </div>
+            </CardContent>
+            <CardFooter>
+                <Button onClick={() => handleSaveSettings('Scheduling Policies')}>
+                <Save className="mr-2 h-4 w-4" />
+                Save Policies
+                </Button>
             </CardFooter>
           </Card>
 
@@ -212,9 +278,9 @@ export default function SettingsPage() {
               </div>
             </CardContent>
             <CardFooter>
-              <Button onClick={handleSaveSettings}>
+              <Button onClick={() => handleSaveSettings('Referral Program')}>
                 <Save className="mr-2 h-4 w-4" />
-                Save Settings
+                Save Referral Settings
               </Button>
             </CardFooter>
           </Card>
@@ -245,9 +311,9 @@ export default function SettingsPage() {
               </div>
             </CardContent>
             <CardFooter>
-              <Button onClick={handleSaveSettings}>
+              <Button onClick={() => handleSaveSettings('Walk-in Queue')}>
                 <Save className="mr-2 h-4 w-4" />
-                Save Settings
+                Save Queue Settings
               </Button>
             </CardFooter>
           </Card>
@@ -278,9 +344,9 @@ export default function SettingsPage() {
               </div>
             </CardContent>
             <CardFooter>
-              <Button onClick={handleSaveSettings}>
+              <Button onClick={() => handleSaveSettings('SMS Notifications')}>
                 <Save className="mr-2 h-4 w-4" />
-                Save Settings
+                Save Message
               </Button>
             </CardFooter>
           </Card>
