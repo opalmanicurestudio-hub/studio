@@ -542,47 +542,45 @@ export default function WalkInQueuePage() {
         return notifiedCustomers.length < idleStaff.length;
     }, [staff, walkIns, events]);
 
-    const assignWalkIn = useCallback((walkInId: string, staffId: string) => {
-        if (!firestore || !walkIns || !staff || !services || !clients) return;
+  const assignWalkIn = useCallback((walkInId: string, staffId: string) => {
+    if (!firestore || !walkIns || !staff || !services || !clients) return;
 
-        const walkIn = walkIns.find(w => w.id === walkInId);
-        const staffMember = staff.find(s => s.id === staffId);
+    const walkIn = walkIns.find(w => w.id === walkInId);
+    const staffMember = staff.find(s => s.id === staffId);
 
-        if (!walkIn || !staffMember) return;
-        
-        const now = new Date();
-        
-        const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
-        const walkInUpdate = {
-            status: 'servicing' as const,
-            assignedStaffId: staffId,
-            serviceStartTime: now.toISOString(),
+    if (!walkIn || !staffMember) return;
+    
+    const now = new Date();
+    
+    const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+    const walkInUpdate = {
+        status: 'assigned' as const,
+        assignedStaffId: staffId,
+    };
+    updateDocumentNonBlocking(walkInDocRef, walkInUpdate);
+
+    const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
+    const staffUpdate = { status: 'busy' as const };
+    updateDocumentNonBlocking(staffDocRef, staffUpdate);
+
+    const client = clients.find(c => c.id === walkIn.clientId);
+    const service = services.find(s => s.id === walkIn.serviceIds[0]);
+    if (service) {
+        const appointmentEndTime = addMinutes(now, walkIn.estimatedDuration);
+        const newAppointmentForFirestore: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & { startTime: Date, endTime: Date, clientName: string } = {
+            clientId: walkIn.clientId || `walkin-${walkIn.id}`,
+            clientName: client?.name || walkIn.customerName,
+            serviceId: service.id,
+            staffId: staffId,
+            startTime: now,
+            endTime: appointmentEndTime,
+            status: 'confirmed',
+            isWalkIn: true,
+            addOnIds: walkIn.serviceIds.slice(1),
         };
-        updateDocumentNonBlocking(walkInDocRef, walkInUpdate);
-
-        const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
-        const staffUpdate = { status: 'busy' as const };
-        updateDocumentNonBlocking(staffDocRef, staffUpdate);
-
-        const client = clients.find(c => c.id === walkIn.clientId);
-        const service = services.find(s => s.id === walkIn.serviceIds[0]);
-        if (service) {
-            const appointmentEndTime = addMinutes(now, walkIn.estimatedDuration);
-            const newAppointmentForFirestore: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & { startTime: Date, endTime: Date, clientName: string } = {
-                clientId: walkIn.clientId || `walkin-${walkIn.id}`,
-                clientName: client?.name || walkIn.customerName,
-                serviceId: service.id,
-                staffId: staffId,
-                startTime: now,
-                endTime: appointmentEndTime,
-                status: 'servicing',
-                isWalkIn: true,
-                addOnIds: walkIn.serviceIds.slice(1),
-                actualStartTime: now.toISOString(),
-            };
-            const aptDocRef = doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkIn.id}`);
-            setDocumentNonBlocking(aptDocRef, newAppointmentForFirestore, {});
-        }
+        const aptDocRef = doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkIn.id}`);
+        setDocumentNonBlocking(aptDocRef, newAppointmentForFirestore, {});
+    }
   }, [firestore, tenantId, walkIns, staff, services, clients]);
 
   const handleStartServiceFromNotified = useCallback((walkIn: WalkIn) => {
@@ -1169,4 +1167,5 @@ export default function WalkInQueuePage() {
     </>
   );
 }
+
 
