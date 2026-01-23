@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
@@ -136,8 +137,16 @@ export const DayTimeline = ({
             
             function positionCluster(cluster: any[]) {
                 cluster.sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
-                const columns: any[][] = [];
+                
+                // On mobile, all items take up the full width of the column to avoid being squished.
+                if (isMobile) {
+                    for (const item of cluster) {
+                        item.layout = { cols: 1, col: 0 };
+                    }
+                    return;
+                }
 
+                const columns: any[][] = [];
                 for(const item of cluster) {
                     let placed = false;
                     for (let i = 0; i < columns.length; i++) {
@@ -185,7 +194,7 @@ export const DayTimeline = ({
 
             return { staffMember, positionedItems };
         });
-    }, [staff, itemsByStaff]);
+    }, [staff, itemsByStaff, isMobile]);
 
     const renderAppointment = (item: any) => {
         const dayStart = setHours(startOfDay(date), START_HOUR);
