@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -46,11 +47,13 @@ import { cn } from '@/lib/utils';
 import { buttonVariants } from '../ui/button';
 import { nanoid } from 'nanoid';
 import { SelectServicesDialog } from './SelectServicesDialog';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 
 const addStaffSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
   email: z.string().email('A valid email is required.'),
   phone: z.string().optional(),
+  avatarUrl: z.string().optional(),
   role: z.enum(['admin', 'staff']),
   payStructure: z.enum(['commission', 'hourly', 'salary']),
   commissionRate: z.coerce.number().min(0).max(100).optional(),
@@ -113,6 +116,21 @@ const AddStaffForm = ({ services }: { services: Service[] }) => {
                     <AccordionItem value="item-1" className="border rounded-lg">
                         <AccordionTrigger className="p-4"><div className="flex items-center gap-3"><User className="w-5 h-5 text-primary"/>Basic Information</div></AccordionTrigger>
                         <AccordionContent className="p-4 pt-0">
+                            <div className="flex flex-col items-center gap-4 mt-4 mb-6">
+                                <Controller
+                                    name="avatarUrl"
+                                    control={control}
+                                    render={({ field }) => (
+                                    <>
+                                        <Avatar className="w-24 h-24 text-lg">
+                                            <AvatarImage src={field.value || undefined} alt="Staff Avatar" className="object-cover" />
+                                            <AvatarFallback><User className="h-8 w-8 text-muted-foreground" /></AvatarFallback>
+                                        </Avatar>
+                                        <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} />
+                                    </>
+                                    )}
+                                />
+                            </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
                                 <div className="space-y-2"><Label htmlFor="name">Full Name</Label><Input id="name" placeholder="e.g., Brenda Barnes" {...register('name')} />{errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}</div>
                                 <div className="space-y-2"><Label htmlFor="email">Email Address</Label><Input id="email" type="email" placeholder="brenda@example.com" {...register('email')} />{errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}</div>
@@ -253,6 +271,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
   const handleSave = (data: AddStaffFormData) => {
     const staffDataToSave: Omit<Staff, 'id' | 'avatarUrl'> = {
         ...data,
+        avatarUrl: data.avatarUrl || `https://picsum.photos/seed/${nanoid()}/100`,
         commissionRate: data.commissionRate || 0,
         hourlyRate: data.hourlyRate,
         services: data.services || [],
