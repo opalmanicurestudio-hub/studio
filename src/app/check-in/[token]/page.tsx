@@ -173,7 +173,11 @@ export default function CheckInPage() {
                  {showLateOptions && (
                     <div className="space-y-4">
                          <h4 className="font-medium text-center">How late will you be?</h4>
-                        <RadioGroup defaultValue="15" className="grid grid-cols-4 gap-2" onValueChange={(val) => setLateTime(parseInt(val))}>
+                        <RadioGroup 
+                            value={lateTime > 0 ? String(lateTime) : undefined}
+                            onValueChange={(val) => setLateTime(parseInt(val))} 
+                            className="grid grid-cols-4 gap-2"
+                        >
                             <div>
                                 <RadioGroupItem value="5" id="late-5" className="peer sr-only" />
                                 <Label htmlFor="late-5" className="p-3 border rounded-md text-center cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/10">5 min</Label>
@@ -191,14 +195,20 @@ export default function CheckInPage() {
                                 <Label htmlFor="late-20" className="p-3 border rounded-md text-center cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/10">20+</Label>
                             </div>
                         </RadioGroup>
-                         <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-center">
-                             <AlertTriangle className="w-6 h-6 mx-auto mb-2"/>
-                            <p className="font-semibold">Please Be Aware</p>
-                            <p className="text-xs">Arrivals more than 15 minutes late may need to be rescheduled or have their service shortened. A fee of $25.00 may apply.</p>
-                        </div>
+                        
+                        {lateTime >= 15 && (
+                            <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-center">
+                                <AlertTriangle className="w-6 h-6 mx-auto mb-2"/>
+                                <p className="font-semibold">Please Be Aware</p>
+                                <p className="text-xs">Arrivals more than 15 minutes late may need to be rescheduled or have their service shortened. A fee of $25.00 may apply.</p>
+                            </div>
+                        )}
+
                         <div className="grid grid-cols-2 gap-4">
-                            <Button variant="outline" onClick={() => setShowLateOptions(false)}>Cancel</Button>
-                             <Button onClick={handleConfirmLate}>Yes, I Understand</Button>
+                            <Button variant="outline" onClick={() => {setShowLateOptions(false); setLateTime(0)}}>Cancel</Button>
+                             <Button onClick={handleConfirmLate} disabled={lateTime === 0}>
+                                {lateTime >= 15 ? 'I Understand' : 'Confirm'}
+                             </Button>
                         </div>
                     </div>
                 )}
