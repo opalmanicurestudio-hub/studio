@@ -1125,14 +1125,32 @@ export default function WalkInQueuePage() {
           body * {
             visibility: hidden;
           }
+          .print-content, .print-content * {
+            visibility: visible;
+          }
+          .print-content {
+            position: fixed !important;
+            inset: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
+            max-width: 100% !important;
+            border: none !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+          }
+          .print-content > *:not(#ticket-area) {
+              display: none !important;
+          }
           #ticket-area, #ticket-area * {
             visibility: visible;
           }
           #ticket-area {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
+            display: block !important;
           }
         }
       `}</style>
