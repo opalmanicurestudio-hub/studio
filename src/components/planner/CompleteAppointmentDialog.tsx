@@ -99,8 +99,6 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   staff,
 }) => {
   const { inventory, services, memberships, packages, clients, setClients, addStockCorrection, setTransactions } = useInventory();
-  const { firestore } = useFirebase();
-  const tenantId = 'tenant-abc';
   const { appointment, client, service } = appointmentData;
   const [formulaName, setFormulaName] = useState('Default Service Formula');
   const { toast } = useToast();
@@ -142,6 +140,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   const [tipAllocations, setTipAllocations] = useState<Record<string, number>>({});
   const isMobile = useIsMobile();
   const [view, setView] = useState<'checkout' | 'rebooking_prompt'>('checkout');
+  const [checkoutData, setCheckoutData] = useState<CheckoutData | null>(null);
 
   const applicableOffers = useMemo(() => {
     if (!client || !service) return [];
@@ -173,6 +172,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   useEffect(() => {
     if (open && service && appointment) {
         setView('checkout');
+        setCheckoutData(null);
         const checkoutState = appointment.checkoutState;
         const initialFormula = checkoutState?.formula || service.products?.map(p => ({
             id: p.id, name: p.name, quantity: p.quantityUsed, unit: p.unit || 'uses', costPerUnit: p.costPerUnit || 0
@@ -478,146 +478,65 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     return { updatedInventory: tempInventory, newCorrections, warnings };
   }, [editableFormula, retailItems, inventory, appointment.id]);
   
-  const handleCompleteAppointment = async () => {
+  const handleFinalizeAndShowRebook = async () => {
     let incidentData: IncidentFormData | undefined = undefined;
     if (logIncident) {
-        const isValid = await incidentMethods.trigger();
-        if (!isValid) {
-            toast({ variant: 'destructive', title: "Incident Form Incomplete", description: "Please fill out all required fields for the incident report." });
-            return;
-        }
-        incidentData = incidentMethods.getValues();
-    }
-
-    if (!client || !service || !firestore) return;
-
-    // Client is guaranteed to exist by the new walk-in flow, so just update them.
-    const clientDocRef = doc(firestore, 'tenants', tenantId, 'clients', client.id);
-    const newLifetimeValue = (client.lifetimeValue || 0) + (grandTotal - tipAmount);
-    updateDocumentNonBlocking(clientDocRef, {
-        lifetimeValue: newLifetimeValue,
-        lastAppointment: new Date().toISOString(),
-    });
-
-    // Create Transactions
-    const allPerformedServices = [service, ...selectedAddOns].filter((s): s is Service => !!s);
-    const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
-
-    allPerformedServices.forEach(currentService => {
-        const staffId = serviceStaffOverrides[currentService.id] || appointment.staffId;
-        const newTransaction: Omit<Transaction, 'id'> = {
-            date: new Date().toISOString(),
-            description: `Service: ${currentService.name}`,
-            clientOrVendor: client.name,
-            type: 'income',
-            context: 'Business',
-            category: 'Service Revenue',
-            amount: redeemedOffer ? 0 : currentService.price,
-            paymentMethod: paymentTab,
-            hasReceipt: true,
-            staffId: staffId,
-            appointmentId: appointment.id,
-        };
-        addDocumentNonBlocking(transactionsRef, newTransaction);
-    });
-
-    Object.entries(tipAllocations).forEach(([staffId, tipAmountValue]) => {
-        if (tipAmountValue > 0) {
-            addDocumentNonBlocking(transactionsRef, {
-                date: new Date().toISOString(),
-                description: `Tip for Appointment #${appointment.id.slice(-4)}`,
-                clientOrVendor: client.name,
-                type: 'income',
-                context: 'Business',
-                category: 'Tips',
-                amount: tipAmountValue,
-                paymentMethod: paymentTab,
-                hasReceipt: true,
-                staffId: staffId,
-                tipAmount: tipAmountValue,
-                appointmentId: appointment.id,
-            });
-        }
-    });
-
-    if (retailItems.length > 0) {
-        addDocumentNonBlocking(transactionsRef, {
-            date: new Date().toISOString(),
-            description: `Retail Sale (${retailItems.length} items)`,
-            clientOrVendor: client.name,
-            type: 'income',
-            context: 'Business',
-            category: 'Retail',
-            amount: retailTotal,
-            paymentMethod: paymentTab,
-            hasReceipt: true,
-            staffId: appointment.staffId,
-            appointmentId: appointment.id,
+      const isValid = await incidentMethods.trigger();
+      if (!isValid) {
+        toast({
+          variant: 'destructive',
+          title: 'Incident Form Incomplete',
+          description: 'Please fill out all required fields for the incident report.',
         });
-    }
-
-    // Update stock & appointment
-    newCorrections.forEach(addStockCorrection);
-    
-    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
-    const updateData: Partial<Appointment> & { incident?: Incident } = {
-        status: 'completed',
-        absorbedCost: absorbedCost,
-    };
-    if (incidentData) {
-        const incidentWithId: Incident = { ...incidentData, id: `inc-${nanoid()}`, date: new Date().toISOString() };
-        updateData.incident = incidentWithId;
-        updateDocumentNonBlocking(clientDocRef, { 'intel.hasIncidents': true, 'intel.incidents': (client.intel?.incidents || []).concat(incidentWithId) });
-    }
-    updateDocumentNonBlocking(appointmentRef, updateData);
-
-    // Update staff status
-    const staffIdsInvolved = new Set(Object.values(serviceStaffOverrides));
-    staffIdsInvolved.add(appointment.staffId || '');
-    staffIdsInvolved.forEach(staffId => {
-      if (staffId) {
-        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'staff', staffId), { status: 'idle', lastServedTimestamp: new Date().toISOString() });
+        return;
       }
-    });
-
-    // Update Walk-in status
-    if (appointment.isWalkIn) {
-      const walkInId = appointment.id.replace('apt-walkin-', '');
-      updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'completed' });
+      incidentData = incidentMethods.getValues();
     }
 
-    // Update Client Packages
-    if (redeemedOffer?.type === 'package') {
-        const updatedPackages = client.activePackages?.map(p => 
-            p.packageId === redeemedOffer.id ? { ...p, sessionsRemaining: p.sessionsRemaining - 1 } : p
-        ).filter(p => p.sessionsRemaining > 0);
-        updateDocumentNonBlocking(clientDocRef, { activePackages: updatedPackages });
-    }
+    if (!client || !service) return;
 
-    // Prepare receipt and move to next view
     const receiptData: Omit<ReceiptData, 'business'> = {
-        clientName: client.name, date: new Date(),
-        items: [
-            { name: service.name, quantity: 1, price: redeemedOffer ? 0 : service.price },
-            ...selectedAddOns.map(s => ({ name: s.name, quantity: 1, price: s.price })),
-            ...retailItems.map(item => {
-                const product = inventory.find(p => p.id === item.id);
-                const price = product?.costPerUnit ? product.costPerUnit * 1.75 : 0;
-                return { name: item.name, quantity: item.quantity, price: price };
-            }),
-            ...(additionalCharge > 0 && applyAdditionalCharges ? [{ name: 'Additional Charges', quantity: 1, price: additionalCharge }] : [])
-        ],
-        subtotal: subtotal, discount: totalDiscount, tax: mockTax, tip: tipAmount, total: grandTotal,
-        payment: {
-            method: paymentTab,
-            amountTendered: paymentTab === 'cash' ? amountTendered : grandTotal,
-            changeDue: changeDue > 0 ? changeDue : 0,
-        }
+      clientName: client.name,
+      date: new Date(),
+      items: [
+        { name: service.name, quantity: 1, price: redeemedOffer ? 0 : service.price },
+        ...selectedAddOns.map(s => ({ name: s.name, quantity: 1, price: s.price })),
+        ...retailItems.map(item => {
+          const product = inventory.find(p => p.id === item.id);
+          const price = product?.costPerUnit ? product.costPerUnit * 1.75 : 0;
+          return { name: item.name, quantity: item.quantity, price };
+        }),
+        ...(additionalCharge > 0 && applyAdditionalCharges
+          ? [{ name: 'Additional Charges', quantity: 1, price: additionalCharge }]
+          : []),
+      ],
+      subtotal,
+      discount: totalDiscount,
+      tax: mockTax,
+      tip: tipAmount,
+      total: grandTotal,
+      payment: {
+        method: paymentTab,
+        amountTendered: paymentTab === 'cash' ? amountTendered : grandTotal,
+        changeDue: changeDue > 0 ? changeDue : 0,
+      },
     };
-    onConfirmCheckout({
-      updatedInventory, newCorrections, receiptData, incident: incidentData, serviceStaffOverrides,
-      tipAllocations, retailItems, addOns: selectedAddOns, absorbedCost, tipAmount, redeemedOffer,
-    });
+
+    const dataForCheckout: CheckoutData = {
+      updatedInventory,
+      newCorrections,
+      receiptData,
+      incident: incidentData,
+      serviceStaffOverrides,
+      tipAllocations,
+      retailItems,
+      addOns: selectedAddOns,
+      absorbedCost,
+      tipAmount,
+      redeemedOffer,
+    };
+    
+    setCheckoutData(dataForCheckout);
     setView('rebooking_prompt');
   };
 
@@ -626,7 +545,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
 
     const currentCheckoutState: AppointmentCheckoutState = {
         formula: editableFormula,
-        retailItems: [],
+        retailItems: [], // Retail is handled at front desk
         addOns: selectedAddOns,
         actualDuration,
         serviceStaffOverrides,
@@ -681,6 +600,20 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     }
     return actualDuration;
   }, [appointment, actualDuration]);
+  
+  const handleConfirmAndClose = () => {
+    if (checkoutData) {
+      onConfirmCheckout(checkoutData);
+    }
+    onOpenChange(false);
+  };
+
+  const handleConfirmAndRebook = () => {
+    if (checkoutData) {
+      onConfirmCheckout(checkoutData);
+    }
+    onRebook(appointment);
+  };
 
   if (!client || !service) {
     return null;
@@ -1059,17 +992,17 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         <>
             <Sheet open={open} onOpenChange={onOpenChange}>
                 <SheetContent side="bottom" className="w-full h-full p-0 flex flex-col sm:max-w-full">
-                    <SheetHeader className="p-6 pb-4 border-b">
-                        <SheetTitle>Complete Appointment & Checkout</SheetTitle>
-                    </SheetHeader>
                      {view === 'checkout' ? (
                         <>
+                            <SheetHeader className="p-6 pb-4 border-b">
+                                <SheetTitle>Complete Appointment & Checkout</SheetTitle>
+                            </SheetHeader>
                             <div className="flex-1 min-h-0 overflow-y-auto">
                                 {FormContent}
                             </div>
                             <SheetFooter className="p-4 border-t bg-background flex-col sm:flex-col sm:space-x-0 gap-2">
                                 {onSendToFrontDesk && <Button variant="secondary" onClick={handleSendToFrontDesk}>Send to Front Desk</Button>}
-                                <Button onClick={handleCompleteAppointment} disabled={warnings.length > 0} size="lg">
+                                <Button onClick={handleFinalizeAndShowRebook} disabled={warnings.length > 0} size="lg">
                                     Finalize & Record Sale
                                 </Button>
                             </SheetFooter>
@@ -1080,8 +1013,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                             <h2 className="text-2xl font-bold">Checkout Complete!</h2>
                             <p className="text-muted-foreground">Would you like to book {client.name}'s next appointment?</p>
                             <div className="flex flex-col sm:flex-row justify-center gap-4 pt-4 w-full">
-                                <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full">No, Thanks</Button>
-                                <Button onClick={() => onRebook(appointment)} className="w-full">Book Next Appointment</Button>
+                                <Button variant="outline" onClick={handleConfirmAndClose} className="w-full">No, Thanks</Button>
+                                <Button onClick={handleConfirmAndRebook} className="w-full">Book Next Appointment</Button>
                             </div>
                         </div>
                     )}
@@ -1114,7 +1047,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                   {onSendToFrontDesk && <Button variant="secondary" onClick={handleSendToFrontDesk}>Send to Front Desk</Button>}
                   <div className="flex-1" />
                   <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                  <Button onClick={handleCompleteAppointment} disabled={warnings.length > 0}>
+                  <Button onClick={handleFinalizeAndShowRebook} disabled={warnings.length > 0}>
                     Finalize & Record Sale
                   </Button>
                 </div>
@@ -1126,8 +1059,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
               <h2 className="text-2xl font-bold">Checkout Complete!</h2>
               <p className="text-muted-foreground">Would you like to book {client.name}'s next appointment?</p>
               <div className="flex justify-center gap-4 pt-4">
-                <Button variant="outline" onClick={() => onOpenChange(false)}>No, Thanks</Button>
-                <Button onClick={() => onRebook(appointment)}>Book Next Appointment</Button>
+                <Button variant="outline" onClick={handleConfirmAndClose}>No, Thanks</Button>
+                <Button onClick={handleConfirmAndRebook}>Book Next Appointment</Button>
               </div>
             </div>
           )}
