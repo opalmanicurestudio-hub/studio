@@ -6,9 +6,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard } from 'lucide-react';
-import { format, parseISO, addMinutes, addHours } from 'date-fns';
-import { Loader } from 'lucide-react';
+import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, CalendarIcon } from 'lucide-react';
+import { format, parseISO, addMinutes, addHours, isBefore, startOfDay, setHours, setMinutes } from 'date-fns';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { type Appointment, type Client, type Service } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
@@ -18,6 +17,9 @@ import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking,
 import { collection, query, where, doc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export default function CheckInPage() {
     const params = useParams();
@@ -76,6 +78,9 @@ export default function CheckInPage() {
     const [showLateOptions, setShowLateOptions] = useState(false);
     const [isCancelled, setIsCancelled] = useState(false);
     const [rescheduleStep, setRescheduleStep] = useState<'initial' | 'payment' | 'reschedule' | 'confirmed'>('initial');
+    
+    const [showDatePicker, setShowDatePicker] = useState(false);
+    const [newRescheduleDate, setNewRescheduleDate] = useState<Date | undefined>();
     
     const nextAvailableSlot = useMemo(() => addHours(new Date(), 2), []);
 
@@ -140,10 +145,10 @@ export default function CheckInPage() {
         setRescheduleStep('reschedule');
     };
 
-    const handleReschedule = async () => {
+    const handleReschedule = async (newTime?: Date) => {
         if (!appointment || !firestore || !data?.service) return;
 
-        const newStartTime = nextAvailableSlot;
+        const newStartTime = newTime || nextAvailableSlot;
         const newEndTime = addMinutes(newStartTime, data.service.duration);
 
         const appointmentRef = doc(firestore, 'tenants', 'tenant-abc', 'appointments', appointment.id);
@@ -223,24 +228,84 @@ export default function CheckInPage() {
                      <div className="p-4 bg-muted/50 text-center rounded-lg space-y-4">
                         <Check className="w-8 h-8 mx-auto text-green-500"/>
                         <h3 className="font-bold">Payment Successful!</h3>
-                        <p className="text-xs text-muted-foreground">
-                           Our next available appointment is at <strong>{format(nextAvailableSlot, 'h:mm a')} today</strong>. Would you like to book it?
-                        </p>
-                        <div className="pt-4 grid grid-cols-2 gap-4">
-                             <Button variant="outline" onClick={() => { setIsCancelled(false); handleUpdateStatus('cancelled'); }}>
-                                No, Thanks
-                             </Button>
-                              <Button onClick={handleReschedule}>
-                                Yes, Book It!
-                             </Button>
-                        </div>
+                        
+                        {showDatePicker ? (
+                            <div className="space-y-4 text-left pt-4">
+                                <Label>Select a new date and time</Label>
+                                <Popover>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant={"outline"}
+                                            className={cn(
+                                                "w-full justify-start text-left font-normal",
+                                                !newRescheduleDate && "text-muted-foreground"
+                                            )}
+                                        >
+                                            <CalendarIcon className="mr-2 h-4 w-4" />
+                                            {newRescheduleDate ? format(newRescheduleDate, "PPP") : <span>Pick a date</span>}
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0">
+                                        <Calendar
+                                            mode="single"
+                                            selected={newRescheduleDate}
+                                            onSelect={(date) => setNewRescheduleDate(date || new Date())}
+                                            initialFocus
+                                            disabled={(date) => isBefore(date, startOfDay(new Date()))}
+                                        />
+                                    </PopoverContent>
+                                </Popover>
+                                <Select onValueChange={(time) => {
+                                    if (!newRescheduleDate) return;
+                                    const [hours, minutes] = time.split(':').map(Number);
+                                    setNewRescheduleDate(setMinutes(setHours(newRescheduleDate, hours), minutes));
+                                }}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select a time" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {Array.from({ length: 12 }, (_, i) => i + 8).map(hour => {
+                                            const displayHour = hour % 12 === 0 ? 12 : hour % 12;
+                                            const period = hour < 12 ? 'AM' : 'PM';
+                                            return (
+                                                <React.Fragment key={hour}>
+                                                    <SelectItem value={`${hour}:00`}>{`${displayHour}:00 ${period}`}</SelectItem>
+                                                    <SelectItem value={`${hour}:30`}>{`${displayHour}:30 ${period}`}</SelectItem>
+                                                </React.Fragment>
+                                            )
+                                        })}
+                                    </SelectContent>
+                                </Select>
+                                <div className="grid grid-cols-2 gap-2 pt-4">
+                                    <Button variant="outline" onClick={() => setShowDatePicker(false)}>Back</Button>
+                                    <Button onClick={() => handleReschedule(newRescheduleDate)} disabled={!newRescheduleDate}>Confirm New Time</Button>
+                                </div>
+                            </div>
+                        ) : (
+                            <>
+                                <p className="text-sm text-muted-foreground">
+                                Our next available appointment is at <strong>{format(nextAvailableSlot, 'h:mm a')} today</strong>.
+                                </p>
+                                <div className="pt-4 grid grid-cols-1 gap-2">
+                                    <Button onClick={() => handleReschedule()}>
+                                        Book for {format(nextAvailableSlot, 'h:mm a')}
+                                    </Button>
+                                    <Button variant="outline" onClick={() => {setShowDatePicker(true); setNewRescheduleDate(new Date())}}>
+                                        Choose a different time
+                                    </Button>
+                                    <Button variant="link" size="sm" className="mt-2" onClick={() => { setIsCancelled(false); handleUpdateStatus('cancelled'); }}>
+                                        No, Thanks
+                                    </Button>
+                                </div>
+                            </>
+                        )}
                     </div>
                 );
             case 'confirmed':
                  return (
                      <div className="p-4 bg-green-500/10 text-green-700 dark:text-green-300 rounded-lg text-center">
                         <p className="font-semibold">You're all set!</p>
-                        <p className="text-sm">Your appointment has been rescheduled for {format(nextAvailableSlot, 'MMM d, h:mm a')}. We'll see you soon!</p>
+                        <p className="text-sm">Your appointment has been rescheduled. We'll see you soon!</p>
                     </div>
                 );
         }
