@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy, Save, Award, Repeat, CheckCircle, Percent } from 'lucide-react';
+import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy, Save, Award, Repeat, CheckCircle, Percent, Loader } from 'lucide-react';
 import { appointments as initialAppointments, services as initialServices, inventory, type CustomFormula, Client, type Incident, type Appointment } from '@/lib/data';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
@@ -46,6 +46,8 @@ import { useInventory } from '@/context/InventoryContext';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog';
 import { nanoid } from 'nanoid';
+import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
+import { collection, doc, arrayUnion } from 'firebase/firestore';
 
 
 type ClientPhoto = {
@@ -163,8 +165,15 @@ const AppointmentHistoryCard = ({
 
 export default function ClientDetailPage() {
   const params = useParams<{ id: string }>();
-  const { clients, setClients, appointments, setAppointments, services, inventory, memberships, packages, staff } = useInventory();
-  const client = clients.find((c) => c.id === params.id);
+
+  const { firestore } = useFirebase();
+  const tenantId = 'tenant-abc';
+  const clientsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/clients`), [firestore, tenantId]);
+  const { data: allClients, isLoading: clientsLoading } = useCollection<Client>(clientsQuery);
+  const client = useMemo(() => allClients?.find(c => c.id === params.id), [allClients, params.id]);
+
+  const { setClients, appointments, setAppointments, services, inventory, memberships, packages, staff } = useInventory();
+
   const { toast } = useToast();
   const [isAddFormulaOpen, setIsAddFormulaOpen] = useState(false);
   const [isLogIncidentOpen, setIsLogIncidentOpen] = useState(false);
@@ -198,9 +207,22 @@ export default function ClientDetailPage() {
       setIsCodeDirty(false);
   }, [client?.referralCode]);
 
+  if (clientsLoading) {
+      return (
+          <div className="flex min-h-screen w-full flex-col bg-muted/40">
+            <AppHeader title="Client Profile" />
+            <main className="flex-1 p-4 md:p-6 flex items-center justify-center">
+              <Loader className="w-8 h-8 animate-spin" />
+            </main>
+          </div>
+      )
+  }
+
   if (!client) {
     notFound();
   }
+
+  const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
 
   const clientAppointments = appointments
     .filter(apt => apt.clientId === client.id)
@@ -219,23 +241,15 @@ export default function ClientDetailPage() {
     setAppointments(prev => [...prev, newAptWithId].sort((a,b) => a.startTime.getTime() - b.startTime.getTime()));
     toast({
         title: "Appointment Booked",
-        description: `Appointment for ${clients.find(c => c.id === newAppointment.clientId)?.name} has been added.`
+        description: `Appointment for ${allClients?.find(c => c.id === newAppointment.clientId)?.name} has been added.`
     })
     setIsAddAppointmentOpen(false);
   };
 
   const handleSaveFormula = (newFormula: CustomFormula) => {
-    setClients(prevClients => 
-      prevClients.map(c => {
-        if (c.id === client.id) {
-          return {
-            ...c,
-            customFormulas: [...(c.customFormulas || []), newFormula]
-          };
-        }
-        return c;
-      })
-    );
+    updateDocumentNonBlocking(clientDocRef, {
+        customFormulas: arrayUnion(newFormula)
+    });
     toast({
       title: 'Formula Saved!',
       description: `"${newFormula.name}" has been added to ${client.name}'s profile.`,
@@ -243,11 +257,7 @@ export default function ClientDetailPage() {
   };
   
   const handleUpdateClient = (updatedClientData: Partial<Client>) => {
-    setClients(prevClients =>
-      prevClients.map(c =>
-        c.id === client.id ? { ...c, ...updatedClientData } : c
-      )
-    );
+    updateDocumentNonBlocking(clientDocRef, updatedClientData);
     toast({
       title: 'Client Updated',
       description: `${client.name}'s profile has been successfully updated.`,
@@ -267,27 +277,15 @@ export default function ClientDetailPage() {
   }
   
    const handleIncidentLogged = (incidentData: IncidentFormData) => {
-    setClients(prevClients =>
-      prevClients.map(c => {
-        if (c.id === client.id) {
-          const newIncident: Incident = {
-            ...incidentData,
-            id: `inc-${Date.now()}`,
-            date: new Date().toISOString(),
-          };
-          const existingIncidents = c.intel?.incidents || [];
-          return {
-            ...c,
-            intel: {
-              ...c.intel,
-              hasIncidents: true,
-              incidents: [...existingIncidents, newIncident],
-            },
-          };
-        }
-        return c;
-      })
-    );
+    const newIncident: Incident = {
+        ...incidentData,
+        id: `inc-${Date.now()}`,
+        date: new Date().toISOString(),
+    };
+    updateDocumentNonBlocking(clientDocRef, {
+        'intel.hasIncidents': true,
+        'intel.incidents': arrayUnion(newIncident)
+    });
     toast({
       title: "Incident Logged",
       description: `A new incident has been recorded for ${client.name}.`,
@@ -320,7 +318,7 @@ export default function ClientDetailPage() {
           return;
       }
       
-      const isDuplicate = clients.some(c => c.id !== client.id && c.referralCode?.toLowerCase() === trimmedCode.toLowerCase());
+      const isDuplicate = allClients?.some(c => c.id !== client.id && c.referralCode?.toLowerCase() === trimmedCode.toLowerCase());
 
       if (isDuplicate) {
           toast({
@@ -330,12 +328,7 @@ export default function ClientDetailPage() {
           });
           return;
       }
-
-      setClients(prevClients =>
-        prevClients.map(c =>
-          c.id === client.id ? { ...c, referralCode: trimmedCode } : c
-        )
-      );
+      updateDocumentNonBlocking(clientDocRef, { referralCode: trimmedCode });
       setIsCodeDirty(false);
       toast({
           title: "Referral Code Updated",
@@ -696,7 +689,7 @@ export default function ClientDetailPage() {
                 }
                 setIsAddAppointmentOpen(isOpen);
             }}
-            clients={clients}
+            clients={allClients || []}
             services={services}
             staff={staff}
             appointments={appointments}
@@ -721,6 +714,7 @@ export default function ClientDetailPage() {
   );
 
     
+
 
 
 
