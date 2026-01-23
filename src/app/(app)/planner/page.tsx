@@ -1077,21 +1077,21 @@ const events = useMemo(() => {
       </div>
 
        <div className="border-b">
-        <ScrollArea className="w-full whitespace-nowrap md:whitespace-normal">
-            <div className="flex w-max md:w-full">
+        <ScrollArea className="w-full md:whitespace-normal">
+            <div className="flex w-full">
                 {weekDays.map(day => (
                     <button
                         key={day.toISOString()}
                         onClick={() => setCurrentDate(day)}
                         className={cn(
-                            "flex-1 p-3 text-center min-w-[70px] md:min-w-0 transition-colors hover:bg-muted/50",
+                            "flex-1 p-2 text-center md:p-3 transition-colors hover:bg-muted/50",
                             isSameDay(day, currentDate) && (isMobile ? "border-b-2 border-primary" : "bg-muted")
                         )}
                     >
                         <p className={cn("text-xs", isSameDay(day, currentDate) ? "text-primary font-semibold" : "text-muted-foreground")}>
                             {format(day, 'EEE')}
                         </p>
-                        <p className={cn("text-xl md:text-2xl font-bold mt-1", !isSameDay(day, currentDate) && "text-muted-foreground")}>
+                        <p className={cn("text-lg md:text-2xl font-bold mt-1", !isSameDay(day, currentDate) && "text-muted-foreground")}>
                             {format(day, 'd')}
                         </p>
                     </button>
@@ -1318,3 +1318,4 @@ const events = useMemo(() => {
     </div>
   );
 }
+
