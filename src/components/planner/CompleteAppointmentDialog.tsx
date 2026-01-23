@@ -24,7 +24,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { AlertCircle, CheckCircle, FileText, FlaskConical, PlusCircle, Trash2, Library, Wand, QrCode, Search, AlertTriangle, ShoppingCart, CreditCard, Banknote, Gift, Coins, ShieldAlert, DollarSign, Users, Award, Repeat } from 'lucide-react';
-import { type Appointment, type Client, type Service, type InventoryItem, type StockCorrection, type CustomFormula, type Staff, AppointmentCheckoutState } from '@/lib/data';
+import { type Appointment, type Client, type Service, type InventoryItem, type StockCorrection, type CustomFormula, type Staff, AppointmentCheckoutState, Incident } from '@/lib/data';
 import { Input } from '../ui/input';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { useInventory } from '@/context/InventoryContext';
@@ -45,8 +45,8 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { Badge } from '../ui/badge';
 import { nanoid } from 'nanoid';
-import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
-import { doc } from 'firebase/firestore';
+import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
+import { doc, collection } from 'firebase/firestore';
 
 
 type EditableFormulaItem = {
@@ -203,7 +203,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         setServiceStaffOverrides(checkoutState?.serviceStaffOverrides || initialOverrides);
         setTipAllocations(checkoutState?.tipAllocations || {});
     }
-  }, [open, appointment.id]);
+  }, [open, appointment, service, services, client?.referredBy, incidentMethods]);
 
   const allServicesForAppointment = useMemo(() => [service, ...selectedAddOns].filter((s): s is Service => !!s), [service, selectedAddOns]);
 
@@ -490,59 +490,113 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     }
 
     if (!client || !service || !firestore) return;
-    
-    let finalClientId = client.id;
 
-    // Check if it's a first-time walk-in and create a permanent client record
-    if (appointment.isWalkIn && client.id.startsWith('walkin-')) {
-        const newId = `cli-${nanoid()}`;
-        const newClient: Client = {
-          id: newId,
-          name: client.name,
-          email: client.email || '',
-          phone: client.phone || '',
-          birthday: client.birthday,
-          avatarUrl: '',
-          lifetimeValue: grandTotal - tipAmount, // First transaction
-          lastAppointment: new Date().toISOString(),
-          status: 'active',
+    // Client is guaranteed to exist by the new walk-in flow, so just update them.
+    const clientDocRef = doc(firestore, 'tenants', tenantId, 'clients', client.id);
+    const newLifetimeValue = (client.lifetimeValue || 0) + (grandTotal - tipAmount);
+    updateDocumentNonBlocking(clientDocRef, {
+        lifetimeValue: newLifetimeValue,
+        lastAppointment: new Date().toISOString(),
+    });
+
+    // Create Transactions
+    const allPerformedServices = [service, ...selectedAddOns].filter((s): s is Service => !!s);
+    const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+
+    allPerformedServices.forEach(currentService => {
+        const staffId = serviceStaffOverrides[currentService.id] || appointment.staffId;
+        const newTransaction: Omit<Transaction, 'id'> = {
+            date: new Date().toISOString(),
+            description: `Service: ${currentService.name}`,
+            clientOrVendor: client.name,
+            type: 'income',
+            context: 'Business',
+            category: 'Service Revenue',
+            amount: redeemedOffer ? 0 : currentService.price,
+            paymentMethod: paymentTab,
+            hasReceipt: true,
+            staffId: staffId,
+            appointmentId: appointment.id,
         };
-        const clientDocRef = doc(firestore, 'tenants', tenantId, 'clients', newId);
-        await setDocumentNonBlocking(clientDocRef, newClient, {});
-        finalClientId = newId;
-        
-        toast({
-            title: "New Client Created",
-            description: `${client.name} has been automatically added to your client list.`,
+        addDocumentNonBlocking(transactionsRef, newTransaction);
+    });
+
+    Object.entries(tipAllocations).forEach(([staffId, tipAmountValue]) => {
+        if (tipAmountValue > 0) {
+            addDocumentNonBlocking(transactionsRef, {
+                date: new Date().toISOString(),
+                description: `Tip for Appointment #${appointment.id.slice(-4)}`,
+                clientOrVendor: client.name,
+                type: 'income',
+                context: 'Business',
+                category: 'Tips',
+                amount: tipAmountValue,
+                paymentMethod: paymentTab,
+                hasReceipt: true,
+                staffId: staffId,
+                tipAmount: tipAmountValue,
+                appointmentId: appointment.id,
+            });
+        }
+    });
+
+    if (retailItems.length > 0) {
+        addDocumentNonBlocking(transactionsRef, {
+            date: new Date().toISOString(),
+            description: `Retail Sale (${retailItems.length} items)`,
+            clientOrVendor: client.name,
+            type: 'income',
+            context: 'Business',
+            category: 'Retail',
+            amount: retailTotal,
+            paymentMethod: paymentTab,
+            hasReceipt: true,
+            staffId: appointment.staffId,
+            appointmentId: appointment.id,
         });
     }
+
+    // Update stock & appointment
+    newCorrections.forEach(addStockCorrection);
     
-    // Update appointment with new client ID if it was created
-    if (finalClientId !== client.id) {
-        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
-        await updateDocumentNonBlocking(appointmentRef, { clientId: finalClientId });
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
+    const updateData: Partial<Appointment> & { incident?: Incident } = {
+        status: 'completed',
+        absorbedCost: absorbedCost,
+    };
+    if (incidentData) {
+        const incidentWithId: Incident = { ...incidentData, id: `inc-${nanoid()}`, date: new Date().toISOString() };
+        updateData.incident = incidentWithId;
+        updateDocumentNonBlocking(clientDocRef, { 'intel.hasIncidents': true, 'intel.incidents': (client.intel?.incidents || []).concat(incidentWithId) });
+    }
+    updateDocumentNonBlocking(appointmentRef, updateData);
+
+    // Update staff status
+    const staffIdsInvolved = new Set(Object.values(serviceStaffOverrides));
+    staffIdsInvolved.add(appointment.staffId || '');
+    staffIdsInvolved.forEach(staffId => {
+      if (staffId) {
+        updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'staff', staffId), { status: 'idle', lastServedTimestamp: new Date().toISOString() });
+      }
+    });
+
+    // Update Walk-in status
+    if (appointment.isWalkIn) {
+      const walkInId = appointment.id.replace('apt-walkin-', '');
+      updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), { status: 'completed' });
     }
 
-    // Update Client's Package if redeemed
+    // Update Client Packages
     if (redeemedOffer?.type === 'package') {
-        const clientToUpdate = clients.find(c => c.id === appointment.clientId);
-        if (clientToUpdate) {
-            const updatedPackages = clientToUpdate.activePackages?.map(p => {
-                if (p.packageId === redeemedOffer.id) {
-                    return { ...p, sessionsRemaining: p.sessionsRemaining - 1 };
-                }
-                return p;
-            }).filter(p => p.sessionsRemaining > 0);
-
-            const updatedClient = { ...clientToUpdate, activePackages: updatedPackages };
-            const clientDocRef = doc(firestore, 'tenants', tenantId, 'clients', clientToUpdate.id);
-            updateDocumentNonBlocking(clientDocRef, { activePackages: updatedPackages });
-        }
+        const updatedPackages = client.activePackages?.map(p => 
+            p.packageId === redeemedOffer.id ? { ...p, sessionsRemaining: p.sessionsRemaining - 1 } : p
+        ).filter(p => p.sessionsRemaining > 0);
+        updateDocumentNonBlocking(clientDocRef, { activePackages: updatedPackages });
     }
 
-
+    // Prepare receipt and move to next view
     const receiptData: Omit<ReceiptData, 'business'> = {
-        clientName: client.name, date: appointment.endTime,
+        clientName: client.name, date: new Date(),
         items: [
             { name: service.name, quantity: 1, price: redeemedOffer ? 0 : service.price },
             ...selectedAddOns.map(s => ({ name: s.name, quantity: 1, price: s.price })),
@@ -553,11 +607,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
             }),
             ...(additionalCharge > 0 && applyAdditionalCharges ? [{ name: 'Additional Charges', quantity: 1, price: additionalCharge }] : [])
         ],
-        subtotal: subtotal,
-        discount: totalDiscount,
-        tax: mockTax,
-        tip: tipAmount,
-        total: grandTotal,
+        subtotal: subtotal, discount: totalDiscount, tax: mockTax, tip: tipAmount, total: grandTotal,
         payment: {
             method: paymentTab,
             amountTendered: paymentTab === 'cash' ? amountTendered : grandTotal,
@@ -565,17 +615,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         }
     };
     onConfirmCheckout({
-      updatedInventory,
-      newCorrections,
-      receiptData,
-      incident: incidentData,
-      serviceStaffOverrides,
-      tipAllocations,
-      retailItems,
-      addOns: selectedAddOns,
-      absorbedCost,
-      tipAmount,
-      redeemedOffer: redeemedOffer,
+      updatedInventory, newCorrections, receiptData, incident: incidentData, serviceStaffOverrides,
+      tipAllocations, retailItems, addOns: selectedAddOns, absorbedCost, tipAmount, redeemedOffer,
     });
     setView('rebooking_prompt');
   };
@@ -585,12 +626,12 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
 
     const currentCheckoutState: AppointmentCheckoutState = {
         formula: editableFormula,
-        retailItems,
+        retailItems: [],
         addOns: selectedAddOns,
         actualDuration,
         serviceStaffOverrides,
-        tipAllocations,
-        tipAmount,
+        tipAllocations: {},
+        tipAmount: 0,
     };
     onSendToFrontDesk(appointment.id, currentCheckoutState);
   }
@@ -806,15 +847,10 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                 <h4 className="font-medium text-sm">Add-on Services</h4>
                 <div className="space-y-2 text-sm">
                     {selectedAddOns.map((item) => (
-                        <div key={item.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
-                            <p className="font-medium">{item.name}</p>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                        </div>
+                        <div key={item.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md"><p className="font-medium">{item.name}</p><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}><Trash2 className="h-4 w-4" /></Button></div>
                     ))}
                 </div>
-                <Button variant="outline" size="sm" onClick={() => setIsAddOnSelectorOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Select Add-ons</Button>
+                <Button variant="outline" size="sm" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4"/>Select Add-ons</Button>
                 <Separator className="my-4"/>
                 <h4 className="font-medium text-sm">Retail Products</h4>
                 <div className="space-y-2 text-sm">

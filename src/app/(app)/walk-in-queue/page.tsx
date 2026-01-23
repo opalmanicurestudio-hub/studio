@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { User, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal, Printer, UserPlus, ArrowUp, ArrowDown, DollarSign, Bell, Lock } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { useCollection, useFirebase, updateDocumentNonBlocking, useMemoFirebase, setDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
-import { collection, doc } from 'firebase/firestore';
+import { collection, doc, getDocs, query, where } from 'firebase/firestore';
 import type { WalkIn, Staff, Appointment, Service, ActivityLog, Client, Event } from '@/lib/data';
 import { formatDistanceToNowStrict, parseISO, addMinutes, differenceInMinutes, differenceInSeconds, format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
@@ -542,20 +542,57 @@ export default function WalkInQueuePage() {
         return notifiedCustomers.length < idleStaff.length;
     }, [staff, walkIns, events]);
 
-  const assignWalkIn = useCallback((walkInId: string, staffId: string) => {
+  const assignWalkIn = useCallback(async (walkInId: string, staffId: string) => {
     if (!firestore || !walkIns || !staff || !services || !clients) return;
 
     const walkIn = walkIns.find(w => w.id === walkInId);
     const staffMember = staff.find(s => s.id === staffId);
 
     if (!walkIn || !staffMember) return;
-    
+
+    let finalClientId: string;
+    let finalClientName: string;
+
+    // Check for existing client or create a new one
+    const existingClient = clients.find(c => 
+        (walkIn.customerEmail && c.email && c.email.toLowerCase() === walkIn.customerEmail.toLowerCase()) || 
+        (walkIn.customerPhone && c.phone && c.phone === walkIn.customerPhone)
+    );
+
+    if (existingClient) {
+        finalClientId = existingClient.id;
+        finalClientName = existingClient.name;
+    } else {
+        // Create new client
+        const newId = `cli-${nanoid()}`;
+        const newClientData: Omit<Client, 'id'> = {
+            name: walkIn.customerName,
+            email: walkIn.customerEmail || '',
+            phone: walkIn.customerPhone || '',
+            birthday: walkIn.customerBirthday,
+            avatarUrl: `https://picsum.photos/seed/${nanoid()}/100`,
+            lifetimeValue: 0,
+            lastAppointment: new Date().toISOString(),
+            status: 'active',
+        };
+        const clientDocRef = doc(firestore, 'tenants', tenantId, 'clients', newId);
+        setDocumentNonBlocking(clientDocRef, { ...newClientData, id: newId }, {});
+        
+        finalClientId = newId;
+        finalClientName = newClientData.name;
+        toast({
+            title: "New Client Created",
+            description: `${walkIn.customerName} has been added to your client list.`,
+        });
+    }
+
+    // Now create the appointment with the real client ID
     const now = new Date();
-    
     const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
     const walkInUpdate = {
         status: 'assigned' as const,
         assignedStaffId: staffId,
+        clientId: finalClientId,
     };
     updateDocumentNonBlocking(walkInDocRef, walkInUpdate);
 
@@ -563,13 +600,12 @@ export default function WalkInQueuePage() {
     const staffUpdate = { status: 'busy' as const };
     updateDocumentNonBlocking(staffDocRef, staffUpdate);
 
-    const client = clients.find(c => c.id === walkIn.clientId);
     const service = services.find(s => s.id === walkIn.serviceIds[0]);
     if (service) {
         const appointmentEndTime = addMinutes(now, walkIn.estimatedDuration);
         const newAppointmentForFirestore: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & { startTime: Date, endTime: Date, clientName: string } = {
-            clientId: walkIn.clientId || `walkin-${walkIn.id}`,
-            clientName: client?.name || walkIn.customerName,
+            clientId: finalClientId,
+            clientName: finalClientName,
             serviceId: service.id,
             staffId: staffId,
             startTime: now,
@@ -581,7 +617,7 @@ export default function WalkInQueuePage() {
         const aptDocRef = doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkIn.id}`);
         setDocumentNonBlocking(aptDocRef, newAppointmentForFirestore, {});
     }
-  }, [firestore, tenantId, walkIns, staff, services, clients]);
+  }, [firestore, tenantId, walkIns, staff, services, clients, toast]);
 
   const handleStartServiceFromNotified = useCallback((walkIn: WalkIn) => {
     if (!staff || !services || !events) return;
@@ -1167,5 +1203,3 @@ export default function WalkInQueuePage() {
     </>
   );
 }
-
-
