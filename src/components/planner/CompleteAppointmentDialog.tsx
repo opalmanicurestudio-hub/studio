@@ -85,7 +85,7 @@ interface CompleteAppointmentDialogProps {
   };
   onConfirmCheckout: (data: CheckoutData) => void;
   onSendToFrontDesk?: (appointmentId: string, checkoutState: AppointmentCheckoutState) => void;
-  onRebook: (appointment: Appointment) => void;
+  onRebook: (appointment: Appointment, weeksOut?: number) => void;
   staff: Staff[];
 }
 
@@ -141,6 +141,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   const isMobile = useIsMobile();
   const [view, setView] = useState<'checkout' | 'rebooking_prompt'>('checkout');
   const [checkoutData, setCheckoutData] = useState<CheckoutData | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const applicableOffers = useMemo(() => {
     if (!client || !service) return [];
@@ -173,6 +174,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     if (open && service && appointment) {
         setView('checkout');
         setCheckoutData(null);
+        setIsSubmitting(false);
         const checkoutState = appointment.checkoutState;
         const initialFormula = checkoutState?.formula || service.products?.map(p => ({
             id: p.id, name: p.name, quantity: p.quantityUsed, unit: p.unit || 'uses', costPerUnit: p.costPerUnit || 0
@@ -602,18 +604,21 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   }, [appointment, actualDuration]);
   
   const handleConfirmAndClose = () => {
+    setIsSubmitting(true);
     if (checkoutData) {
       onConfirmCheckout(checkoutData);
     }
     onOpenChange(false);
   };
 
-  const handleConfirmAndRebook = () => {
+  const handleRebookClick = (weeksOut?: number) => {
+    setIsSubmitting(true);
     if (checkoutData) {
-      onConfirmCheckout(checkoutData);
+        onConfirmCheckout(checkoutData);
     }
-    onRebook(appointment);
+    onRebook(appointment, weeksOut);
   };
+
 
   if (!client || !service) {
     return null;
@@ -1011,11 +1016,18 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                          <div className="flex flex-col items-center justify-center text-center p-8 space-y-4 flex-1">
                             <CheckCircle className="w-16 h-16 mx-auto text-green-500" />
                             <h2 className="text-2xl font-bold">Checkout Complete!</h2>
-                            <p className="text-muted-foreground">Would you like to book {client.name}'s next appointment?</p>
-                            <div className="flex flex-col sm:flex-row justify-center gap-4 pt-4 w-full">
-                                <Button variant="outline" onClick={handleConfirmAndClose} className="w-full">No, Thanks</Button>
-                                <Button onClick={handleConfirmAndRebook} className="w-full">Book Next Appointment</Button>
+                            <p className="text-muted-foreground">Book their next appointment?</p>
+                            <div className="grid grid-cols-2 gap-2 pt-4 w-full max-w-sm">
+                                <Button variant="outline" onClick={() => handleRebookClick(2)} disabled={isSubmitting}>2 Weeks</Button>
+                                <Button variant="outline" onClick={() => handleRebookClick(4)} disabled={isSubmitting}>4 Weeks</Button>
+                                <Button variant="outline" onClick={() => handleRebookClick(6)} disabled={isSubmitting}>6 Weeks</Button>
+                                <Button variant="outline" onClick={() => handleRebookClick(8)} disabled={isSubmitting}>8 Weeks</Button>
                             </div>
+                            <div className="flex flex-col sm:flex-row justify-center gap-2 pt-2 w-full max-w-sm">
+                                <Button onClick={() => handleRebookClick()} className="w-full" disabled={isSubmitting}>Custom Date</Button>
+                                <Button variant="ghost" onClick={handleConfirmAndClose} className="w-full" disabled={isSubmitting}>No, Thanks</Button>
+                            </div>
+                             {isSubmitting && <p className="text-sm text-muted-foreground animate-pulse">Processing...</p>}
                         </div>
                     )}
                 </SheetContent>
@@ -1054,14 +1066,21 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
               </DialogFooter>
             </>
           ) : (
-            <div className="text-center p-8 space-y-4">
-              <CheckCircle className="w-16 h-16 mx-auto text-green-500" />
-              <h2 className="text-2xl font-bold">Checkout Complete!</h2>
-              <p className="text-muted-foreground">Would you like to book {client.name}'s next appointment?</p>
-              <div className="flex justify-center gap-4 pt-4">
-                <Button variant="outline" onClick={handleConfirmAndClose}>No, Thanks</Button>
-                <Button onClick={handleConfirmAndRebook}>Book Next Appointment</Button>
-              </div>
+            <div className="flex flex-col items-center justify-center text-center p-8 space-y-4">
+                <CheckCircle className="w-16 h-16 mx-auto text-green-500" />
+                <h2 className="text-2xl font-bold">Checkout Complete!</h2>
+                <p className="text-muted-foreground">Book their next appointment?</p>
+                <div className="grid grid-cols-2 gap-2 pt-4 w-full max-w-sm">
+                    <Button variant="outline" onClick={() => handleRebookClick(2)} disabled={isSubmitting}>2 Weeks</Button>
+                    <Button variant="outline" onClick={() => handleRebookClick(4)} disabled={isSubmitting}>4 Weeks</Button>
+                    <Button variant="outline" onClick={() => handleRebookClick(6)} disabled={isSubmitting}>6 Weeks</Button>
+                    <Button variant="outline" onClick={() => handleRebookClick(8)} disabled={isSubmitting}>8 Weeks</Button>
+                </div>
+                <div className="flex flex-col sm:flex-row justify-center gap-2 pt-2 w-full max-w-sm">
+                    <Button onClick={() => handleRebookClick()} className="w-full" disabled={isSubmitting}>Custom Date</Button>
+                    <Button variant="ghost" onClick={handleConfirmAndClose} className="w-full" disabled={isSubmitting}>No, Thanks</Button>
+                </div>
+                {isSubmitting && <p className="text-sm text-muted-foreground animate-pulse">Processing...</p>}
             </div>
           )}
         </DialogContent>

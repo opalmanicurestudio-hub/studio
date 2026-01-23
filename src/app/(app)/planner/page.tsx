@@ -354,6 +354,13 @@ const events = useMemo(() => {
 
 
   const handleCompleteClick = (appointment: Appointment) => {
+    if (appointment.status === 'completed') {
+      toast({
+        title: 'Already Completed',
+        description: 'This appointment has already been checked out.',
+      });
+      return;
+    }
     setSelectedAppointment(appointment);
     setIsCheckoutOpen(true);
   };
@@ -616,12 +623,21 @@ const events = useMemo(() => {
     setIsRescheduleOpen(false);
   };
 
-  const handleRebook = (appointment: Appointment) => {
-      setIsCheckoutOpen(false);
-      setSelectedAppointment(null); // Clear appointment from checkout
-      setAppointmentToRebook(appointment);
-      setIsAddAppointmentOpen(true);
-  }
+  const handleRebook = (appointment: Appointment, weeksOut?: number) => {
+    setIsCheckoutOpen(false);
+    setSelectedAppointment(null); // Clear appointment from checkout
+    
+    // Create a mutable copy to avoid directly mutating state
+    let rebookAppointmentData: Appointment = { ...appointment };
+
+    if (weeksOut) {
+        // appointment.startTime is already a Date object from the useMemo hook
+        rebookAppointmentData.startTime = addWeeks(rebookAppointmentData.startTime, weeksOut).toISOString();
+    }
+    
+    setAppointmentToRebook(rebookAppointmentData);
+    setIsAddAppointmentOpen(true);
+  };
 
   const handleBookNewAppointmentForClient = (clientId: string) => {
     setAppointmentToRebook(null);
@@ -1341,4 +1357,5 @@ const events = useMemo(() => {
     </div>
   );
 }
+
 
