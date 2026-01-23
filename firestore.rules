@@ -160,7 +160,7 @@ service cloud.firestore {
      * @principle Enforces document ownership and prevents enumeration of businesses.
      */
     match /tenants/{tenantId} {
-        allow get: if resource.data.userId == request.auth.uid || isStaff(tenantId);
+        allow get: if isTenantOwner(tenantId) || isStaff(tenantId);
         // Allow a user to query for their own tenant document.
         allow list: if request.query.where.size() > 0 && request.query.where[0] == 'userId' && request.query.where[1] == '==' && request.query.where[2] == request.auth.uid;
         allow create: if isSignedIn() && newDocIsOwnedByCurrentUser() && pathIdMatchesDataIdOnCreate(tenantId);
@@ -173,7 +173,10 @@ service cloud.firestore {
      * @path /tenants/{tenantId}/staff/{staffId}
      */
     match /tenants/{tenantId}/staff/{staffId} {
-      allow read: if isSignedIn();
+      // Owner can read any staff. Staff can read their own profile, which is required for the isStaff() helper to work.
+      allow get: if isTenantOwner(tenantId) || request.auth.uid == staffId;
+      // Staff and owners can list all staff members.
+      allow list: if isTenantOwner(tenantId) || isStaff(tenantId);
       allow create: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
       allow update: if (isTenantOwner(tenantId) || isTenantAdmin(tenantId)) || (request.auth.uid == staffId);
       allow delete: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
