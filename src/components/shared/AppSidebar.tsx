@@ -103,7 +103,7 @@ export function AppSidebar() {
       <SidebarHeader>
         <div className="flex items-center gap-2">
             <ClarityFlowLogo />
-            <h2 className="text-xl font-semibold text-sidebar-foreground">
+            <h2 className="text-xl font-semibold text-sidebar-foreground group-data-[collapsible=icon]:hidden">
                 ClarityFlow
             </h2>
         </div>
