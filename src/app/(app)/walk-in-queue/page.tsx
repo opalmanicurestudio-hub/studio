@@ -46,6 +46,30 @@ const Timer = ({ startTime }: { startTime: string }) => {
     return <span>{elapsed}</span>;
 };
 
+const Countdown = ({ expiryTimestamp }: { expiryTimestamp: Date }) => {
+    const [remaining, setRemaining] = useState('');
+
+    useEffect(() => {
+        const timer = setInterval(() => {
+            const now = new Date();
+            const diffSeconds = differenceInSeconds(expiryTimestamp, now);
+
+            if (diffSeconds <= 0) {
+                setRemaining('00:00');
+                clearInterval(timer);
+                return;
+            }
+
+            const minutes = Math.floor(diffSeconds / 60);
+            const seconds = diffSeconds % 60;
+            setRemaining(`${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
+        }, 1000);
+        return () => clearInterval(timer);
+    }, [expiryTimestamp]);
+
+    return <span className="font-mono text-lg font-bold text-primary">{remaining}</span>;
+};
+
 const StaffStatusCard = ({ staffMember, onStatusChange, isNextUp }: { staffMember: Staff, onStatusChange: (staffId: string, status: Partial<Staff>) => void, isNextUp: boolean }) => {
   const statusConfig = {
     idle: { label: 'Idle', color: 'bg-green-500' },
@@ -139,30 +163,6 @@ const WaitingCustomerCard = ({ walkIn, services, onPrintTicket, onOpenAssignDial
             </CardContent>
         </Card>
     );
-};
-
-const Countdown = ({ expiryTimestamp }: { expiryTimestamp: Date }) => {
-    const [remaining, setRemaining] = useState('');
-
-    useEffect(() => {
-        const timer = setInterval(() => {
-            const now = new Date();
-            const diffSeconds = differenceInSeconds(expiryTimestamp, now);
-
-            if (diffSeconds <= 0) {
-                setRemaining('00:00');
-                clearInterval(timer);
-                return;
-            }
-
-            const minutes = Math.floor(diffSeconds / 60);
-            const seconds = diffSeconds % 60;
-            setRemaining(`${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
-        }, 1000);
-        return () => clearInterval(timer);
-    }, [expiryTimestamp]);
-
-    return <span className="font-mono text-lg font-bold text-primary">{remaining}</span>;
 };
 
 const NotifiedCustomerCard = ({ walkIn, onStartService, onSkip, skipTimeMinutes }: { walkIn: WalkIn, onStartService: (walkIn: WalkIn) => void, onSkip: () => void, skipTimeMinutes: number }) => {
@@ -457,22 +457,6 @@ export default function WalkInQueuePage() {
     }
   };
 
-  const handleStartServiceFromNotified = useCallback((walkIn: WalkIn) => {
-    if (!staff || !services) return;
-    const idleStaff = staff.filter(s => s.status === 'idle' && !s.onBreak);
-    const qualifiedStaff = idleStaff.filter(s => (walkIn.requiredSkills || []).every(skill => (s.skillSet || []).includes(skill)));
-    
-    if(qualifiedStaff.length === 0) {
-      toast({ variant: 'destructive', title: 'No Qualified Staff Available' });
-      return;
-    }
-    
-    // Simplistic: assign to the first qualified idle staff. Could be enhanced with nextUp logic.
-    const staffToAssign = qualifiedStaff[0];
-    assignWalkIn(walkIn.id, staffToAssign.id);
-
-  }, [staff, services, assignWalkIn, toast]);
-
   const assignWalkIn = useCallback((walkInId: string, staffId: string) => {
     if (!firestore || !walkIns || !staff || !services || !clients) return;
 
@@ -515,6 +499,22 @@ export default function WalkInQueuePage() {
         setDocumentNonBlocking(aptDocRef, newAppointmentForFirestore, {});
     }
   }, [firestore, tenantId, walkIns, staff, services, clients]);
+
+  const handleStartServiceFromNotified = useCallback((walkIn: WalkIn) => {
+    if (!staff || !services) return;
+    const idleStaff = staff.filter(s => s.status === 'idle' && !s.onBreak);
+    const qualifiedStaff = idleStaff.filter(s => (walkIn.requiredSkills || []).every(skill => (s.skillSet || []).includes(skill)));
+    
+    if(qualifiedStaff.length === 0) {
+      toast({ variant: 'destructive', title: 'No Qualified Staff Available' });
+      return;
+    }
+    
+    // Simplistic: assign to the first qualified idle staff. Could be enhanced with nextUp logic.
+    const staffToAssign = qualifiedStaff[0];
+    assignWalkIn(walkIn.id, staffToAssign.id);
+
+  }, [staff, services, assignWalkIn, toast]);
 
   const handleManualAssign = (staffId: string) => {
     if (walkInToAssign) {
@@ -1021,3 +1021,4 @@ export default function WalkInQueuePage() {
     </>
   );
 }
+
