@@ -107,6 +107,15 @@ function isBusinessOpen(now: Date, hours: BusinessHours): { open: boolean, nextO
     return { open: false }; // No open days found
 }
 
+const formatTime = (timeStr: string) => {
+    if (!timeStr) return '';
+    const [hours, minutes] = timeStr.split(':').map(Number);
+    const date = new Date();
+    date.setHours(hours);
+    date.setMinutes(minutes);
+    return format(date, 'h:mm a');
+};
+
 export default function WalkInPage() {
   const { firestore } = useFirebase();
   const router = useRouter();
@@ -277,7 +286,7 @@ export default function WalkInPage() {
                         <CardContent className="space-y-4">
                             <p className="text-muted-foreground">
                                 Our apologies, but we are not currently accepting walk-ins.
-                                {nextOpen && ` We will reopen ${nextOpen.day} at ${nextOpen.time}.`}
+                                {nextOpen && ` We will reopen ${nextOpen.day} at ${formatTime(nextOpen.time)}.`}
                             </p>
                             <Card className="text-left bg-background">
                                 <CardHeader><CardTitle className="text-base">Our Hours</CardTitle></CardHeader>
@@ -286,7 +295,7 @@ export default function WalkInPage() {
                                         <div key={day} className="flex justify-between">
                                             <span className="capitalize font-medium">{day}</span>
                                             <span className="text-muted-foreground">
-                                                {hours.isOpen ? `${hours.openTime} - ${hours.closeTime}` : 'Closed'}
+                                                {hours.isOpen ? `${formatTime(hours.openTime)} - ${formatTime(hours.closeTime)}` : 'Closed'}
                                             </span>
                                         </div>
                                     ))}
