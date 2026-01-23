@@ -619,6 +619,7 @@ export default function WalkInQueuePage() {
             status: 'confirmed',
             isWalkIn: true,
             addOnIds: walkIn.serviceIds.slice(1),
+            checkInToken: nanoid(16),
         };
         const aptDocRef = doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkIn.id}`);
         setDocumentNonBlocking(aptDocRef, newAppointmentForFirestore, {});

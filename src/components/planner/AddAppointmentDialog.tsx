@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -52,6 +53,7 @@ import { Client, Service, Appointment, Staff } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Card, CardContent } from '../ui/card';
+import { nanoid } from 'nanoid';
 
 const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: Date) => void }) => {
     const isMobile = useIsMobile();
@@ -146,7 +148,7 @@ const AddAppointmentForm = ({
     const [selectedClientId, setSelectedClientId] = useState<string>(() => appointmentToRebook ? appointmentToRebook.clientId : initialClientId || '');
     const [selectedServiceId, setSelectedServiceId] = useState<string>(() => appointmentToRebook ? appointmentToRebook.serviceId : '');
     const [selectedStaffId, setSelectedStaffId] = useState<string>(() => appointmentToRebook ? (appointmentToRebook.staffId || staff[0]?.id || '') : (staff[0]?.id || ''));
-    const [date, setDate] = useState<Date>(() => new Date());
+    const [date, setDate] = useState<Date>(() => appointmentToRebook ? new Date(appointmentToRebook.startTime) : new Date());
     const [startTime, setStartTime] = useState<string>('');
     const [selectedAddOns, setSelectedAddOns] = useState<Service[]>(() => {
         if (!appointmentToRebook) return [];
@@ -216,6 +218,7 @@ const AddAppointmentForm = ({
             endTime: endDateTime,
             status: 'confirmed',
             addOnIds: selectedAddOns.map(s => s.id),
+            checkInToken: nanoid(16),
         };
         onConfirm(newAppointment);
     }
