@@ -20,7 +20,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import Link from 'next/link';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { PrintWalkInTicket, WalkInTicketData } from '@/components/walk-in/PrintWalkInTicket';
 import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -522,8 +522,8 @@ export default function WalkInQueuePage() {
             // Check for blocking events
             const isBlocked = events.some(event => {
                 if (event.type !== 'blocked') return false;
-                const eventStart = event.startTime;
-                const eventEnd = event.endTime;
+                const eventStart = parseISO(event.startTime);
+                const eventEnd = parseISO(event.endTime);
                 if (now >= eventStart && now < eventEnd) {
                     if (!event.staffId || event.staffId === 'all' || event.staffId === s.id) {
                         return true;
@@ -541,43 +541,6 @@ export default function WalkInQueuePage() {
         const notifiedCustomers = walkIns.filter(w => w.status === 'notified');
         return notifiedCustomers.length < idleStaff.length;
     }, [staff, walkIns, events]);
-
-    const handleNotifyNext = () => {
-        if (!canNotifyNext || !walkIns || !staff || !firestore || !services) {
-            toast({
-                variant: 'destructive',
-                title: 'Cannot Notify',
-                description: 'There are no waiting clients or no available staff.',
-            });
-            return;
-        }
-        
-        const idleStaff = staff.filter(s => s.status === 'idle' && !s.onBreak);
-        const waitingCustomers = walkIns.filter(w => w.status === 'waiting').sort((a,b) => (a.waitForPreferredStaff ? 0 : 1) - (b.waitForPreferredStaff ? 0 : 1) || parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
-        const customerToNotify = waitingCustomers[0];
-
-        const isAnyStaffQualified = idleStaff.some(staffMember => (customerToNotify.requiredSkills || []).every(skill => (staffMember.skillSet || []).includes(skill)));
-        const preferredStaff = customerToNotify.preferredStaffId ? idleStaff.find(s => s.id === customerToNotify.preferredStaffId) : null;
-        const isPreferredStaffQualifiedAndAvailable = preferredStaff ? (customerToNotify.requiredSkills || []).every(skill => (preferredStaff.skillSet || []).includes(skill)) : false;
-
-        if ((!customerToNotify.preferredStaffId && isAnyStaffQualified) || (customerToNotify.preferredStaffId && isPreferredStaffQualifiedAndAvailable)) {
-            const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', customerToNotify.id);
-            updateDocumentNonBlocking(walkInDocRef, {
-                status: 'notified',
-                notifiedTimestamp: new Date().toISOString()
-            });
-            toast({
-                title: 'Client Notified',
-                description: `${customerToNotify.customerName} has been notified it's their turn.`,
-            });
-        } else {
-            toast({
-                variant: 'destructive',
-                title: 'No Qualified Staff Available',
-                description: `There are no available staff members qualified for ${customerToNotify.customerName}'s requested services.`,
-            });
-        }
-    };
 
     const assignWalkIn = useCallback((walkInId: string, staffId: string) => {
         if (!firestore || !walkIns || !staff || !services || !clients) return;
@@ -630,8 +593,8 @@ export default function WalkInQueuePage() {
 
         const isBlocked = events.some(event => {
             if (event.type !== 'blocked') return false;
-            const eventStart = event.startTime;
-            const eventEnd = event.endTime;
+            const eventStart = parseISO(event.startTime);
+            const eventEnd = parseISO(event.endTime);
             if (now >= eventStart && now < eventEnd) {
                 if (!event.staffId || event.staffId === 'all' || event.staffId === s.id) {
                     return true;
@@ -655,6 +618,43 @@ export default function WalkInQueuePage() {
     assignWalkIn(walkIn.id, staffToAssign.id);
 
   }, [staff, services, assignWalkIn, toast, events]);
+
+    const handleNotifyNext = () => {
+        if (!canNotifyNext || !walkIns || !staff || !firestore || !services) {
+            toast({
+                variant: 'destructive',
+                title: 'Cannot Notify',
+                description: 'There are no waiting clients or no available staff.',
+            });
+            return;
+        }
+        
+        const idleStaff = staff.filter(s => s.status === 'idle' && !s.onBreak);
+        const waitingCustomers = walkIns.filter(w => w.status === 'waiting').sort((a,b) => (a.waitForPreferredStaff ? 0 : 1) - (b.waitForPreferredStaff ? 0 : 1) || parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
+        const customerToNotify = waitingCustomers[0];
+
+        const isAnyStaffQualified = idleStaff.some(staffMember => (customerToNotify.requiredSkills || []).every(skill => (staffMember.skillSet || []).includes(skill)));
+        const preferredStaff = customerToNotify.preferredStaffId ? idleStaff.find(s => s.id === customerToNotify.preferredStaffId) : null;
+        const isPreferredStaffQualifiedAndAvailable = preferredStaff ? (customerToNotify.requiredSkills || []).every(skill => (preferredStaff.skillSet || []).includes(skill)) : false;
+
+        if ((!customerToNotify.preferredStaffId && isAnyStaffQualified) || (customerToNotify.preferredStaffId && isPreferredStaffQualifiedAndAvailable)) {
+            const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', customerToNotify.id);
+            updateDocumentNonBlocking(walkInDocRef, {
+                status: 'notified',
+                notifiedTimestamp: new Date().toISOString()
+            });
+            toast({
+                title: 'Client Notified',
+                description: `${customerToNotify.customerName} has been notified it's their turn.`,
+            });
+        } else {
+            toast({
+                variant: 'destructive',
+                title: 'No Qualified Staff Available',
+                description: `There are no available staff members qualified for ${customerToNotify.customerName}'s requested services.`,
+            });
+        }
+    };
   
   const handleManualAssign = (staffId: string) => {
     if (walkInToAssign) {
@@ -673,8 +673,8 @@ export default function WalkInQueuePage() {
         // Check for blocking events
         const isBlocked = events.some(event => {
             if (event.type !== 'blocked') return false;
-            const eventStart = event.startTime;
-            const eventEnd = event.endTime;
+            const eventStart = parseISO(event.startTime);
+            const eventEnd = parseISO(event.endTime);
             if (now >= eventStart && now < eventEnd) {
                 if (!event.staffId || event.staffId === 'all' || event.staffId === s.id) {
                     return true;
@@ -1105,6 +1105,10 @@ export default function WalkInQueuePage() {
 
     <Dialog open={!!ticketToPrint} onOpenChange={() => setTicketToPrint(null)}>
       <DialogContent className="sm:w-auto bg-transparent border-none shadow-none print-content">
+        <DialogHeader className="sr-only">
+          <DialogTitle>Print Walk-in Ticket</DialogTitle>
+          <DialogDescription>A printable ticket for the walk-in client.</DialogDescription>
+        </DialogHeader>
         <div id="ticket-area">
           {ticketData && <PrintWalkInTicket data={ticketData} />}
         </div>
