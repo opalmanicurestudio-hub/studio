@@ -242,6 +242,10 @@ export type Appointment = {
   actualStartTime?: string;
   actualEndTime?: string;
   checkoutState?: AppointmentCheckoutState;
+  checkInStatus?: 'pending' | 'on_my_way' | 'arrived' | 'running_late';
+  checkInToken?: string;
+  lateTimeMinutes?: number;
+  automatedRescheduleOffered?: boolean;
 };
 
 export type EventChecklistItem = {
@@ -750,9 +754,9 @@ export const services: Service[] = [
 const today = new Date();
 export const appointments: Appointment[] = [
   // Today's appointments
-  { id: 'apt-0', clientId: 'cli-4', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 8), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 8), 50).toISOString(), status: 'completed', absorbedCost: 0, staffId: 'staff-1', isWalkIn: false, actualStartTime: setMinutes(setHours(startOfDay(today), 8), 2).toISOString(), actualEndTime: setMinutes(setHours(startOfDay(today), 8), 55).toISOString() },
-  { id: 'apt-1', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today,1)), 9), 30).toISOString(), endTime: setMinutes(setHours(startOfDay(subDays(today,1)), 10), 20).toISOString(), status: 'confirmed', inspirationPhotoUrl: 'https://images.unsplash.com/photo-1596796242339-3c368369b139?w=400', absorbedCost: 0 },
-  { id: 'apt-2', clientId: 'cli-2', serviceId: 'svc-7', startTime: setMinutes(setHours(startOfDay(today), 11), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 12), 30).toISOString(), status: 'completed', addOnIds: ['svc-addon-1'], absorbedCost: 0, staffId: 'staff-2' },
+  { id: 'apt-0', clientId: 'cli-4', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 8), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 8), 50).toISOString(), status: 'completed', absorbedCost: 0, staffId: 'staff-1', isWalkIn: false, actualStartTime: setMinutes(setHours(startOfDay(today), 8), 2).toISOString(), actualEndTime: setMinutes(setHours(startOfDay(today), 8), 55).toISOString(), checkInToken: 'abc' },
+  { id: 'apt-1', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today,1)), 9), 30).toISOString(), endTime: setMinutes(setHours(startOfDay(subDays(today,1)), 10), 20).toISOString(), status: 'confirmed', inspirationPhotoUrl: 'https://images.unsplash.com/photo-1596796242339-3c368369b139?w=400', absorbedCost: 0, checkInToken: 'def' },
+  { id: 'apt-2', clientId: 'cli-2', serviceId: 'svc-7', startTime: setMinutes(setHours(startOfDay(today), 11), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 12), 30).toISOString(), status: 'completed', addOnIds: ['svc-addon-1'], absorbedCost: 0, staffId: 'staff-2', checkInToken: 'ghi' },
   { 
     id: 'apt-walkin-test', 
     clientId: 'cli-2', // Marcus Holloway
@@ -761,18 +765,19 @@ export const appointments: Appointment[] = [
     endTime: setMinutes(setHours(startOfDay(today), 13), 45).toISOString(), 
     status: 'ready_for_checkout',
     isWalkIn: true, 
-    staffId: 'staff-1' 
+    staffId: 'staff-1',
+    checkInToken: 'jkl' 
   },
-  { id: 'apt-6', clientId: 'cli-2', serviceId: 'svc-7', startTime: setMinutes(setHours(startOfDay(today), 14), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 15), 30).toISOString(), status: 'confirmed', absorbedCost: 0, staffId: 'staff-1' },
-  { id: 'apt-3', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 15), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 15), 50).toISOString(), status: 'confirmed', absorbedCost: 0 },
-  { id: 'apt-5', clientId: 'cli-5', serviceId: 'svc-4', startTime: setMinutes(setHours(startOfDay(today), 16), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 17), 15).toISOString(), status: 'confirmed', absorbedCost: 0, staffId: 'staff-2' },
+  { id: 'apt-6', clientId: 'cli-2', serviceId: 'svc-7', startTime: setMinutes(setHours(startOfDay(today), 14), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 15), 30).toISOString(), status: 'confirmed', absorbedCost: 0, staffId: 'staff-1', checkInToken: 'mno' },
+  { id: 'apt-3', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 15), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 15), 50).toISOString(), status: 'confirmed', absorbedCost: 0, checkInToken: 'pqr' },
+  { id: 'apt-5', clientId: 'cli-5', serviceId: 'svc-4', startTime: setMinutes(setHours(startOfDay(today), 16), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 17), 15).toISOString(), status: 'confirmed', absorbedCost: 0, staffId: 'staff-2', checkInToken: 'stu' },
 
   // Past appointments
-  { id: 'apt-4', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today, 2)), 10), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(subDays(today,2)), 10), 50).toISOString(), status: 'completed', absorbedCost: 0, staffId: 'staff-1', actualStartTime: setMinutes(setHours(startOfDay(subDays(today, 2)), 10), 5).toISOString(), actualEndTime: setMinutes(setHours(startOfDay(subDays(today,2)), 11), 0).toISOString() },
+  { id: 'apt-4', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today, 2)), 10), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(subDays(today,2)), 10), 50).toISOString(), status: 'completed', absorbedCost: 0, staffId: 'staff-1', actualStartTime: setMinutes(setHours(startOfDay(subDays(today, 2)), 10), 5).toISOString(), actualEndTime: setMinutes(setHours(startOfDay(subDays(today,2)), 11), 0).toISOString(), checkInToken: 'vwx' },
   
   // Future appointments
-  { id: 'apt-7', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 11), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 11), 50).toISOString(), status: 'confirmed', absorbedCost: 0 },
-  { id: 'apt-8', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(addDays(today, 3)), 10), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(addDays(today, 3)), 10), 50).toISOString(), status: 'confirmed', absorbedCost: 0, staffId: 'staff-1' },
+  { id: 'apt-7', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 11), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 11), 50).toISOString(), status: 'confirmed', absorbedCost: 0, checkInToken: 'yz0' },
+  { id: 'apt-8', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(addDays(today, 3)), 10), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(addDays(today, 3)), 10), 50).toISOString(), status: 'confirmed', absorbedCost: 0, staffId: 'staff-1', checkInToken: '123' },
 ];
 
 export const events: Event[] = [
