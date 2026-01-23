@@ -394,9 +394,9 @@ export default function WalkInPage() {
                     <h2 className="text-2xl font-bold">You're on the list!</h2>
                     <p className="text-muted-foreground">
                         You are number <span className="font-bold text-primary">{queuePosition}</span> in the queue. 
-                        Your estimated wait time is <span className="font-bold text-primary">~15 minutes</span>.
+                        We will send a text message to the provided phone number when it's your turn.
                     </p>
-                    <p className="text-sm">We'll send you an SMS when it's your turn. Feel free to have a seat!</p>
+                    <p className="text-sm">Feel free to have a seat!</p>
                   </CardContent>
                   <CardFooter>
                       <Button className="w-full" onClick={resetFlow}>Done</Button>

@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState } from 'react';
@@ -15,14 +13,18 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DollarSign, Gift, Save, ListChecks } from 'lucide-react';
+import { DollarSign, Gift, Save, ListChecks, MessageSquare } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { Textarea } from '@/components/ui/textarea';
 
 export default function SettingsPage() {
   const { toast } = useToast();
   const [referrerReward, setReferrerReward] = useState('10.00');
   const [newClientDiscount, setNewClientDiscount] = useState('15.00');
   const [queueSkipTime, setQueueSkipTime] = useState(5);
+  const [smsMessage, setSmsMessage] = useState(
+    "Hi {clientName}, your spot at {businessName} is ready! Please head to the front desk."
+  );
 
   const handleSaveSettings = () => {
     // In a real application, you would save these values to a Firestore document
@@ -121,6 +123,39 @@ export default function SettingsPage() {
                 />
                 <p className="text-xs text-muted-foreground">
                   Time a client has to claim their spot after being notified before they are automatically skipped.
+                </p>
+              </div>
+            </CardContent>
+            <CardFooter>
+              <Button onClick={handleSaveSettings}>
+                <Save className="mr-2 h-4 w-4" />
+                Save Settings
+              </Button>
+            </CardFooter>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <MessageSquare className="w-5 h-5 text-primary" />
+                SMS Notifications
+              </CardTitle>
+              <CardDescription>
+                Customize the SMS message sent to walk-in clients when it's their turn.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                <Label htmlFor="sms-message">Walk-in Notification Message</Label>
+                <Textarea
+                  id="sms-message"
+                  value={smsMessage}
+                  onChange={(e) => setSmsMessage(e.target.value)}
+                  placeholder="Enter your SMS message..."
+                  rows={4}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Use placeholders like {"{clientName}"} and {"{businessName}"} which will be replaced automatically.
                 </p>
               </div>
             </CardContent>
