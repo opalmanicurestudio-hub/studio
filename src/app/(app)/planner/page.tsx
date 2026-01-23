@@ -511,15 +511,29 @@ const events = useMemo(() => {
         updateData.incident = incident;
     }
     updateDocumentNonBlocking(appointmentRef, updateData);
+
+    // 6. Update staff status for all involved staff
+    const staffIdsInvolved = new Set(Object.values(serviceStaffOverrides));
+    staffIdsInvolved.forEach(staffId => {
+      if (staffId) {
+        // A more complex implementation could check if the staff has other ongoing appointments.
+        // For now, we assume completing an appointment makes them idle.
+        const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
+        updateDocumentNonBlocking(staffDocRef, {
+          status: 'idle',
+          lastServedTimestamp: new Date().toISOString(),
+        });
+      }
+    });
     
-    // 6. Update Walk-in if applicable
+    // 7. Update Walk-in if applicable
     if (selectedAppointment.isWalkIn) {
       const walkInId = selectedAppointment.id.replace('apt-walkin-', '');
       const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
       updateDocumentNonBlocking(walkInDocRef, { status: 'completed' });
     }
 
-    // 7. Update client packages
+    // 8. Update client packages
     if (redeemedOffer?.type === 'package') {
         const clientToUpdate = (clients || []).find(c => c.id === selectedAppointment.clientId);
         if (clientToUpdate) {
@@ -729,6 +743,11 @@ const events = useMemo(() => {
     const nowISO = new Date().toISOString();
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', startConfirmAppointment.id);
     updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: nowISO });
+    
+    if (startConfirmAppointment.staffId) {
+      const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', startConfirmAppointment.staffId);
+      updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
+    }
 
     if (startConfirmAppointment.isWalkIn) {
         const walkInId = startConfirmAppointment.id.replace('apt-walkin-', '');
@@ -1259,6 +1278,7 @@ const events = useMemo(() => {
     </div>
   );
 }
+
 
 
 
