@@ -31,6 +31,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
+import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 
 const Timer = ({ startTime }: { startTime: string }) => {
     const [elapsed, setElapsed] = useState('');
@@ -455,6 +456,9 @@ export default function WalkInQueuePage() {
   const [walkInToAssign, setWalkInToAssign] = useState<WalkIn | null>(null);
   const [assignmentMode, setAssignmentMode] = useState<'automatic' | 'ordered'>('automatic');
   const [staffOrder, setStaffOrder] = useState<Staff[]>([]);
+  const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
+  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
+
 
   const staffQuery = useMemoFirebase(() => {
     if (!firestore || !user) return null;
@@ -760,26 +764,24 @@ export default function WalkInQueuePage() {
   }, [walkIns]);
   
   const handleFinishService = (walkIn: WalkIn) => {
-    if (!firestore) return;
-    const nowISO = new Date().toISOString();
-    
-    const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkIn.id);
-    updateDocumentNonBlocking(walkInDocRef, {
-        status: 'ready_for_checkout',
-        serviceEndTime: nowISO,
-    });
+    if (!firestore || !services) return;
     
     const appointmentId = `apt-walkin-${walkIn.id}`;
-    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-    updateDocumentNonBlocking(appointmentRef, {
-        status: 'ready_for_checkout',
-        actualEndTime: nowISO
-    });
     
-    toast({
-        title: "Service Finished",
-        description: `${walkIn.customerName} is now ready for checkout.`
-    });
+    // This is a temporary structure. Ideally you fetch the appointment from state.
+    const tempAppointment: Appointment = {
+      id: appointmentId,
+      clientId: walkIn.clientId || '',
+      serviceId: walkIn.serviceIds[0],
+      startTime: walkIn.serviceStartTime || new Date().toISOString(),
+      endTime: new Date().toISOString(), // This should be updated on finish
+      status: 'servicing',
+      isWalkIn: true,
+      actualStartTime: walkIn.serviceStartTime,
+    };
+    
+    setSelectedAppointment(tempAppointment);
+    setIsTechnicianReviewOpen(true);
   };
 
   const handleStaffStatusChange = (staffId: string, statusUpdate: Partial<Staff>) => {
@@ -926,6 +928,46 @@ export default function WalkInQueuePage() {
     };
   }, [checkoutAppointment, clients, services, walkIns]);
 
+  const selectedAppointmentData = useMemo(() => {
+    if (!selectedAppointment || !clients || !services) return null;
+    
+    const clientData = clients.find(c => c.id === selectedAppointment.clientId);
+    const serviceData = services.find(s => s.id === selectedAppointment.serviceId);
+    
+    if (!clientData || !serviceData) return null;
+
+    return {
+      appointment: selectedAppointment,
+      client: clientData,
+      service: serviceData,
+    };
+  }, [selectedAppointment, clients, services]);
+
+  const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
+    if (!firestore) return;
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+    updateDocumentNonBlocking(appointmentRef, {
+        status: 'ready_for_checkout',
+        checkoutState,
+        actualEndTime: new Date().toISOString(),
+    });
+    
+    const walkInId = appointmentId.replace('apt-walkin-', '');
+    if (walkIns?.find(w => w.id === walkInId)) {
+        const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
+        updateDocumentNonBlocking(walkInRef, {
+            status: 'ready_for_checkout',
+            serviceEndTime: new Date().toISOString()
+        });
+    }
+
+    setIsTechnicianReviewOpen(false);
+    setSelectedAppointment(null);
+    toast({
+      title: 'Sent to Front Desk',
+      description: "Client is ready for checkout.",
+    });
+  };
 
   return (
     <>
@@ -1199,6 +1241,18 @@ export default function WalkInQueuePage() {
             onRebook={() => {}}
             staff={staff || []}
           />
+      )}
+       {selectedAppointmentData && (
+        <TechnicianReviewDialog
+            open={isTechnicianReviewOpen}
+            onOpenChange={(isOpen) => {
+                if(!isOpen) setSelectedAppointment(null);
+                setIsTechnicianReviewOpen(isOpen);
+            }}
+            appointmentData={selectedAppointmentData}
+            onSendToFrontDesk={handleSendToFrontDesk}
+            staff={staff || []}
+        />
       )}
     </>
   );
