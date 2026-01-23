@@ -1104,14 +1104,11 @@ export default function WalkInQueuePage() {
     />
 
     <Dialog open={!!ticketToPrint} onOpenChange={() => setTicketToPrint(null)}>
-      <DialogContent className="sm:max-w-sm print-content">
-        <DialogHeader className="print:hidden">
-          <DialogTitle>Print Ticket</DialogTitle>
-        </DialogHeader>
+      <DialogContent className="sm:w-auto bg-transparent border-none shadow-none print-content">
         <div id="ticket-area">
           {ticketData && <PrintWalkInTicket data={ticketData} />}
         </div>
-        <DialogFooter className="print:hidden">
+        <DialogFooter className="print:hidden sm:justify-start">
           <Button variant="outline" onClick={() => setTicketToPrint(null)}>Close</Button>
           <Button onClick={() => window.print()}>
             <Printer className="mr-2 h-4 w-4" />
@@ -1168,3 +1165,4 @@ export default function WalkInQueuePage() {
     </>
   );
 }
+
