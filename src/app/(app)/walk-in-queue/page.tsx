@@ -607,9 +607,11 @@ export default function WalkInQueuePage() {
     const service = services.find(s => s.id === walkIn.serviceIds[0]);
     if (service) {
         const appointmentEndTime = addMinutes(now, walkIn.estimatedDuration);
-        const newAppointmentForFirestore: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & { startTime: Date, endTime: Date, clientName: string } = {
+        const newAppointmentForFirestore: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & { startTime: Date, endTime: Date, clientName: string, clientEmail?: string, clientPhone?: string } = {
             clientId: finalClientId,
             clientName: finalClientName,
+            clientEmail: walkIn.customerEmail,
+            clientPhone: walkIn.customerPhone,
             serviceId: service.id,
             staffId: staffId,
             startTime: now,

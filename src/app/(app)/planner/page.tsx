@@ -843,9 +843,8 @@ const events = useMemo(() => {
         client = {
             id: selectedAppointment.clientId,
             name: selectedAppointment.clientName,
-            email: walkIn?.customerEmail || '',
-            phone: walkIn?.customerPhone || '',
-            birthday: walkIn?.customerBirthday,
+            email: selectedAppointment.clientEmail || '',
+            phone: selectedAppointment.clientPhone || '',
             avatarUrl: '',
             lifetimeValue: 0,
             lastAppointment: ''
@@ -1358,6 +1357,7 @@ const events = useMemo(() => {
     </div>
   );
 }
+
 
 
 

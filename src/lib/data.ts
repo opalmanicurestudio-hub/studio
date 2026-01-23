@@ -227,6 +227,8 @@ export type Appointment = {
   id: string;
   clientId: string;
   clientName?: string;
+  clientEmail?: string;
+  clientPhone?: string;
   serviceId: string;
   staffId?: string;
   startTime: string;

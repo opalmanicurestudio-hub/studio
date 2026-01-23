@@ -46,13 +46,64 @@
         "userId": {
           "type": "string",
           "description": "The ID of the user who owns this tenant."
+        },
+        "subscriptionStatus": {
+            "type": "string",
+            "enum": ["active", "inactive", "trialing", "past_due", "canceled"],
+            "description": "The current subscription status of the tenant."
+        },
+        "subscriptionTier": {
+            "type": "string",
+            "enum": ["none", "pro"],
+            "description": "The subscription tier of the tenant."
+        },
+        "queueSkipTimeMinutes": {
+            "type": "number",
+            "description": "Number of minutes a client has to claim their spot before being skipped."
+        },
+        "businessHours": {
+            "type": "object",
+            "description": "The operating hours for the business.",
+            "properties": {
+                "monday": { "$ref": "#/entities/DayHours" },
+                "tuesday": { "$ref": "#/entities/DayHours" },
+                "wednesday": { "$ref": "#/entities/DayHours" },
+                "thursday": { "$ref": "#/entities/DayHours" },
+                "friday": { "$ref": "#/entities/DayHours" },
+                "saturday": { "$ref": "#/entities/DayHours" },
+                "sunday": { "$ref": "#/entities/DayHours" }
+            }
         }
       },
       "required": [
         "id",
         "name",
-        "userId"
+        "userId",
+        "subscriptionStatus",
+        "subscriptionTier"
       ]
+    },
+    "DayHours": {
+        "title": "Day Hours",
+        "type": "object",
+        "description": "Operating hours for a single day of the week.",
+        "properties": {
+            "isOpen": {
+            "type": "boolean",
+            "description": "Whether the business is open on this day."
+            },
+            "openTime": {
+            "type": "string",
+            "description": "Opening time in HH:mm format (24-hour).",
+            "pattern": "^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$"
+            },
+            "closeTime": {
+            "type": "string",
+            "description": "Closing time in HH:mm format (24-hour).",
+            "pattern": "^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$"
+            }
+        },
+        "required": ["isOpen"]
     },
     "Staff": {
       "title": "Staff",
@@ -64,6 +115,7 @@
         "name": { "type": "string" },
         "email": { "type": "string", "format": "email" },
         "phone": { "type": "string" },
+        "avatarUrl": { "type": "string", "format": "uri" },
         "role": { "type": "string", "enum": ["admin", "staff"] },
         "payStructure": { "type": "string", "enum": ["commission", "hourly", "salary"] },
         "commissionRate": { "type": "number", "description": "Commission rate as a percentage (e.g., 40 for 40%)." },
@@ -88,15 +140,34 @@
         },
         "active": { "type": "boolean", "description": "Whether the staff member is currently active and schedulable." },
         "onBreak": { "type": "boolean", "description": "Whether the staff member is currently on a break." },
+        "breakStartTime": { "type": "string", "format": "date-time", "description": "The timestamp of when the staff member started their current break." },
         "status": { "type": "string", "enum": ["idle", "busy"], "description": "The current working status of the staff member." },
         "lastServedTimestamp": { "type": "string", "format": "date-time", "description": "The timestamp of when the staff member last completed a service." },
         "skillSet": {
             "type": "array",
             "description": "A list of skills the staff member possesses, used for smart assignment.",
             "items": { "type": "string" }
+        },
+        "services": {
+            "type": "array",
+            "description": "A list of service IDs the staff member is qualified to perform.",
+            "items": { "type": "string" }
         }
       },
       "required": ["id", "tenantId", "name", "email", "role", "payStructure"]
+    },
+    "ActivityLog": {
+        "title": "Activity Log",
+        "description": "An immutable record of staff activity like clock-in/out and breaks.",
+        "type": "object",
+        "properties": {
+            "id": { "type": "string" },
+            "staffId": { "type": "string" },
+            "type": { "type": "string", "enum": ["clock_in", "clock_out", "break_start", "break_end"] },
+            "timestamp": { "type": "string", "format": "date-time" },
+            "durationMinutes": { "type": "number", "description": "Duration of the event in minutes (e.g., for breaks)." }
+        },
+        "required": ["id", "staffId", "type", "timestamp"]
     },
     "Service": {
       "title": "Service",
@@ -284,6 +355,18 @@
             "type": "string",
             "format": "date-time",
             "description": "The actual end time of the service, logged when staff finishes."
+        },
+        "clientName": {
+            "type": "string",
+            "description": "Denormalized name of the client."
+        },
+        "clientEmail": {
+            "type": "string",
+            "description": "Denormalized email of the client, primarily for walk-ins."
+        },
+        "clientPhone": {
+            "type": "string",
+            "description": "Denormalized phone of the client, primarily for walk-ins."
         }
       },
       "required": [
@@ -307,7 +390,10 @@
         "requiredSkills": { "type": "array", "items": { "type": "string" } },
         "estimatedDuration": { "type": "number", "description": "Total estimated minutes for all requested services." },
         "checkInTime": { "type": "string", "format": "date-time" },
-        "status": { "type": "string", "enum": ["waiting", "assigned", "servicing", "completed", "skipped", "cancelled"] },
+        "notifiedTimestamp": { "type": "string", "format": "date-time", "description": "Timestamp for when the client was notified it's their turn." },
+        "serviceStartTime": { "type": "string", "format": "date-time", "description": "The time the service actually began." },
+        "serviceEndTime": { "type": "string", "format": "date-time", "description": "The time the service actually ended." },
+        "status": { "type": "string", "enum": ["waiting", "notified", "assigned", "servicing", "completed", "skipped", "cancelled", "ready_for_checkout"] },
         "assignedStaffId": { "type": "string", "description": "The ID of the staff member assigned to this customer." },
         "notes": { "type": "string" },
         "preferredStaffId": { "type": "string" },
@@ -532,6 +618,12 @@
         "$ref": "#/entities/Staff"
       },
       "description": "Staff members belonging to a specific tenant."
+    },
+    "/tenants/{tenantId}/activityLogs/{logId}": {
+        "schema": {
+            "$ref": "#/entities/ActivityLog"
+        },
+        "description": "Immutable log of all staff activities for a tenant."
     },
     "/tenants/{tenantId}/services/{serviceId}": {
       "schema": {
