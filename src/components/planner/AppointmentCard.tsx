@@ -37,7 +37,8 @@ import {
   FileText as TicketIcon,
   Users,
   Play,
-  Square
+  Square,
+  Repeat
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -90,6 +91,7 @@ interface AppointmentCardProps {
   onPrintTicket: (data: Omit<TicketData, 'business'>) => void;
   onEdit: (appointment: Appointment) => void;
   onReschedule: (appointment: Appointment) => void;
+  onRebook: (appointment: Appointment) => void;
   onStartService: (appointmentId: string) => void;
   onFinishService: (appointment: Appointment) => void;
   onBookNewForClient: (clientId: string) => void;
@@ -284,6 +286,7 @@ export function AppointmentCard({
   onPrintTicket,
   onEdit,
   onReschedule,
+  onRebook,
   onStartService,
   onFinishService,
   onBookNewForClient,
@@ -469,6 +472,10 @@ export function AppointmentCard({
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onReschedule(appointment)}>
                     <Calendar className="mr-2" /> Reschedule
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onRebook(appointment)}>
+                    <Repeat className="mr-2 h-4 w-4" />
+                    Rebook
                 </DropdownMenuItem>
                 <DropdownMenuSub>
                     <DropdownMenuSubTrigger><Clock10 className="mr-2"/> Change Status</DropdownMenuSubTrigger>

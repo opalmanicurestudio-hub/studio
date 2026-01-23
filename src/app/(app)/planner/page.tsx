@@ -1148,6 +1148,7 @@ const events = useMemo(() => {
               dailyTransactions={dailyTransactions}
               onAddTransaction={handleAddTransaction}
               onReschedule={handleRescheduleClick}
+              onRebook={handleRebook}
               onOpenPickingList={() => setIsPickingListOpen(true)}
               onStartService={handleStartService}
               onFinishService={handleFinishService}
@@ -1357,5 +1358,6 @@ const events = useMemo(() => {
     </div>
   );
 }
+
 
 

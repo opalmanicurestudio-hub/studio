@@ -80,6 +80,7 @@ export const DayTimeline = ({
     dailyTransactions,
     onAddTransaction,
     onReschedule,
+    onRebook,
     onOpenPickingList,
     onStartService,
     onFinishService,
@@ -104,6 +105,7 @@ export const DayTimeline = ({
     dailyTransactions: Transaction[] | null;
     onAddTransaction: (transaction: any) => void;
     onReschedule: (appointment: Appointment) => void;
+    onRebook: (appointment: Appointment) => void;
     onOpenPickingList: () => void;
     onStartService: (appointmentId: string) => void;
     onFinishService: (appointment: Appointment) => void;
@@ -251,6 +253,7 @@ export const DayTimeline = ({
                     onPrintTicket={onPrintTicket}
                     onEdit={onEditAppointment}
                     onReschedule={onReschedule}
+                    onRebook={onRebook}
                     onStartService={onStartService}
                     onFinishService={onFinishService}
                     onBookNewForClient={onBookNewForClient}
