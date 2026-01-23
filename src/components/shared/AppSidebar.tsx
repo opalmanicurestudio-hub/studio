@@ -13,7 +13,7 @@ import {
   SidebarSeparator,
   SidebarGroup,
   SidebarGroupLabel,
-  SidebarProvider,
+  useSidebar,
   SidebarRail,
 } from '@/components/ui/sidebar';
 import {
@@ -32,9 +32,10 @@ import {
   FileSignature,
   ShoppingCart,
   Gift,
-  Users2,
+  Briefcase,
   ListChecks,
   BarChart,
+  PanelLeft,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -66,7 +67,7 @@ const setupNavItems = [
   { href: '/services', icon: List, label: 'Services' },
   { href: '/inventory', icon: Box, label: 'Inventory' },
   { href: '/clients', icon: Users, label: 'Clients' },
-  { href: '/staff', icon: Users2, label: 'Staff' },
+  { href: '/staff', icon: Briefcase, label: 'Staff' },
   { href: '/memberships', icon: Gift, label: 'Memberships' },
   { href: '/consents', icon: FileSignature, label: 'Consents' },
 ];
@@ -88,6 +89,7 @@ const moneyNavItems = [
 
 export function AppSidebar() {
   const pathname = usePathname();
+  const { toggleSidebar } = useSidebar();
 
   const isNavItemActive = (href: string) => {
     if (href === '/') {
@@ -98,7 +100,6 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarRail />
       <SidebarHeader>
         <div className="flex items-center gap-2">
             <ClarityFlowLogo />
@@ -188,6 +189,12 @@ export function AppSidebar() {
                     <span>Settings</span>
                   </Link>
                 </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton onClick={toggleSidebar} tooltip="Collapse sidebar">
+                <PanelLeft />
+                <span>Collapse</span>
+              </SidebarMenuButton>
             </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
