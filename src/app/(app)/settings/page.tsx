@@ -32,6 +32,7 @@ import { collection, doc, writeBatch } from 'firebase/firestore';
 import { cn } from '@/lib/utils';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
+import { nanoid } from 'nanoid';
 
 const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
   const timeOptions = Array.from({ length: (22 - 8) * 2 + 1 }, (_, i) => {
@@ -91,16 +92,39 @@ const ScheduleProfileManager = () => {
     const [renamingProfileId, setRenamingProfileId] = useState<string | null>(null);
 
     const scheduleProfilesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/scheduleProfiles`), [firestore, tenantId]);
-    const { data: scheduleProfilesData } = useCollection(scheduleProfilesQuery);
+    const { data: scheduleProfilesData, isLoading: profilesLoading } = useCollection(scheduleProfilesQuery);
 
     const [profiles, setProfiles] = useState<any[]>([]);
     const [backupProfiles, setBackupProfiles] = useState<any[]>([]);
     
     useEffect(() => {
-        if (scheduleProfilesData) {
+        if (firestore && user && !profilesLoading && scheduleProfilesData && scheduleProfilesData.length === 0) {
+            const defaultProfileId = nanoid();
+            const defaultProfile = {
+                id: defaultProfileId,
+                name: 'Default Schedule',
+                isActive: true,
+                isPublic: true,
+                week: {
+                    sunday: { enabled: false, start: '09:00', end: '17:00' },
+                    monday: { enabled: true, start: '09:00', end: '17:00' },
+                    tuesday: { enabled: true, start: '09:00', end: '17:00' },
+                    wednesday: { enabled: true, start: '09:00', end: '17:00' },
+                    thursday: { enabled: true, start: '09:00', end: '17:00' },
+                    friday: { enabled: true, start: '09:00', end: '17:00' },
+                    saturday: { enabled: false, start: '09:00', end: '17:00' },
+                },
+                timeOff: {
+                    vacationDays: 10,
+                    holidays: 8,
+                }
+            };
+            const profileDocRef = doc(firestore, `tenants/${tenantId}/scheduleProfiles/${defaultProfileId}`);
+            setDocumentNonBlocking(profileDocRef, defaultProfile, {});
+        } else if (scheduleProfilesData) {
             setProfiles(scheduleProfilesData);
         }
-    }, [scheduleProfilesData]);
+    }, [scheduleProfilesData, profilesLoading, firestore, user, tenantId]);
 
     const activeProfile = useMemo(() => profiles.find(p => p.isActive), [profiles]);
 
@@ -419,7 +443,7 @@ export default function SettingsPage() {
                   rows={4}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Use placeholders like {"{clientName}"} and {"{businessName}"} which will be replaced automatically.
+                  Use placeholders like "{clientName}" and "{businessName}" which will be replaced automatically.
                 </p>
               </div>
             </CardContent>
