@@ -94,12 +94,14 @@ const ScheduleProfileManager = () => {
     const scheduleProfilesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/scheduleProfiles`), [firestore, tenantId]);
     const { data: scheduleProfilesData, isLoading: profilesLoading } = useCollection(scheduleProfilesQuery);
     
-    const [profiles, setProfiles] = useState<any[]>(scheduleProfilesData || []);
+    // Local state for profiles
+    const [profiles, setProfiles] = useState<any[]>([]);
     const [backupProfiles, setBackupProfiles] = useState<any[]>([]);
     const hasInitialized = useRef(false);
 
     const orderedDays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
     
+    // Effect to initialize and sync local state from Firestore
     useEffect(() => {
         if (scheduleProfilesData) {
             setProfiles(scheduleProfilesData);
@@ -116,13 +118,13 @@ const ScheduleProfileManager = () => {
                 isActive: true,
                 isPublic: true,
                 week: {
-                    sunday: { enabled: false, start: '09:00', end: '17:00' },
-                    monday: { enabled: true, start: '09:00', end: '17:00' },
-                    tuesday: { enabled: true, start: '09:00', end: '17:00' },
-                    wednesday: { enabled: true, start: '09:00', end: '17:00' },
-                    thursday: { enabled: true, start: '09:00', end: '17:00' },
-                    friday: { enabled: true, start: '09:00', end: '17:00' },
-                    saturday: { enabled: false, start: '09:00', end: '17:00' },
+                    sunday: { enabled: false, start: '09:00 AM', end: '05:00 PM' },
+                    monday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
+                    tuesday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
+                    wednesday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
+                    thursday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
+                    friday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
+                    saturday: { enabled: false, start: '09:00 AM', end: '05:00 PM' },
                 },
                 timeOff: {
                     vacationDays: 10,
@@ -252,13 +254,13 @@ const ScheduleProfileManager = () => {
 
 export default function SettingsPage() {
   const { toast } = useToast();
-  const { firestore } = useFirebase();
+  const { firestore, user } = useFirebase();
   const tenantId = 'tenant-abc'; // Using a consistent tenant ID
 
   const tenantDocRef = useMemoFirebase(() => {
-    if (!firestore) return null;
+    if (!firestore || !user) return null;
     return doc(firestore, 'tenants', tenantId);
-  }, [firestore, tenantId]);
+  }, [firestore, user, tenantId]);
 
   const { data: tenantData, isLoading: tenantLoading } = useDoc<Tenant>(tenantDocRef);
 
@@ -285,7 +287,16 @@ export default function SettingsPage() {
       setAutoCancel(tenantData.autoCancelLateArrivals || false);
       setBookingSlotInterval(tenantData.bookingSlotInterval || 15);
     }
-  }, [tenantData]);
+  }, [
+    tenantData?.referrerReward,
+    tenantData?.newClientDiscount,
+    tenantData?.queueSkipTimeMinutes,
+    tenantData?.smsNotificationMessage,
+    tenantData?.lateArrivalGracePeriod,
+    tenantData?.cancellationFee,
+    tenantData?.autoCancelLateArrivals,
+    tenantData?.bookingSlotInterval,
+  ]);
 
   const handleSaveSettings = (section: string) => {
     if (!tenantData) return;
