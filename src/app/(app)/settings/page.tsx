@@ -2,7 +2,7 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -15,7 +15,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DollarSign, Gift, Save, ListChecks, MessageSquare, Clock, Building } from 'lucide-react';
+import { DollarSign, Gift, Save, ListChecks, MessageSquare, Clock, Building, Edit, PlusCircle, MoreHorizontal, Globe, Check, Link as LinkIcon, Calendar } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
@@ -27,61 +27,192 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { format } from 'date-fns';
+import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
+import { collection, doc, writeBatch } from 'firebase/firestore';
+import { cn } from '@/lib/utils';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Badge } from '@/components/ui/badge';
 
-const timeOptions = Array.from({ length: 48 }, (_, i) => {
-    const totalMinutes = i * 30;
-    const hours24 = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
+const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
+  const timeOptions = Array.from({ length: (22 - 8) * 2 + 1 }, (_, i) => {
+    const hour = Math.floor(i / 2) + 8;
+    const minute = i % 2 === 0 ? '00' : '30';
+    const period = hour < 12 ? 'AM' : 'PM';
+    const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+    return `${displayHour}:${minute} ${period}`;
+  });
+
+  return (
+    <div className="flex flex-col sm:flex-row items-center gap-4 p-4 border-b last:border-b-0">
+      <div className="flex items-center gap-3 w-full sm:w-28">
+        <Switch
+          id={`switch-${day}`}
+          checked={dayData.enabled}
+          onCheckedChange={(checked) => onDayChange('enabled', checked)}
+          disabled={!isEditing}
+        />
+        <Label htmlFor={`switch-${day}`} className="font-semibold text-base">{day}</Label>
+      </div>
+      <div className="flex-1 grid grid-cols-2 gap-4 w-full">
+        <Select
+          value={dayData.start}
+          onValueChange={(value) => onDayChange('start', value)}
+          disabled={!isEditing || !dayData.enabled}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {timeOptions.map(time => <SelectItem key={`${day}-start-${time}`} value={time}>{time}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select
+          value={dayData.end}
+          onValueChange={(value) => onDayChange('end', value)}
+          disabled={!isEditing || !dayData.enabled}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {timeOptions.map(time => <SelectItem key={`${day}-end-${time}`} value={time}>{time}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+};
+
+const ScheduleProfileManager = () => {
+    const { firestore, user } = useFirebase();
+    const tenantId = 'tenant-abc';
+
+    const [isEditing, setIsEditing] = useState(false);
+    const [renamingProfileId, setRenamingProfileId] = useState<string | null>(null);
+
+    const scheduleProfilesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/scheduleProfiles`), [firestore, tenantId]);
+    const { data: scheduleProfilesData } = useCollection(scheduleProfilesQuery);
+
+    const [profiles, setProfiles] = useState<any[]>([]);
+    const [backupProfiles, setBackupProfiles] = useState<any[]>([]);
     
-    const date = new Date(2000, 0, 1, hours24, minutes);
+    useEffect(() => {
+        if (scheduleProfilesData) {
+            setProfiles(scheduleProfilesData);
+        }
+    }, [scheduleProfilesData]);
 
-    return {
-        value: format(date, 'HH:mm'),
-        label: format(date, 'h:mm a'),
+    const activeProfile = useMemo(() => profiles.find(p => p.isActive), [profiles]);
+
+    const handleScheduleChange = useCallback((day: string, field: string, value: any) => {
+        setProfiles((prev: any[]) => 
+            prev.map(p => 
+                p.isActive ? {
+                    ...p,
+                    week: {
+                        ...p.week,
+                        [day]: { ...p.week[day as keyof typeof p.week], [field]: value }
+                    }
+                } : p
+            )
+        );
+    }, []);
+
+    const handleTimeOffChange = useCallback((field: string, value: number) => {
+        setProfiles((prev: any[]) => 
+            prev.map(p => 
+                p.isActive ? {
+                    ...p,
+                    timeOff: { ...p.timeOff, [field]: value }
+                } : p
+            )
+        );
+    }, []);
+    
+    const handleEditToggle = () => {
+        if (!isEditing) {
+            setBackupProfiles(JSON.parse(JSON.stringify(profiles)));
+            setIsEditing(true);
+        } else {
+            if (firestore) {
+                profiles.forEach((profile: any) => {
+                    const profileRef = doc(firestore, `tenants/${tenantId}/scheduleProfiles/${profile.id}`);
+                    setDocumentNonBlocking(profileRef, profile, { merge: true });
+                });
+            }
+            setIsEditing(false);
+        }
     };
-});
+    
+    const handleCancel = () => {
+        setProfiles(backupProfiles);
+        setIsEditing(false);
+    };
 
-const DayHoursRow = ({ day, hours, onHourChange, onStatusChange }: { day: string; hours: { isOpen: boolean, open: string, close: string }; onHourChange: (day: string, type: 'open' | 'close', value: string) => void; onStatusChange: (day: string, isOpen: boolean) => void }) => {
     return (
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 border-b last:border-b-0">
-            <div className="flex items-center gap-3 w-full sm:w-auto">
-                <Switch checked={hours.isOpen} onCheckedChange={(checked) => onStatusChange(day, checked)} />
-                <span className="font-medium capitalize w-20">{day}</span>
-            </div>
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-                <Select
-                    value={hours.open}
-                    onValueChange={(value) => onHourChange(day, 'open', value)}
-                    disabled={!hours.isOpen}
-                >
-                    <SelectTrigger className="w-full">
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {timeOptions.map(time => (
-                            <SelectItem key={`open-${time.value}`} value={time.value}>{time.label}</SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-                <span className="text-muted-foreground">-</span>
-                <Select
-                    value={hours.close}
-                    onValueChange={(value) => onHourChange(day, 'close', value)}
-                    disabled={!hours.isOpen}
-                >
-                    <SelectTrigger className="w-full">
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {timeOptions.map(time => (
-                            <SelectItem key={`close-${time.value}`} value={time.value}>{time.label}</SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-            </div>
-        </div>
+        <Card>
+            <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <CardTitle className="flex items-center gap-2">
+                        <Building className="w-5 h-5 text-primary" />
+                        Business Hours & Availability
+                    </CardTitle>
+                    <CardDescription>
+                        Set your schedules for financial calculations and public booking pages.
+                    </CardDescription>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                    {isEditing ? (
+                        <>
+                            <Button variant="outline" onClick={handleCancel}>Cancel</Button>
+                            <Button onClick={handleEditToggle}><Save className="mr-2"/>Save Schedule</Button>
+                        </>
+                    ) : (
+                        <Button onClick={handleEditToggle}><Edit className="mr-2"/>Edit Schedule</Button>
+                    )}
+                  </div>
+            </CardHeader>
+            <CardContent className="p-0">
+               {activeProfile && (
+                <div className="divide-y">
+                     {Object.entries(activeProfile.week).map(([day, dayData]: [string, any]) => (
+                        <DayScheduleRow 
+                            key={day} 
+                            day={day} 
+                            dayData={dayData} 
+                            onDayChange={(field: string, value: any) => handleScheduleChange(day, field, value)}
+                            isEditing={isEditing} 
+                        />
+                    ))}
+                </div>
+               )}
+            </CardContent>
+            {activeProfile && (
+                <CardFooter className="pt-6 grid md:grid-cols-2 gap-6">
+                     <div className="space-y-2">
+                        <Label>Vacation Days / Year</Label>
+                        <Input 
+                            type="number" 
+                            value={activeProfile.timeOff.vacationDays}
+                            onChange={(e) => handleTimeOffChange('vacationDays', parseInt(e.target.value) || 0)} 
+                            disabled={!isEditing} 
+                        />
+                    </div>
+                     <div className="space-y-2">
+                        <Label>Statutory Holidays / Year</Label>
+                        <Input 
+                            type="number" 
+                            value={activeProfile.timeOff.holidays}
+                            onChange={(e) => handleTimeOffChange('holidays', parseInt(e.target.value) || 0)} 
+                            disabled={!isEditing} 
+                        />
+                    </div>
+                </CardFooter>
+            )}
+        </Card>
     );
 };
+
 
 export default function SettingsPage() {
   const { toast } = useToast();
@@ -91,34 +222,10 @@ export default function SettingsPage() {
   const [smsMessage, setSmsMessage] = useState(
     "Hi {clientName}, your spot at {businessName} is ready! Please head to the front desk."
   );
-  
-  const [businessHours, setBusinessHours] = useState({
-    monday: { isOpen: true, open: '09:00', close: '17:00' },
-    tuesday: { isOpen: true, open: '09:00', close: '17:00' },
-    wednesday: { isOpen: true, open: '09:00', close: '19:00' },
-    thursday: { isOpen: true, open: '09:00', close: '19:00' },
-    friday: { isOpen: true, open: '09:00', close: '19:00' },
-    saturday: { isOpen: true, open: '10:00', close: '16:00' },
-    sunday: { isOpen: false, open: '09:00', close: '17:00' },
-  });
 
   const [lateGracePeriod, setLateGracePeriod] = useState(15);
   const [cancellationFee, setCancellationFee] = useState('25.00');
   const [autoCancel, setAutoCancel] = useState(false);
-
-  const handleHourChange = (day: string, type: 'open' | 'close', value: string) => {
-    setBusinessHours(prev => ({
-        ...prev,
-        [day]: { ...prev[day as keyof typeof prev], [type]: value }
-    }));
-  };
-
-  const handleStatusChange = (day: string, isOpen: boolean) => {
-      setBusinessHours(prev => ({
-          ...prev,
-          [day]: { ...prev[day as keyof typeof prev], isOpen }
-      }));
-  };
 
   const handleSaveSettings = (section: string) => {
     toast({
@@ -138,36 +245,9 @@ export default function SettingsPage() {
               Manage your application-wide settings and configurations.
             </p>
           </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Building className="w-5 h-5 text-primary" />
-                Business Hours
-              </CardTitle>
-              <CardDescription>
-                Set your operating hours for the walk-in queue.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-               {Object.entries(businessHours).map(([day, hours]) => (
-                 <DayHoursRow
-                    key={day}
-                    day={day}
-                    hours={hours}
-                    onHourChange={handleHourChange}
-                    onStatusChange={handleStatusChange}
-                />
-               ))}
-            </CardContent>
-             <CardFooter className="pt-6">
-              <Button onClick={() => handleSaveSettings('Business Hours')}>
-                <Save className="mr-2 h-4 w-4" />
-                Save Business Hours
-              </Button>
-            </CardFooter>
-          </Card>
           
+          <ScheduleProfileManager />
+
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">

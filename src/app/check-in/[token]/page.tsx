@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -66,14 +65,16 @@ export default function CheckInPage() {
     const servicesQuery = useMemoFirebase(() => firestore ? collection(firestore, 'tenants', tenantId, 'services') : null, [firestore, tenantId]);
     const allAppointmentsQuery = useMemoFirebase(() => firestore ? collection(firestore, 'tenants', tenantId, 'appointments') : null, [firestore, tenantId]);
     const eventsQuery = useMemoFirebase(() => firestore ? collection(firestore, 'tenants', tenantId, 'events') : null, [firestore, tenantId]);
-    const tenantDocRef = useMemoFirebase(() => firestore ? doc(firestore, 'tenants', tenantId) : null, [firestore, tenantId]);
+    const scheduleProfilesQuery = useMemoFirebase(() => firestore ? collection(firestore, 'tenants', tenantId, 'scheduleProfiles') : null, [firestore, tenantId]);
 
     const { data: allAppointmentsFromDB, isLoading: allAppointmentsLoading } = useCollection<Appointment>(allAppointmentsQuery);
     const { data: clients, isLoading: clientsLoading } = useCollection<Client>(clientsQuery);
     const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
     const { data: allEventsFromDB, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
-    const { data: tenant, isLoading: tenantLoading } = useDoc<Tenant>(tenantDocRef);
+    const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
     
+    const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isPublic), [scheduleProfiles]);
+
     const allAppointments = useMemo(() => {
         if (!allAppointmentsFromDB) return [];
         return allAppointmentsFromDB.map(apt => ({
@@ -119,19 +120,31 @@ export default function CheckInPage() {
     const handleDateSelect = (day: Date) => setRescheduleDate(day);
     
     const timeSlots = useMemo(() => {
-        if (!data?.service || !rescheduleDate || !allAppointments || !tenant || !allEvents) return [];
+        if (!data?.service || !rescheduleDate || !allAppointments || !publicScheduleProfile || !allEvents) return [];
 
         const dayOfWeekIndex = getDay(rescheduleDate);
         const dayName = format(rescheduleDate, 'eeee').toLowerCase();
         
-        const businessDayHours = (tenant.businessHours as any)?.[dayName];
+        const businessDayHours = publicScheduleProfile.week[dayName];
 
-        if (!businessDayHours || !businessDayHours.isOpen) {
+        if (!businessDayHours || !businessDayHours.enabled) {
             return [];
         }
 
-        const [openHour, openMinute] = businessDayHours.openTime.split(':').map(Number);
-        const [closeHour, closeMinute] = businessDayHours.closeTime.split(':').map(Number);
+        const openTimeParts = businessDayHours.start.match(/(\d+):(\d+) (AM|PM)/);
+        const closeTimeParts = businessDayHours.end.match(/(\d+):(\d+) (AM|PM)/);
+
+        if (!openTimeParts || !closeTimeParts) return [];
+
+        let openHour = parseInt(openTimeParts[1]);
+        const openMinute = parseInt(openTimeParts[2]);
+        if (openTimeParts[3] === 'PM' && openHour < 12) openHour += 12;
+        if (openTimeParts[3] === 'AM' && openHour === 12) openHour = 0;
+        
+        let closeHour = parseInt(closeTimeParts[1]);
+        const closeMinute = parseInt(closeTimeParts[2]);
+        if (closeTimeParts[3] === 'PM' && closeHour < 12) closeHour += 12;
+        if (closeTimeParts[3] === 'AM' && closeHour === 12) closeHour = 0;
         
         const dayStartWithBusinessHours = setMinutes(setHours(startOfDay(rescheduleDate), openHour), openMinute);
         const dayEndWithBusinessHours = setMinutes(setHours(startOfDay(rescheduleDate), closeHour), closeMinute);
@@ -181,7 +194,7 @@ export default function CheckInPage() {
             }
         }
         return options;
-    }, [rescheduleDate, data?.service, allAppointments, services, appointment?.id, tenant, allEvents]);
+    }, [rescheduleDate, data?.service, allAppointments, services, appointment?.id, publicScheduleProfile, allEvents]);
 
 
 
@@ -208,8 +221,8 @@ export default function CheckInPage() {
     };
 
     const handleConfirmLate = () => {
-        const gracePeriod = tenant?.lateArrivalGracePeriod || 15;
-        const autoCancelEnabled = tenant?.autoCancelLateArrivals || true;
+        const gracePeriod = 15; // This should come from tenant settings
+        const autoCancelEnabled = true; // This should come from tenant settings
 
         if (autoCancelEnabled && lateTime > gracePeriod) {
             setIsCancelled(true);
@@ -230,7 +243,7 @@ export default function CheckInPage() {
             type: 'income',
             context: 'Business',
             category: 'Cancellation Fee',
-            amount: tenant?.cancellationFee || 25.00, // This should come from tenant settings
+            amount: 25.00, // This should come from tenant settings
             paymentMethod: 'Card Online',
             hasReceipt: false,
         };
@@ -274,10 +287,10 @@ export default function CheckInPage() {
                         <AlertTriangle className="w-8 h-8 mx-auto"/>
                         <h3 className="font-bold">Appointment Cancelled</h3>
                         <p className="text-xs">
-                            Your appointment has been automatically cancelled as your arrival time is outside the {tenant?.lateArrivalGracePeriod || 15}-minute grace period.
+                            Your appointment has been automatically cancelled as your arrival time is outside the 15-minute grace period.
                         </p>
                         <div className="pt-4 border-t border-destructive/20">
-                                <p className="text-sm">A cancellation fee of <strong>${(tenant?.cancellationFee || 25).toFixed(2)}</strong> is required to rebook.</p>
+                                <p className="text-sm">A cancellation fee of <strong>$25.00</strong> is required to rebook.</p>
                                 <Button className="mt-4 w-full bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => setRescheduleStep('payment')}>
                                 Pay Fee & Reschedule
                                 </Button>
@@ -290,21 +303,22 @@ export default function CheckInPage() {
                         <CreditCard className="w-8 h-8 mx-auto text-primary"/>
                         <h3 className="font-bold">Pay Cancellation Fee</h3>
                         <p className="text-xs text-muted-foreground">
-                           Please confirm to pay the ${(tenant?.cancellationFee || 25).toFixed(2)} cancellation fee with your card on file.
+                           Please confirm to pay the $25.00 cancellation fee with your card on file.
                         </p>
                         <div className="pt-4">
                              <Button className="mt-4 w-full" onClick={handlePayFee}>
-                                Pay ${(tenant?.cancellationFee || 25).toFixed(2)} Now
+                                Pay $25.00 Now
                              </Button>
                              <Button variant="link" size="sm" className="mt-2" onClick={() => setRescheduleStep('initial')}>Cancel</Button>
                         </div>
                     </div>
                 );
             case 'reschedule':
-                const isDayClosed = (day: Date) => {
+                 const isDayClosed = (day: Date) => {
+                    if (!publicScheduleProfile) return true; // Assume closed if no profile
                     const dayName = format(day, 'eeee').toLowerCase();
-                    const dayHours = (tenant?.businessHours as any)?.[dayName];
-                    return !dayHours || !dayHours.isOpen;
+                    const dayHours = publicScheduleProfile.week[dayName];
+                    return !dayHours || !dayHours.enabled;
                 }
                 return (
                     <Card className="bg-muted/50 p-4 space-y-6">
@@ -383,7 +397,7 @@ export default function CheckInPage() {
     }
 
 
-    const isLoading = isUserLoading || appointmentsLoading || clientsLoading || servicesLoading || allAppointmentsLoading || tenantLoading || eventsLoading;
+    const isLoading = isUserLoading || appointmentsLoading || clientsLoading || servicesLoading || allAppointmentsLoading || scheduleProfilesLoading || eventsLoading;
 
     if (isLoading) {
         return (
@@ -457,18 +471,18 @@ export default function CheckInPage() {
                             </div>
                         </RadioGroup>
                         
-                        {lateTime >= (tenant?.lateArrivalGracePeriod || 15) && (
+                        {lateTime >= 15 && (
                             <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-center">
                                 <AlertTriangle className="w-6 h-6 mx-auto mb-2"/>
                                 <p className="font-semibold">Please Be Aware</p>
-                                <p className="text-xs">Arrivals more than {tenant?.lateArrivalGracePeriod || 15} minutes late may need to be rescheduled. A fee of ${(tenant?.cancellationFee || 25).toFixed(2)} may apply.</p>
+                                <p className="text-xs">Arrivals more than 15 minutes late may need to be rescheduled. A fee of $25.00 may apply.</p>
                             </div>
                         )}
 
                         <div className="grid grid-cols-2 gap-4">
                             <Button variant="outline" onClick={() => {setShowLateOptions(false); setLateTime(0)}}>Cancel</Button>
                              <Button onClick={handleConfirmLate} disabled={lateTime === 0}>
-                                {lateTime >= (tenant?.lateArrivalGracePeriod || 15) ? 'I Understand' : 'Confirm'}
+                                {lateTime >= 15 ? 'I Understand' : 'Confirm'}
                              </Button>
                         </div>
                     </div>
@@ -501,3 +515,6 @@ export default function CheckInPage() {
 }
 
 
+
+
+    

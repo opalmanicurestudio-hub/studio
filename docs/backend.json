@@ -61,19 +61,6 @@
             "type": "number",
             "description": "Number of minutes a client has to claim their spot before being skipped."
         },
-        "businessHours": {
-            "type": "object",
-            "description": "The operating hours for the business.",
-            "properties": {
-                "monday": { "$ref": "#/entities/DayHours" },
-                "tuesday": { "$ref": "#/entities/DayHours" },
-                "wednesday": { "$ref": "#/entities/DayHours" },
-                "thursday": { "$ref": "#/entities/DayHours" },
-                "friday": { "$ref": "#/entities/DayHours" },
-                "saturday": { "$ref": "#/entities/DayHours" },
-                "sunday": { "$ref": "#/entities/DayHours" }
-            }
-        },
         "lateArrivalGracePeriod": {
             "type": "number",
             "description": "Grace period in minutes before an appointment is marked as late."

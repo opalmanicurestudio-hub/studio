@@ -2,7 +2,7 @@
 
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -72,6 +72,8 @@ import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
+import { collection, doc, writeBatch } from 'firebase/firestore';
 
 const BillItemRow = ({
   bill,
@@ -331,99 +333,6 @@ const BusinessTab = ({
   );
 };
 
-const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
-  const timeOptions = Array.from({ length: (22 - 8) * 2 + 1 }, (_, i) => {
-    const hour = Math.floor(i / 2) + 8;
-    const minute = i % 2 === 0 ? '00' : '30';
-    const period = hour < 12 ? 'AM' : 'PM';
-    const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
-    return `${displayHour}:${minute} ${period}`;
-  });
-
-  return (
-    <div className="flex flex-col sm:flex-row items-center gap-4 p-4 border-b">
-      <div className="flex items-center gap-3 w-full sm:w-28">
-        <Switch
-          id={`switch-${day}`}
-          checked={dayData.enabled}
-          onCheckedChange={(checked) => onDayChange('enabled', checked)}
-          disabled={!isEditing}
-        />
-        <Label htmlFor={`switch-${day}`} className="font-semibold text-base">{day}</Label>
-      </div>
-      <div className="flex-1 grid grid-cols-2 gap-4 w-full">
-        <Select
-          value={dayData.start}
-          onValueChange={(value) => onDayChange('start', value)}
-          disabled={!isEditing || !dayData.enabled}
-        >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {timeOptions.map(time => <SelectItem key={`${day}-start-${time}`} value={time}>{time}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Select
-          value={dayData.end}
-          onValueChange={(value) => onDayChange('end', value)}
-          disabled={!isEditing || !dayData.enabled}
-        >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {timeOptions.map(time => <SelectItem key={`${day}-end-${time}`} value={time}>{time}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </div>
-    </div>
-  );
-};
-
-const ScheduleTab = ({ isEditing, scheduleData, onScheduleChange, onTimeOffChange }: { isEditing: boolean; scheduleData: any; onScheduleChange: any; onTimeOffChange: any }) => (
-    <div>
-        <div className="mt-6">
-            <Card>
-                <CardContent className="p-0 divide-y">
-                    {Object.entries(scheduleData.week).map(([day, dayData]: [string, any]) => (
-                        <DayScheduleRow 
-                            key={day} 
-                            day={day} 
-                            dayData={dayData} 
-                            onDayChange={(field: string, value: any) => onScheduleChange(day, field, value)}
-                            isEditing={isEditing} 
-                        />
-                    ))}
-                </CardContent>
-            </Card>
-            <Card className="mt-6">
-                <CardHeader><CardTitle>Time Off</CardTitle></CardHeader>
-                <CardContent className="grid md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                        <Label>Vacation Days / Year</Label>
-                        <Input 
-                            type="number" 
-                            value={scheduleData.timeOff.vacationDays}
-                            onChange={(e) => onTimeOffChange('vacationDays', parseInt(e.target.value) || 0)} 
-                            disabled={!isEditing} 
-                        />
-                    </div>
-                     <div className="space-y-2">
-                        <Label>Statutory Holidays / Year</Label>
-                        <Input 
-                            type="number" 
-                            value={scheduleData.timeOff.holidays}
-                            onChange={(e) => onTimeOffChange('holidays', parseInt(e.target.value) || 0)} 
-                            disabled={!isEditing} 
-                        />
-                    </div>
-                </CardContent>
-            </Card>
-        </div>
-    </div>
-)
-
 const FinancialProfileManager = ({
   activeTab,
   profiles,
@@ -439,8 +348,10 @@ const FinancialProfileManager = ({
   renamingProfileId: string | null;
   setRenamingProfileId: (id: string | null) => void;
 }) => {
+  const { firestore } = useFirebase();
+  const tenantId = 'tenant-abc';
   const profileKey = `${activeTab}Profiles`;
-  const currentProfiles = profiles[profileKey];
+  const currentProfiles = profiles[profileKey] || [];
   const [tempName, setTempName] = useState('');
   
   const getActiveProfileId = () => currentProfiles.find((p:any) => p.isActive)?.id;
@@ -454,25 +365,13 @@ const FinancialProfileManager = ({
     } else if (activeTab === 'business') {
       newProfileData = { categories: deepCopyTemplate(businessCategoriesTemplate) };
     } else {
-        newProfileData = {
-            week: {
-                Monday: { enabled: true, start: '9:00 AM', end: '5:00 PM' },
-                Tuesday: { enabled: true, start: '9:00 AM', end: '5:00 PM' },
-                Wednesday: { enabled: true, start: '9:00 AM', end: '5:00 PM' },
-                Thursday: { enabled: true, start: '9:00 AM', end: '5:00 PM' },
-                Friday: { enabled: true, start: '9:00 AM', end: '5:00 PM' },
-                Saturday: { enabled: false, start: '9:00 AM', end: '5:00 PM' },
-                Sunday: { enabled: false, start: '9:00 AM', end: '5:00 PM' },
-            },
-            timeOff: { vacationDays: 0, holidays: 0 },
-        };
+        return; // Should not happen for this page
     }
 
     const newProfile = {
       id: `${activeTab.slice(0, 2)}${Date.now()}`,
       name: newProfileName,
       isActive: false,
-      isPro: activeTab !== 'schedule',
       isPublic: activeTab === 'schedule' ? false : undefined,
       ...newProfileData
     };
@@ -483,15 +382,19 @@ const FinancialProfileManager = ({
     }));
   };
   
-  const handleSetActive = (id: string) => {
+  const handleSetActive = async (id: string) => {
     if (isEditing) return;
-    setProfiles((prev: any) => ({
-        ...prev,
-        [profileKey]: prev[profileKey].map((p: any) => ({
-            ...p,
-            isActive: p.id === id,
-        }))
-    }))
+    if (!firestore) return;
+    const batch = writeBatch(firestore);
+    currentProfiles.forEach((p: any) => {
+        const profileDocRef = doc(firestore, `tenants/${tenantId}/${profileKey}/${p.id}`);
+        if (p.id === id) {
+            if (!p.isActive) batch.update(profileDocRef, { isActive: true });
+        } else {
+            if (p.isActive) batch.update(profileDocRef, { isActive: false });
+        }
+    });
+    await batch.commit();
   }
 
   const handleStartRename = (profile: any) => {
@@ -549,13 +452,9 @@ const FinancialProfileManager = ({
                   variant={profile.isActive ? 'secondary' : 'ghost'}
                   className="w-full justify-start h-auto py-2"
                   onClick={() => handleSetActive(profile.id)}
-                  disabled={isEditing && !profile.isActive}
+                  disabled={isEditing}
                 >
                   <span className="flex-1 text-left truncate">{profile.name}</span>
-                  {profile.isPro && !profile.isActive && <Badge variant="outline" className="ml-2">Pro</Badge>}
-                  {activeTab === 'schedule' && profile.isPublic && (
-                    <Globe className="h-4 w-4 text-muted-foreground ml-2" />
-                  )}
                   {profile.isActive && (
                     <Badge variant={isEditing ? "default" : "secondary"} className={cn("ml-2", isEditing && "bg-primary")}>
                       {isEditing ? 'Editing' : 'Active'}
@@ -564,7 +463,7 @@ const FinancialProfileManager = ({
                 </Button>
               )}
 
-              {isEditing && profile.id === getActiveProfileId() && renamingProfileId !== profile.id && (
+              {renamingProfileId !== profile.id && (
                 <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/item:opacity-100 focus-within:opacity-100">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
@@ -575,7 +474,6 @@ const FinancialProfileManager = ({
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => handleStartRename(profile)}>Rename</DropdownMenuItem>
                         <DropdownMenuItem>Duplicate</DropdownMenuItem>
-                        {activeTab === 'schedule' && <DropdownMenuItem>Set as Public</DropdownMenuItem>}
                         <DropdownMenuItem className="text-destructive" disabled={currentProfiles.length <= 1}>Delete</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -590,7 +488,6 @@ const FinancialProfileManager = ({
             <Button variant="outline" className="w-full" onClick={handleAddProfile}>
                 <PlusCircle className="mr-2 h-4 w-4" />
                 Add New Profile
-                {(activeTab === 'lifestyle' || activeTab === 'business') && <Badge className="ml-auto">Pro</Badge>}
             </Button>
           </CardFooter>
       )}
@@ -648,69 +545,51 @@ const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal, totalHours }: { life
 };
 
 export default function FinancialFoundationPage() {
+    const { firestore, user } = useFirebase();
+    const tenantId = 'tenant-abc';
     const [isEditing, setIsEditing] = useState(false);
     const [activeTab, setActiveTab] = useState('lifestyle');
     const [renamingProfileId, setRenamingProfileId] = useState<string | null>(null);
+
+    const lifestyleProfilesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/lifestyleProfiles`), [firestore, tenantId]);
+    const businessProfilesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/businessProfiles`), [firestore, tenantId]);
+    const scheduleProfilesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/scheduleProfiles`), [firestore, tenantId]);
+
+    const { data: lifestyleProfilesData } = useCollection(lifestyleProfilesQuery);
+    const { data: businessProfilesData } = useCollection(businessProfilesQuery);
+    const { data: scheduleProfilesData } = useCollection(scheduleProfilesQuery);
     
     const [profiles, setProfiles] = useState({
-      lifestyleProfiles: [
-        { id: 'ls1', name: 'Default Lifestyle', isActive: true, isPro: false, categories: deepCopyTemplate(lifestyleCategoriesTemplate) },
-      ],
-      businessProfiles: [
-        { id: 'bs1', name: 'Default Business', isActive: true, isPro: false, categories: deepCopyTemplate(businessCategoriesTemplate) },
-      ],
-      scheduleProfiles: [
-        { 
-            id: 'sc1', 
-            name: 'Standard 35hr/wk', 
-            isActive: true, 
-            isPublic: true,
-            week: {
-                Monday: { enabled: true, start: '9:00 AM', end: '5:00 PM' },
-                Tuesday: { enabled: true, start: '9:00 AM', end: '5:00 PM' },
-                Wednesday: { enabled: true, start: '9:00 AM', end: '5:00 PM' },
-                Thursday: { enabled: true, start: '9:00 AM', end: '5:00 PM' },
-                Friday: { enabled: true, start: '9:00 AM', end: '5:00 PM' },
-                Saturday: { enabled: false, start: '9:00 AM', end: '5:00 PM' },
-                Sunday: { enabled: false, start: '9:00 AM', end: '5:00 PM' },
-            },
-            timeOff: { vacationDays: 0, holidays: 0 },
-        },
-        { 
-            id: 'sc2', 
-            name: 'Aggressive 45hr/wk', 
-            isActive: false, 
-            isPublic: false,
-            week: {
-                Monday: { enabled: true, start: '8:00 AM', end: '6:00 PM' },
-                Tuesday: { enabled: true, start: '8:00 AM', end: '6:00 PM' },
-                Wednesday: { enabled: true, start: '8:00 AM', end: '6:00 PM' },
-                Thursday: { enabled: true, start: '8:00 AM', end: '6:00 PM' },
-                Friday: { enabled: true, start: '8:00 AM', end: '6:00 PM' },
-                Saturday: { enabled: true, start: '10:00 AM', end: '3:00 PM' },
-                Sunday: { enabled: false, start: '9:00 AM', end: '5:00 PM' },
-            },
-            timeOff: { vacationDays: 10, holidays: 8 },
-        }
-      ]
+      lifestyleProfiles: [],
+      businessProfiles: [],
+      scheduleProfiles: []
     });
+
+    useEffect(() => {
+        setProfiles({
+            lifestyleProfiles: lifestyleProfilesData || [],
+            businessProfiles: businessProfilesData || [],
+            scheduleProfiles: scheduleProfilesData || [],
+        });
+    }, [lifestyleProfilesData, businessProfilesData, scheduleProfilesData]);
+
 
     const [backupProfiles, setBackupProfiles] = useState(profiles);
 
-    const activeLifestyleProfile = useMemo(() => profiles.lifestyleProfiles.find(p => p.isActive), [profiles.lifestyleProfiles]);
-    const activeBusinessProfile = useMemo(() => profiles.businessProfiles.find(p => p.isActive), [profiles.businessProfiles]);
-    const activeScheduleProfile = useMemo(() => profiles.scheduleProfiles.find(p => p.isActive), [profiles.scheduleProfiles]);
+    const activeLifestyleProfile = useMemo(() => profiles.lifestyleProfiles.find((p: any) => p.isActive), [profiles.lifestyleProfiles]);
+    const activeBusinessProfile = useMemo(() => profiles.businessProfiles.find((p: any) => p.isActive), [profiles.businessProfiles]);
+    const activeScheduleProfile = useMemo(() => profiles.scheduleProfiles.find((p: any) => p.isActive), [profiles.scheduleProfiles]);
 
 
     const handleBillChange = useCallback((profileType: 'lifestyle' | 'business', categoryName: string, billTitle: string, field: string, value: any) => {
         const profileKey = `${profileType}Profiles` as const;
 
-        setProfiles(prev => {
-            const newProfiles = prev[profileKey].map(p => {
+        setProfiles((prev: any) => {
+            const newProfiles = prev[profileKey].map((p: any) => {
                 if (p.isActive) {
-                    const newCategories = p.categories.map(cat => {
+                    const newCategories = p.categories.map((cat: any) => {
                         if (cat.name === categoryName) {
-                            const newBills = cat.bills.map(bill => {
+                            const newBills = cat.bills.map((bill: any) => {
                                 if (bill.title === billTitle) {
                                     return { ...bill, [field]: value };
                                 }
@@ -729,37 +608,11 @@ export default function FinancialFoundationPage() {
         });
     }, []);
 
-    const handleScheduleChange = useCallback((day: string, field: string, value: any) => {
-        setProfiles(prev => ({
-            ...prev,
-            scheduleProfiles: prev.scheduleProfiles.map(p => 
-                p.isActive ? {
-                    ...p,
-                    week: {
-                        ...p.week,
-                        [day]: { ...p.week[day as keyof typeof p.week], [field]: value }
-                    }
-                } : p
-            )
-        }))
-    }, []);
-    
-    const handleTimeOffChange = useCallback((field: string, value: number) => {
-        setProfiles(prev => ({
-            ...prev,
-            scheduleProfiles: prev.scheduleProfiles.map(p => 
-                p.isActive ? {
-                    ...p,
-                    timeOff: { ...p.timeOff, [field]: value }
-                } : p
-            )
-        }))
-    }, []);
-
     const totalBillableHours = useMemo(() => {
         if (!activeScheduleProfile) return 0;
         
         const timeToMinutes = (timeStr: string) => {
+            if (!timeStr) return 0;
             const [time, period] = timeStr.split(' ');
             let [hours, minutes] = time.split(':').map(Number);
             if (period === 'PM' && hours < 12) hours += 12;
@@ -767,7 +620,7 @@ export default function FinancialFoundationPage() {
             return hours * 60 + minutes;
         };
 
-        const weeklyMinutes = Object.values(activeScheduleProfile.week).reduce((acc, day) => {
+        const weeklyMinutes = Object.values(activeScheduleProfile.week).reduce((acc: number, day: any) => {
             if (day.enabled) {
                 const startMinutes = timeToMinutes(day.start);
                 const endMinutes = timeToMinutes(day.end);
@@ -778,7 +631,7 @@ export default function FinancialFoundationPage() {
         
         const weeklyHours = weeklyMinutes / 60;
         
-        const totalWorkDaysInYear = 52 * Object.values(activeScheduleProfile.week).filter(d => d.enabled).length;
+        const totalWorkDaysInYear = 52 * Object.values(activeScheduleProfile.week).filter((d: any) => d.enabled).length;
         const totalDaysOff = activeScheduleProfile.timeOff.vacationDays + activeScheduleProfile.timeOff.holidays;
         
         const effectiveDaysOff = Math.min(totalDaysOff, totalWorkDaysInYear > 0 ? totalWorkDaysInYear : 0);
@@ -793,9 +646,19 @@ export default function FinancialFoundationPage() {
 
     const handleEditToggle = () => {
         if (!isEditing) {
-            setBackupProfiles(profiles);
+            setBackupProfiles(JSON.parse(JSON.stringify(profiles)));
             setIsEditing(true);
         } else {
+            // Save logic here
+            if (firestore) {
+                 Object.entries(profiles).forEach(([profileKey, profileList]) => {
+                    (profileList as any[]).forEach((profile: any) => {
+                        const profileRef = doc(firestore, `tenants/${tenantId}/${profileKey}/${profile.id}`);
+                        const { icon, ...profileData } = profile; // Omit icon before saving
+                        setDocumentNonBlocking(profileRef, profileData, { merge: true });
+                    });
+                });
+            }
             setIsEditing(false);
         }
     };
@@ -845,10 +708,9 @@ export default function FinancialFoundationPage() {
                 </div>
 
                 <Tabs defaultValue="lifestyle" className="w-full" onValueChange={setActiveTab}>
-                    <TabsList className="grid w-full grid-cols-3">
-                        <TabsTrigger value="lifestyle">1. Lifestyle</TabsTrigger>
-                        <TabsTrigger value="business">2. Business</TabsTrigger>
-                        <TabsTrigger value="schedule">3. Schedule</TabsTrigger>
+                    <TabsList className="grid w-full grid-cols-2">
+                        <TabsTrigger value="lifestyle">1. Lifestyle Costs</TabsTrigger>
+                        <TabsTrigger value="business">2. Business Costs</TabsTrigger>
                     </TabsList>
                     
                      <div className="grid lg:grid-cols-[320px,1fr] gap-8 items-start mt-6">
@@ -878,14 +740,6 @@ export default function FinancialFoundationPage() {
                                  onBillChange={(categoryName, billTitle, field, value) => handleBillChange('business', categoryName, billTitle, field, value)}
                                />
                             </TabsContent>
-                            <TabsContent value="schedule" className="m-0">
-                               {activeScheduleProfile && <ScheduleTab 
-                                isEditing={isEditing}
-                                scheduleData={activeScheduleProfile}
-                                onScheduleChange={handleScheduleChange}
-                                onTimeOffChange={handleTimeOffChange}
-                               />}
-                            </TabsContent>
                         </div>
                     </div>
                 </Tabs>
@@ -894,16 +748,3 @@ export default function FinancialFoundationPage() {
     </div>
   );
 }
-
-    
-
-    
-
-
-
-
-    
-
-    
-
-    
