@@ -31,8 +31,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { format } from 'date-fns';
+import { format, parse, getDay } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { nanoid } from 'nanoid';
 
 type Step = 'services' | 'details' | 'confirmation';
 
@@ -56,59 +57,68 @@ const StaffSelectionCard = ({ staff, isSelected, onSelect }: { staff: Staff | { 
     );
 };
 
-// Mocked business hours data. In a real app, this would be fetched from Firestore.
-const businessHoursData = {
-    monday: { isOpen: true, openTime: '09:00', closeTime: '17:00' },
-    tuesday: { isOpen: true, openTime: '09:00', closeTime: '17:00' },
-    wednesday: { isOpen: true, openTime: '09:00', closeTime: '19:00' },
-    thursday: { isOpen: true, openTime: '09:00', closeTime: '19:00' },
-    friday: { isOpen: true, openTime: '09:00', closeTime: '19:00' },
-    saturday: { isOpen: true, openTime: '10:00', closeTime: '16:00' },
-    sunday: { isOpen: false, openTime: '10:00', closeTime: '16:00' },
+type DayHours = { enabled: boolean; start: string; end: string };
+type BusinessHours = {
+    sunday: DayHours;
+    monday: DayHours;
+    tuesday: DayHours;
+    wednesday: DayHours;
+    thursday: DayHours;
+    friday: DayHours;
+    saturday: DayHours;
 };
 
-type DayHours = { isOpen: boolean; openTime: string; closeTime: string };
-type BusinessHours = Record<string, DayHours>;
 
-function isBusinessOpen(now: Date, hours: BusinessHours): { open: boolean, nextOpen?: { day: string, time: string } } {
-    const dayOfWeek = format(now, 'eeee').toLowerCase();
-    const currentTime = format(now, 'HH:mm');
-    
-    const todayHours = hours[dayOfWeek];
+function isBusinessOpen(now: Date, scheduleProfile: { week: BusinessHours } | null): { open: boolean, nextOpen?: { day: string, time: string } } {
+    if (!scheduleProfile) {
+        return { open: false };
+    }
 
-    if (todayHours && todayHours.isOpen) {
-        if (currentTime >= todayHours.openTime && currentTime < todayHours.closeTime) {
+    const hours = scheduleProfile.week;
+    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const dayOfWeek = days[getDay(now)];
+
+    const todayHours = hours[dayOfWeek as keyof BusinessHours];
+
+    if (todayHours && todayHours.enabled) {
+        const openTime = parse(todayHours.start, 'h:mm a', now);
+        const closeTime = parse(todayHours.end, 'h:mm a', now);
+        openTime.setFullYear(now.getFullYear(), now.getMonth(), now.getDate());
+        closeTime.setFullYear(now.getFullYear(), now.getMonth(), now.getDate());
+
+        if (now >= openTime && now < closeTime) {
             return { open: true };
         }
     }
 
-    // If not open now, find the next open day
-    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-    let currentDayIndex = now.getDay();
+    let currentDayIndex = getDay(now);
     for (let i = 0; i < 7; i++) {
         const nextDayIndex = (currentDayIndex + i) % 7;
         const nextDayName = days[nextDayIndex];
-        const nextDayHours = hours[nextDayName];
-        if (nextDayHours.isOpen) {
-             // If we are checking today but past closing time
-            if (i === 0 && currentTime > nextDayHours.closeTime) {
-                continue;
-            }
-            return { 
-                open: false, 
-                nextOpen: { 
+        const nextDayHours = hours[nextDayName as keyof BusinessHours];
+        if (nextDayHours && nextDayHours.enabled) {
+            const closeTime = parse(nextDayHours.end, 'h:mm a', now);
+            closeTime.setFullYear(now.getFullYear(), now.getMonth(), now.getDate());
+            if (i === 0 && now > closeTime) continue;
+
+            return {
+                open: false,
+                nextOpen: {
                     day: i === 0 ? 'today' : i === 1 ? 'tomorrow' : `on ${nextDayName}`,
-                    time: nextDayHours.openTime 
-                } 
+                    time: nextDayHours.start
+                }
             };
         }
     }
-    
-    return { open: false }; // No open days found
+
+    return { open: false };
 }
 
 const formatTime = (timeStr: string) => {
     if (!timeStr) return '';
+    if (timeStr.includes('AM') || timeStr.includes('PM')) {
+        return timeStr;
+    }
     const [hours, minutes] = timeStr.split(':').map(Number);
     const date = new Date();
     date.setHours(hours);
@@ -132,8 +142,15 @@ export default function WalkInPage() {
     return collection(firestore, `tenants/${tenantId}/staff`);
   }, [firestore, tenantId]);
 
+  const scheduleProfilesQuery = useMemoFirebase(() => {
+      if (!firestore) return null;
+      return query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true));
+  }, [firestore, tenantId]);
+
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
+  const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection(scheduleProfilesQuery);
+  const scheduleProfile = useMemo(() => scheduleProfiles?.[0], [scheduleProfiles]);
 
   const [step, setStep] = useState<Step>('services');
   const [customerName, setCustomerName] = useState('');
@@ -154,7 +171,10 @@ export default function WalkInPage() {
   const mainServices = useMemo(() => (services || []).filter(s => s.type === 'service'), [services]);
   const addOnServices = useMemo(() => (services || []).filter(s => s.type === 'addon'), [services]);
 
-  const { open: businessIsOpen, nextOpen } = isBusinessOpen(new Date(), businessHoursData);
+  const { open: businessIsOpen, nextOpen } = useMemo(() => {
+    return isBusinessOpen(new Date(), scheduleProfile);
+  }, [scheduleProfile]);
+  
   const [hasMounted, setHasMounted] = useState(false);
   
   useEffect(() => {
@@ -259,7 +279,7 @@ export default function WalkInPage() {
     setIsSubmitting(false);
   };
   
-  const isLoading = servicesLoading || staffLoading || !hasMounted;
+  const isLoading = servicesLoading || staffLoading || scheduleProfilesLoading || !hasMounted;
   
   if (isLoading) {
     return (
@@ -286,21 +306,23 @@ export default function WalkInPage() {
                         <CardContent className="space-y-4">
                             <p className="text-muted-foreground">
                                 Our apologies, but we are not currently accepting walk-ins.
-                                {nextOpen && ` We will reopen ${nextOpen.day} at ${formatTime(nextOpen.time)}.`}
+                                {nextOpen && ` We will reopen ${nextOpen.day} at ${nextOpen.time}.`}
                             </p>
-                            <Card className="text-left bg-background">
-                                <CardHeader><CardTitle className="text-base">Our Hours</CardTitle></CardHeader>
-                                <CardContent className="text-sm space-y-1">
-                                    {Object.entries(businessHoursData).map(([day, hours]) => (
-                                        <div key={day} className="flex justify-between">
-                                            <span className="capitalize font-medium">{day}</span>
-                                            <span className="text-muted-foreground">
-                                                {hours.isOpen ? `${formatTime(hours.openTime)} - ${formatTime(hours.closeTime)}` : 'Closed'}
-                                            </span>
-                                        </div>
-                                    ))}
-                                </CardContent>
-                            </Card>
+                            {scheduleProfile?.week && (
+                                <Card className="text-left bg-background">
+                                    <CardHeader><CardTitle className="text-base">Our Hours</CardTitle></CardHeader>
+                                    <CardContent className="text-sm space-y-1">
+                                        {Object.entries(scheduleProfile.week).map(([day, hours]: [string, any]) => (
+                                            <div key={day} className="flex justify-between">
+                                                <span className="capitalize font-medium">{day}</span>
+                                                <span className="text-muted-foreground">
+                                                    {hours.enabled ? `${hours.start} - ${hours.end}` : 'Closed'}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </CardContent>
+                                </Card>
+                            )}
                         </CardContent>
                     </Card>
                </div>
