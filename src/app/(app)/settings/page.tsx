@@ -2,7 +2,7 @@
 
 'use client';
 
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -94,13 +94,21 @@ const ScheduleProfileManager = () => {
     const scheduleProfilesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/scheduleProfiles`), [firestore, tenantId]);
     const { data: scheduleProfilesData, isLoading: profilesLoading } = useCollection(scheduleProfilesQuery);
     
-    const [profiles, setProfiles] = useState<any[]>([]);
+    const [profiles, setProfiles] = useState<any[]>(scheduleProfilesData || []);
     const [backupProfiles, setBackupProfiles] = useState<any[]>([]);
+    const hasInitialized = useRef(false);
 
     const orderedDays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
     
     useEffect(() => {
-        if (firestore && user && !profilesLoading && (!scheduleProfilesData || scheduleProfilesData.length === 0)) {
+        if (scheduleProfilesData) {
+            setProfiles(scheduleProfilesData);
+        }
+    }, [scheduleProfilesData]);
+
+     useEffect(() => {
+        if (!profilesLoading && profiles.length === 0 && firestore && user && !hasInitialized.current) {
+            hasInitialized.current = true; // prevent re-running
             const defaultProfileId = nanoid();
             const defaultProfile = {
                 id: defaultProfileId,
@@ -123,12 +131,8 @@ const ScheduleProfileManager = () => {
             };
             const profileDocRef = doc(firestore, `tenants/${tenantId}/scheduleProfiles/${defaultProfileId}`);
             setDocumentNonBlocking(profileDocRef, defaultProfile, {});
-            setProfiles([defaultProfile]);
-
-        } else if (scheduleProfilesData) {
-            setProfiles(scheduleProfilesData);
         }
-    }, [scheduleProfilesData, profilesLoading, firestore, user, tenantId]);
+    }, [profilesLoading, profiles, firestore, user, tenantId]);
 
     const activeProfile = useMemo(() => profiles.find(p => p.isActive), [profiles]);
 
@@ -205,7 +209,7 @@ const ScheduleProfileManager = () => {
                 <div>
                      {orderedDays.map((day) => {
                         const dayData = activeProfile.week[day];
-                        if (!dayData) return null; // Should not happen with default data
+                        if (!dayData) return null;
                         return (
                             <DayScheduleRow 
                                 key={day} 
@@ -285,7 +289,7 @@ export default function SettingsPage() {
 
   const handleSaveSettings = (section: string) => {
     if (!tenantData) return;
-    const tenantRef = doc(firestore, 'tenants', tenantData.id);
+    const tenantRef = doc(firestore, 'tenants', tenantId);
     let dataToUpdate: Partial<Tenant> = {};
 
     switch(section) {
@@ -557,7 +561,7 @@ export default function SettingsPage() {
                   rows={4}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Use placeholders like '{'{clientName}'}' and '{'{businessName}'}' which will be replaced automatically.
+                  Use placeholders like &quot;{'{clientName}'}&quot; and &quot;{'{businessName}'}&quot; which will be replaced automatically.
                 </p>
               </div>
             </CardContent>

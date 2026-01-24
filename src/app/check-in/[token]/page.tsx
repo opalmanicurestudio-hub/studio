@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -80,7 +81,7 @@ export default function CheckInPage() {
     
     const { data: tenantData, isLoading: tenantLoading } = useDoc<Tenant>(tenantQuery);
     
-    const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isPublic), [scheduleProfiles]);
+    const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
 
     const allAppointments = useMemo(() => {
         if (!allAppointmentsFromDB) return [];
