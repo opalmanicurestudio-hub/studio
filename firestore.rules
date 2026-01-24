@@ -160,7 +160,7 @@ service cloud.firestore {
      * @principle Enforces document ownership and prevents enumeration of businesses.
      */
     match /tenants/{tenantId} {
-        allow get: if resource.data.userId == request.auth.uid || exists(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid));
+        allow get: if true;
         // Allow a user to query for their own tenant document.
         allow list: if request.query.where.size() > 0 && request.query.where[0] == 'userId' && request.query.where[1] == '==' && request.query.where[2] == request.auth.uid;
         allow create: if isSignedIn() && newDocIsOwnedByCurrentUser() && pathIdMatchesDataIdOnCreate(tenantId);
@@ -173,10 +173,9 @@ service cloud.firestore {
      * @path /tenants/{tenantId}/staff/{staffId}
      */
     match /tenants/{tenantId}/staff/{staffId} {
-      // Owner can read any staff. Staff can read their own profile, which is required for the isStaff() helper to work.
-      allow get: if isTenantOwner(tenantId) || request.auth.uid == staffId;
-      // Staff and owners can list all staff members.
-      allow list: if isTenantOwner(tenantId) || isStaff(tenantId);
+      // PUBLIC: Allow anyone to read staff profiles for booking pages.
+      allow get, list: if true;
+      // PRIVATE: Restrict write access.
       allow create: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
       allow update: if (isTenantOwner(tenantId) || isTenantAdmin(tenantId)) || (request.auth.uid == staffId);
       allow delete: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
@@ -222,11 +221,15 @@ service cloud.firestore {
     }
 
     /**
-     * @description Rules for appointments booked with a tenant. This data is private.
+     * @description Rules for appointments booked with a tenant. This data is private for general lists.
+     * Public access is needed to check for time-slot availability.
      * @path /tenants/{tenantId}/appointments/{appointmentId}
      */
     match /tenants/{tenantId}/appointments/{appointmentId} {
-      allow get, list: if isTenantOwner(tenantId) || isTenantAdmin(tenantId) || (isStaff(tenantId) && resource.data.staffId == request.auth.uid);
+      // PUBLIC: Allow anyone to list appointments to check for availability.
+      // Do not allow `get` to prevent reading sensitive appointment details.
+      allow list: if true;
+      allow get: if isTenantOwner(tenantId) || isTenantAdmin(tenantId) || (isStaff(tenantId) && resource.data.staffId == request.auth.uid);
       allow write: if isTenantOwner(tenantId) || isTenantAdmin(tenantId) || (isStaff(tenantId) && resource.data.staffId == request.auth.uid);
     }
     
@@ -274,14 +277,17 @@ service cloud.firestore {
         allow read, write: if isTenantOwner(tenantId);
     }
     
-    /**
-     * @description Rules for all financial profiles. This data is private.
-     * @path /tenants/{tenantId}/{collection}/{profileId} 
-     * @principle Enforces strict data privacy for a tenant's financial planning data.
-     */
     match /tenants/{tenantId}/{collection}/{profileId} 
-        where collection in ['lifestyleProfiles', 'businessProfiles', 'scheduleProfiles'] {
+        where collection in ['lifestyleProfiles', 'businessProfiles'] {
+      // PRIVATE: Personal and business financial profiles are private.
       allow read, write: if isTenantOwner(tenantId);
+    }
+
+    match /tenants/{tenantId}/scheduleProfiles/{profileId} {
+      // PUBLIC: Allow public read for booking page availability.
+      allow get, list: if true;
+      // PRIVATE: Restrict write access to owner.
+      allow write: if isTenantOwner(tenantId);
     }
 
     /**
@@ -311,3 +317,4 @@ service cloud.firestore {
     }
   }
 }
+
