@@ -31,7 +31,6 @@ import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, de
 import { collection, doc, writeBatch } from 'firebase/firestore';
 import { cn } from '@/lib/utils';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Badge } from '@/components/ui/badge';
 import { nanoid } from 'nanoid';
 
 const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
@@ -44,17 +43,17 @@ const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string;
   });
 
   return (
-    <div className="flex flex-col sm:flex-row items-center gap-4 p-4 border-b last:border-b-0">
-      <div className="flex items-center gap-3 w-full sm:w-28">
+    <div className="flex items-center gap-4 p-4 border-b last:border-b-0">
+      <div className="flex items-center gap-3 w-32">
         <Switch
           id={`switch-${day}`}
           checked={dayData.enabled}
           onCheckedChange={(checked) => onDayChange('enabled', checked)}
           disabled={!isEditing}
         />
-        <Label htmlFor={`switch-${day}`} className="font-semibold text-base">{day}</Label>
+        <Label htmlFor={`switch-${day}`} className="font-semibold text-base capitalize">{day}</Label>
       </div>
-      <div className="flex-1 grid grid-cols-2 gap-4 w-full">
+      <div className="flex-1 grid grid-cols-2 gap-4">
         <Select
           value={dayData.start}
           onValueChange={(value) => onDayChange('start', value)}
@@ -84,21 +83,23 @@ const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string;
   );
 };
 
+
 const ScheduleProfileManager = () => {
     const { firestore, user } = useFirebase();
     const tenantId = 'tenant-abc';
-
     const [isEditing, setIsEditing] = useState(false);
     const [renamingProfileId, setRenamingProfileId] = useState<string | null>(null);
 
     const scheduleProfilesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/scheduleProfiles`), [firestore, tenantId]);
     const { data: scheduleProfilesData, isLoading: profilesLoading } = useCollection(scheduleProfilesQuery);
-
+    
     const [profiles, setProfiles] = useState<any[]>([]);
     const [backupProfiles, setBackupProfiles] = useState<any[]>([]);
+
+    const orderedDays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
     
     useEffect(() => {
-        if (firestore && user && !profilesLoading && scheduleProfilesData && scheduleProfilesData.length === 0) {
+        if (firestore && user && !profilesLoading && (!scheduleProfilesData || scheduleProfilesData.length === 0)) {
             const defaultProfileId = nanoid();
             const defaultProfile = {
                 id: defaultProfileId,
@@ -121,6 +122,8 @@ const ScheduleProfileManager = () => {
             };
             const profileDocRef = doc(firestore, `tenants/${tenantId}/scheduleProfiles/${defaultProfileId}`);
             setDocumentNonBlocking(profileDocRef, defaultProfile, {});
+            setProfiles([defaultProfile]);
+
         } else if (scheduleProfilesData) {
             setProfiles(scheduleProfilesData);
         }
@@ -159,9 +162,9 @@ const ScheduleProfileManager = () => {
             setIsEditing(true);
         } else {
             if (firestore) {
-                profiles.forEach((profile: any) => {
+                 profiles.forEach((profile: any) => {
                     const profileRef = doc(firestore, `tenants/${tenantId}/scheduleProfiles/${profile.id}`);
-                    setDocumentNonBlocking(profileRef, profile, { merge: true });
+                    updateDocumentNonBlocking(profileRef, profile);
                 });
             }
             setIsEditing(false);
@@ -185,7 +188,7 @@ const ScheduleProfileManager = () => {
                         Set your schedules for financial calculations and public booking pages.
                     </CardDescription>
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
+                 <div className="flex items-center gap-2 flex-shrink-0">
                     {isEditing ? (
                         <>
                             <Button variant="outline" onClick={handleCancel}>Cancel</Button>
@@ -198,16 +201,20 @@ const ScheduleProfileManager = () => {
             </CardHeader>
             <CardContent className="p-0">
                {activeProfile && (
-                <div className="divide-y">
-                     {Object.entries(activeProfile.week).map(([day, dayData]: [string, any]) => (
-                        <DayScheduleRow 
-                            key={day} 
-                            day={day} 
-                            dayData={dayData} 
-                            onDayChange={(field: string, value: any) => handleScheduleChange(day, field, value)}
-                            isEditing={isEditing} 
-                        />
-                    ))}
+                <div>
+                     {orderedDays.map((day) => {
+                        const dayData = activeProfile.week[day];
+                        if (!dayData) return null; // Should not happen with default data
+                        return (
+                            <DayScheduleRow 
+                                key={day} 
+                                day={day} 
+                                dayData={dayData} 
+                                onDayChange={(field: string, value: any) => handleScheduleChange(day, field, value)}
+                                isEditing={isEditing} 
+                            />
+                        )
+                    })}
                 </div>
                )}
             </CardContent>
@@ -443,7 +450,7 @@ export default function SettingsPage() {
                   rows={4}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Use placeholders like {'{clientName}'} and {'{businessName}'} which will be replaced automatically.
+                  Use placeholders like {`'{clientName}'`} and {`'{businessName}'`} which will be replaced automatically.
                 </p>
               </div>
             </CardContent>
