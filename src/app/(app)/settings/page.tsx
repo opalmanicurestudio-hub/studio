@@ -443,7 +443,7 @@ export default function SettingsPage() {
                   rows={4}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Use placeholders like "{clientName}" and "{businessName}" which will be replaced automatically.
+                  Use placeholders like {'{clientName}'} and {'{businessName}'} which will be replaced automatically.
                 </p>
               </div>
             </CardContent>
