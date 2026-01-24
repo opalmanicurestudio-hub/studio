@@ -387,18 +387,13 @@ export type Tenant = {
   subscriptionStatus: 'active' | 'inactive' | 'trialing' | 'past_due' | 'canceled';
   subscriptionTier: 'none' | 'pro';
   queueSkipTimeMinutes?: number;
-  businessHours?: {
-    monday: DayHours;
-    tuesday: DayHours;
-    wednesday: DayHours;
-    thursday: DayHours;
-    friday: DayHours;
-    saturday: DayHours;
-    sunday: DayHours;
-  };
   lateArrivalGracePeriod?: number;
   autoCancelLateArrivals?: boolean;
   cancellationFee?: number;
+  bookingSlotInterval?: 15 | 30 | 60;
+  referrerReward?: number;
+  newClientDiscount?: number;
+  smsNotificationMessage?: string;
 };
 
 

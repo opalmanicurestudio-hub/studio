@@ -15,7 +15,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DollarSign, Gift, Save, ListChecks, MessageSquare, Clock, Building, Edit, PlusCircle, MoreHorizontal, Globe, Check, Link as LinkIcon, Calendar } from 'lucide-react';
+import { DollarSign, Gift, Save, ListChecks, MessageSquare, Clock, Building, Edit, PlusCircle, MoreHorizontal, Globe, Check, Link as LinkIcon, Calendar, Loader } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
@@ -28,10 +28,11 @@ import {
 } from '@/components/ui/select';
 import { format } from 'date-fns';
 import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
-import { collection, doc, writeBatch } from 'firebase/firestore';
+import { collection, doc, writeBatch, query, where } from 'firebase/firestore';
 import { cn } from '@/lib/utils';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { nanoid } from 'nanoid';
+import { type Tenant } from '@/lib/data';
 
 const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
   const timeOptions = Array.from({ length: (22 - 8) * 2 + 1 }, (_, i) => {
@@ -247,6 +248,16 @@ const ScheduleProfileManager = () => {
 
 export default function SettingsPage() {
   const { toast } = useToast();
+  const { firestore, user } = useFirebase();
+  const tenantId = 'tenant-abc';
+
+  const tenantQuery = useMemoFirebase(() => {
+    if (!user || !firestore) return null;
+    return query(collection(firestore, 'tenants'), where('userId', '==', user.uid));
+  }, [user, firestore]);
+  const { data: tenants, isLoading: tenantLoading } = useCollection<Tenant>(tenantQuery);
+  const tenantData = tenants?.[0];
+
   const [referrerReward, setReferrerReward] = useState('10.00');
   const [newClientDiscount, setNewClientDiscount] = useState('15.00');
   const [queueSkipTime, setQueueSkipTime] = useState(5);
@@ -257,13 +268,71 @@ export default function SettingsPage() {
   const [lateGracePeriod, setLateGracePeriod] = useState(15);
   const [cancellationFee, setCancellationFee] = useState('25.00');
   const [autoCancel, setAutoCancel] = useState(false);
+  const [bookingSlotInterval, setBookingSlotInterval] = useState(15);
+
+  useEffect(() => {
+    if (tenantData) {
+      setReferrerReward(tenantData.referrerReward?.toFixed(2) || '10.00');
+      setNewClientDiscount(tenantData.newClientDiscount?.toFixed(2) || '15.00');
+      setQueueSkipTime(tenantData.queueSkipTimeMinutes || 5);
+      setSmsMessage(tenantData.smsNotificationMessage || "Hi {clientName}, your spot at {businessName} is ready! Please head to the front desk.");
+      setLateGracePeriod(tenantData.lateArrivalGracePeriod || 15);
+      setCancellationFee((tenantData.cancellationFee || 25).toFixed(2));
+      setAutoCancel(tenantData.autoCancelLateArrivals || false);
+      setBookingSlotInterval(tenantData.bookingSlotInterval || 15);
+    }
+  }, [tenantData]);
 
   const handleSaveSettings = (section: string) => {
+    if (!tenantData) return;
+    const tenantRef = doc(firestore, 'tenants', tenantData.id);
+    let dataToUpdate: Partial<Tenant> = {};
+
+    switch(section) {
+        case 'Scheduling Policies':
+            dataToUpdate = {
+                lateArrivalGracePeriod: lateGracePeriod,
+                cancellationFee: parseFloat(cancellationFee),
+                autoCancelLateArrivals: autoCancel
+            };
+            break;
+        case 'Referral Program':
+            dataToUpdate = {
+                referrerReward: parseFloat(referrerReward),
+                newClientDiscount: parseFloat(newClientDiscount)
+            };
+            break;
+        case 'Walk-in Queue':
+            dataToUpdate = { queueSkipTimeMinutes: queueSkipTime };
+            break;
+        case 'SMS Notifications':
+            dataToUpdate = { smsNotificationMessage: smsMessage };
+            break;
+        case 'Online Booking':
+            dataToUpdate = { bookingSlotInterval: bookingSlotInterval as (15 | 30 | 60) };
+            break;
+    }
+
+    if (Object.keys(dataToUpdate).length > 0) {
+        updateDocumentNonBlocking(tenantRef, dataToUpdate);
+    }
+
     toast({
       title: `${section} Settings Saved`,
       description: `Your ${section.toLowerCase()} settings have been updated.`,
     });
   };
+
+  if (tenantLoading) {
+    return (
+      <div className="flex min-h-screen w-full flex-col">
+        <AppHeader title="Settings" />
+        <main className="flex-1 p-4 md:p-8 flex items-center justify-center">
+            <Loader className="w-8 h-8 animate-spin" />
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -278,6 +347,45 @@ export default function SettingsPage() {
           </div>
           
           <ScheduleProfileManager />
+
+          <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                    <Globe className="w-5 h-5 text-primary" />
+                    Online Booking
+                </CardTitle>
+                <CardDescription>
+                    Control how clients view and book appointments online.
+                </CardDescription>
+            </CardHeader>
+            <CardContent>
+                <div className="space-y-2">
+                    <Label htmlFor="slot-interval">Appointment Slot Interval</Label>
+                    <Select
+                        value={bookingSlotInterval.toString()}
+                        onValueChange={(val) => setBookingSlotInterval(parseInt(val))}
+                    >
+                        <SelectTrigger id="slot-interval">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="15">Every 15 minutes</SelectItem>
+                            <SelectItem value="30">Every 30 minutes</SelectItem>
+                            <SelectItem value="60">On the hour</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                        Set the frequency of available time slots shown to clients.
+                    </p>
+                </div>
+            </CardContent>
+            <CardFooter>
+                <Button onClick={() => handleSaveSettings('Online Booking')}>
+                <Save className="mr-2 h-4 w-4" />
+                Save Booking Settings
+                </Button>
+            </CardFooter>
+        </Card>
 
           <Card>
             <CardHeader>
@@ -450,7 +558,7 @@ export default function SettingsPage() {
                   rows={4}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Use placeholders like {`'{clientName}'`} and {`'{businessName}'`} which will be replaced automatically.
+                  Use placeholders like {'{clientName}'} and {'{businessName}'} which will be replaced automatically.
                 </p>
               </div>
             </CardContent>
