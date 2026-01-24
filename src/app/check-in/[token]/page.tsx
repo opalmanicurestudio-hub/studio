@@ -66,12 +66,19 @@ export default function CheckInPage() {
     const allAppointmentsQuery = useMemoFirebase(() => firestore ? collection(firestore, 'tenants', tenantId, 'appointments') : null, [firestore, tenantId]);
     const eventsQuery = useMemoFirebase(() => firestore ? collection(firestore, 'tenants', tenantId, 'events') : null, [firestore, tenantId]);
     const scheduleProfilesQuery = useMemoFirebase(() => firestore ? collection(firestore, 'tenants', tenantId, 'scheduleProfiles') : null, [firestore, tenantId]);
+    
+    const tenantQuery = useMemoFirebase(() => {
+        if (!firestore) return null;
+        return doc(firestore, 'tenants', tenantId);
+    }, [firestore, tenantId]);
 
     const { data: allAppointmentsFromDB, isLoading: allAppointmentsLoading } = useCollection<Appointment>(allAppointmentsQuery);
     const { data: clients, isLoading: clientsLoading } = useCollection<Client>(clientsQuery);
     const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
     const { data: allEventsFromDB, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
     const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
+    
+    const { data: tenantData, isLoading: tenantLoading } = useDoc<Tenant>(tenantQuery);
     
     const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isPublic), [scheduleProfiles]);
 
@@ -120,7 +127,9 @@ export default function CheckInPage() {
     const handleDateSelect = (day: Date) => setRescheduleDate(day);
     
     const timeSlots = useMemo(() => {
-        if (!data?.service || !rescheduleDate || !allAppointments || !publicScheduleProfile || !allEvents) return [];
+        if (!data?.service || !rescheduleDate || !allAppointments || !publicScheduleProfile || !allEvents || !tenantData) return [];
+
+        const bookingInterval = tenantData.bookingSlotInterval || 15;
 
         const dayOfWeekIndex = getDay(rescheduleDate);
         const dayName = format(rescheduleDate, 'eeee').toLowerCase();
@@ -171,7 +180,7 @@ export default function CheckInPage() {
                 }))
         ];
 
-        for (let i = dayStartWithBusinessHours.getTime(); i < dayEndWithBusinessHours.getTime(); i += 15 * 60000) {
+        for (let i = dayStartWithBusinessHours.getTime(); i < dayEndWithBusinessHours.getTime(); i += bookingInterval * 60000) {
             const potentialStartTime = new Date(i);
             
             const totalDuration = data.service.duration + (data.service.padBefore || 0) + (data.service.padAfter || 0);
@@ -194,7 +203,7 @@ export default function CheckInPage() {
             }
         }
         return options;
-    }, [rescheduleDate, data?.service, allAppointments, services, appointment?.id, publicScheduleProfile, allEvents]);
+    }, [rescheduleDate, data?.service, allAppointments, services, appointment?.id, publicScheduleProfile, allEvents, tenantData]);
 
 
 
@@ -397,7 +406,7 @@ export default function CheckInPage() {
     }
 
 
-    const isLoading = isUserLoading || appointmentsLoading || clientsLoading || servicesLoading || allAppointmentsLoading || scheduleProfilesLoading || eventsLoading;
+    const isLoading = isUserLoading || appointmentsLoading || clientsLoading || servicesLoading || allAppointmentsLoading || scheduleProfilesLoading || eventsLoading || tenantLoading;
 
     if (isLoading) {
         return (
@@ -513,8 +522,3 @@ export default function CheckInPage() {
         </Card>
     );
 }
-
-
-
-
-    
