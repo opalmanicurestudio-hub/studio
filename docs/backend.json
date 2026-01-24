@@ -1,4 +1,5 @@
 
+
 {
   "entities": {
     "User": {
@@ -126,6 +127,9 @@
         "email": { "type": "string", "format": "email" },
         "phone": { "type": "string" },
         "avatarUrl": { "type": "string", "format": "uri" },
+        "bio": { "type": "string", "description": "A short biography for the staff member's public profile." },
+        "specialties": { "type": "array", "items": { "type": "string" }, "description": "A list of specialties or skills to highlight." },
+        "portfolioImageUrls": { "type": "array", "items": { "type": "string", "format": "uri" }, "description": "A gallery of images showcasing the staff member's work." },
         "role": { "type": "string", "enum": ["admin", "staff"] },
         "payStructure": { "type": "string", "enum": ["commission", "hourly", "salary"] },
         "commissionRate": { "type": "number", "description": "Commission rate as a percentage (e.g., 40 for 40%)." },
@@ -192,6 +196,11 @@
         },
         "description": {
           "type": "string"
+        },
+        "imageUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL for the primary service image."
         },
         "durationMinutes": {
           "type": "number"
@@ -751,3 +760,4 @@
     }
   }
 }
+

@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -61,7 +62,7 @@ const serviceSchema = z.object({
   
   products: z.array(z.any()).optional(),
   equipment: z.array(z.any()).optional(),
-  addOns: z.array(z.any()).optional(),
+  compatibleAddOnIds: z.array(z.string()).optional(),
   
   depositType: z.enum(['none', 'deposit', 'full', 'breakeven']),
   depositSubType: z.enum(['flat', 'percentage']).optional(),
@@ -167,7 +168,7 @@ const Step2_Formula = ({ onScanClick }: { onScanClick: () => void }) => {
 
     const selectedProducts = watch('products') || [];
     const selectedEquipment = watch('equipment') || [];
-    const selectedAddOns = watch('addOns') || [];
+    const compatibleAddOnIds = watch('compatibleAddOnIds') || [];
     const isAddon = watch('isAddon');
     
     const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
@@ -192,7 +193,7 @@ const Step2_Formula = ({ onScanClick }: { onScanClick: () => void }) => {
     };
     
     const handleAddOnSelect = (addOns: Service[]) => {
-        setValue('addOns', addOns, { shouldDirty: true, shouldTouch: true });
+        setValue('compatibleAddOnIds', addOns.map(a => a.id), { shouldDirty: true, shouldTouch: true });
         setIsAddOnSelectorOpen(false);
     };
 
@@ -206,8 +207,10 @@ const Step2_Formula = ({ onScanClick }: { onScanClick: () => void }) => {
     };
     
     const removeAddOn = (addOnId: string) => {
-        setValue('addOns', selectedAddOns.filter((a: any) => a.id !== addOnId), { shouldDirty: true, shouldTouch: true });
+        setValue('compatibleAddOnIds', compatibleAddOnIds.filter((id: string) => id !== addOnId), { shouldDirty: true, shouldTouch: true });
     };
+
+    const selectedAddOns = allServices.filter(s => compatibleAddOnIds.includes(s.id));
 
     return (
         <>
@@ -365,12 +368,14 @@ const Step4_VisibilityConfirmation = () => {
 export const AddServiceDialog: React.FC<{ 
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialType?: 'service' | 'addon';
   categories: string[];
   onNewCategory: (category: string) => void;
   onServiceAdded: (service: Service) => void;
 }> = ({
   open,
   onOpenChange,
+  initialType = 'service',
   categories,
   onNewCategory,
   onServiceAdded,
@@ -384,15 +389,23 @@ export const AddServiceDialog: React.FC<{
   const methods = useForm<ServiceFormData>({
     resolver: zodResolver(serviceSchema),
     defaultValues: {
-      isPrivate: false,
-      isAddon: false,
-      products: [],
-      equipment: [],
-      addOns: [],
-      depositType: 'none',
-      requiredFormIds: [],
-    },
+      isAddon: initialType === 'addon',
+    }
   });
+
+  useEffect(() => {
+    if (open) {
+      methods.reset({ 
+        isAddon: initialType === 'addon',
+        products: [],
+        equipment: [],
+        compatibleAddOnIds: [],
+        depositType: 'none',
+        requiredFormIds: [],
+      });
+      setStep(1);
+    }
+  }, [open, initialType, methods]);
 
   const { watch } = methods;
   const values = watch();
@@ -406,32 +419,6 @@ export const AddServiceDialog: React.FC<{
         setTmhr(parseFloat(localStorage.getItem('tmhr') || '50'));
     }
   }, []);
-
-  useEffect(() => {
-    if (open) {
-      methods.reset({
-        name: '',
-        category: '',
-        duration: undefined,
-        padBefore: undefined,
-        padAfter: undefined,
-        description: '',
-        imageUrl: '',
-        isPrivate: false,
-        isAddon: false,
-        products: [],
-        equipment: [],
-        addOns: [],
-        depositType: 'none',
-        depositSubType: undefined,
-        depositAmount: undefined,
-        price: undefined,
-        confirmationMessage: '',
-        requiredFormIds: [],
-      });
-      setStep(1);
-    }
-  }, [open, methods]);
 
   const breakEvenCost = useMemo(() => {
       const totalDuration = (duration || 0) + (padBefore || 0) + (padAfter || 0);
@@ -494,7 +481,8 @@ export const AddServiceDialog: React.FC<{
         requiredFormIds: data.requiredFormIds,
         depositType: data.depositType,
         depositSubType: data.depositSubType,
-        depositAmount: data.depositAmount
+        depositAmount: data.depositAmount,
+        compatibleAddOnIds: data.compatibleAddOnIds,
       };
       
       onServiceAdded(newService);

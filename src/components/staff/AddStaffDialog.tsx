@@ -41,7 +41,7 @@ import { PhoneInput } from '@/components/ui/phone-input';
 import { type Staff, type Service } from '@/lib/data';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '../ui/scroll-area';
-import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2 } from 'lucide-react';
+import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2, BookText } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { buttonVariants } from '../ui/button';
@@ -54,6 +54,8 @@ const addStaffSchema = z.object({
   email: z.string().email('A valid email is required.'),
   phone: z.string().optional(),
   avatarUrl: z.string().optional(),
+  bio: z.string().optional(),
+  specialties: z.string().optional(),
   role: z.enum(['admin', 'staff']),
   payStructure: z.enum(['commission', 'hourly', 'salary']),
   commissionRate: z.coerce.number().min(0).max(100).optional(),
@@ -137,6 +139,8 @@ const AddStaffForm = ({ services }: { services: Service[] }) => {
                                 <PhoneInput name="phone" label="Phone Number" />
                                 <Controller name="role" control={control} render={({ field }) => ( <div className="space-y-2"><Label htmlFor="role">Role</Label><Select onValueChange={field.onChange} defaultValue={field.value}><SelectTrigger id="role"><SelectValue placeholder="Select a role" /></SelectTrigger><SelectContent><SelectItem value="staff">Staff</SelectItem><SelectItem value="admin">Admin</SelectItem></SelectContent></Select>{errors.role && <p className="text-sm text-destructive">{errors.role.message}</p>}</div> )}/>
                             </div>
+                            <div className="space-y-2 mt-4"><Label htmlFor="bio">Bio</Label><Textarea id="bio" placeholder="A short bio for their public profile..." {...register('bio')} /></div>
+                            <div className="space-y-2 mt-4"><Label htmlFor="specialties">Specialties</Label><Input id="specialties" placeholder="e.g., Balayage, Nail Art, Vivid Colors" {...register('specialties')} /><p className="text-xs text-muted-foreground">Enter specialties separated by commas.</p></div>
                         </AccordionContent>
                     </AccordionItem>
                      <AccordionItem value="item-services" className="border rounded-lg">
@@ -224,7 +228,7 @@ const AddStaffForm = ({ services }: { services: Service[] }) => {
                         </AccordionContent>
                     </AccordionItem>
                      <AccordionItem value="item-5" className="border rounded-lg">
-                        <AccordionTrigger className="p-4"><div className="flex items-center gap-3"><FileText className="w-5 h-5 text-primary"/>Notes & Preferences</div></AccordionTrigger>
+                        <AccordionTrigger className="p-4"><div className="flex items-center gap-3"><BookText className="w-5 h-5 text-primary"/>Notes & Preferences</div></AccordionTrigger>
                         <AccordionContent className="p-4 pt-0">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
                              <div className="space-y-2 md:col-span-2"><Label htmlFor="availabilityNotes">Availability Notes</Label><Textarea id="availabilityNotes" placeholder="e.g., Prefers morning shifts, not available on weekends." {...register('availabilityNotes')} /></div>
@@ -271,6 +275,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
   const handleSave = (data: AddStaffFormData) => {
     const staffDataToSave: Omit<Staff, 'id' | 'avatarUrl'> = {
         ...data,
+        specialties: data.specialties?.split(',').map(s => s.trim()).filter(s => s),
         avatarUrl: data.avatarUrl || `https://picsum.photos/seed/${nanoid()}/100`,
         commissionRate: data.commissionRate || 0,
         hourlyRate: data.hourlyRate,
