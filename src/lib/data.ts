@@ -32,6 +32,12 @@ export type CustomFormula = {
   }[];
 };
 
+export type DayHours = {
+    enabled: boolean;
+    start: string;
+    end: string;
+};
+
 export type Staff = {
   id: string;
   name: string;
@@ -43,10 +49,23 @@ export type Staff = {
   commissionRate: number; // as a percentage, e.g., 40 for 40%
   hourlyRate?: number;
   services?: string[];
+  bio?: string;
+  specialties?: string[];
   emergencyContact?: {
     name: string;
     relationship: string;
     phone: string;
+  };
+  availability?: {
+    week: {
+      sunday: DayHours;
+      monday: DayHours;
+      tuesday: DayHours;
+      wednesday: DayHours;
+      thursday: DayHours;
+      friday: DayHours;
+      saturday: DayHours;
+    }
   };
   availabilityNotes?: string;
   preferences?: string;
@@ -372,12 +391,6 @@ export type TicketData = {
   client: Client;
   appointment: Appointment;
   service: Service;
-};
-
-export type DayHours = {
-    isOpen: boolean;
-    openTime: string;
-    closeTime: string;
 };
 
 export type Tenant = {

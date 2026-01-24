@@ -142,6 +142,24 @@
                 "phone": { "type": "string" }
             }
         },
+        "availability": {
+            "type": "object",
+            "description": "The weekly availability for this staff member, overriding business hours.",
+            "properties": {
+                "week": {
+                    "type": "object",
+                    "properties": {
+                        "sunday": { "$ref": "#/entities/DayHours" },
+                        "monday": { "$ref": "#/entities/DayHours" },
+                        "tuesday": { "$ref": "#/entities/DayHours" },
+                        "wednesday": { "$ref": "#/entities/DayHours" },
+                        "thursday": { "$ref": "#/entities/DayHours" },
+                        "friday": { "$ref": "#/entities/DayHours" },
+                        "saturday": { "$ref": "#/entities/DayHours" }
+                    }
+                }
+            }
+        },
         "availabilityNotes": { "type": "string" },
         "preferences": { "type": "string" },
         "compliance": {

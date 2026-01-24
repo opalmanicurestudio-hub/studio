@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -37,22 +38,76 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { PhoneInput } from '@/components/ui/phone-input';
-import { type Staff, type Service } from '@/lib/data';
+import { type Staff, type Service, type DayHours } from '@/lib/data';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '../ui/scroll-area';
-import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2 } from 'lucide-react';
+import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2, Clock } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { buttonVariants } from '../ui/button';
 import { nanoid } from 'nanoid';
 import { SelectServicesDialog } from './SelectServicesDialog';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { Switch } from '../ui/switch';
+
+const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
+  const timeOptions = Array.from({ length: (22 - 8) * 2 + 1 }, (_, i) => {
+    const hour = Math.floor(i / 2) + 8;
+    const minute = i % 2 === 0 ? '00' : '30';
+    const period = hour < 12 ? 'AM' : 'PM';
+    const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+    return `${displayHour}:${minute} ${period}`;
+  });
+
+  return (
+    <div className="flex items-center gap-4 p-2">
+      <div className="flex items-center gap-3 w-32">
+        <Switch
+          id={`switch-${day}`}
+          checked={dayData.enabled}
+          onCheckedChange={(checked) => onDayChange('enabled', checked)}
+          disabled={!isEditing}
+        />
+        <Label htmlFor={`switch-${day}`} className="font-semibold text-base capitalize">{day}</Label>
+      </div>
+      <div className="flex-1 grid grid-cols-2 gap-4">
+        <Select
+          value={dayData.start}
+          onValueChange={(value) => onDayChange('start', value)}
+          disabled={!isEditing || !dayData.enabled}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {timeOptions.map(time => <SelectItem key={`${day}-start-${time}`} value={time}>{time}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select
+          value={dayData.end}
+          onValueChange={(value) => onDayChange('end', value)}
+          disabled={!isEditing || !dayData.enabled}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {timeOptions.map(time => <SelectItem key={`${day}-end-${time}`} value={time}>{time}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+};
+
 
 const editStaffSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
   email: z.string().email('A valid email is required.'),
   phone: z.string().optional(),
   avatarUrl: z.string().optional(),
+  bio: z.string().optional(),
+  specialties: z.string().optional(),
   role: z.enum(['admin', 'staff']),
   payStructure: z.enum(['commission', 'hourly', 'salary']),
   commissionRate: z.coerce.number().min(0).max(100).optional(),
@@ -63,6 +118,7 @@ const editStaffSchema = z.object({
       relationship: z.string().optional(),
       phone: z.string().optional(),
   }).optional(),
+  availability: z.any().optional(), // Allow any for form handling
   availabilityNotes: z.string().optional(),
   preferences: z.string().optional(),
   compliance: z.object({
@@ -102,12 +158,21 @@ const EditStaffForm = ({ services }: { services: Service[] }) => {
     const { register, control, watch, setValue, formState: { errors } } = useFormContext<EditStaffFormData>();
     const payStructure = watch('payStructure');
     const selectedServiceIds = watch('services') || [];
+    const availability = watch('availability');
     const [isServicesDialogOpen, setIsServicesDialogOpen] = useState(false);
     
     const selectedServices = useMemo(() => {
         return services.filter(s => selectedServiceIds.includes(s.id));
     }, [selectedServiceIds, services]);
 
+    const orderedDays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    
+    const handleDayChange = (day: string, field: string, value: any) => {
+        setValue(`availability.week.${day}`, {
+            ...availability.week[day],
+            [field]: value
+        }, { shouldDirty: true });
+    };
 
     return (
         <>
@@ -137,6 +202,22 @@ const EditStaffForm = ({ services }: { services: Service[] }) => {
                                 <PhoneInput name="phone" label="Phone Number" />
                                 <Controller name="role" control={control} render={({ field }) => ( <div className="space-y-2"><Label htmlFor="role">Role</Label><Select onValueChange={field.onChange} value={field.value}><SelectTrigger id="role"><SelectValue placeholder="Select a role" /></SelectTrigger><SelectContent><SelectItem value="staff">Staff</SelectItem><SelectItem value="admin">Admin</SelectItem></SelectContent></Select>{errors.role && <p className="text-sm text-destructive">{errors.role.message}</p>}</div> )}/>
                             </div>
+                            <div className="space-y-2 mt-4"><Label htmlFor="bio">Bio</Label><Textarea id="bio" placeholder="A short bio for their public profile..." {...register('bio')} /></div>
+                            <div className="space-y-2 mt-4"><Label htmlFor="specialties">Specialties</Label><Input id="specialties" placeholder="e.g., Balayage, Nail Art, Vivid Colors" {...register('specialties')} /><p className="text-xs text-muted-foreground">Enter specialties separated by commas.</p></div>
+                        </AccordionContent>
+                    </AccordionItem>
+                    <AccordionItem value="item-availability" className="border rounded-lg">
+                        <AccordionTrigger className="p-4"><div className="flex items-center gap-3"><Clock className="w-5 h-5 text-primary"/>Availability</div></AccordionTrigger>
+                        <AccordionContent className="p-4">
+                            {availability?.week && orderedDays.map(day => (
+                                <DayScheduleRow 
+                                    key={day}
+                                    day={day}
+                                    dayData={availability.week[day]}
+                                    onDayChange={(field: string, value: any) => handleDayChange(day, field, value)}
+                                    isEditing={true}
+                                />
+                            ))}
                         </AccordionContent>
                     </AccordionItem>
                      <AccordionItem value="item-services" className="border rounded-lg">
@@ -223,15 +304,6 @@ const EditStaffForm = ({ services }: { services: Service[] }) => {
                             </div>
                         </AccordionContent>
                     </AccordionItem>
-                     <AccordionItem value="item-5" className="border rounded-lg">
-                        <AccordionTrigger className="p-4"><div className="flex items-center gap-3"><FileText className="w-5 h-5 text-primary"/>Notes & Preferences</div></AccordionTrigger>
-                        <AccordionContent className="p-4 pt-0">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
-                             <div className="space-y-2 md:col-span-2"><Label htmlFor="availabilityNotes">Availability Notes</Label><Textarea id="availabilityNotes" placeholder="e.g., Prefers morning shifts, not available on weekends." {...register('availabilityNotes')} /></div>
-                             <div className="space-y-2 md:col-span-2"><Label htmlFor="preferences">Preferences</Label><Textarea id="preferences" placeholder="e.g., Allergic to lavender, prefers working with specific product lines." {...register('preferences')} /></div>
-                            </div>
-                        </AccordionContent>
-                    </AccordionItem>
                 </Accordion>
             </div>
             <SelectServicesDialog
@@ -263,12 +335,25 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
 
   useEffect(() => {
     if (staffMember) {
+        const specialtiesString = Array.isArray(staffMember.specialties) ? staffMember.specialties.join(', ') : staffMember.specialties;
         reset({
             ...staffMember,
+            specialties: specialtiesString,
             avatarUrl: staffMember.avatarUrl || '',
             compliance: {
                 ...staffMember.compliance,
                 licenseExpiry: staffMember.compliance?.licenseExpiry ? parseISO(staffMember.compliance.licenseExpiry) : undefined,
+            },
+            availability: staffMember.availability || {
+                week: {
+                    sunday: { enabled: false, start: '09:00 AM', end: '05:00 PM' },
+                    monday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
+                    tuesday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
+                    wednesday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
+                    thursday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
+                    friday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
+                    saturday: { enabled: false, start: '09:00 AM', end: '05:00 PM' },
+                }
             }
         });
     }
@@ -279,6 +364,7 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
     const staffDataToSave: Staff = {
         ...staffMember,
         ...data,
+        specialties: typeof data.specialties === 'string' ? data.specialties.split(',').map(s => s.trim()).filter(s => s) : data.specialties,
         avatarUrl: data.avatarUrl || staffMember.avatarUrl,
         commissionRate: data.commissionRate || 0,
         hourlyRate: data.hourlyRate,
