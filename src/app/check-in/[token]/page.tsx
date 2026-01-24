@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -7,8 +6,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, CalendarIcon, ChevronDown } from 'lucide-react';
-import { format, parseISO, addMinutes, addHours, isBefore, startOfDay, setHours, setMinutes } from 'date-fns';
+import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, CalendarIcon, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { format, parseISO, addMinutes, addHours, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, areIntervalsOverlapping } from 'date-fns';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { type Appointment, type Client, type Service } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
@@ -22,6 +21,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 
 export default function CheckInPage() {
     const params = useParams();
@@ -62,7 +62,9 @@ export default function CheckInPage() {
     // Fetch all clients and services
     const clientsQuery = useMemoFirebase(() => firestore ? collection(firestore, 'tenants', 'tenant-abc', 'clients') : null, [firestore]);
     const servicesQuery = useMemoFirebase(() => firestore ? collection(firestore, 'tenants', 'tenant-abc', 'services') : null, [firestore]);
-
+    const allAppointmentsQuery = useMemoFirebase(() => firestore ? collection(firestore, 'tenants', 'tenant-abc', 'appointments') : null, [firestore]);
+    
+    const { data: allAppointments, isLoading: allAppointmentsLoading } = useCollection<Appointment>(allAppointmentsQuery);
     const { data: clients, isLoading: clientsLoading } = useCollection<Client>(clientsQuery);
     const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
 
@@ -81,9 +83,57 @@ export default function CheckInPage() {
     const [isCancelled, setIsCancelled] = useState(false);
     const [rescheduleStep, setRescheduleStep] = useState<'initial' | 'payment' | 'reschedule' | 'confirmed'>('initial');
     
-    const [newRescheduleDate, setNewRescheduleDate] = useState<Date | undefined>();
+    const [rescheduleDate, setRescheduleDate] = useState<Date>(new Date());
+    const [rescheduleTime, setRescheduleTime] = useState<string>('');
     
     const nextAvailableSlot = useMemo(() => addHours(new Date(), 2), []);
+
+    const weekStart = useMemo(() => startOfWeek(rescheduleDate), [rescheduleDate]);
+    const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
+
+    const handlePreviousWeek = () => setRescheduleDate(prev => subWeeks(prev, 1));
+    const handleNextWeek = () => setRescheduleDate(prev => addWeeks(prev, 1));
+    const handleDateSelect = (day: Date) => setRescheduleDate(day);
+    
+    const timeSlots = useMemo(() => {
+        if (!data?.service || !rescheduleDate || !allAppointments) return [];
+        
+        const options: string[] = [];
+        const dayStart = startOfDay(rescheduleDate);
+        
+        const existingAppointmentsOnDate = allAppointments.filter(
+            apt => apt.id !== appointment?.id && isSameDay(new Date(apt.startTime), rescheduleDate)
+        ).map(apt => {
+            const service = services?.find(s => s.id === apt.serviceId);
+            const padBefore = service?.padBefore || 0;
+            const padAfter = service?.padAfter || 0;
+            return {
+                start: addMinutes(new Date(apt.startTime), -padBefore),
+                end: addMinutes(new Date(apt.endTime), padAfter)
+            }
+        });
+
+        for (let i = 8 * 4; i < 20 * 4; i++) { // From 8am to 8pm, in 15-min intervals
+            const minutes = i * 15;
+            const potentialStartTime = addMinutes(dayStart, minutes);
+            
+            const totalDuration = data.service.duration + (data.service.padBefore || 0) + (data.service.padAfter || 0);
+            const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
+
+            const isOverlapping = existingAppointmentsOnDate.some(apt =>
+                areIntervalsOverlapping(
+                    { start: potentialStartTime, end: potentialEndTime },
+                    { start: apt.start, end: apt.end },
+                    { inclusive: false }
+                )
+            );
+
+            if (!isOverlapping) {
+                options.push(format(potentialStartTime, 'HH:mm'));
+            }
+        }
+        return options;
+    }, [rescheduleDate, data?.service, allAppointments, services, appointment?.id]);
 
 
     useEffect(() => {
@@ -146,10 +196,12 @@ export default function CheckInPage() {
         setRescheduleStep('reschedule');
     };
 
-    const handleReschedule = async (newTime?: Date) => {
-        if (!appointment || !firestore || !data?.service) return;
+    const handleReschedule = async () => {
+        if (!appointment || !firestore || !data?.service || !rescheduleDate || !rescheduleTime) return;
 
-        const newStartTime = newTime || nextAvailableSlot;
+        const [hours, minutes] = rescheduleTime.split(':').map(Number);
+        const newStartTime = setMinutes(setHours(startOfDay(rescheduleDate), hours), minutes);
+
         const newEndTime = addMinutes(newStartTime, data.service.duration);
 
         const appointmentRef = doc(firestore, 'tenants', 'tenant-abc', 'appointments', appointment.id);
@@ -202,82 +254,69 @@ export default function CheckInPage() {
                 );
             case 'reschedule':
                 return (
-                    <div className="p-4 bg-muted/50 rounded-lg space-y-4">
-                        <Check className="w-8 h-8 mx-auto text-green-500"/>
-                        <h3 className="font-bold text-center">Payment Successful!</h3>
-                        
-                        <Card className="bg-background">
-                            <CardContent className="p-4">
-                                 <p className="text-sm font-semibold text-center mb-4">
-                                    Our next available appointment is at <strong>{format(nextAvailableSlot, 'h:mm a')} today</strong>.
-                                </p>
-                                <Button className="w-full" onClick={() => handleReschedule()}>
-                                    Book for {format(nextAvailableSlot, 'h:mm a')}
-                                </Button>
-                            </CardContent>
-                        </Card>
-    
-                         <Accordion type="single" collapsible>
-                            <AccordionItem value="item-1" className="border-none">
-                                <AccordionTrigger className="text-sm justify-center [&[data-state=open]>svg]:rotate-180">
-                                    Choose a different time
-                                    <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200 ml-2" />
-                                </AccordionTrigger>
-                                <AccordionContent>
-                                    <div className="space-y-4 pt-4">
-                                         <div className="space-y-2">
-                                            <Label>Select a new date and time</Label>
-                                            <Popover>
-                                                <PopoverTrigger asChild>
-                                                    <Button
-                                                        variant={"outline"}
-                                                        className={cn(
-                                                            "w-full justify-start text-left font-normal",
-                                                            !newRescheduleDate && "text-muted-foreground"
-                                                        )}
-                                                    >
-                                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                                        {newRescheduleDate ? format(newRescheduleDate, "PPP") : <span>Pick a date</span>}
-                                                    </Button>
-                                                </PopoverTrigger>
-                                                <PopoverContent className="w-auto p-0">
-                                                    <Calendar
-                                                        mode="single"
-                                                        selected={newRescheduleDate}
-                                                        onSelect={(date) => setNewRescheduleDate(date || new Date())}
-                                                        initialFocus
-                                                        disabled={(date) => isBefore(date, startOfDay(new Date()))}
-                                                    />
-                                                </PopoverContent>
-                                            </Popover>
-                                            <Select onValueChange={(time) => {
-                                                if (!newRescheduleDate) return;
-                                                const [hours, minutes] = time.split(':').map(Number);
-                                                setNewRescheduleDate(setMinutes(setHours(newRescheduleDate, hours), minutes));
-                                            }}>
-                                                <SelectTrigger>
-                                                    <SelectValue placeholder="Select a time" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {Array.from({ length: 12 }, (_, i) => i + 8).map(hour => {
-                                                        const displayHour = hour % 12 === 0 ? 12 : hour % 12;
-                                                        const period = hour < 12 ? 'AM' : 'PM';
-                                                        return (
-                                                            <React.Fragment key={hour}>
-                                                                <SelectItem value={`${hour}:00`}>{`${displayHour}:00 ${period}`}</SelectItem>
-                                                                <SelectItem value={`${hour}:30`}>{`${displayHour}:30 ${period}`}</SelectItem>
-                                                            </React.Fragment>
-                                                        )
-                                                    })}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <Button onClick={() => handleReschedule(newRescheduleDate)} disabled={!newRescheduleDate} className="w-full">Confirm New Time</Button>
+                    <div className="p-4 bg-muted/50 rounded-lg space-y-6">
+                        <div className="text-center">
+                            <Check className="w-8 h-8 mx-auto text-green-500 mb-2"/>
+                            <h3 className="font-bold text-lg">Payment Successful!</h3>
+                            <p className="text-sm text-muted-foreground">Select a new date and time for your appointment.</p>
+                        </div>
+
+                        {/* NEW DATE/TIME PICKER UI */}
+                        <div className="space-y-4">
+                            <div>
+                                <div className="flex justify-between items-center mb-2">
+                                    <h3 className="font-semibold text-foreground">Select Date</h3>
+                                    <div className="flex items-center gap-1 text-sm">
+                                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handlePreviousWeek}><ChevronLeft className="w-4 h-4"/></Button>
+                                        <span className="font-medium">{format(rescheduleDate, 'MMMM yyyy')}</span>
+                                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleNextWeek}><ChevronRight className="w-4 h-4"/></Button>
                                     </div>
-                                </AccordionContent>
-                            </AccordionItem>
-                        </Accordion>
-                         <Button variant="link" size="sm" className="mt-2 w-full" onClick={() => { setIsCancelled(false); handleUpdateStatus('cancelled'); }}>
+                                </div>
+                                <ScrollArea className="w-full">
+                                    <div className="flex gap-2 pb-2">
+                                        {weekDays.map(day => (
+                                            <button
+                                                key={day.toISOString()}
+                                                onClick={() => handleDateSelect(day)}
+                                                className={cn(
+                                                    "flex flex-col items-center justify-center p-2 rounded-lg border w-14 h-16 transition-colors flex-shrink-0",
+                                                    isSameDay(day, rescheduleDate)
+                                                        ? "bg-primary text-primary-foreground border-primary"
+                                                        : "bg-background hover:bg-accent"
+                                                )}
+                                            >
+                                                <span className="text-xs">{format(day, 'E')}</span>
+                                                <span className="font-bold text-lg">{format(day, 'd')}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <ScrollBar orientation="horizontal" />
+                                </ScrollArea>
+                            </div>
+                            
+                            <div>
+                                <div className="flex justify-between items-center mb-2">
+                                    <h3 className="font-semibold text-foreground">Select Time</h3>
+                                    <span className="text-sm text-muted-foreground">{timeSlots.length} Slots</span>
+                                </div>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {timeSlots.map(slot => (
+                                        <Button 
+                                            key={slot} 
+                                            variant={rescheduleTime === slot ? 'default' : 'outline'}
+                                            onClick={() => setRescheduleTime(slot)}
+                                        >
+                                            {format(parseISO(`1970-01-01T${slot}:00`), 'h:mm a')}
+                                        </Button>
+                                    ))}
+                                    {timeSlots.length === 0 && <p className="col-span-3 text-center text-sm text-muted-foreground py-4">No available slots for this day.</p>}
+                                </div>
+                            </div>
+                        </div>
+                        <Button onClick={handleReschedule} disabled={!rescheduleTime} className="w-full">
+                            Book an Appointment
+                        </Button>
+                        <Button variant="link" size="sm" className="mt-2 w-full" onClick={() => { setIsCancelled(false); handleUpdateStatus('cancelled'); }}>
                             No, Thanks. Cancel appointment.
                         </Button>
                     </div>
@@ -293,7 +332,7 @@ export default function CheckInPage() {
     }
 
 
-    const isLoading = isUserLoading || appointmentsLoading || clientsLoading || servicesLoading;
+    const isLoading = isUserLoading || appointmentsLoading || clientsLoading || servicesLoading || allAppointmentsLoading;
 
     if (isLoading) {
         return (
