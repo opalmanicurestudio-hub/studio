@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -23,16 +22,20 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import { Card, CardContent } from '../ui/card';
 
 
-const StaffSelectionCard = ({ staff, isSelected, onSelect }: { staff: Staff, isSelected: boolean, onSelect: () => void }) => {
+const StaffSelectionCard = ({ staff, isSelected, onSelect }: { staff: Staff | { id: string, name: string, avatarUrl: string }, isSelected: boolean, onSelect: () => void }) => {
+    const isAnyStaff = staff.id === 'any';
     return (
         <label htmlFor={`staff-${staff.id}`} className="block cursor-pointer">
             <Card className={`transition-all ${isSelected ? 'border-primary ring-2 ring-primary' : 'hover:border-primary/50'}`}>
                 <CardContent className="p-4 flex flex-col items-center gap-3">
                     <Avatar className="w-16 h-16">
                         {staff.avatarUrl ? <AvatarImage src={staff.avatarUrl} /> : null}
-                        <AvatarFallback>{staff.name.charAt(0)}</AvatarFallback>
+                        <AvatarFallback className="text-muted-foreground">
+                            {isAnyStaff ? <Users className="w-8 h-8"/> : staff.name.charAt(0)}
+                        </AvatarFallback>
                     </Avatar>
                     <p className="font-semibold text-sm text-center">{staff.name}</p>
                     <RadioGroupItem value={staff.id} id={`staff-${staff.id}`} className="sr-only" />
@@ -112,24 +115,9 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                 <div className="space-y-4">
                     <h3 className="text-lg font-medium flex items-center gap-2"><Users className="w-5 h-5 text-primary" />Choose Your Provider</h3>
                     <RadioGroup value={selectedStaffId} onValueChange={setSelectedStaffId} className="grid grid-cols-3 gap-4">
-                        <label htmlFor="staff-any" className="block cursor-pointer">
-                            <Card className={cn("transition-all", selectedStaffId === 'any' ? 'border-primary ring-2 ring-primary' : 'hover:border-primary/50')}>
-                                <CardContent className="p-4 flex flex-col items-center justify-center gap-3 h-full">
-                                    <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
-                                        <Users className="w-8 h-8 text-muted-foreground" />
-                                    </div>
-                                    <p className="font-semibold text-sm text-center">Any Available</p>
-                                    <RadioGroupItem value="any" id="staff-any" className="sr-only" />
-                                </CardContent>
-                            </Card>
-                        </label>
+                        <StaffSelectionCard staff={{id: 'any', name: 'Any Available', avatarUrl: ''}} isSelected={selectedStaffId === 'any'} onSelect={() => setSelectedStaffId('any')} />
                         {qualifiedStaff.map(s => (
-                            <StaffSelectionCard 
-                                key={s.id} 
-                                staff={s} 
-                                isSelected={selectedStaffId === s.id} 
-                                onSelect={() => setSelectedStaffId(s.id)}
-                            />
+                            <StaffSelectionCard key={s.id} staff={s} isSelected={selectedStaffId === s.id} onSelect={() => setSelectedStaffId(s.id)} />
                         ))}
                     </RadioGroup>
                 </div>
