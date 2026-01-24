@@ -1,5 +1,4 @@
 
-
 {
   "entities": {
     "User": {
@@ -72,6 +71,18 @@
         "cancellationFee": {
             "type": "number",
             "description": "Fee charged for late cancellations or no-shows."
+        },
+        "referrerReward": {
+            "type": "number",
+            "description": "Store credit amount given to the referrer for a successful referral."
+        },
+        "newClientDiscount": {
+            "type": "number",
+            "description": "Discount amount for the new client on their first service."
+        },
+        "smsNotificationMessage": {
+            "type": "string",
+            "description": "Customizable SMS message for walk-in notifications."
         }
       },
       "required": [
@@ -489,17 +500,34 @@
       "type": "object",
       "description": "A profile defining a tenant's work availability and schedule.",
       "properties": {
-        "id": {
-          "type": "string"
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "isPublic": { "type": "boolean" },
+        "bookingSlotInterval": {
+            "type": "number",
+            "enum": [15, 30, 60],
+            "description": "The time interval for available appointment slots on the public booking page."
         },
-        "name": {
-          "type": "string"
+        "week": {
+            "type": "object",
+            "description": "The weekly operating hours.",
+            "properties": {
+                "sunday": { "$ref": "#/entities/DayHours" },
+                "monday": { "$ref": "#/entities/DayHours" },
+                "tuesday": { "$ref": "#/entities/DayHours" },
+                "wednesday": { "$ref": "#/entities/DayHours" },
+                "thursday": { "$ref": "#/entities/DayHours" },
+                "friday": { "$ref": "#/entities/DayHours" },
+                "saturday": { "$ref": "#/entities/DayHours" }
+            }
         },
-        "isActive": {
-          "type": "boolean"
-        },
-        "isPublic": {
-          "type": "boolean"
+        "timeOff": {
+            "type": "object",
+            "properties": {
+                "vacationDays": { "type": "number" },
+                "holidays": { "type": "number" }
+            }
         }
       },
       "required": ["id", "name", "isActive"]

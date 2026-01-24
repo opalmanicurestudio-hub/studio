@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -128,9 +127,9 @@ export default function CheckInPage() {
     const handleDateSelect = (day: Date) => setRescheduleDate(day);
     
     const timeSlots = useMemo(() => {
-        if (!data?.service || !rescheduleDate || !allAppointments || !publicScheduleProfile || !allEvents || !tenantData) return [];
+        if (!data?.service || !rescheduleDate || !allAppointments || !publicScheduleProfile || !allEvents) return [];
 
-        const bookingInterval = tenantData.bookingSlotInterval || 15;
+        const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
 
         const dayOfWeekIndex = getDay(rescheduleDate);
         const dayName = format(rescheduleDate, 'eeee').toLowerCase();
@@ -204,7 +203,7 @@ export default function CheckInPage() {
             }
         }
         return options;
-    }, [rescheduleDate, data?.service, allAppointments, services, appointment?.id, publicScheduleProfile, allEvents, tenantData]);
+    }, [rescheduleDate, data?.service, allAppointments, services, appointment?.id, publicScheduleProfile, allEvents]);
 
 
 
@@ -302,7 +301,7 @@ export default function CheckInPage() {
                         <div className="pt-4 border-t border-destructive/20">
                                 <p className="text-sm">A cancellation fee of <strong>$25.00</strong> is required to rebook.</p>
                                 <Button className="mt-4 w-full bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => setRescheduleStep('payment')}>
-                                Pay Fee & Reschedule
+                                Pay Fee &amp; Reschedule
                                 </Button>
                         </div>
                     </div>

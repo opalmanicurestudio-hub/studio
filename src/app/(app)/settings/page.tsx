@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
@@ -117,6 +116,7 @@ const ScheduleProfileManager = () => {
                 name: 'Default Schedule',
                 isActive: true,
                 isPublic: true,
+                bookingSlotInterval: 15,
                 week: {
                     sunday: { enabled: false, start: '09:00 AM', end: '05:00 PM' },
                     monday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
@@ -162,6 +162,18 @@ const ScheduleProfileManager = () => {
             )
         );
     }, []);
+
+    const handleBookingIntervalChange = useCallback((value: string) => {
+        const interval = parseInt(value, 10);
+        setProfiles((prev: any[]) => 
+            prev.map(p => 
+                p.isActive ? {
+                    ...p,
+                    bookingSlotInterval: interval
+                } : p
+            )
+        );
+    }, []);
     
     const handleEditToggle = () => {
         if (!isEditing) {
@@ -189,7 +201,7 @@ const ScheduleProfileManager = () => {
                 <div>
                     <CardTitle className="flex items-center gap-2">
                         <Building className="w-5 h-5 text-primary" />
-                        Business Hours & Availability
+                        Business Hours &amp; Availability
                     </CardTitle>
                     <CardDescription>
                         Set your schedules for financial calculations and public booking pages.
@@ -226,12 +238,12 @@ const ScheduleProfileManager = () => {
                )}
             </CardContent>
             {activeProfile && (
-                <CardFooter className="pt-6 grid md:grid-cols-2 gap-6">
-                     <div className="space-y-2">
+                <CardFooter className="pt-6 grid md:grid-cols-3 gap-6">
+                    <div className="space-y-2">
                         <Label>Vacation Days / Year</Label>
                         <Input 
                             type="number" 
-                            value={activeProfile.timeOff.vacationDays}
+                            value={activeProfile.timeOff?.vacationDays || ''}
                             onChange={(e) => handleTimeOffChange('vacationDays', parseInt(e.target.value) || 0)} 
                             disabled={!isEditing} 
                         />
@@ -240,10 +252,27 @@ const ScheduleProfileManager = () => {
                         <Label>Statutory Holidays / Year</Label>
                         <Input 
                             type="number" 
-                            value={activeProfile.timeOff.holidays}
+                            value={activeProfile.timeOff?.holidays || ''}
                             onChange={(e) => handleTimeOffChange('holidays', parseInt(e.target.value) || 0)} 
                             disabled={!isEditing} 
                         />
+                    </div>
+                     <div className="space-y-2">
+                        <Label htmlFor="slot-interval">Booking Slot Interval</Label>
+                        <Select
+                            value={activeProfile.bookingSlotInterval?.toString() || '15'}
+                            onValueChange={handleBookingIntervalChange}
+                            disabled={!isEditing}
+                        >
+                            <SelectTrigger id="slot-interval">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="15">Every 15 minutes</SelectItem>
+                                <SelectItem value="30">Every 30 minutes</SelectItem>
+                                <SelectItem value="60">On the hour</SelectItem>
+                            </SelectContent>
+                        </Select>
                     </div>
                 </CardFooter>
             )}
@@ -274,7 +303,6 @@ export default function SettingsPage() {
   const [lateGracePeriod, setLateGracePeriod] = useState(15);
   const [cancellationFee, setCancellationFee] = useState('25.00');
   const [autoCancel, setAutoCancel] = useState(false);
-  const [bookingSlotInterval, setBookingSlotInterval] = useState(15);
 
   useEffect(() => {
     if (tenantData) {
@@ -285,18 +313,8 @@ export default function SettingsPage() {
       setLateGracePeriod(tenantData.lateArrivalGracePeriod || 15);
       setCancellationFee((tenantData.cancellationFee || 25).toFixed(2));
       setAutoCancel(tenantData.autoCancelLateArrivals || false);
-      setBookingSlotInterval(tenantData.bookingSlotInterval || 15);
     }
-  }, [
-    tenantData?.referrerReward,
-    tenantData?.newClientDiscount,
-    tenantData?.queueSkipTimeMinutes,
-    tenantData?.smsNotificationMessage,
-    tenantData?.lateArrivalGracePeriod,
-    tenantData?.cancellationFee,
-    tenantData?.autoCancelLateArrivals,
-    tenantData?.bookingSlotInterval,
-  ]);
+  }, [tenantData]);
 
   const handleSaveSettings = (section: string) => {
     if (!tenantData) return;
@@ -322,9 +340,6 @@ export default function SettingsPage() {
             break;
         case 'SMS Notifications':
             dataToUpdate = { smsNotificationMessage: smsMessage };
-            break;
-        case 'Online Booking':
-            dataToUpdate = { bookingSlotInterval: bookingSlotInterval as (15 | 30 | 60) };
             break;
     }
 
@@ -361,45 +376,6 @@ export default function SettingsPage() {
           </div>
           
           <ScheduleProfileManager />
-
-          <Card>
-            <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                    <Globe className="w-5 h-5 text-primary" />
-                    Online Booking
-                </CardTitle>
-                <CardDescription>
-                    Control how clients view and book appointments online.
-                </CardDescription>
-            </CardHeader>
-            <CardContent>
-                <div className="space-y-2">
-                    <Label htmlFor="slot-interval">Appointment Slot Interval</Label>
-                    <Select
-                        value={bookingSlotInterval.toString()}
-                        onValueChange={(val) => setBookingSlotInterval(parseInt(val))}
-                    >
-                        <SelectTrigger id="slot-interval">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="15">Every 15 minutes</SelectItem>
-                            <SelectItem value="30">Every 30 minutes</SelectItem>
-                            <SelectItem value="60">On the hour</SelectItem>
-                        </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                        Set the frequency of available time slots shown to clients.
-                    </p>
-                </div>
-            </CardContent>
-            <CardFooter>
-                <Button onClick={() => handleSaveSettings('Online Booking')}>
-                <Save className="mr-2 h-4 w-4" />
-                Save Booking Settings
-                </Button>
-            </CardFooter>
-        </Card>
 
           <Card>
             <CardHeader>
@@ -506,7 +482,7 @@ export default function SettingsPage() {
                   />
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Discount applied to the new client's first service.
+                  Discount amount for the new client on their first service.
                 </p>
               </div>
             </CardContent>
