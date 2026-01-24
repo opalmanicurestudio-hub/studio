@@ -27,7 +27,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { format } from 'date-fns';
-import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking, useDoc } from '@/firebase';
 import { collection, doc, writeBatch, query, where } from 'firebase/firestore';
 import { cn } from '@/lib/utils';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -248,15 +248,15 @@ const ScheduleProfileManager = () => {
 
 export default function SettingsPage() {
   const { toast } = useToast();
-  const { firestore, user } = useFirebase();
-  const tenantId = 'tenant-abc';
+  const { firestore } = useFirebase();
+  const tenantId = 'tenant-abc'; // Using a consistent tenant ID
 
-  const tenantQuery = useMemoFirebase(() => {
-    if (!user || !firestore) return null;
-    return query(collection(firestore, 'tenants'), where('userId', '==', user.uid));
-  }, [user, firestore]);
-  const { data: tenants, isLoading: tenantLoading } = useCollection<Tenant>(tenantQuery);
-  const tenantData = tenants?.[0];
+  const tenantDocRef = useMemoFirebase(() => {
+    if (!firestore) return null;
+    return doc(firestore, 'tenants', tenantId);
+  }, [firestore, tenantId]);
+
+  const { data: tenantData, isLoading: tenantLoading } = useDoc<Tenant>(tenantDocRef);
 
   const [referrerReward, setReferrerReward] = useState('10.00');
   const [newClientDiscount, setNewClientDiscount] = useState('15.00');
@@ -315,12 +315,11 @@ export default function SettingsPage() {
 
     if (Object.keys(dataToUpdate).length > 0) {
         updateDocumentNonBlocking(tenantRef, dataToUpdate);
+        toast({
+          title: `${section} Settings Saved`,
+          description: `Your ${section.toLowerCase()} settings have been updated.`,
+        });
     }
-
-    toast({
-      title: `${section} Settings Saved`,
-      description: `Your ${section.toLowerCase()} settings have been updated.`,
-    });
   };
 
   if (tenantLoading) {
@@ -558,7 +557,7 @@ export default function SettingsPage() {
                   rows={4}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Use placeholders like {'{clientName}'} and {'{businessName}'} which will be replaced automatically.
+                  Use placeholders like '{'{clientName}'}' and '{'{businessName}'}' which will be replaced automatically.
                 </p>
               </div>
             </CardContent>
