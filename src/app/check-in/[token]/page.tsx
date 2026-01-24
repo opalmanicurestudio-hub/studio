@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, CalendarIcon, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
-import { format, parseISO, addMinutes, addHours, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, areIntervalsOverlapping } from 'date-fns';
+import { format, parseISO, addMinutes, addHours, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, areIntervalsOverlapping, addDays } from 'date-fns';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { type Appointment, type Client, type Service } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
@@ -254,7 +254,7 @@ export default function CheckInPage() {
                 );
             case 'reschedule':
                 return (
-                    <div className="p-4 bg-muted/50 rounded-lg space-y-6">
+                    <Card className="bg-muted/50 p-4 space-y-6">
                         <div className="text-center">
                             <Check className="w-8 h-8 mx-auto text-green-500 mb-2"/>
                             <h3 className="font-bold text-lg">Payment Successful!</h3>
@@ -319,7 +319,7 @@ export default function CheckInPage() {
                         <Button variant="link" size="sm" className="mt-2 w-full" onClick={() => { setIsCancelled(false); handleUpdateStatus('cancelled'); }}>
                             No, Thanks. Cancel appointment.
                         </Button>
-                    </div>
+                    </Card>
                 );
             case 'confirmed':
                  return (
@@ -448,3 +448,5 @@ export default function CheckInPage() {
         </Card>
     );
 }
+
+    
