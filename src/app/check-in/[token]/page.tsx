@@ -9,11 +9,11 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, CalendarIcon, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { format, parseISO, addMinutes, addHours, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, areIntervalsOverlapping, addDays } from 'date-fns';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
-import { type Appointment, type Client, type Service } from '@/lib/data';
+import { type Appointment, type Client, type Service, type Event, type Tenant } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
-import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking, useDoc } from '@/firebase';
 import { collection, query, where, doc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -30,11 +30,12 @@ export default function CheckInPage() {
     const { toast } = useToast();
 
     const { firestore, isUserLoading } = useFirebase();
+    const tenantId = 'tenant-abc';
 
     // Fetch appointment by token
     const appointmentsQuery = useMemoFirebase(() => {
         if (!firestore || !token) return null;
-        return query(collection(firestore, 'tenants', 'tenant-abc', 'appointments'), where('checkInToken', '==', token));
+        return query(collection(firestore, 'tenants', tenantId, 'appointments'), where('checkInToken', '==', token));
     }, [firestore, token]);
     const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
 
@@ -59,14 +60,19 @@ export default function CheckInPage() {
         }
     }, [appointmentsFromDB]);
 
-    // Fetch all clients and services
-    const clientsQuery = useMemoFirebase(() => firestore ? collection(firestore, 'tenants', 'tenant-abc', 'clients') : null, [firestore]);
-    const servicesQuery = useMemoFirebase(() => firestore ? collection(firestore, 'tenants', 'tenant-abc', 'services') : null, [firestore]);
-    const allAppointmentsQuery = useMemoFirebase(() => firestore ? collection(firestore, 'tenants', 'tenant-abc', 'appointments') : null, [firestore]);
-    
+    // Fetch all other necessary data
+    const clientsQuery = useMemoFirebase(() => firestore ? collection(firestore, 'tenants', tenantId, 'clients') : null, [firestore, tenantId]);
+    const servicesQuery = useMemoFirebase(() => firestore ? collection(firestore, 'tenants', tenantId, 'services') : null, [firestore, tenantId]);
+    const allAppointmentsQuery = useMemoFirebase(() => firestore ? collection(firestore, 'tenants', tenantId, 'appointments') : null, [firestore, tenantId]);
+    const eventsQuery = useMemoFirebase(() => firestore ? collection(firestore, 'tenants', tenantId, 'events') : null, [firestore, tenantId]);
+    const tenantDocRef = useMemoFirebase(() => firestore ? doc(firestore, 'tenants', tenantId) : null, [firestore, tenantId]);
+
     const { data: allAppointments, isLoading: allAppointmentsLoading } = useCollection<Appointment>(allAppointmentsQuery);
     const { data: clients, isLoading: clientsLoading } = useCollection<Client>(clientsQuery);
     const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
+    const { data: allEvents, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
+    const { data: tenant, isLoading: tenantLoading } = useDoc<Tenant>(tenantDocRef);
+    
 
     const data = useMemo(() => {
         if (!appointment || !clients || !services) return null;
@@ -96,44 +102,68 @@ export default function CheckInPage() {
     const handleDateSelect = (day: Date) => setRescheduleDate(day);
     
     const timeSlots = useMemo(() => {
-        if (!data?.service || !rescheduleDate || !allAppointments) return [];
+    if (!data?.service || !rescheduleDate || !allAppointments || !tenant || !allEvents) return [];
+
+    const dayOfWeek = format(rescheduleDate, 'eeee').toLowerCase();
+    const businessDayHours = (tenant.businessHours as any)?.[dayOfWeek];
+
+    if (!businessDayHours || !businessDayHours.isOpen) {
+        return [];
+    }
+
+    const [openHour, openMinute] = businessDayHours.openTime.split(':').map(Number);
+    const [closeHour, closeMinute] = businessDayHours.closeTime.split(':').map(Number);
+    
+    const dayStartWithBusinessHours = setMinutes(setHours(startOfDay(rescheduleDate), openHour), openMinute);
+    const dayEndWithBusinessHours = setMinutes(setHours(startOfDay(rescheduleDate), closeHour), closeMinute);
+
+    const options: string[] = [];
+    
+    const busyIntervals = [
+        ...allAppointments
+            .filter(apt => apt.id !== appointment?.id && isSameDay(new Date(apt.startTime), rescheduleDate))
+            .map(apt => {
+                const service = services?.find(s => s.id === apt.serviceId);
+                const padBefore = service?.padBefore || 0;
+                const padAfter = service?.padAfter || 0;
+                return {
+                    start: addMinutes(new Date(apt.startTime), -padBefore),
+                    end: addMinutes(new Date(apt.endTime), padAfter)
+                }
+            }),
+        ...allEvents
+            .filter(evt => isSameDay(new Date(evt.startTime), rescheduleDate) && evt.type === 'blocked')
+             .map(evt => ({
+                start: new Date(evt.startTime),
+                end: new Date(evt.endTime),
+            }))
+    ];
+
+    for (let i = dayStartWithBusinessHours.getTime(); i < dayEndWithBusinessHours.getTime(); i += 15 * 60000) {
+        const potentialStartTime = new Date(i);
         
-        const options: string[] = [];
-        const dayStart = startOfDay(rescheduleDate);
-        
-        const existingAppointmentsOnDate = allAppointments.filter(
-            apt => apt.id !== appointment?.id && isSameDay(new Date(apt.startTime), rescheduleDate)
-        ).map(apt => {
-            const service = services?.find(s => s.id === apt.serviceId);
-            const padBefore = service?.padBefore || 0;
-            const padAfter = service?.padAfter || 0;
-            return {
-                start: addMinutes(new Date(apt.startTime), -padBefore),
-                end: addMinutes(new Date(apt.endTime), padAfter)
-            }
-        });
+        const totalDuration = data.service.duration + (data.service.padBefore || 0) + (data.service.padAfter || 0);
+        const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
 
-        for (let i = 8 * 4; i < 20 * 4; i++) { // From 8am to 8pm, in 15-min intervals
-            const minutes = i * 15;
-            const potentialStartTime = addMinutes(dayStart, minutes);
-            
-            const totalDuration = data.service.duration + (data.service.padBefore || 0) + (data.service.padAfter || 0);
-            const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
-
-            const isOverlapping = existingAppointmentsOnDate.some(apt =>
-                areIntervalsOverlapping(
-                    { start: potentialStartTime, end: potentialEndTime },
-                    { start: apt.start, end: apt.end },
-                    { inclusive: false }
-                )
-            );
-
-            if (!isOverlapping) {
-                options.push(format(potentialStartTime, 'HH:mm'));
-            }
+        if (potentialEndTime > dayEndWithBusinessHours) {
+            continue;
         }
-        return options;
-    }, [rescheduleDate, data?.service, allAppointments, services, appointment?.id]);
+
+        const isOverlapping = busyIntervals.some(interval =>
+            areIntervalsOverlapping(
+                { start: potentialStartTime, end: potentialEndTime },
+                interval,
+                { inclusive: false }
+            )
+        );
+
+        if (!isOverlapping) {
+            options.push(format(potentialStartTime, 'HH:mm'));
+        }
+    }
+    return options;
+}, [rescheduleDate, data?.service, allAppointments, services, appointment?.id, tenant, allEvents]);
+
 
 
     useEffect(() => {
@@ -159,9 +189,8 @@ export default function CheckInPage() {
     };
 
     const handleConfirmLate = () => {
-        // These would come from tenant settings in a real app
-        const gracePeriod = 15;
-        const autoCancelEnabled = true;
+        const gracePeriod = tenant?.lateArrivalGracePeriod || 15;
+        const autoCancelEnabled = tenant?.autoCancelLateArrivals || true;
 
         if (autoCancelEnabled && lateTime > gracePeriod) {
             setIsCancelled(true);
@@ -182,7 +211,7 @@ export default function CheckInPage() {
             type: 'income',
             context: 'Business',
             category: 'Cancellation Fee',
-            amount: 25.00, // This should come from tenant settings
+            amount: tenant?.cancellationFee || 25.00, // This should come from tenant settings
             paymentMethod: 'Card Online',
             hasReceipt: false,
         };
@@ -212,7 +241,7 @@ export default function CheckInPage() {
             status: 'confirmed',
             checkInStatus: 'pending',
             lateTimeMinutes: 0,
-            automatedRescheduleOffered: false,
+            automatedRescheduleOffered: true,
         });
 
         setRescheduleStep('confirmed');
@@ -226,10 +255,10 @@ export default function CheckInPage() {
                         <AlertTriangle className="w-8 h-8 mx-auto"/>
                         <h3 className="font-bold">Appointment Cancelled</h3>
                         <p className="text-xs">
-                            Your appointment has been automatically cancelled as your arrival time is outside the 15-minute grace period.
+                            Your appointment has been automatically cancelled as your arrival time is outside the {tenant?.lateArrivalGracePeriod || 15}-minute grace period.
                         </p>
                         <div className="pt-4 border-t border-destructive/20">
-                                <p className="text-sm">A cancellation fee of <strong>$25.00</strong> is required to rebook.</p>
+                                <p className="text-sm">A cancellation fee of <strong>${(tenant?.cancellationFee || 25).toFixed(2)}</strong> is required to rebook.</p>
                                 <Button className="mt-4 w-full bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => setRescheduleStep('payment')}>
                                 Pay Fee & Reschedule
                                 </Button>
@@ -242,11 +271,11 @@ export default function CheckInPage() {
                         <CreditCard className="w-8 h-8 mx-auto text-primary"/>
                         <h3 className="font-bold">Pay Cancellation Fee</h3>
                         <p className="text-xs text-muted-foreground">
-                           Please confirm to pay the $25.00 cancellation fee with your card on file.
+                           Please confirm to pay the ${(tenant?.cancellationFee || 25).toFixed(2)} cancellation fee with your card on file.
                         </p>
                         <div className="pt-4">
                              <Button className="mt-4 w-full" onClick={handlePayFee}>
-                                Pay $25.00 Now
+                                Pay ${(tenant?.cancellationFee || 25).toFixed(2)} Now
                              </Button>
                              <Button variant="link" size="sm" className="mt-2" onClick={() => setRescheduleStep('initial')}>Cancel</Button>
                         </div>
@@ -261,7 +290,6 @@ export default function CheckInPage() {
                             <p className="text-sm text-muted-foreground">Select a new date and time for your appointment.</p>
                         </div>
 
-                        {/* NEW DATE/TIME PICKER UI */}
                         <div className="space-y-4">
                             <div>
                                 <div className="flex justify-between items-center mb-2">
@@ -332,7 +360,7 @@ export default function CheckInPage() {
     }
 
 
-    const isLoading = isUserLoading || appointmentsLoading || clientsLoading || servicesLoading || allAppointmentsLoading;
+    const isLoading = isUserLoading || appointmentsLoading || clientsLoading || servicesLoading || allAppointmentsLoading || tenantLoading || eventsLoading;
 
     if (isLoading) {
         return (
@@ -406,18 +434,18 @@ export default function CheckInPage() {
                             </div>
                         </RadioGroup>
                         
-                        {lateTime >= 15 && (
+                        {lateTime >= (tenant?.lateArrivalGracePeriod || 15) && (
                             <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-center">
                                 <AlertTriangle className="w-6 h-6 mx-auto mb-2"/>
                                 <p className="font-semibold">Please Be Aware</p>
-                                <p className="text-xs">Arrivals more than 15 minutes late may need to be rescheduled or have their service shortened. A fee of $25.00 may apply.</p>
+                                <p className="text-xs">Arrivals more than {tenant?.lateArrivalGracePeriod || 15} minutes late may need to be rescheduled. A fee of ${(tenant?.cancellationFee || 25).toFixed(2)} may apply.</p>
                             </div>
                         )}
 
                         <div className="grid grid-cols-2 gap-4">
                             <Button variant="outline" onClick={() => {setShowLateOptions(false); setLateTime(0)}}>Cancel</Button>
                              <Button onClick={handleConfirmLate} disabled={lateTime === 0}>
-                                {lateTime >= 15 ? 'I Understand' : 'Confirm'}
+                                {lateTime >= (tenant?.lateArrivalGracePeriod || 15) ? 'I Understand' : 'Confirm'}
                              </Button>
                         </div>
                     </div>
@@ -449,4 +477,3 @@ export default function CheckInPage() {
     );
 }
 
-    

@@ -374,6 +374,33 @@ export type TicketData = {
   service: Service;
 };
 
+export type DayHours = {
+    isOpen: boolean;
+    openTime: string;
+    closeTime: string;
+};
+
+export type Tenant = {
+  id: string;
+  name: string;
+  userId: string;
+  subscriptionStatus: 'active' | 'inactive' | 'trialing' | 'past_due' | 'canceled';
+  subscriptionTier: 'none' | 'pro';
+  queueSkipTimeMinutes?: number;
+  businessHours?: {
+    monday: DayHours;
+    tuesday: DayHours;
+    wednesday: DayHours;
+    thursday: DayHours;
+    friday: DayHours;
+    saturday: DayHours;
+    sunday: DayHours;
+  };
+  lateArrivalGracePeriod?: number;
+  autoCancelLateArrivals?: boolean;
+  cancellationFee?: number;
+};
+
 
 export type Bill = BillDefinition;
 export const bills: Bill[] = billDefinitions;
