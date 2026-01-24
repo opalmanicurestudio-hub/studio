@@ -35,6 +35,36 @@
       "description": "User avatar",
       "imageUrl": "https://images.unsplash.com/photo-1522556189639-b150ed9c4330?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw1fHxtYW4lMjBzbWlsaW5nfGVufDB8fHx8MTc2Nzc3NjY5MXww&ixlib=rb-4.1.0&q=80&w=1080",
       "imageHint": "man smiling"
+    },
+    {
+      "id": "service-haircut",
+      "description": "A stylish haircut",
+      "imageUrl": "https://images.unsplash.com/photo-1599334752327-9a4c5a3c0e5a?q=80&w=1287&auto=format&fit=crop",
+      "imageHint": "haircut styling"
+    },
+    {
+      "id": "service-manicure",
+      "description": "A classic manicure",
+      "imageUrl": "https://images.unsplash.com/photo-1604654894610-df62318589c8?q=80&w=1287&auto=format&fit=crop",
+      "imageHint": "manicure nails"
+    },
+    {
+      "id": "service-facial",
+      "description": "A relaxing facial treatment",
+      "imageUrl": "https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?q=80&w=1287&auto=format&fit=crop",
+      "imageHint": "facial spa"
+    },
+    {
+      "id": "service-balayage",
+      "description": "A beautiful hair balayage",
+      "imageUrl": "https://images.unsplash.com/photo-1632230198428-21943572d476?q=80&w=1287&auto=format&fit=crop",
+      "imageHint": "hair color"
+    },
+    {
+      "id": "service-gelx",
+      "description": "A gel-x manicure",
+      "imageUrl": "https://images.unsplash.com/photo-1604654894610-df62318589c8?q=80&w=1287&auto=format&fit=crop",
+      "imageHint": "gel nails"
     }
   ]
 }

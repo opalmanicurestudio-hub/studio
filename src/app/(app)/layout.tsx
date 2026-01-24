@@ -9,12 +9,13 @@ import { usePathname } from 'next/navigation';
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isSubscriptionPage = pathname.startsWith('/subscriptions');
+  const isBookingPage = pathname.startsWith('/book');
 
-  // If on the subscription page, render a simple, centered layout without the sidebar.
-  if (isSubscriptionPage) {
+  // If on a public-facing page, render a simple layout without the app shell.
+  if (isSubscriptionPage || isBookingPage) {
     return (
       <AuthGuard>
-        <div className="flex min-h-screen w-full items-center justify-center bg-muted/40 p-4">
+        <div className="bg-muted/40">
           {children}
         </div>
       </AuthGuard>
