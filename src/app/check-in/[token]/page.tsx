@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -7,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Clock, Car, MapPin, Check, AlertTriangle, X, CreditCard, Loader, CalendarIcon, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
-import { format, parseISO, addMinutes, addHours, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, areIntervalsOverlapping, addDays } from 'date-fns';
+import { format, parseISO, addMinutes, addHours, isBefore, startOfDay, setHours, setMinutes, eachDayOfInterval, startOfWeek, isSameDay, subWeeks, addWeeks, areIntervalsOverlapping, addDays, getDay } from 'date-fns';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { type Appointment, type Client, type Service, type Event, type Tenant } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
@@ -67,12 +68,30 @@ export default function CheckInPage() {
     const eventsQuery = useMemoFirebase(() => firestore ? collection(firestore, 'tenants', tenantId, 'events') : null, [firestore, tenantId]);
     const tenantDocRef = useMemoFirebase(() => firestore ? doc(firestore, 'tenants', tenantId) : null, [firestore, tenantId]);
 
-    const { data: allAppointments, isLoading: allAppointmentsLoading } = useCollection<Appointment>(allAppointmentsQuery);
+    const { data: allAppointmentsFromDB, isLoading: allAppointmentsLoading } = useCollection<Appointment>(allAppointmentsQuery);
     const { data: clients, isLoading: clientsLoading } = useCollection<Client>(clientsQuery);
     const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
-    const { data: allEvents, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
+    const { data: allEventsFromDB, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
     const { data: tenant, isLoading: tenantLoading } = useDoc<Tenant>(tenantDocRef);
     
+    const allAppointments = useMemo(() => {
+        if (!allAppointmentsFromDB) return [];
+        return allAppointmentsFromDB.map(apt => ({
+            ...apt,
+            startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : new Date(apt.startTime),
+            endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : new Date(apt.endTime),
+        }));
+    }, [allAppointmentsFromDB]);
+    
+    const allEvents = useMemo(() => {
+        if (!allEventsFromDB) return [];
+        return allEventsFromDB.map(evt => ({
+            ...evt,
+            startTime: (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : new Date(evt.startTime),
+            endTime: (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : new Date(evt.endTime),
+        }));
+    }, [allEventsFromDB]);
+
 
     const data = useMemo(() => {
         if (!appointment || !clients || !services) return null;
@@ -92,8 +111,6 @@ export default function CheckInPage() {
     const [rescheduleDate, setRescheduleDate] = useState<Date>(new Date());
     const [rescheduleTime, setRescheduleTime] = useState<string>('');
     
-    const nextAvailableSlot = useMemo(() => addHours(new Date(), 2), []);
-
     const weekStart = useMemo(() => startOfWeek(rescheduleDate), [rescheduleDate]);
     const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
 
@@ -102,67 +119,69 @@ export default function CheckInPage() {
     const handleDateSelect = (day: Date) => setRescheduleDate(day);
     
     const timeSlots = useMemo(() => {
-    if (!data?.service || !rescheduleDate || !allAppointments || !tenant || !allEvents) return [];
+        if (!data?.service || !rescheduleDate || !allAppointments || !tenant || !allEvents) return [];
 
-    const dayOfWeek = format(rescheduleDate, 'eeee').toLowerCase();
-    const businessDayHours = (tenant.businessHours as any)?.[dayOfWeek];
-
-    if (!businessDayHours || !businessDayHours.isOpen) {
-        return [];
-    }
-
-    const [openHour, openMinute] = businessDayHours.openTime.split(':').map(Number);
-    const [closeHour, closeMinute] = businessDayHours.closeTime.split(':').map(Number);
-    
-    const dayStartWithBusinessHours = setMinutes(setHours(startOfDay(rescheduleDate), openHour), openMinute);
-    const dayEndWithBusinessHours = setMinutes(setHours(startOfDay(rescheduleDate), closeHour), closeMinute);
-
-    const options: string[] = [];
-    
-    const busyIntervals = [
-        ...allAppointments
-            .filter(apt => apt.id !== appointment?.id && isSameDay(new Date(apt.startTime), rescheduleDate))
-            .map(apt => {
-                const service = services?.find(s => s.id === apt.serviceId);
-                const padBefore = service?.padBefore || 0;
-                const padAfter = service?.padAfter || 0;
-                return {
-                    start: addMinutes(new Date(apt.startTime), -padBefore),
-                    end: addMinutes(new Date(apt.endTime), padAfter)
-                }
-            }),
-        ...allEvents
-            .filter(evt => isSameDay(new Date(evt.startTime), rescheduleDate) && evt.type === 'blocked')
-             .map(evt => ({
-                start: new Date(evt.startTime),
-                end: new Date(evt.endTime),
-            }))
-    ];
-
-    for (let i = dayStartWithBusinessHours.getTime(); i < dayEndWithBusinessHours.getTime(); i += 15 * 60000) {
-        const potentialStartTime = new Date(i);
+        const dayOfWeekIndex = getDay(rescheduleDate);
+        const dayName = format(rescheduleDate, 'eeee').toLowerCase();
         
-        const totalDuration = data.service.duration + (data.service.padBefore || 0) + (data.service.padAfter || 0);
-        const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
+        const businessDayHours = (tenant.businessHours as any)?.[dayName];
 
-        if (potentialEndTime > dayEndWithBusinessHours) {
-            continue;
+        if (!businessDayHours || !businessDayHours.isOpen) {
+            return [];
         }
 
-        const isOverlapping = busyIntervals.some(interval =>
-            areIntervalsOverlapping(
-                { start: potentialStartTime, end: potentialEndTime },
-                interval,
-                { inclusive: false }
-            )
-        );
+        const [openHour, openMinute] = businessDayHours.openTime.split(':').map(Number);
+        const [closeHour, closeMinute] = businessDayHours.closeTime.split(':').map(Number);
+        
+        const dayStartWithBusinessHours = setMinutes(setHours(startOfDay(rescheduleDate), openHour), openMinute);
+        const dayEndWithBusinessHours = setMinutes(setHours(startOfDay(rescheduleDate), closeHour), closeMinute);
 
-        if (!isOverlapping) {
-            options.push(format(potentialStartTime, 'HH:mm'));
+        const options: string[] = [];
+        
+        const busyIntervals = [
+            ...allAppointments
+                .filter(apt => apt.id !== appointment?.id && isSameDay(apt.startTime, rescheduleDate))
+                .map(apt => {
+                    const service = services?.find(s => s.id === apt.serviceId);
+                    const padBefore = service?.padBefore || 0;
+                    const padAfter = service?.padAfter || 0;
+                    return {
+                        start: addMinutes(apt.startTime, -padBefore),
+                        end: addMinutes(apt.endTime, padAfter)
+                    }
+                }),
+            ...allEvents
+                .filter(evt => isSameDay(evt.startTime, rescheduleDate) && evt.type === 'blocked')
+                 .map(evt => ({
+                    start: evt.startTime,
+                    end: evt.endTime,
+                }))
+        ];
+
+        for (let i = dayStartWithBusinessHours.getTime(); i < dayEndWithBusinessHours.getTime(); i += 15 * 60000) {
+            const potentialStartTime = new Date(i);
+            
+            const totalDuration = data.service.duration + (data.service.padBefore || 0) + (data.service.padAfter || 0);
+            const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
+
+            if (potentialEndTime > dayEndWithBusinessHours) {
+                continue;
+            }
+
+            const isOverlapping = busyIntervals.some(interval =>
+                areIntervalsOverlapping(
+                    { start: potentialStartTime, end: potentialEndTime },
+                    interval,
+                    { inclusive: false }
+                )
+            );
+
+            if (!isOverlapping) {
+                options.push(format(potentialStartTime, 'HH:mm'));
+            }
         }
-    }
-    return options;
-}, [rescheduleDate, data?.service, allAppointments, services, appointment?.id, tenant, allEvents]);
+        return options;
+    }, [rescheduleDate, data?.service, allAppointments, services, appointment?.id, tenant, allEvents]);
 
 
 
@@ -282,6 +301,11 @@ export default function CheckInPage() {
                     </div>
                 );
             case 'reschedule':
+                const isDayClosed = (day: Date) => {
+                    const dayName = format(day, 'eeee').toLowerCase();
+                    const dayHours = (tenant?.businessHours as any)?.[dayName];
+                    return !dayHours || !dayHours.isOpen;
+                }
                 return (
                     <Card className="bg-muted/50 p-4 space-y-6">
                         <div className="text-center">
@@ -300,26 +324,25 @@ export default function CheckInPage() {
                                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleNextWeek}><ChevronRight className="w-4 h-4"/></Button>
                                     </div>
                                 </div>
-                                <ScrollArea className="w-full">
-                                    <div className="flex gap-2 pb-2">
-                                        {weekDays.map(day => (
-                                            <button
-                                                key={day.toISOString()}
-                                                onClick={() => handleDateSelect(day)}
-                                                className={cn(
-                                                    "flex flex-col items-center justify-center p-2 rounded-lg border w-14 h-16 transition-colors flex-shrink-0",
-                                                    isSameDay(day, rescheduleDate)
-                                                        ? "bg-primary text-primary-foreground border-primary"
-                                                        : "bg-background hover:bg-accent"
-                                                )}
-                                            >
-                                                <span className="text-xs">{format(day, 'E')}</span>
-                                                <span className="font-bold text-lg">{format(day, 'd')}</span>
-                                            </button>
-                                        ))}
-                                    </div>
-                                    <ScrollBar orientation="horizontal" />
-                                </ScrollArea>
+                                <div className="grid grid-cols-7 gap-2">
+                                    {weekDays.map(day => (
+                                        <button
+                                            key={day.toISOString()}
+                                            onClick={() => handleDateSelect(day)}
+                                            disabled={isDayClosed(day)}
+                                            className={cn(
+                                                "flex flex-col items-center justify-center p-2 rounded-lg border w-full aspect-square transition-colors",
+                                                isSameDay(day, rescheduleDate)
+                                                    ? "bg-primary text-primary-foreground border-primary"
+                                                    : "bg-background hover:bg-accent",
+                                                isDayClosed(day) && "bg-muted/50 text-muted-foreground cursor-not-allowed"
+                                            )}
+                                        >
+                                            <span className="text-xs">{format(day, 'E')}</span>
+                                            <span className="font-bold text-lg">{format(day, 'd')}</span>
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
                             
                             <div>
@@ -476,4 +499,5 @@ export default function CheckInPage() {
         </Card>
     );
 }
+
 
