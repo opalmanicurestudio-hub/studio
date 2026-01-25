@@ -277,6 +277,45 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         return 0;
     }, [service]);
     
+    const {
+      cancellationPolicyText,
+      lateArrivalPolicyText,
+      noShowPolicyText
+    } = useMemo(() => {
+        const genPolicy = (type: 'cancellation' | 'noShow' | 'late') => {
+            if (!tenant) return null;
+
+            switch (type) {
+                case 'cancellation':
+                    if (tenant.cancellationPolicy) return tenant.cancellationPolicy;
+                    if ((tenant.cancellationWindowHours || 0) > 0 && (tenant.cancellationFee || 0) > 0) {
+                        return `Cancellations made within ${tenant.cancellationWindowHours} hours of the scheduled appointment time will be subject to a fee of $${tenant.cancellationFee?.toFixed(2)}.`;
+                    }
+                    return null;
+                case 'noShow':
+                    if (tenant.noShowPolicy) return tenant.noShowPolicy;
+                    if ((tenant.noShowFee || 0) > 0) {
+                        return `Failure to show up for a scheduled appointment without notice will result in a no-show fee of $${tenant.noShowFee?.toFixed(2)}.`;
+                    }
+                    return null;
+                case 'late':
+                    if (tenant.lateArrivalPolicy) return tenant.lateArrivalPolicy;
+                    if ((tenant.lateArrivalGracePeriod || 0) > 0) {
+                        return `We offer a grace period of ${tenant.lateArrivalGracePeriod} minutes. Arriving later than this may require rescheduling and could be considered a no-show.`;
+                    }
+                    return null;
+                default:
+                    return null;
+            }
+        };
+
+        return {
+            cancellationPolicyText: genPolicy('cancellation'),
+            lateArrivalPolicyText: genPolicy('late'),
+            noShowPolicyText: genPolicy('noShow'),
+        };
+    }, [tenant]);
+    
     const steps = useMemo(() => {
         const flow = ['staff', 'dateTime', 'details'];
         if (requiredForms.length > 0) flow.push('consents');
@@ -502,14 +541,19 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                 </Card>
                                 <div className="space-y-3 p-4 border rounded-lg">
                                     <h4 className="font-semibold">Booking Policies</h4>
-                                    <ScrollArea className="h-24 text-xs text-muted-foreground space-y-2">
-                                        {tenant?.cancellationPolicy && <p><strong>Cancellation:</strong> {tenant.cancellationPolicy}</p>}
-                                        {tenant?.lateArrivalPolicy && <p><strong>Late Arrival:</strong> {tenant.lateArrivalPolicy}</p>}
-                                        {tenant?.noShowPolicy && <p><strong>No-Show:</strong> {tenant.noShowPolicy}</p>}
+                                    <ScrollArea className="h-24 text-xs space-y-2">
+                                        {cancellationPolicyText && <p className="text-foreground"><strong className="text-muted-foreground">Cancellation:</strong> {cancellationPolicyText}</p>}
+                                        {lateArrivalPolicyText && <p className="text-foreground"><strong className="text-muted-foreground">Late Arrival:</strong> {lateArrivalPolicyText}</p>}
+                                        {noShowPolicyText && <p className="text-foreground"><strong className="text-muted-foreground">No-Show:</strong> {noShowPolicyText}</p>}
+                                        {!cancellationPolicyText && !lateArrivalPolicyText && !noShowPolicyText && (
+                                            <p className="text-muted-foreground text-center italic">No booking policies have been set by this business.</p>
+                                        )}
                                     </ScrollArea>
                                     <div className="flex items-center space-x-2 pt-2">
                                         <Checkbox id="terms" checked={agreedToPolicies} onCheckedChange={(checked) => setAgreedToPolicies(!!checked)} />
-                                        <label htmlFor="terms" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">I have read and agree to the policies.</label>
+                                        <label htmlFor="terms" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                                            I have read and agree to the policies.
+                                        </label>
                                     </div>
                                 </div>
                             </div>
