@@ -304,6 +304,9 @@ export default function SettingsPage() {
   const [lateGracePeriod, setLateGracePeriod] = useState(15);
   const [cancellationFee, setCancellationFee] = useState('25.00');
   const [autoCancel, setAutoCancel] = useState(false);
+  const [cancellationPolicy, setCancellationPolicy] = useState('');
+  const [lateArrivalPolicy, setLateArrivalPolicy] = useState('');
+  const [noShowPolicy, setNoShowPolicy] = useState('');
 
   useEffect(() => {
     if (tenantData) {
@@ -314,6 +317,9 @@ export default function SettingsPage() {
       setLateGracePeriod(tenantData.lateArrivalGracePeriod || 15);
       setCancellationFee((tenantData.cancellationFee || 25).toFixed(2));
       setAutoCancel(tenantData.autoCancelLateArrivals || false);
+      setCancellationPolicy(tenantData.cancellationPolicy || '');
+      setLateArrivalPolicy(tenantData.lateArrivalPolicy || '');
+      setNoShowPolicy(tenantData.noShowPolicy || '');
     }
   }, [tenantData]);
 
@@ -327,7 +333,10 @@ export default function SettingsPage() {
             dataToUpdate = {
                 lateArrivalGracePeriod: lateGracePeriod,
                 cancellationFee: parseFloat(cancellationFee),
-                autoCancelLateArrivals: autoCancel
+                autoCancelLateArrivals: autoCancel,
+                cancellationPolicy: cancellationPolicy,
+                lateArrivalPolicy: lateArrivalPolicy,
+                noShowPolicy: noShowPolicy,
             };
             break;
         case 'Referral Program':
@@ -388,49 +397,82 @@ export default function SettingsPage() {
                 Define rules for appointments, cancellations, and late arrivals.
               </CardDescription>
             </CardHeader>
-            <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                <Label htmlFor="late-grace-period">Late Arrival Grace Period (minutes)</Label>
-                <Input
-                    id="late-grace-period"
-                    type="number"
-                    value={lateGracePeriod}
-                    onChange={(e) => setLateGracePeriod(Number(e.target.value))}
-                    placeholder="e.g., 15"
-                />
-                <p className="text-xs text-muted-foreground">
-                    Time after which a client is considered late.
-                </p>
+            <CardContent className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                    <Label htmlFor="late-grace-period">Late Arrival Grace Period (minutes)</Label>
+                    <Input
+                        id="late-grace-period"
+                        type="number"
+                        value={lateGracePeriod}
+                        onChange={(e) => setLateGracePeriod(Number(e.target.value))}
+                        placeholder="e.g., 15"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                        Time after which a client is considered late.
+                    </p>
+                    </div>
+                    <div className="space-y-2">
+                    <Label htmlFor="cancellation-fee">Late Cancellation / No-Show Fee</Label>
+                    <div className="relative">
+                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                        id="cancellation-fee"
+                        type="number"
+                        value={cancellationFee}
+                        onChange={(e) => setCancellationFee(e.target.value)}
+                        placeholder="25.00"
+                        className="pl-8"
+                        />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                        Fee charged for late cancellations or no-shows.
+                    </p>
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg border p-4 md:col-span-2">
+                    <div className="space-y-0.5">
+                        <Label htmlFor="auto-cancel" className="font-semibold">Auto-Cancel Late Arrivals</Label>
+                        <p className="text-xs text-muted-foreground">
+                            Automatically cancel appointments if the client is late beyond the grace period.
+                        </p>
+                    </div>
+                    <Switch
+                        id="auto-cancel"
+                        checked={autoCancel}
+                        onCheckedChange={setAutoCancel}
+                    />
+                    </div>
+                </div>
+                 <div className="space-y-2">
+                    <Label htmlFor="cancellation-policy">Cancellation Policy</Label>
+                    <Textarea
+                        id="cancellation-policy"
+                        value={cancellationPolicy}
+                        onChange={(e) => setCancellationPolicy(e.target.value)}
+                        placeholder="e.g., Cancellations must be made 24 hours in advance..."
+                        rows={3}
+                    />
+                    <p className="text-xs text-muted-foreground">Displayed to clients during booking.</p>
                 </div>
                 <div className="space-y-2">
-                <Label htmlFor="cancellation-fee">Late Cancellation / No-Show Fee</Label>
-                <div className="relative">
-                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                    id="cancellation-fee"
-                    type="number"
-                    value={cancellationFee}
-                    onChange={(e) => setCancellationFee(e.target.value)}
-                    placeholder="25.00"
-                    className="pl-8"
+                    <Label htmlFor="late-arrival-policy">Late Arrival Policy</Label>
+                    <Textarea
+                        id="late-arrival-policy"
+                        value={lateArrivalPolicy}
+                        onChange={(e) => setLateArrivalPolicy(e.target.value)}
+                        placeholder="e.g., Arrivals later than 15 minutes may need to be rescheduled..."
+                        rows={3}
                     />
                 </div>
-                <p className="text-xs text-muted-foreground">
-                    Fee charged for late cancellations or no-shows.
-                </p>
-                </div>
-                <div className="flex items-center justify-between rounded-lg border p-4 md:col-span-2">
-                <div className="space-y-0.5">
-                    <Label htmlFor="auto-cancel" className="font-semibold">Auto-Cancel Late Arrivals</Label>
-                    <p className="text-xs text-muted-foreground">
-                        Automatically cancel appointments if the client is late beyond the grace period.
-                    </p>
-                </div>
-                <Switch
-                    id="auto-cancel"
-                    checked={autoCancel}
-                    onCheckedChange={setAutoCancel}
-                />
+                <div className="space-y-2">
+                    <Label htmlFor="no-show-policy">No-Show Policy</Label>
+                    <Textarea
+                        id="no-show-policy"
+                        value={noShowPolicy}
+                        onChange={(e) => setNoShowPolicy(e.target.value)}
+                        placeholder="e.g., No-shows will be charged the full service amount..."
+                        rows={3}
+                    />
                 </div>
             </CardContent>
             <CardFooter>
@@ -565,4 +607,3 @@ export default function SettingsPage() {
     </div>
   );
 }
-
