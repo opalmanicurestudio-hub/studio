@@ -54,6 +54,7 @@ import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addM
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Card, CardContent } from '../ui/card';
 import { nanoid } from 'nanoid';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 
 const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: Date) => void }) => {
     const isMobile = useIsMobile();
@@ -263,10 +264,20 @@ const AddAppointmentForm = ({
                             <Label htmlFor="staff">Staff Member</Label>
                             <Select value={selectedStaffId} onValueChange={setSelectedStaffId}>
                                 <SelectTrigger id="staff">
-                                <SelectValue placeholder="Select a staff member" />
+                                    <SelectValue placeholder="Select a staff member" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                {staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                                {staff.map(s => (
+                                    <SelectItem key={s.id} value={s.id}>
+                                        <div className="flex items-center gap-2">
+                                            <Avatar className="w-6 h-6">
+                                                <AvatarImage src={s.avatarUrl} />
+                                                <AvatarFallback>{s.name.charAt(0)}</AvatarFallback>
+                                            </Avatar>
+                                            <span>{s.name}</span>
+                                        </div>
+                                    </SelectItem>
+                                ))}
                                 </SelectContent>
                             </Select>
                         </div>
