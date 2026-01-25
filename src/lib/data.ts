@@ -1,5 +1,4 @@
 
-
 import { BillDefinition, billDefinitions, billInstances, transactions } from './financial-data';
 import { addDays, subDays, setHours, setMinutes, startOfDay, parseISO } from 'date-fns';
 import { nanoid } from 'nanoid';
@@ -250,8 +249,8 @@ export type Appointment = {
   clientPhone?: string;
   serviceId: string;
   staffId?: string;
-  startTime: string;
-  endTime: string;
+  startTime: any;
+  endTime: any;
   status: 'confirmed' | 'completed' | 'cancelled' | 'deposit_pending' | 'ready_for_checkout' | 'servicing';
   addOnIds?: string[];
   inspirationPhotoUrl?: string;
@@ -277,8 +276,8 @@ export type Event = {
   id: string;
   title: string;
   type: 'personal' | 'business' | 'blocked';
-  startTime: string;
-  endTime: string;
+  startTime: any;
+  endTime: any;
   allDay?: boolean;
   staffId?: string;
   notes?: string;

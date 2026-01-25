@@ -64,7 +64,7 @@ const serviceSchema = z.object({
   
   products: z.array(z.any()).optional(),
   equipment: z.array(z.any()).optional(),
-  addOns: z.array(z.any()).optional(),
+  compatibleAddOnIds: z.array(z.string()).optional(),
   
   depositType: z.enum(['none', 'deposit', 'full', 'breakeven']),
   depositSubType: z.enum(['flat', 'percentage']).optional(),
@@ -116,7 +116,7 @@ const EditServiceForm = ({
     
     const selectedProducts = watch('products') || [];
     const selectedEquipment = watch('equipment') || [];
-    const selectedAddOns = watch('addOns') || [];
+    const compatibleAddOnIds = watch('compatibleAddOnIds') || [];
     const isAddon = watch('isAddon');
     const depositType = watch('depositType');
 
@@ -149,8 +149,7 @@ const EditServiceForm = ({
     };
     
     const handleAddOnSelect = (addOns: Service[]) => {
-        setValue('addOns', addOns, { shouldDirty: true, shouldTouch: true });
-        setIsAddOnSelectorOpen(false);
+        setValue('compatibleAddOnIds', addOns.map(a => a.id), { shouldDirty: true, shouldTouch: true });
     };
 
     const removeProduct = (productId: string) => {
@@ -163,8 +162,10 @@ const EditServiceForm = ({
     };
     
     const removeAddOn = (addOnId: string) => {
-        setValue('addOns', selectedAddOns.filter((a: any) => a.id !== addOnId), { shouldDirty: true, shouldTouch: true });
+        setValue('compatibleAddOnIds', compatibleAddOnIds.filter((id: string) => id !== addOnId), { shouldDirty: true, shouldTouch: true });
     };
+
+    const selectedAddOns = allServices.filter(s => compatibleAddOnIds.includes(s.id));
 
     const price = watch('price');
     const finalPrice = price || 0;
@@ -288,7 +289,6 @@ const EditServiceForm = ({
                     )}
                 </CardContent>
              </Card>
-
              <Card>
                  <CardHeader><CardTitle>Visibility & Confirmation</CardTitle></CardHeader>
                  <CardContent className="space-y-4">
@@ -332,7 +332,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
     resolver: zodResolver(serviceSchema),
   });
 
-  const { watch } = methods;
+  const { watch, reset, trigger } = methods;
   const values = watch();
   const { duration, padBefore, padAfter, products, equipment } = values;
 
@@ -362,7 +362,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
             price: service.price,
             products: service.products || [],
             equipment: service.equipment || [],
-            addOns: [], // This should come from service data if available
+            compatibleAddOnIds: service.compatibleAddOnIds || [],
             depositType: service.depositType || 'none',
             depositSubType: service.depositSubType,
             depositAmount: service.depositAmount,
@@ -435,6 +435,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
         depositType: data.depositType,
         depositSubType: data.depositSubType,
         depositAmount: data.depositAmount,
+        compatibleAddOnIds: data.compatibleAddOnIds,
       };
       
       onServiceUpdated(updatedService);
@@ -465,8 +466,10 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
         </div>
         
         <DialogFooter className={isMobile ? "p-4 border-t" : "p-6 border-t"}>
-          <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
-          <Button type="submit" form={formId}>Save Changes</Button>
+          <div className='flex justify-between w-full'>
+            <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
+            <Button type="submit" form={formId}>Save Changes</Button>
+          </div>
         </DialogFooter>
       </form>
     </FormProvider>
