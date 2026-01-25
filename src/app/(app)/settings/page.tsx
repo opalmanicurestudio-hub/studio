@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
@@ -302,28 +301,23 @@ export default function SettingsPage() {
 
     // Save tenant settings
     const tenantRef = doc(firestore, 'tenants', tenantId);
-    const updatedTenantFields = {
-        ...tenantData,
-        referrerReward: parseFloat(tenantData.referrerReward as any || '0'),
-        newClientDiscount: parseFloat(tenantData.newClientDiscount as any || '0'),
-        queueSkipTimeMinutes: Number(tenantData.queueSkipTimeMinutes || 0),
-        lateArrivalGracePeriod: Number(tenantData.lateArrivalGracePeriod || 0),
-        cancellationFee: parseFloat(tenantData.cancellationFee as any || '0'),
-        noShowFee: parseFloat(tenantData.noShowFee as any || '0'),
-        cancellationWindowHours: Number(tenantData.cancellationWindowHours || 0),
-    };
-    batch.update(tenantRef, updatedTenantFields);
+    
+    // Create a clean object with only the fields that should be saved, ensuring correct types.
+    const { id: tenantIdToSave, userId, ...tenantFieldsToSave } = tenantData;
+    batch.update(tenantRef, tenantFieldsToSave);
 
-    // Save schedule profile settings
+    // Save schedule profiles
     scheduleProfiles.forEach(profile => {
         const profileRef = doc(firestore, `tenants/${tenantId}/scheduleProfiles`, profile.id);
-        batch.update(profileRef, profile);
+        const { id: profileId, ...profileData } = profile;
+        batch.update(profileRef, profileData);
     });
+
 
     batch.commit().then(() => {
         toast({
             title: `Settings Saved`,
-            description: `Your settings have been updated.`,
+            description: `Your changes have been updated.`,
         });
         setIsEditing(false);
     }).catch(error => {
@@ -338,20 +332,26 @@ export default function SettingsPage() {
 
   const generatePolicy = (type: 'cancellation' | 'noShow' | 'late') => {
       let policy = '';
+      const fee = type === 'cancellation' ? tenantData.cancellationFee : tenantData.noShowFee;
+      const window = tenantData.cancellationWindowHours;
+      const grace = tenantData.lateArrivalGracePeriod;
+
       switch (type) {
           case 'cancellation':
-              if ((tenantData.cancellationWindowHours || 0) > 0 && (tenantData.cancellationFee || 0) > 0) {
-                  policy = `Cancellations made within ${tenantData.cancellationWindowHours} hours of the scheduled appointment time will be subject to a fee of $${tenantData.cancellationFee?.toFixed(2)}.`;
+              if ((window || 0) > 0 && (fee || 0) > 0) {
+                  policy = `Cancellations made within ${window} hours of the scheduled appointment time will be subject to a fee of $${fee?.toFixed(2)}.`;
+              } else if ((window || 0) > 0) {
+                  policy = `Please provide at least ${window} hours notice for any cancellations.`;
               }
               break;
           case 'noShow':
-              if ((tenantData.noShowFee || 0) > 0) {
-                  policy = `Failure to show up for a scheduled appointment without notice will result in a no-show fee of $${tenantData.noShowFee?.toFixed(2)}.`;
+              if ((fee || 0) > 0) {
+                  policy = `Failure to show up for a scheduled appointment without notice will result in a no-show fee of $${fee?.toFixed(2)}.`;
               }
               break;
           case 'late':
-              if ((tenantData.lateArrivalGracePeriod || 0) > 0) {
-                  policy = `We offer a grace period of ${tenantData.lateArrivalGracePeriod} minutes. Arriving later than this may require rescheduling and could be considered a no-show.`;
+              if ((grace || 0) > 0) {
+                  policy = `We offer a grace period of ${grace} minutes. Arriving later than this may require rescheduling and could be considered a no-show.`;
               }
               break;
       }
@@ -383,14 +383,14 @@ export default function SettingsPage() {
                 Manage your application-wide settings and configurations.
               </p>
             </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
               {isEditing ? (
                   <>
-                      <Button variant="outline" onClick={handleCancelClick}>Cancel</Button>
-                      <Button onClick={handleSaveSettings}><Save className="mr-2 h-4 w-4" />Save Settings</Button>
+                      <Button variant="outline" onClick={handleCancelClick} className="flex-1 sm:w-auto">Cancel</Button>
+                      <Button onClick={handleSaveSettings} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save Settings</Button>
                   </>
               ) : (
-                  <Button onClick={handleEditClick}><Edit className="mr-2 h-4 w-4"/>Edit Settings</Button>
+                  <Button onClick={handleEditClick} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit Settings</Button>
               )}
             </div>
           </div>
@@ -439,7 +439,7 @@ export default function SettingsPage() {
                             id="cancellation-fee"
                             type="number"
                              value={tenantData.cancellationFee?.toString() || ''}
-                             onChange={(e) => setTenantData(prev => ({...prev, cancellationFee: parseFloat(e.target.value)}))}
+                             onChange={(e) => setTenantData(prev => ({...prev, cancellationFee: Number(e.target.value)}))}
                             placeholder="25.00"
                             className="pl-8"
                             disabled={!isEditing}
@@ -454,7 +454,7 @@ export default function SettingsPage() {
                             id="no-show-fee"
                             type="number"
                              value={tenantData.noShowFee?.toString() || ''}
-                             onChange={(e) => setTenantData(prev => ({...prev, noShowFee: parseFloat(e.target.value)}))}
+                             onChange={(e) => setTenantData(prev => ({...prev, noShowFee: Number(e.target.value)}))}
                             placeholder="50.00"
                             className="pl-8"
                             disabled={!isEditing}
@@ -475,24 +475,15 @@ export default function SettingsPage() {
                 </div>
                  <div className="space-y-2">
                     <Label htmlFor="cancellation-policy">Cancellation Policy</Label>
-                     <div className="relative">
-                        <Textarea id="cancellation-policy" value={tenantData.cancellationPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationPolicy: e.target.value}))} placeholder="Auto-generated based on your rules." rows={3} disabled={!isEditing} />
-                        {isEditing && <Button size="xs" variant="outline" className="absolute bottom-2 right-2" type="button" onClick={() => setTenantData(prev => ({...prev, cancellationPolicy: generatePolicy('cancellation')}))}>Auto-generate</Button>}
-                     </div>
+                     <Textarea id="cancellation-policy" value={tenantData.cancellationPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationPolicy: e.target.value}))} placeholder={generatePolicy('cancellation') || 'No cancellation policy set.'} rows={3} disabled={!isEditing} />
                 </div>
                 <div className="space-y-2">
                     <Label htmlFor="late-arrival-policy">Late Arrival Policy</Label>
-                    <div className="relative">
-                        <Textarea id="late-arrival-policy" value={tenantData.lateArrivalPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, lateArrivalPolicy: e.target.value}))} placeholder="Auto-generated based on your rules." rows={3} disabled={!isEditing} />
-                        {isEditing && <Button size="xs" variant="outline" className="absolute bottom-2 right-2" type="button" onClick={() => setTenantData(prev => ({...prev, lateArrivalPolicy: generatePolicy('late')}))}>Auto-generate</Button>}
-                    </div>
+                    <Textarea id="late-arrival-policy" value={tenantData.lateArrivalPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, lateArrivalPolicy: e.target.value}))} placeholder={generatePolicy('late') || 'No late arrival policy set.'} rows={3} disabled={!isEditing} />
                 </div>
                 <div className="space-y-2">
                     <Label htmlFor="no-show-policy">No-Show Policy</Label>
-                     <div className="relative">
-                        <Textarea id="no-show-policy" value={tenantData.noShowPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, noShowPolicy: e.target.value}))} placeholder="Auto-generated based on your rules." rows={3} disabled={!isEditing} />
-                        {isEditing && <Button size="xs" variant="outline" className="absolute bottom-2 right-2" type="button" onClick={() => setTenantData(prev => ({...prev, noShowPolicy: generatePolicy('noShow')}))}>Auto-generate</Button>}
-                    </div>
+                    <Textarea id="no-show-policy" value={tenantData.noShowPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, noShowPolicy: e.target.value}))} placeholder={generatePolicy('noShow') || 'No no-show policy set.'} rows={3} disabled={!isEditing} />
                 </div>
             </CardContent>
           </Card>
@@ -513,7 +504,7 @@ export default function SettingsPage() {
                     id="referrer-reward"
                     type="number"
                     value={tenantData.referrerReward?.toString() || ''}
-                    onChange={(e) => setTenantData(prev => ({...prev, referrerReward: parseFloat(e.target.value)}))}
+                    onChange={(e) => setTenantData(prev => ({...prev, referrerReward: Number(e.target.value)}))}
                     placeholder="10.00"
                     className="pl-8"
                     disabled={!isEditing}
@@ -528,7 +519,7 @@ export default function SettingsPage() {
                     id="new-client-discount"
                     type="number"
                     value={tenantData.newClientDiscount?.toString() || ''}
-                    onChange={(e) => setTenantData(prev => ({...prev, newClientDiscount: parseFloat(e.target.value)}))}
+                    onChange={(e) => setTenantData(prev => ({...prev, newClientDiscount: Number(e.target.value)}))}
                     placeholder="15.00"
                     className="pl-8"
                     disabled={!isEditing}
@@ -589,3 +580,4 @@ export default function SettingsPage() {
     </div>
   );
 }
+
