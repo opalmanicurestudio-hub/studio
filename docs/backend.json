@@ -73,6 +73,11 @@
             "type": "number",
             "description": "Fee charged for late cancellations or no-shows."
         },
+        "bookingSlotInterval": {
+            "type": "number",
+            "enum": [15, 30, 60],
+            "description": "The time interval for available appointment slots on the public booking page."
+        },
         "referrerReward": {
             "type": "number",
             "description": "Store credit amount given to the referrer for a successful referral."
@@ -99,22 +104,20 @@
         "type": "object",
         "description": "Operating hours for a single day of the week.",
         "properties": {
-            "isOpen": {
-            "type": "boolean",
-            "description": "Whether the business is open on this day."
+            "enabled": {
+                "type": "boolean",
+                "description": "Whether the business is open on this day."
             },
-            "openTime": {
-            "type": "string",
-            "description": "Opening time in HH:mm format (24-hour).",
-            "pattern": "^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$"
+            "start": {
+                "type": "string",
+                "description": "Opening time in HH:mm format (24-hour)."
             },
-            "closeTime": {
-            "type": "string",
-            "description": "Closing time in HH:mm format (24-hour).",
-            "pattern": "^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$"
+            "end": {
+                "type": "string",
+                "description": "Closing time in HH:mm format (24-hour)."
             }
         },
-        "required": ["isOpen"]
+        "required": ["enabled"]
     },
     "Staff": {
       "title": "Staff",
@@ -530,12 +533,6 @@
         "id": { "type": "string" },
         "name": { "type": "string" },
         "isActive": { "type": "boolean" },
-        "isPublic": { "type": "boolean" },
-        "bookingSlotInterval": {
-            "type": "number",
-            "enum": [15, 30, 60],
-            "description": "The time interval for available appointment slots on the public booking page."
-        },
         "week": {
             "type": "object",
             "description": "The weekly operating hours.",
@@ -778,4 +775,3 @@
     }
   }
 }
-
