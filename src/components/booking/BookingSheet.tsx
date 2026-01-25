@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -44,6 +45,19 @@ import {
   parseISO,
 } from 'date-fns';
 import { nanoid } from 'nanoid';
+import { useForm, FormProvider } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { PhoneInput } from '../ui/phone-input';
+
+const bookingSchema = z.object({
+  clientName: z.string().min(1, 'Name is required'),
+  clientEmail: z.string().email('Invalid email address'),
+  clientPhone: z.string().optional(),
+});
+
+type BookingFormData = z.infer<typeof bookingSchema>;
+
 
 const StaffSelectionCard = ({ staff, isSelected, onSelect }: { staff: Staff | { id: string, name: string, avatarUrl: string }, isSelected: boolean, onSelect: () => void }) => {
     const isAnyStaff = staff.id === 'any';
@@ -117,9 +131,11 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const [date, setDate] = useState(new Date());
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
 
-  const [clientName, setClientName] = useState('');
-  const [clientEmail, setClientEmail] = useState('');
-  const [clientPhone, setClientPhone] = useState('');
+  const methods = useForm<BookingFormData>({
+    resolver: zodResolver(bookingSchema),
+  });
+
+  const { control, handleSubmit, register, formState: { errors } } = methods;
 
   const progress = (step / totalSteps) * 100;
   
@@ -135,7 +151,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const weekStart = useMemo(() => startOfWeek(date, { weekStartsOn: 0 }), [date]);
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
   
-  const publicScheduleProfile = useMemo(() => scheduleProfiles[0], [scheduleProfiles]);
+  const publicScheduleProfile = scheduleProfiles[0];
 
   const timeSlots = useMemo(() => {
     if (!service || !date || !publicScheduleProfile) return [];
@@ -199,8 +215,8 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     if (isToday(date) && now > dayStartWithBusinessHours) {
         const minutesSinceStartOfDay = (now.getHours() * 60) + now.getMinutes();
         const businessStartMinutes = (earliestBookableTime.getHours() * 60) + earliestBookableTime.getMinutes();
-        if(minutesSinceStartOfDay > businessStartMinutes) {
-            const intervalsToSkip = Math.ceil((minutesSinceStartOfDay - businessStartMinutes) / bookingInterval);
+        const intervalsToSkip = Math.ceil((minutesSinceStartOfDay - businessStartMinutes) / bookingInterval);
+        if (intervalsToSkip > 0) {
             earliestBookableTime = addMinutes(dayStartWithBusinessHours, intervalsToSkip * bookingInterval);
         }
     }
@@ -243,9 +259,16 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       setSelectedTime(time);
   }
 
-  const handleNextStep = () => {
-    if (step === 2 && !selectedTime) return;
-    if (step < totalSteps) {
+  const handleNextStep = async () => {
+    let isValid = true;
+    if (step === 2 && !selectedTime) {
+        isValid = false;
+    }
+    if (step === 3) {
+      isValid = await methods.trigger(['clientName', 'clientEmail']);
+    }
+
+    if (isValid && step < totalSteps) {
         setStep(step + 1);
     }
   }
@@ -256,7 +279,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       }
   }
   
-  const handleConfirmBooking = () => {
+  const handleConfirmBooking = (data: BookingFormData) => {
     if (!service || !selectedTime) return;
     
     const [hours, minutes] = selectedTime.split(':').map(Number);
@@ -265,9 +288,9 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
     const appointmentData: Omit<Appointment, 'id'> = {
       clientId: '', // Will be handled on submission
-      clientName: clientName,
-      clientEmail: clientEmail,
-      clientPhone: clientPhone,
+      clientName: data.clientName,
+      clientEmail: data.clientEmail,
+      clientPhone: data.clientPhone,
       serviceId: service.id,
       staffId: selectedStaffId !== 'any' ? selectedStaffId : undefined,
       startTime: startDateTime.toISOString(),
@@ -405,12 +428,24 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                         )}
                         
                         {step === 3 && (
-                             <div className="space-y-4">
-                                <h3 className="text-lg font-medium">Your Information</h3>
-                                <div className="space-y-2"><Label htmlFor="name">Full Name</Label><Input id="name" value={clientName} onChange={e => setClientName(e.target.value)} required /></div>
-                                <div className="space-y-2"><Label htmlFor="email">Email</Label><Input id="email" type="email" value={clientEmail} onChange={e => setClientEmail(e.target.value)} required /></div>
-                                <div className="space-y-2"><Label htmlFor="phone">Phone</Label><Input id="phone" type="tel" value={clientPhone} onChange={e => setClientPhone(e.target.value)} required /></div>
-                            </div>
+                            <FormProvider {...methods}>
+                                <form id="booking-details-form" onSubmit={handleSubmit(handleConfirmBooking)}>
+                                    <div className="space-y-4">
+                                        <h3 className="text-lg font-medium">Your Information</h3>
+                                        <div className="space-y-2">
+                                            <Label htmlFor="name">Full Name</Label>
+                                            <Input id="name" {...register('clientName')} />
+                                            {errors.clientName && <p className="text-sm text-destructive">{errors.clientName.message}</p>}
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label htmlFor="email">Email</Label>
+                                            <Input id="email" type="email" {...register('clientEmail')} />
+                                            {errors.clientEmail && <p className="text-sm text-destructive">{errors.clientEmail.message}</p>}
+                                        </div>
+                                        <PhoneInput name="clientPhone" label="Phone" />
+                                    </div>
+                                </form>
+                            </FormProvider>
                         )}
                     </>
                 )}
@@ -421,7 +456,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                 {step > 1 && <Button variant="ghost" onClick={handlePrevStep}>Back</Button>}
                 <div className="flex-1" />
                 {step === 3 ? (
-                    <Button onClick={handleConfirmBooking} className="w-full sm:w-auto" disabled={!clientName || !clientEmail}>Book Appointment</Button>
+                    <Button type="submit" form="booking-details-form" className="w-full sm:w-auto">Book Appointment</Button>
                 ) : (
                     <Button onClick={handleNextStep} className="w-full sm:w-auto" disabled={step === 2 && !selectedTime}>Continue</Button>
                 )}
