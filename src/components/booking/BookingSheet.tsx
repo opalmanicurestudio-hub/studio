@@ -37,10 +37,9 @@ import {
   startOfDay,
   areIntervalsOverlapping,
   addMinutes,
-  parse,
-  getDay,
   isBefore,
   isToday,
+  getDay,
 } from 'date-fns';
 
 const StaffSelectionCard = ({ staff, isSelected, onSelect }: { staff: Staff | { id: string, name: string, avatarUrl: string }, isSelected: boolean, onSelect: () => void }) => {
@@ -75,20 +74,21 @@ interface BookingSheetProps {
 }
 
 const timeStringToDate = (timeStr: string, date: Date): Date => {
-    const baseDate = startOfDay(date);
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0); // Reset to start of day
+
     const [time, period] = timeStr.split(' ');
     let [hours, minutes] = time.split(':').map(Number);
-    
+
     if (period === 'PM' && hours < 12) {
         hours += 12;
     }
     if (period === 'AM' && hours === 12) {
-        hours = 0; // Midnight case
+        hours = 0; // Midnight
     }
-    
-    let result = setHours(baseDate, hours);
-    result = setMinutes(result, minutes);
-    return result;
+
+    d.setHours(hours, minutes);
+    return d;
 }
 
 export const BookingSheet: React.FC<BookingSheetProps> = ({
@@ -124,18 +124,19 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   
   const timeSlots = useMemo(() => {
     if (!service || !date || !scheduleProfiles?.length) return [];
-    
+
     const publicScheduleProfile = scheduleProfiles[0];
     if (!publicScheduleProfile) return [];
 
     const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
     const dayName = format(date, 'eeee').toLowerCase();
     
-    const selectedStaff = staff.find(s => s.id === selectedStaffId);
+    const selectedStaffMember = staff.find(s => s.id === selectedStaffId);
     let workingHours = publicScheduleProfile.week[dayName];
     
-    if (selectedStaff && selectedStaff.availability?.week) {
-        const staffDayHours = selectedStaff.availability.week[dayName as keyof typeof selectedStaff.availability.week];
+    // Check for staff-specific availability override
+    if (selectedStaffMember?.availability?.week) {
+        const staffDayHours = selectedStaffMember.availability.week[dayName as keyof typeof selectedStaffMember.availability.week];
         if (staffDayHours.enabled) {
             workingHours = staffDayHours;
         }
@@ -144,78 +145,69 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     if (!workingHours || !workingHours.enabled) {
       return [];
     }
-
+    
     const dayStartWithBusinessHours = timeStringToDate(workingHours.start, date);
     const dayEndWithBusinessHours = timeStringToDate(workingHours.end, date);
     
+    // 1. Gather all "busy" intervals for the day
+    const busyIntervals = [
+      ...appointments
+        .filter(apt => {
+          if (!isSameDay(apt.startTime, date)) return false;
+          // If a specific staff is selected, only consider their appointments.
+          // If 'Any' is selected, we need to consider all appointments to find general availability.
+          if (selectedStaffId !== 'any' && apt.staffId !== selectedStaffId) return false;
+          return true;
+        })
+        .map(apt => {
+            const aptService = services.find(s => s.id === apt.serviceId);
+            const padBefore = aptService?.padBefore || 0;
+            const padAfter = aptService?.padAfter || 0;
+            return {
+                start: addMinutes(apt.startTime, -padBefore),
+                end: addMinutes(apt.endTime, padAfter)
+            }
+        }),
+      ...events
+        .filter(evt => {
+            if (!isSameDay(evt.startTime, date)) return false;
+            if (evt.type !== 'blocked') return false;
+            // Block if it's a global block OR if it matches the selected staff
+            return !evt.staffId || evt.staffId === 'all' || (selectedStaffId !== 'any' && evt.staffId === selectedStaffId);
+        })
+        .map(evt => ({ start: evt.startTime, end: evt.endTime })),
+    ];
+    
     const options: string[] = [];
-    
-    const now = new Date();
-    
-    // Determine the earliest possible start time for today.
-    // This is either the business opening time, or the next available interval from now.
-    let loopStart = dayStartWithBusinessHours;
-    if (isToday(date)) {
-        const roundedUpNow = new Date(
-            Math.ceil(now.getTime() / (bookingInterval * 60000)) * (bookingInterval * 60000)
-        );
-        if (isBefore(loopStart, roundedUpNow)) {
-            loopStart = roundedUpNow;
-        }
-    }
+    let currentTime = dayStartWithBusinessHours;
 
-    let currentTime = loopStart;
-
+    // 2. Generate and validate slots
     while (currentTime < dayEndWithBusinessHours) {
-        const potentialStartTime = currentTime;
+        // Skip past slots for today
+        if (isToday(date) && isBefore(currentTime, new Date())) {
+            currentTime = addMinutes(currentTime, bookingInterval);
+            continue;
+        }
 
+        const potentialStartTime = currentTime;
         const totalDuration = service.duration + (service.padBefore || 0) + (service.padAfter || 0);
         const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
-
+        
         if (potentialEndTime > dayEndWithBusinessHours) {
             break;
         }
         
-        const busyIntervals = [
-          ...appointments
-            .filter(apt => {
-              if (!isSameDay(apt.startTime, date)) return false;
-              if (selectedStaffId !== 'any' && apt.staffId !== selectedStaffId) return false;
-              return true;
-            })
-            .map(apt => {
-                const aptService = services.find(s => s.id === apt.serviceId);
-                const padBefore = aptService?.padBefore || 0;
-                const padAfter = aptService?.padAfter || 0;
-                return {
-                    start: addMinutes(apt.startTime, -padBefore),
-                    end: addMinutes(apt.endTime, padAfter)
-                }
-            }),
-          ...events
-            .filter(evt => {
-                if (!isSameDay(evt.startTime, date)) return false;
-                if (evt.type !== 'blocked') return false;
-                if (evt.staffId && evt.staffId !== 'all' && selectedStaffId !== 'any' && evt.staffId !== selectedStaffId) return false;
-                if (evt.staffId === 'all') return true;
-                if (!evt.staffId && selectedStaffId !== 'any') return false;
-                return true;
-            })
-            .map(evt => ({ start: evt.startTime, end: evt.endTime })),
-        ];
-
         const isOverlapping = busyIntervals.some((interval) =>
-        areIntervalsOverlapping(
-            { start: potentialStartTime, end: potentialEndTime },
-            interval,
-            { inclusive: false }
-        )
+            areIntervalsOverlapping(
+                { start: potentialStartTime, end: potentialEndTime },
+                interval,
+                { inclusive: false }
+            )
         );
 
         if (!isOverlapping) {
             options.push(format(potentialStartTime, 'HH:mm'));
         }
-        
 
         currentTime = addMinutes(currentTime, bookingInterval);
     }
@@ -310,7 +302,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 pt-4">
                             {timeSlots.map(time => (
                                 <Button key={time} variant={selectedTime === time ? 'default' : 'outline'} onClick={() => handleTimeSelect(time)}>
-                                    {format(parse(time, 'HH:mm', new Date()), 'h:mm a')}
+                                    {format(parseISO(`1970-01-01T${time}:00`), 'h:mm a')}
                                 </Button>
                             ))}
                             {timeSlots.length === 0 && (
