@@ -108,6 +108,7 @@ export default function BookingPage() {
     const newAppointment = {
         ...appointmentData,
         id: nanoid(),
+        checkInToken: nanoid(16),
     };
 
     addDocumentNonBlocking(appointmentRef, newAppointment);

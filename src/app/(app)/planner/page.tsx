@@ -120,7 +120,6 @@ export default function PlannerPage() {
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannedData, setScannedData] = useState<string | null>(null);
-  const scannerRef = useRef<Html5Qrcode | null>(null);
 
   // --- Data Fetching ---
   const billDefinitionsQuery = useMemoFirebase(() => {
@@ -237,7 +236,7 @@ const events = useMemo(() => {
             return { ...instance, definition: definition! };
         })
         .filter(item => item.definition)
-        .sort((a,b) => parseISO(a.dueDate).getTime() - parseISO(b.dueDate).getTime());
+        .sort((a,b) => parseISO(a.dueDate).getTime() - b.dueDate.getTime());
     }, [currentDate, billInstances, billDefinitions]);
 
 
@@ -553,7 +552,7 @@ const events = useMemo(() => {
                 return p;
             }).filter(p => p.sessionsRemaining > 0);
 
-            const clientDocRef = doc(firestore, 'tenants', tenantId, 'clients', clientToUpdate.id);
+            const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, clientToUpdate.id);
             updateDocumentNonBlocking(clientDocRef, { activePackages: updatedPackages });
         }
     }
@@ -566,7 +565,6 @@ const events = useMemo(() => {
   
   const handleAddAppointment = async (newAppointment: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date}) => {
     if (!firestore) return;
-    const newAptWithId = { ...newAppointment, id: nanoid() };
 
     let finalClientId = newAppointment.clientId;
     let finalClientName = (clients || []).find(c => c.id === finalClientId)?.name || 'Walk-in Customer';
@@ -594,9 +592,19 @@ const events = useMemo(() => {
             finalClientName = newClient.name;
         }
     }
-
-    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', newAptWithId.id);
-    await setDoc(appointmentRef, { ...newAppointment, clientId: finalClientId, clientName: finalClientName });
+    
+    const appointmentDocId = nanoid();
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentDocId);
+    
+    const appointmentToSave = { 
+        ...newAppointment, 
+        id: appointmentDocId,
+        clientId: finalClientId, 
+        clientName: finalClientName,
+        checkInToken: nanoid(16)
+    };
+    
+    await setDoc(appointmentRef, appointmentToSave);
     
     toast({
         title: "Appointment Booked",
@@ -1184,7 +1192,7 @@ const events = useMemo(() => {
               staff={staffToDisplay}
               itemsByStaff={itemsToDisplay}
               onCompleteClick={handleCompleteClick} 
-              onUpdateStatus={handleUpdateStatus}
+              onUpdateStatus={onUpdateStatus}
               onDeleteAppointment={handleDeleteAppointment} 
               onPrintReceipt={handlePrintReceipt}
               onPrintTicket={handlePrintTicket}
