@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -150,11 +151,20 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     const options: string[] = [];
     
     const now = new Date();
-    const roundedUpNow = new Date(
-        Math.ceil(now.getTime() / (bookingInterval * 60000)) * (bookingInterval * 60000)
-    );
+    
+    // Determine the earliest possible start time for today.
+    // This is either the business opening time, or the next available interval from now.
+    let loopStart = dayStartWithBusinessHours;
+    if (isToday(date)) {
+        const roundedUpNow = new Date(
+            Math.ceil(now.getTime() / (bookingInterval * 60000)) * (bookingInterval * 60000)
+        );
+        if (isBefore(loopStart, roundedUpNow)) {
+            loopStart = roundedUpNow;
+        }
+    }
 
-    let currentTime = dayStartWithBusinessHours;
+    let currentTime = loopStart;
 
     while (currentTime < dayEndWithBusinessHours) {
         const potentialStartTime = currentTime;
@@ -166,52 +176,46 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
             break;
         }
         
-        let skip = false;
-        if (isToday(date) && isBefore(potentialStartTime, roundedUpNow)) {
-            skip = true;
+        const busyIntervals = [
+          ...appointments
+            .filter(apt => {
+              if (!isSameDay(apt.startTime, date)) return false;
+              if (selectedStaffId !== 'any' && apt.staffId !== selectedStaffId) return false;
+              return true;
+            })
+            .map(apt => {
+                const aptService = services.find(s => s.id === apt.serviceId);
+                const padBefore = aptService?.padBefore || 0;
+                const padAfter = aptService?.padAfter || 0;
+                return {
+                    start: addMinutes(apt.startTime, -padBefore),
+                    end: addMinutes(apt.endTime, padAfter)
+                }
+            }),
+          ...events
+            .filter(evt => {
+                if (!isSameDay(evt.startTime, date)) return false;
+                if (evt.type !== 'blocked') return false;
+                if (evt.staffId && evt.staffId !== 'all' && selectedStaffId !== 'any' && evt.staffId !== selectedStaffId) return false;
+                if (evt.staffId === 'all') return true;
+                if (!evt.staffId && selectedStaffId !== 'any') return false;
+                return true;
+            })
+            .map(evt => ({ start: evt.startTime, end: evt.endTime })),
+        ];
+
+        const isOverlapping = busyIntervals.some((interval) =>
+        areIntervalsOverlapping(
+            { start: potentialStartTime, end: potentialEndTime },
+            interval,
+            { inclusive: false }
+        )
+        );
+
+        if (!isOverlapping) {
+            options.push(format(potentialStartTime, 'HH:mm'));
         }
-
-        if (!skip) {
-            const busyIntervals = [
-              ...appointments
-                .filter(apt => {
-                  if (!isSameDay(apt.startTime, date)) return false;
-                  if (selectedStaffId !== 'any' && apt.staffId !== selectedStaffId) return false;
-                  return true;
-                })
-                .map(apt => {
-                    const aptService = services.find(s => s.id === apt.serviceId);
-                    const padBefore = aptService?.padBefore || 0;
-                    const padAfter = aptService?.padAfter || 0;
-                    return {
-                        start: addMinutes(apt.startTime, -padBefore),
-                        end: addMinutes(apt.endTime, padAfter)
-                    }
-                }),
-              ...events
-                .filter(evt => {
-                    if (!isSameDay(evt.startTime, date)) return false;
-                    if (evt.type !== 'blocked') return false;
-                    if (evt.staffId && evt.staffId !== 'all' && selectedStaffId !== 'any' && evt.staffId !== selectedStaffId) return false;
-                    if (evt.staffId === 'all') return true;
-                    if (!evt.staffId && selectedStaffId !== 'any') return false;
-                    return true;
-                })
-                .map(evt => ({ start: evt.startTime, end: evt.endTime })),
-            ];
-
-            const isOverlapping = busyIntervals.some((interval) =>
-            areIntervalsOverlapping(
-                { start: potentialStartTime, end: potentialEndTime },
-                interval,
-                { inclusive: false }
-            )
-            );
-
-            if (!isOverlapping) {
-                options.push(format(potentialStartTime, 'HH:mm'));
-            }
-        }
+        
 
         currentTime = addMinutes(currentTime, bookingInterval);
     }
@@ -324,4 +328,3 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     </Sheet>
   );
 };
-
