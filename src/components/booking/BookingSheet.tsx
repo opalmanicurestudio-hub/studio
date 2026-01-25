@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -41,6 +39,7 @@ import {
   isToday,
   getDay,
   parseISO,
+  differenceInMinutes,
 } from 'date-fns';
 
 const StaffSelectionCard = ({ staff, isSelected, onSelect }: { staff: Staff | { id: string, name: string, avatarUrl: string }, isSelected: boolean, onSelect: () => void }) => {
@@ -140,19 +139,15 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     const selectedStaffMember = staff.find(s => s.id === selectedStaffId);
     let workingHours: { enabled: boolean; start: string; end: string; } | undefined;
 
-    // New, corrected logic:
-    // 1. Check for staff-specific availability first.
+    // Corrected logic: staff availability is the final word.
     const staffDaySchedule = selectedStaffMember?.availability?.week?.[dayName as keyof typeof selectedStaffMember.availability.week];
 
     if (staffDaySchedule) {
-        // If an override exists for the staff, it is the ONLY rule.
         workingHours = staffDaySchedule;
     } else {
-        // Otherwise, fall back to the main business hours.
         workingHours = publicScheduleProfile.week[dayName];
     }
     
-    // 2. Now, check if the determined workingHours are enabled.
     if (!workingHours || !workingHours.enabled) {
       return [];
     }
@@ -160,40 +155,48 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     const dayStartWithBusinessHours = timeStringToDate(workingHours.start, date);
     const dayEndWithBusinessHours = timeStringToDate(workingHours.end, date);
     
-    const busyIntervals = [
-      ...appointments
-        .filter(apt => {
-          if (!isSameDay(apt.startTime, date)) return false;
-          if (selectedStaffId !== 'any' && apt.staffId !== selectedStaffId) return false;
-          return true;
-        })
-        .map(apt => {
-            const aptService = services.find(s => s.id === apt.serviceId);
-            const padBefore = aptService?.padBefore || 0;
-            const padAfter = aptService?.padAfter || 0;
-            return {
-                start: addMinutes(apt.startTime, -padBefore),
-                end: addMinutes(apt.endTime, padAfter)
-            }
-        }),
-      ...events
-        .filter(evt => {
-            if (!isSameDay(evt.startTime, date)) return false;
-            if (evt.type !== 'blocked') return false;
-            return !evt.staffId || evt.staffId === 'all' || (selectedStaffId !== 'any' && evt.staffId === selectedStaffId);
-        })
-        .map(evt => ({ start: evt.startTime, end: evt.endTime })),
-    ];
-    
+    const busyIntervals: { start: Date, end: Date }[] = [];
+
+    // Step 1: Collect all busy intervals
+    // Appointments
+    appointments
+      .filter(apt => {
+        if (!isSameDay(apt.startTime, date)) return false;
+        if (selectedStaffId !== 'any' && apt.staffId !== selectedStaffId) return false;
+        return true;
+      })
+      .forEach(apt => {
+        const aptService = services.find(s => s.id === apt.serviceId);
+        const padBefore = aptService?.padBefore || 0;
+        const padAfter = aptService?.padAfter || 0;
+        busyIntervals.push({
+          start: addMinutes(apt.startTime, -padBefore),
+          end: addMinutes(apt.endTime, padAfter),
+        });
+      });
+
+    // Events
+    events
+      .filter(evt => {
+        if (!isSameDay(evt.startTime, date)) return false;
+        if (evt.type !== 'blocked') return false;
+        return !evt.staffId || evt.staffId === 'all' || (selectedStaffId !== 'any' && evt.staffId === selectedStaffId);
+      })
+      .forEach(evt => {
+        busyIntervals.push({ start: evt.startTime, end: evt.endTime });
+      });
+
+
+    // Step 2: Generate and validate slots
     const options: string[] = [];
     
     let earliestBookableTime = dayStartWithBusinessHours;
     const now = new Date();
-    
+
     if (isToday(date) && now > dayStartWithBusinessHours) {
-        const minutesSinceStart = differenceInMinutes(now, dayStartWithBusinessHours);
-        const intervalsPast = Math.ceil(minutesSinceStart / bookingInterval);
-        earliestBookableTime = addMinutes(dayStartWithBusinessHours, intervalsPast * bookingInterval);
+      const minutesSinceStart = differenceInMinutes(now, dayStartWithBusinessHours);
+      const intervalsPast = Math.ceil(minutesSinceStart / bookingInterval);
+      earliestBookableTime = addMinutes(dayStartWithBusinessHours, intervalsPast * bookingInterval);
     }
     
     let currentTime = earliestBookableTime;
