@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -48,6 +49,8 @@ import { Switch } from '../ui/switch';
 import { useInventory } from '@/context/InventoryContext';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
+import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
+import { collection } from 'firebase/firestore';
 
 const serviceSchema = z.object({
   id: z.string(),
@@ -83,13 +86,15 @@ const EditServiceForm = ({
     onNewCategory,
     breakEvenCost,
     onScanClick,
+    consentForms
 }: { 
     categories: string[];
     onNewCategory: (category: string) => void;
     breakEvenCost: number;
     onScanClick: () => void;
+    consentForms: ConsentForm[];
 }) => {
-    const { inventory, consentForms } = useInventory();
+    const { inventory } = useInventory();
     const { register, control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
@@ -338,6 +343,15 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
 
   const [tmhr, setTmhr] = useState(0);
   const { inventory } = useInventory();
+  
+  const { firestore } = useFirebase();
+  const tenantId = 'tenant-abc';
+  const consentFormsQuery = useMemoFirebase(() => {
+      if (!firestore) return null;
+      return collection(firestore, `tenants/${tenantId}/consentForms`);
+  }, [firestore, tenantId]);
+  const { data: consentForms } = useCollection<ConsentForm>(consentFormsQuery);
+
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -454,15 +468,14 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          <div className="px-6 py-4">
-              <EditServiceForm 
-                 categories={categories}
-                 onNewCategory={onNewCategory}
-                 onScanClick={() => setIsScannerOpen(true)}
-                 breakEvenCost={breakEvenCost}
-              />
-          </div>
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
+          <EditServiceForm 
+             categories={categories}
+             onNewCategory={onNewCategory}
+             onScanClick={() => setIsScannerOpen(true)}
+             breakEvenCost={breakEvenCost}
+             consentForms={consentForms || []}
+          />
         </div>
         
         <DialogFooter className={isMobile ? "p-4 border-t" : "p-6 border-t"}>
@@ -493,5 +506,3 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
     </Dialog>
   );
 };
-
-    

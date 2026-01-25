@@ -18,7 +18,6 @@ import {
     type Service,
     initialLocations,
     initialLocationTypes,
-    consentForms as initialConsentForms,
     type ConsentForm,
     staff as initialStaff,
     type Staff,
@@ -63,8 +62,6 @@ interface InventoryContextType {
   setAppointments: React.Dispatch<React.SetStateAction<Appointment[]>>;
   services: Service[];
   setServices: React.Dispatch<React.SetStateAction<Service[]>>;
-  consentForms: ConsentForm[];
-  setConsentForms: React.Dispatch<React.SetStateAction<ConsentForm[]>>;
   staff: Staff[];
   setStaff: React.Dispatch<React.SetStateAction<Staff[]>>;
   walkIns: WalkIn[];
@@ -91,7 +88,6 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const [clients, setClients] = useState<Client[]>(initialClients);
   const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
   const [services, setServices] = useState<Service[]>(initialServices);
-  const [consentForms, setConsentForms] = useState<ConsentForm[]>(initialConsentForms);
   const [staff, setStaff] = useState<Staff[]>(initialStaff);
   const [walkIns, setWalkIns] = useState<WalkIn[]>(initialWalkIns);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(initialActivityLogs);
@@ -125,8 +121,6 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     setAppointments,
     services,
     setServices,
-    consentForms,
-    setConsentForms,
     staff,
     setStaff,
     walkIns,

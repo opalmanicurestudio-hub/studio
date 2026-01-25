@@ -73,6 +73,18 @@
             "type": "number",
             "description": "Fee charged for late cancellations or no-shows."
         },
+        "cancellationPolicy": {
+            "type": "string",
+            "description": "Text of the cancellation policy."
+        },
+        "noShowPolicy": {
+            "type": "string",
+            "description": "Text of the no-show policy."
+        },
+        "lateArrivalPolicy": {
+            "type": "string",
+            "description": "Text of the late arrival policy."
+        },
         "bookingSlotInterval": {
             "type": "number",
             "enum": [15, 30, 60],
@@ -663,6 +675,40 @@
         "quoteId": { "type": "string", "description": "The ID of the quote this event was booked from." }
       },
       "required": ["id", "title", "startTime", "endTime"]
+    },
+    "ConsentForm": {
+        "title": "Consent Form",
+        "description": "A reusable consent form template (e.g., intake, waiver).",
+        "type": "object",
+        "properties": {
+            "id": { "type": "string" },
+            "title": { "type": "string" },
+            "category": { "type": "string", "enum": ["Intake", "Waiver", "Release", "General"] },
+            "isPasswordProtected": { "type": "boolean" },
+            "notifyOnEdit": { "type": "boolean" },
+            "fields": {
+                "type": "array",
+                "items": {
+                    "$ref": "#/entities/FormField"
+                }
+            }
+        },
+        "required": ["id", "title", "category"]
+    },
+    "FormField": {
+        "title": "Form Field",
+        "description": "A single field within a consent form.",
+        "type": "object",
+        "properties": {
+            "id": { "type": "string" },
+            "type": { "type": "string", "enum": ["heading", "paragraph", "short-text", "long-text", "multiple-choice", "checkboxes", "image-upload", "signature"] },
+            "label": { "type": "string" },
+            "options": {
+                "type": "array",
+                "items": { "type": "string" }
+            }
+        },
+        "required": ["id", "type", "label"]
     }
   },
   "auth": {
@@ -772,6 +818,12 @@
         "$ref": "#/entities/StockCorrection"
       },
       "description": "An audit log of all inventory stock changes."
+    },
+    "/tenants/{tenantId}/consentForms/{formId}": {
+      "schema": {
+        "$ref": "#/entities/ConsentForm"
+      },
+      "description": "Stores consent form templates created by the tenant."
     }
   }
 }

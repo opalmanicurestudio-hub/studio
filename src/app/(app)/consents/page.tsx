@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -36,9 +37,12 @@ import { Progress } from '@/components/ui/progress';
 import { AddConsentFormDialog } from '@/components/consents/AddConsentFormDialog';
 import { PreviewConsentFormDialog } from '@/components/consents/PreviewConsentFormDialog';
 import { useToast } from '@/hooks/use-toast';
-import { consentForms, type ConsentForm } from '@/lib/data';
+import { type ConsentForm } from '@/lib/data';
+import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
+import { collection, doc } from 'firebase/firestore';
+import { nanoid } from 'nanoid';
 
-const ConsentCard = ({ form, onEdit, onPreview, onShare }: { form: ConsentForm, onEdit: (form: ConsentForm) => void; onPreview: (form: ConsentForm) => void; onShare: (form: ConsentForm) => void; }) => {
+const ConsentCard = ({ form, onEdit, onPreview, onShare, onDelete }: { form: ConsentForm, onEdit: (form: ConsentForm) => void; onPreview: (form: ConsentForm) => void; onShare: (form: ConsentForm) => void; onDelete: (formId: string) => void; }) => {
 
   return (
     <Card className="flex flex-col transition-all duration-200 hover:shadow-lg hover:-translate-y-1">
@@ -49,9 +53,9 @@ const ConsentCard = ({ form, onEdit, onPreview, onShare }: { form: ConsentForm, 
       <CardContent className="flex-1 space-y-4">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Users className="w-4 h-4" />
-            <span>{form.clientsSigned} signed</span>
+            <span>{form.clientsSigned || 0} signed</span>
         </div>
-        <Progress value={(form.clientsSigned / form.totalClients) * 100} className="h-2" />
+        <Progress value={((form.clientsSigned || 0) / (form.totalClients || 1)) * 100} className="h-2" />
         <div className="flex items-center gap-4 text-muted-foreground">
           {form.isPasswordProtected && <Lock className="w-4 h-4" title="Password Protected" />}
           {form.notifyOnEdit && <Bell className="w-4 h-4" title="Notified on Edits" />}
@@ -68,7 +72,7 @@ const ConsentCard = ({ form, onEdit, onPreview, onShare }: { form: ConsentForm, 
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={() => onEdit(form)}><FilePenLine className="w-4 h-4 mr-2"/>Edit</DropdownMenuItem>
-                <DropdownMenuItem className="text-destructive"><Trash2 className="w-4 h-4 mr-2"/>Delete</DropdownMenuItem>
+                <DropdownMenuItem className="text-destructive" onClick={() => onDelete(form.id)}><Trash2 className="w-4 h-4 mr-2"/>Delete</DropdownMenuItem>
             </DropdownMenuContent>
         </DropdownMenu>
       </CardFooter>
@@ -88,7 +92,11 @@ const AddConsentCard = ({ onClick }: { onClick: () => void }) => (
 )
 
 export default function ConsentsPage() {
-  const [forms, setForms] = useState<ConsentForm[]>(consentForms);
+  const { firestore } = useFirebase();
+  const tenantId = 'tenant-abc';
+  const consentFormsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/consentForms`), [firestore, tenantId]);
+  const { data: forms, isLoading } = useCollection<ConsentForm>(consentFormsQuery);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('all');
   const [isFormBuilderOpen, setIsFormBuilderOpen] = useState(false);
@@ -120,25 +128,44 @@ export default function ConsentsPage() {
     });
   }
 
-  const handleSaveForm = (savedForm: any) => {
-    // This is where you would save to Firestore.
-    // For now, we'll just update the mock data.
-    console.log('Saving form:', savedForm);
+  const handleSaveForm = (savedForm: Partial<ConsentForm>) => {
+    if (!firestore) return;
+    
     if (editingForm) {
-      setForms(prev => prev.map(f => f.id === editingForm.id ? { ...f, ...savedForm, clientsSigned: f.clientsSigned, totalClients: f.totalClients } : f));
+      const formRef = doc(firestore, `tenants/${tenantId}/consentForms`, editingForm.id);
+      updateDocumentNonBlocking(formRef, savedForm);
+      toast({
+        title: 'Form Updated',
+        description: `"${savedForm.title}" has been updated.`,
+      });
     } else {
-      const newForm: ConsentForm = {
+      const newFormId = nanoid();
+      const newForm: Omit<ConsentForm, 'clientsSigned' | 'totalClients'> & { id: string } = {
         ...savedForm,
-        id: `form-${Date.now()}`,
-        clientsSigned: 0,
-        totalClients: 25, // Mock total
-      };
-      setForms(prev => [...prev, newForm]);
+        id: newFormId,
+      } as Omit<ConsentForm, 'clientsSigned' | 'totalClients'> & { id: string };
+      const formRef = doc(firestore, `tenants/${tenantId}/consentForms`, newFormId);
+      setDocumentNonBlocking(formRef, newForm, {});
+      toast({
+        title: 'Form Created',
+        description: `"${savedForm.title}" has been added to your library.`,
+      });
     }
   };
 
+  const handleDeleteForm = (formId: string) => {
+    if (!firestore) return;
+    const formRef = doc(firestore, `tenants/${tenantId}/consentForms`, formId);
+    deleteDocumentNonBlocking(formRef);
+    toast({
+      variant: 'destructive',
+      title: 'Form Deleted',
+      description: 'The consent form has been removed.',
+    });
+  };
 
   const filteredForms = useMemo(() => {
+    if (!forms) return [];
     return forms
       .filter(form => activeTab === 'all' || form.category.toLowerCase() === activeTab)
       .filter(form => form.title.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -181,9 +208,13 @@ export default function ConsentsPage() {
             
             <TabsContent value={activeTab.toLowerCase()}>
                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                    {filteredForms.map(form => (
-                        <ConsentCard key={form.id} form={form} onEdit={handleEditForm} onPreview={handlePreviewForm} onShare={handleShareForm} />
-                    ))}
+                    {isLoading ? (
+                      Array.from({length: 3}).map((_, i) => <Card key={i} className="h-64 animate-pulse"></Card>)
+                    ) : (
+                      filteredForms.length > 0 ? filteredForms.map(form => (
+                          <ConsentCard key={form.id} form={form} onEdit={handleEditForm} onPreview={handlePreviewForm} onShare={handleShareForm} onDelete={handleDeleteForm}/>
+                      )) : null
+                    )}
                      <AddConsentCard onClick={handleAddNewForm}/>
                 </div>
             </TabsContent>
