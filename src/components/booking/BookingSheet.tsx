@@ -288,19 +288,19 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
             switch (type) {
                 case 'cancellation':
                     if (tenant.cancellationPolicy) return tenant.cancellationPolicy;
-                    if ((tenant.cancellationWindowHours || 0) > 0 && (tenant.cancellationFee || 0) > 0) {
+                    if (tenant.cancellationWindowHours != null && tenant.cancellationFee != null) {
                         return `Cancellations made within ${tenant.cancellationWindowHours} hours of the scheduled appointment time will be subject to a fee of $${tenant.cancellationFee?.toFixed(2)}.`;
                     }
                     return null;
                 case 'noShow':
                     if (tenant.noShowPolicy) return tenant.noShowPolicy;
-                    if ((tenant.noShowFee || 0) > 0) {
-                        return `Failure to show up for a scheduled appointment without notice will result in a no-show fee of $${tenant.noShowFee?.toFixed(2)}.`;
+                    if (tenant.noShowFee != null) {
+                         return `Failure to show up for a scheduled appointment without notice will result in a no-show fee of $${tenant.noShowFee?.toFixed(2)}.`;
                     }
                     return null;
                 case 'late':
                     if (tenant.lateArrivalPolicy) return tenant.lateArrivalPolicy;
-                    if ((tenant.lateArrivalGracePeriod || 0) > 0) {
+                     if (tenant.lateArrivalGracePeriod != null) {
                         return `We offer a grace period of ${tenant.lateArrivalGracePeriod} minutes. Arriving later than this may require rescheduling and could be considered a no-show.`;
                     }
                     return null;
