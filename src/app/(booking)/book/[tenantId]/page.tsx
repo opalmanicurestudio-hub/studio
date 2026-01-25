@@ -75,7 +75,7 @@ export default function BookingPage() {
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
   const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
   const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(allAppointmentsQuery);
-  const { data: eventsFromDB, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
+  const { data: eventsFromDB, isLoading: eventsLoading } = useCollection<Event>(allEventsQuery);
   const { data: consentForms, isLoading: consentFormsLoading } = useCollection<ConsentForm>(consentFormsQuery);
   
   const appointments = useMemo(() => {
@@ -128,7 +128,7 @@ export default function BookingPage() {
                 lastAppointment: new Date().toISOString(),
                 status: 'active',
             };
-            await setDoc(newClientRef, { ...newClient, id: clientId });
+            await setDocumentNonBlocking(newClientRef, { ...newClient, id: clientId });
             toast({ title: "Welcome!", description: "A new client profile has been created for you." });
         } else {
             const existingClientDoc = querySnapshot.docs[0];
@@ -150,10 +150,10 @@ export default function BookingPage() {
             checkInToken: checkInToken,
         };
 
-        await setDoc(doc(appointmentRef, newAppointmentId), newAppointment);
+        await setDocumentNonBlocking(doc(appointmentRef, newAppointmentId), newAppointment);
 
         const checkInDocRef = doc(firestore, 'appointmentCheckIns', checkInToken);
-        await setDoc(checkInDocRef, newAppointment);
+        await setDocumentNonBlocking(checkInDocRef, newAppointment);
         
         toast({
           title: 'Booking Confirmed!',
