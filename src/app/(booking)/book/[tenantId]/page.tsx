@@ -1,8 +1,9 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
 import { useParams } from 'next/navigation';
-import { useFirebase, useCollection, useMemoFirebase, useDoc } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, useDoc, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc, query, where } from 'firebase/firestore';
 import { type Service, type Staff, type Tenant, type Appointment, type Event } from '@/lib/data';
 import { Card, CardContent } from '@/components/ui/card';
@@ -11,6 +12,8 @@ import { Clock, DollarSign, Loader } from 'lucide-react';
 import { BookingSheet } from '@/components/booking/BookingSheet';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { isSameDay, parseISO } from 'date-fns';
+import { useToast } from '@/hooks/use-toast';
+import { nanoid } from 'nanoid';
 
 const ServiceCard = ({ service, onSelect }: { service: Service, onSelect: () => void }) => {
   return (
@@ -51,6 +54,7 @@ export default function BookingPage() {
   const params = useParams();
   const tenantId = params.tenantId as string;
   const { firestore } = useFirebase();
+  const { toast } = useToast();
 
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
@@ -93,6 +97,25 @@ export default function BookingPage() {
     setIsSheetOpen(true);
   };
   
+  const handleConfirmBooking = (appointmentData: Omit<Appointment, 'id'>) => {
+    if (!firestore) return;
+    const appointmentRef = collection(firestore, `tenants/${tenantId}/appointments`);
+    
+    // Generate a unique ID for the new appointment
+    const newAppointment = {
+        ...appointmentData,
+        id: nanoid(),
+    };
+
+    addDocumentNonBlocking(appointmentRef, newAppointment);
+    
+    toast({
+      title: 'Booking Confirmed!',
+      description: `Your appointment for a ${services?.find(s => s.id === appointmentData.serviceId)?.name} is all set.`,
+    });
+    // The sheet will handle its own closing/state change to confirmation
+  };
+
   const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || appointmentsLoading || eventsLoading;
 
   if (isLoading) {
@@ -130,6 +153,7 @@ export default function BookingPage() {
                 events={events || []}
                 scheduleProfiles={scheduleProfiles || []}
                 services={services || []}
+                onConfirm={handleConfirmBooking}
             />
         )}
     </div>
