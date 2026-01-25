@@ -29,7 +29,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { Card, CardContent } from '../ui/card';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../ui/card';
 import {
   startOfWeek,
   addDays,
@@ -331,7 +331,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
   const handlePrevStep = () => {
     if (currentStepIndex > 0) {
-      setCurrentStepIndex(currentStepIndex - 1);
+      setCurrentStepIndex(currentStepIndex + 1);
     }
   };
 
