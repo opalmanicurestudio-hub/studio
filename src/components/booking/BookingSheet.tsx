@@ -280,8 +280,9 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     const steps = useMemo(() => {
         const flow = ['staff', 'dateTime', 'details'];
         if (requiredForms.length > 0) flow.push('consents');
-        if (depositAmount > 0) flow.push('payment');
+        // The summary and policy agreement now come BEFORE payment.
         flow.push('summary');
+        if (depositAmount > 0) flow.push('payment');
         flow.push('confirmation');
         return flow;
     }, [requiredForms.length, depositAmount]);
@@ -307,6 +308,12 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
             isValid = false;
         }
     }
+    if (currentStep === 'summary') {
+        if (!agreedToPolicies) {
+            toast({ variant: 'destructive', title: 'Please agree to the policies.' });
+            isValid = false;
+        }
+    }
      if (currentStep === 'payment') {
         if (!isDepositPaid) {
             // In a real app this would be a Stripe interaction. For now, we simulate success.
@@ -314,24 +321,24 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
             toast({ title: "Deposit Paid!", description: "Your deposit has been processed."});
         }
     }
-    if (currentStep === 'summary') {
-        if (!agreedToPolicies) {
-            toast({ variant: 'destructive', title: 'Please agree to the policies.' });
-            isValid = false;
-        } else {
-             handleSubmit(handleConfirmBooking)();
-             return;
-        }
-    }
+    
+    // Check if we are on the final step before confirmation
+    const isFinalStepBeforeConfirm = steps[currentStepIndex + 1] === 'confirmation';
 
-    if (isValid && currentStepIndex < steps.length - 1) {
-        setCurrentStepIndex(currentStepIndex + 1);
+    if (isValid) {
+        if (isFinalStepBeforeConfirm) {
+            handleSubmit(handleConfirmBooking)();
+            return; // Exit here, form submission handles the last step
+        }
+        if (currentStepIndex < steps.length - 1) {
+            setCurrentStepIndex(currentStepIndex + 1);
+        }
     }
   };
 
   const handlePrevStep = () => {
     if (currentStepIndex > 0) {
-      setCurrentStepIndex(currentStepIndex + 1);
+      setCurrentStepIndex(currentStepIndex - 1);
     }
   };
 
@@ -479,16 +486,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                 ))}
                             </div>
                         )}
-                        {currentStep === 'payment' && (
-                            <div className="space-y-4">
-                                <h3 className="text-lg font-medium">Deposit Required</h3>
-                                <Card><CardContent className="p-6 space-y-4">
-                                    <div className="text-center"><p className="text-sm text-muted-foreground">A deposit of</p><p className="text-4xl font-bold">${depositAmount.toFixed(2)}</p><p className="text-xs text-muted-foreground">is required to secure your booking.</p></div>
-                                    <div className="space-y-2"><Label htmlFor="card-number">Card Number</Label><Input id="card-number" placeholder="**** **** **** 1234" /></div>
-                                    <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label htmlFor="expiry">Expiry</Label><Input id="expiry" placeholder="MM / YY" /></div><div className="space-y-2"><Label htmlFor="cvc">CVC</Label><Input id="cvc" placeholder="123" /></div></div>
-                                </CardContent></Card>
-                            </div>
-                        )}
                         {currentStep === 'summary' && (
                              <div className="space-y-4">
                                 <h3 className="text-lg font-medium">Review & Confirm</h3>
@@ -496,7 +493,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                     <CardContent className="p-4 text-sm space-y-3">
                                         <div className="flex justify-between"><span>Service:</span> <span className="font-semibold">{service.name}</span></div>
                                         <div className="flex justify-between"><span>Provider:</span> <span className="font-semibold">{selectedStaffId === 'any' ? 'Any Available' : staff.find(s=>s.id === selectedStaffId)?.name}</span></div>
-                                        <div className="flex justify-between"><span>Date:</span> <span className="font-semibold">{format(date, 'EEE, LLL d, yyyy')}</span></div>
+                                        <div className="flex justify-between"><span>Date:</span> <span className="font-semibold">{format(date, 'EEEE, LLL d, yyyy')}</span></div>
                                         <div className="flex justify-between"><span>Time:</span> <span className="font-semibold">{selectedTime ? format(parseISO(`1970-01-01T${selectedTime}:00`), 'h:mm a') : ''}</span></div>
                                         <Separator className="my-2"/>
                                         <div className="flex justify-between font-bold"><span>Total Due Today:</span> <span>${depositAmount > 0 ? depositAmount.toFixed(2) : service.price.toFixed(2)}</span></div>
@@ -517,6 +514,16 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                 </div>
                             </div>
                         )}
+                        {currentStep === 'payment' && (
+                            <div className="space-y-4">
+                                <h3 className="text-lg font-medium">Deposit Required</h3>
+                                <Card><CardContent className="p-6 space-y-4">
+                                    <div className="text-center"><p className="text-sm text-muted-foreground">A deposit of</p><p className="text-4xl font-bold">${depositAmount.toFixed(2)}</p><p className="text-xs text-muted-foreground">is required to secure your booking.</p></div>
+                                    <div className="space-y-2"><Label htmlFor="card-number">Card Number</Label><Input id="card-number" placeholder="**** **** **** 1234" /></div>
+                                    <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label htmlFor="expiry">Expiry</Label><Input id="expiry" placeholder="MM / YY" /></div><div className="space-y-2"><Label htmlFor="cvc">CVC</Label><Input id="cvc" placeholder="123" /></div></div>
+                                </CardContent></Card>
+                            </div>
+                        )}
                     </>
                 )}
             </div>
@@ -526,7 +533,12 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                 {currentStepIndex > 0 && <Button variant="ghost" onClick={handlePrevStep}>Back</Button>}
                 <div className="flex-1" />
                 <Button onClick={handleNextStep} className="w-full sm:w-auto">
-                    {currentStep === 'summary' ? 'Book Appointment' : 'Continue'}
+                    {currentStep === 'summary' && depositAmount > 0 
+                        ? 'Continue to Payment' 
+                        : (currentStep === 'summary' && depositAmount === 0) || currentStep === 'payment'
+                        ? 'Book Appointment'
+                        : 'Continue'
+                    }
                 </Button>
             </SheetFooter>
         )}
