@@ -321,11 +321,43 @@ export default function SettingsPage() {
       setNoShowFee((tenantData.noShowFee || 50).toFixed(2));
       setCancellationWindow(tenantData.cancellationWindowHours || 24);
       setAutoCancel(tenantData.autoCancelLateArrivals || false);
+      
+      // Set initial policies only if they are not already set, to avoid overwriting user edits
       setCancellationPolicy(tenantData.cancellationPolicy || '');
       setLateArrivalPolicy(tenantData.lateArrivalPolicy || '');
       setNoShowPolicy(tenantData.noShowPolicy || '');
     }
   }, [tenantData]);
+
+  // Auto-generate cancellation policy text
+  useEffect(() => {
+    const fee = parseFloat(cancellationFee);
+    if (cancellationWindow > 0 && fee > 0) {
+      setCancellationPolicy(`Cancellations made within ${cancellationWindow} hours of the scheduled appointment time will be subject to a fee of $${fee.toFixed(2)}.`);
+    } else {
+      setCancellationPolicy('');
+    }
+  }, [cancellationWindow, cancellationFee]);
+
+  // Auto-generate no-show policy text
+  useEffect(() => {
+    const fee = parseFloat(noShowFee);
+    if (fee > 0) {
+      setNoShowPolicy(`Failure to show up for a scheduled appointment without notice will result in a no-show fee of $${fee.toFixed(2)}.`);
+    } else {
+      setNoShowPolicy('');
+    }
+  }, [noShowFee]);
+
+  // Auto-generate late arrival policy text
+  useEffect(() => {
+    if (lateGracePeriod > 0) {
+      setLateArrivalPolicy(`We offer a grace period of ${lateGracePeriod} minutes. Arriving later than this may require rescheduling and could be considered a no-show.`);
+    } else {
+      setLateArrivalPolicy('');
+    }
+  }, [lateGracePeriod]);
+
 
   const handleSaveSettings = (section: string) => {
     if (!tenantData) return;
@@ -488,7 +520,7 @@ export default function SettingsPage() {
                         placeholder="e.g., Cancellations must be made 24 hours in advance..."
                         rows={3}
                     />
-                    <p className="text-xs text-muted-foreground">Displayed to clients during booking.</p>
+                    <p className="text-xs text-muted-foreground">This text is displayed to clients during booking. It will auto-update based on your settings above.</p>
                 </div>
                 <div className="space-y-2">
                     <Label htmlFor="late-arrival-policy">Late Arrival Policy</Label>
@@ -499,6 +531,7 @@ export default function SettingsPage() {
                         placeholder="e.g., Arrivals later than 15 minutes may need to be rescheduled..."
                         rows={3}
                     />
+                     <p className="text-xs text-muted-foreground">This text will auto-update based on your settings above.</p>
                 </div>
                 <div className="space-y-2">
                     <Label htmlFor="no-show-policy">No-Show Policy</Label>
@@ -509,6 +542,7 @@ export default function SettingsPage() {
                         placeholder="e.g., No-shows will be charged the full service amount..."
                         rows={3}
                     />
+                     <p className="text-xs text-muted-foreground">This text will auto-update based on your settings above.</p>
                 </div>
             </CardContent>
             <CardFooter>
