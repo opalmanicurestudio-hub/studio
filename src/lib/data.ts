@@ -402,6 +402,9 @@ export type Tenant = {
   lateArrivalGracePeriod?: number;
   autoCancelLateArrivals?: boolean;
   cancellationFee?: number;
+  cancellationPolicy?: string;
+  noShowPolicy?: string;
+  lateArrivalPolicy?: string;
   bookingSlotInterval?: 15 | 30 | 60;
   referrerReward?: number;
   newClientDiscount?: number;
@@ -561,6 +564,7 @@ export const services: Service[] = [
     depositType: 'none',
     requiredSkills: ['basic_manicure'],
     compatibleAddOnIds: ['svc-addon-1'],
+    requiredFormIds: ['form-1'],
   },
   { 
     id: 'svc-2', 
@@ -575,7 +579,9 @@ export const services: Service[] = [
     margin: 94.1,
     imageUrl: 'https://picsum.photos/seed/haircut/200/200',
     isPrivate: true,
-    depositType: 'none',
+    depositType: 'deposit',
+    depositSubType: 'flat',
+    depositAmount: 25,
     requiredSkills: ['haircut'],
     compatibleAddOnIds: ['svc-addon-2', 'svc-addon-4'],
   },
@@ -592,8 +598,11 @@ export const services: Service[] = [
     margin: 86.0,
     imageUrl: 'https://picsum.photos/seed/haircolor/200/200',
     isPrivate: false,
-    depositType: 'none',
+    depositType: 'deposit',
+    depositSubType: 'percentage',
+    depositAmount: 20,
     requiredSkills: ['color'],
+    requiredFormIds: ['form-2'],
   },
   { 
     id: 'svc-4', 
@@ -622,7 +631,7 @@ export const services: Service[] = [
     margin: 85.7,
     imageUrl: 'https://picsum.photos/seed/balayage/200/200',
     isPrivate: false,
-    depositType: 'none',
+    depositType: 'breakeven',
     requiredSkills: ['color', 'balayage'],
   },
   { 

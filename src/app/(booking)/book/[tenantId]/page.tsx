@@ -5,7 +5,7 @@ import React, { useState, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { useFirebase, useCollection, useMemoFirebase, useDoc, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc, query, where } from 'firebase/firestore';
-import { type Service, type Staff, type Tenant, type Appointment, type Event } from '@/lib/data';
+import { type Service, type Staff, type Tenant, type Appointment, type Event, type ConsentForm } from '@/lib/data';
 import { Card, CardContent } from '@/components/ui/card';
 import Image from 'next/image';
 import { Clock, DollarSign, Loader } from 'lucide-react';
@@ -66,6 +66,7 @@ export default function BookingPage() {
   const scheduleProfilesQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isPublic", "==", true)), [firestore, tenantId]);
   const allAppointmentsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/appointments`), [firestore, tenantId]);
   const allEventsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/events`), [firestore, tenantId]);
+  const consentFormsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/consentForms`), [firestore, tenantId]);
   
   const { data: tenant, isLoading: tenantLoading } = useDoc<Tenant>(tenantDocRef);
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
@@ -73,6 +74,7 @@ export default function BookingPage() {
   const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
   const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(allAppointmentsQuery);
   const { data: eventsFromDB, isLoading: eventsLoading } = useCollection<Event>(allEventsQuery);
+  const { data: consentForms, isLoading: consentFormsLoading } = useCollection<ConsentForm>(consentFormsQuery);
   
   const appointments = useMemo(() => {
     if (!appointmentsFromDB) return [];
@@ -116,7 +118,7 @@ export default function BookingPage() {
     // The sheet will handle its own closing/state change to confirmation
   };
 
-  const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || appointmentsLoading || eventsLoading;
+  const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || appointmentsLoading || eventsLoading || consentFormsLoading;
 
   if (isLoading) {
       return (
@@ -153,6 +155,8 @@ export default function BookingPage() {
                 events={events || []}
                 scheduleProfiles={scheduleProfiles || []}
                 services={services || []}
+                consentForms={consentForms || []}
+                tenant={tenant || null}
                 onConfirm={handleConfirmBooking}
             />
         )}
