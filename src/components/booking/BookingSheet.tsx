@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -72,6 +73,23 @@ interface BookingSheetProps {
   services: Service[];
 }
 
+const timeStringToDate = (timeStr: string, date: Date): Date => {
+    const baseDate = startOfDay(date);
+    const [time, period] = timeStr.split(' ');
+    let [hours, minutes] = time.split(':').map(Number);
+    
+    if (period === 'PM' && hours < 12) {
+        hours += 12;
+    }
+    if (period === 'AM' && hours === 12) {
+        hours = 0; // Midnight case
+    }
+    
+    let result = setHours(baseDate, hours);
+    result = setMinutes(result, minutes);
+    return result;
+}
+
 export const BookingSheet: React.FC<BookingSheetProps> = ({
   open,
   onOpenChange,
@@ -126,8 +144,8 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       return [];
     }
 
-    const dayStartWithBusinessHours = parse(workingHours.start, 'h:mm a', startOfDay(date));
-    const dayEndWithBusinessHours = parse(workingHours.end, 'h:mm a', startOfDay(date));
+    const dayStartWithBusinessHours = timeStringToDate(workingHours.start, date);
+    const dayEndWithBusinessHours = timeStringToDate(workingHours.end, date);
     
     const busyIntervals = [
       ...appointments
@@ -159,14 +177,10 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     
     const options: string[] = [];
     let currentTime = dayStartWithBusinessHours;
-    
-    while(currentTime < dayEndWithBusinessHours) {
-        const potentialStartTime = currentTime;
+    const now = new Date();
 
-        if (isToday(date) && isBefore(potentialStartTime, new Date())) {
-            currentTime = addMinutes(currentTime, bookingInterval);
-            continue;
-        }
+    while (currentTime < dayEndWithBusinessHours) {
+        const potentialStartTime = currentTime;
 
         const totalDuration = service.duration + (service.padBefore || 0) + (service.padAfter || 0);
         const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
@@ -174,17 +188,24 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         if (potentialEndTime > dayEndWithBusinessHours) {
             break;
         }
+        
+        let skip = false;
+        if (isToday(date) && isBefore(potentialStartTime, now)) {
+            skip = true;
+        }
 
-        const isOverlapping = busyIntervals.some(interval =>
+        if (!skip) {
+            const isOverlapping = busyIntervals.some((interval) =>
             areIntervalsOverlapping(
                 { start: potentialStartTime, end: potentialEndTime },
                 interval,
                 { inclusive: false }
             )
-        );
+            );
 
-        if (!isOverlapping) {
-            options.push(format(potentialStartTime, 'HH:mm'));
+            if (!isOverlapping) {
+                options.push(format(potentialStartTime, 'HH:mm'));
+            }
         }
 
         currentTime = addMinutes(currentTime, bookingInterval);
