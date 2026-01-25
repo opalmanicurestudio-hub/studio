@@ -163,6 +163,8 @@ const AddAppointmentForm = ({
     const [showConfirmation, setShowConfirmation] = useState(false);
     
     const selectedService = useMemo(() => services.find(s => s.id === selectedServiceId), [services, selectedServiceId]);
+    const selectedClient = useMemo(() => clients.find(c => c.id === selectedClientId), [clients, selectedClientId]);
+    const selectedStaff = useMemo(() => staff.find(s => s.id === selectedStaffId), [staff, selectedStaffId]);
 
     const timeOptions = useMemo(() => {
         const options = [];
@@ -251,10 +253,32 @@ const AddAppointmentForm = ({
                             <div className="flex gap-2">
                                 <Select value={selectedClientId} onValueChange={setSelectedClientId}>
                                     <SelectTrigger id="client">
-                                    <SelectValue placeholder="Select an existing client" />
+                                        <SelectValue asChild>
+                                            {selectedClient ? (
+                                                <div className="flex items-center gap-2">
+                                                    <Avatar className="w-6 h-6">
+                                                        <AvatarImage src={selectedClient.avatarUrl} />
+                                                        <AvatarFallback>{selectedClient.name.charAt(0)}</AvatarFallback>
+                                                    </Avatar>
+                                                    <span>{selectedClient.name}</span>
+                                                </div>
+                                            ) : (
+                                                <span>Select an existing client</span>
+                                            )}
+                                        </SelectValue>
                                     </SelectTrigger>
                                     <SelectContent>
-                                    {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                                    {clients.map(c => (
+                                        <SelectItem key={c.id} value={c.id}>
+                                            <div className="flex items-center gap-2">
+                                                <Avatar className="w-6 h-6">
+                                                    <AvatarImage src={c.avatarUrl} />
+                                                    <AvatarFallback>{c.name.charAt(0)}</AvatarFallback>
+                                                </Avatar>
+                                                <span>{c.name}</span>
+                                            </div>
+                                        </SelectItem>
+                                    ))}
                                     </SelectContent>
                                 </Select>
                                 <Button variant="outline" size="icon"><PlusCircle className="h-4 w-4" /></Button>
@@ -264,7 +288,19 @@ const AddAppointmentForm = ({
                             <Label htmlFor="staff">Staff Member</Label>
                             <Select value={selectedStaffId} onValueChange={setSelectedStaffId}>
                                 <SelectTrigger id="staff">
-                                    <SelectValue placeholder="Select a staff member" />
+                                     <SelectValue asChild>
+                                        {selectedStaff ? (
+                                            <div className="flex items-center gap-2">
+                                                <Avatar className="w-6 h-6">
+                                                    <AvatarImage src={selectedStaff.avatarUrl} />
+                                                    <AvatarFallback>{selectedStaff.name.charAt(0)}</AvatarFallback>
+                                                </Avatar>
+                                                <span>{selectedStaff.name}</span>
+                                            </div>
+                                        ) : (
+                                            <span>Select a staff member</span>
+                                        )}
+                                    </SelectValue>
                                 </SelectTrigger>
                                 <SelectContent>
                                 {staff.map(s => (
@@ -406,13 +442,13 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="h-[95vh] flex flex-col p-0">
-          <SheetHeader className="text-left p-4 border-b">
+        <SheetContent side="bottom" className="h-[95vh] flex flex-col">
+          <SheetHeader className="text-left px-4">
             <SheetTitle>{title}</SheetTitle>
             <SheetDescription>{description}</SheetDescription>
           </SheetHeader>
-          <div className="flex-1 overflow-y-auto p-4">{FormContent}</div>
-          <SheetFooter className="p-4 border-t">
+          <div className="py-4 flex-1 overflow-y-auto px-4">{FormContent}</div>
+          <SheetFooter className="px-4">
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button type="submit" form="add-appointment-form" className="w-full">Book Appointment</Button>
           </SheetFooter>
