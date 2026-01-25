@@ -2,7 +2,7 @@
 
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Sheet,
   SheetContent,
@@ -11,17 +11,19 @@ import {
   SheetDescription,
   SheetFooter,
 } from '@/components/ui/sheet';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   type Service,
   type Staff,
   type Appointment,
   type Event,
+  type Tenant,
+  type ConsentForm,
 } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
-import { Clock, DollarSign, Users, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle } from 'lucide-react';
+import { Clock, DollarSign, Users, Calendar, ChevronLeft, ChevronRight, User, Mail, Phone, CheckCircle, FileSignature, ShieldCheck, CreditCard } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
@@ -49,6 +51,10 @@ import { useForm, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { PhoneInput } from '../ui/phone-input';
+import { useToast } from '@/hooks/use-toast';
+import { FormFieldRenderer } from '../consents/FormFieldRenderer';
+import { Checkbox } from '../ui/checkbox';
+import { Separator } from '../ui/separator';
 
 const bookingSchema = z.object({
   clientName: z.string().min(1, 'Name is required'),
@@ -88,6 +94,8 @@ interface BookingSheetProps {
   events: Event[];
   scheduleProfiles: any[];
   services: Service[];
+  consentForms: ConsentForm[];
+  tenant: Tenant | null;
   onConfirm: (appointmentData: Omit<Appointment, 'id'>) => void;
 }
 
@@ -122,14 +130,18 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   events,
   scheduleProfiles,
   services,
+  consentForms,
+  tenant,
   onConfirm,
 }) => {
-  const [step, setStep] = useState(1);
-  const totalSteps = 4;
-  
   const [selectedStaffId, setSelectedStaffId] = useState('any');
   const [date, setDate] = useState(new Date());
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
+
+  const [completedForms, setCompletedForms] = useState<Set<string>>(new Set());
+  const [isDepositPaid, setIsDepositPaid] = useState(false);
+  const [agreedToPolicies, setAgreedToPolicies] = useState(false);
+  const { toast } = useToast();
 
   const methods = useForm<BookingFormData>({
     resolver: zodResolver(bookingSchema),
@@ -137,8 +149,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
   const { control, handleSubmit, register, formState: { errors } } = methods;
 
-  const progress = (step / totalSteps) * 100;
-  
   const qualifiedStaff = useMemo(() => {
     if (!service.requiredSkills || service.requiredSkills.length === 0) {
         return staff;
@@ -166,10 +176,10 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
     if (staffDaySchedule && staffDaySchedule.enabled) {
         workingHours = staffDaySchedule;
-    } else if (!staffDaySchedule) {
+    } else if (!staffDaySchedule && publicScheduleProfile?.week?.[dayName]) {
         workingHours = publicScheduleProfile.week[dayName];
     } else {
-        return []; // Staff is explicitly not available
+        return []; // Staff is explicitly not available or no schedule found
     }
     
     if (!workingHours || !workingHours.enabled) {
@@ -249,35 +259,87 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     return options;
 }, [date, selectedStaffId, service, staff, appointments, events, publicScheduleProfile, services]);
 
-  const handleStaffSelect = (staffId: string) => {
-    setSelectedStaffId(staffId);
-    setStep(2);
-    setSelectedTime(null);
-  };
+    const requiredForms = useMemo(() => {
+        if (!service || !consentForms) return [];
+        return consentForms.filter(form => service.requiredFormIds?.includes(form.id));
+    }, [service, consentForms]);
+    
+    const depositAmount = useMemo(() => {
+        if (!service || service.depositType === 'none') return 0;
+        if (service.depositType === 'full') return service.price;
+        if (service.depositType === 'breakeven') return service.cost;
+        if (service.depositType === 'deposit') {
+            if (service.depositSubType === 'percentage') {
+                return service.price * ((service.depositAmount || 0) / 100);
+            }
+            return service.depositAmount || 0;
+        }
+        return 0;
+    }, [service]);
+    
+    const steps = useMemo(() => {
+        const flow = ['staff', 'dateTime', 'details'];
+        if (requiredForms.length > 0) flow.push('consents');
+        if (depositAmount > 0) flow.push('payment');
+        flow.push('summary');
+        flow.push('confirmation');
+        return flow;
+    }, [requiredForms.length, depositAmount]);
 
-  const handleTimeSelect = (time: string) => {
-      setSelectedTime(time);
-  }
+    const [currentStepIndex, setCurrentStepIndex] = useState(0);
+    const currentStep = steps[currentStepIndex];
+    const totalSteps = steps.length - 1;
+    const progress = useMemo(() => ((currentStepIndex + 1) / (steps.length - 1)) * 100, [currentStepIndex, steps.length]);
 
   const handleNextStep = async () => {
     let isValid = true;
-    if (step === 2 && !selectedTime) {
-        isValid = false;
+
+    if (currentStep === 'dateTime' && !selectedTime) {
+      toast({ variant: 'destructive', title: 'Please select a time.' });
+      isValid = false;
     }
-    if (step === 3) {
+    if (currentStep === 'details') {
       isValid = await methods.trigger(['clientName', 'clientEmail']);
     }
-
-    if (isValid && step < totalSteps) {
-        setStep(step + 1);
+    if (currentStep === 'consents') {
+        if (completedForms.size < requiredForms.length) {
+            toast({ variant: 'destructive', title: 'Please complete all required forms.' });
+            isValid = false;
+        }
     }
-  }
+     if (currentStep === 'payment') {
+        if (!isDepositPaid) {
+            // In a real app this would be a Stripe interaction. For now, we simulate success.
+            setIsDepositPaid(true);
+            toast({ title: "Deposit Paid!", description: "Your deposit has been processed."});
+        }
+    }
+    if (currentStep === 'summary') {
+        if (!agreedToPolicies) {
+            toast({ variant: 'destructive', title: 'Please agree to the policies.' });
+            isValid = false;
+        } else {
+             handleSubmit(handleConfirmBooking)();
+             return;
+        }
+    }
+
+    if (isValid && currentStepIndex < steps.length - 1) {
+        setCurrentStepIndex(currentStepIndex + 1);
+    }
+  };
 
   const handlePrevStep = () => {
-      if (step > 1) {
-          setStep(step - 1);
-      }
-  }
+    if (currentStepIndex > 0) {
+      setCurrentStepIndex(currentStepIndex - 1);
+    }
+  };
+
+  const handleStaffSelect = (staffId: string) => {
+    setSelectedStaffId(staffId);
+    setCurrentStepIndex(1);
+    setSelectedTime(null);
+  };
   
   const handleConfirmBooking = (data: BookingFormData) => {
     if (!service || !selectedTime) return;
@@ -300,7 +362,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     };
     
     onConfirm(appointmentData);
-    setStep(5); // Move to confirmation screen
+    setCurrentStepIndex(steps.indexOf('confirmation'));
   };
 
   return (
@@ -308,13 +370,11 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       <SheetContent className="w-full sm:max-w-lg p-0 flex flex-col">
         <SheetHeader className="p-6 pb-4">
           <SheetTitle>Book Your Appointment</SheetTitle>
-          <div className="pt-2">
-            <Progress value={progress} className="h-2" />
-          </div>
+          {currentStep !== 'confirmation' && <div className="pt-2"><Progress value={progress} className="h-2" /></div>}
         </SheetHeader>
         <ScrollArea className="flex-1">
             <div className="p-6 space-y-8">
-                {step === 5 ? (
+                {currentStep === 'confirmation' ? (
                     <div className="text-center py-10">
                         <CheckCircle className="w-16 h-16 mx-auto text-green-500 mb-4" />
                         <h2 className="text-2xl font-bold">Booking Confirmed!</h2>
@@ -324,20 +384,14 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                     </div>
                 ) : (
                     <>
-                         <div className="space-y-4">
+                        <div className="space-y-4">
                             <div className="flex items-center justify-between">
                                 <h3 className="text-lg font-medium">Your Selected Service</h3>
-                                <Button variant="link" size="sm" className="p-0" onClick={() => onOpenChange(false)}>Change</Button>
+                                {currentStep !== 'staff' && <Button variant="link" size="sm" className="p-0" onClick={() => onOpenChange(false)}>Change</Button>}
                             </div>
                             <Card className="bg-muted/50">
                                 <CardContent className="p-4 flex gap-4 items-center">
-                                    <Image
-                                        src={service.imageUrl || 'https://picsum.photos/seed/1/100/100'}
-                                        alt={service.name}
-                                        width={80}
-                                        height={80}
-                                        className="rounded-md object-cover"
-                                    />
+                                    <Image src={service.imageUrl || 'https://picsum.photos/seed/1/100/100'} alt={service.name} width={80} height={80} className="rounded-md object-cover" />
                                     <div className="space-y-1">
                                         <p className="font-semibold">{service.name}</p>
                                         <div className="text-sm text-muted-foreground flex items-center gap-4">
@@ -349,19 +403,17 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                             </Card>
                         </div>
                         
-                        {step > 1 && (
+                        {currentStepIndex > 0 && currentStep !== 'confirmation' && (
                             <div className="space-y-4">
                                 <div className="flex items-center justify-between">
                                     <h3 className="text-lg font-medium flex items-center gap-2"><Users className="w-5 h-5 text-primary" />Provider</h3>
-                                    <Button variant="link" size="sm" className="p-0" onClick={() => {setStep(1); setSelectedStaffId('any');}}>Change</Button>
+                                    <Button variant="link" size="sm" className="p-0" onClick={() => setCurrentStepIndex(0)}>Change</Button>
                                 </div>
-                                <p className="text-muted-foreground text-sm">
-                                    Selected: {selectedStaffId === 'any' ? 'Any Available' : staff.find(s=>s.id === selectedStaffId)?.name}
-                                </p>
+                                <p className="text-muted-foreground text-sm">Selected: {selectedStaffId === 'any' ? 'Any Available' : staff.find(s=>s.id === selectedStaffId)?.name}</p>
                             </div>
                         )}
                         
-                        {step === 1 && (
+                        {currentStep === 'staff' && (
                            <div className="space-y-4">
                                 <h3 className="text-lg font-medium flex items-center gap-2"><Users className="w-5 h-5 text-primary" />Choose Your Provider</h3>
                                 <RadioGroup onValueChange={handleStaffSelect} value={selectedStaffId} className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -373,93 +425,109 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                             </div>
                         )}
 
-                        {step > 2 && (
+                        {currentStepIndex > 1 && currentStep !== 'confirmation' && (
                              <div className="space-y-4">
                                 <div className="flex items-center justify-between">
                                     <h3 className="text-lg font-medium flex items-center gap-2"><Calendar className="w-5 h-5 text-primary" />Date & Time</h3>
-                                    <Button variant="link" size="sm" className="p-0" onClick={() => {setStep(2); setSelectedTime(null);}}>Change</Button>
+                                    <Button variant="link" size="sm" className="p-0" onClick={() => setCurrentStepIndex(1)}>Change</Button>
                                 </div>
-                                <p className="text-muted-foreground text-sm">
-                                    Selected: {format(date, 'EEEE, LLL d, yyyy')} at {selectedTime ? format(parseISO(`1970-01-01T${selectedTime}:00`), 'h:mm a') : ''}
-                                </p>
+                                <p className="text-muted-foreground text-sm">Selected: {format(date, 'EEEE, LLL d, yyyy')} at {selectedTime ? format(parseISO(`1970-01-01T${selectedTime}:00`), 'h:mm a') : ''}</p>
                             </div>
                         )}
 
-                        {step === 2 && (
-                            <div className="space-y-4">
+                        {currentStep === 'dateTime' && (
+                             <div className="space-y-4">
                                 <h3 className="text-lg font-medium flex items-center gap-2"><Calendar className="w-5 h-5 text-primary" />Select Date & Time</h3>
                                 <div className="p-4 rounded-lg border space-y-4">
-                                    <div className="flex items-center justify-between">
-                                        <Button variant="outline" size="icon" onClick={() => setDate(prev => addDays(prev, -7))}><ChevronLeft className="w-4 h-4" /></Button>
-                                        <span className="font-semibold">{format(weekStart, 'MMMM yyyy')}</span>
-                                        <Button variant="outline" size="icon" onClick={() => setDate(prev => addDays(prev, 7))}><ChevronRight className="w-4 h-4" /></Button>
-                                    </div>
-                                    <div className="grid grid-cols-7 gap-2">
-                                        {weekDays.map(day => (
-                                            <button
-                                                key={day.toString()}
-                                                onClick={() => setDate(day)}
-                                                className={cn(
-                                                    "flex flex-col items-center justify-center p-2 rounded-lg border w-full aspect-square transition-colors",
-                                                    isSameDay(day, date)
-                                                        ? "bg-primary text-primary-foreground border-primary"
-                                                        : "bg-background hover:bg-accent",
-                                                    isBefore(day, startOfDay(new Date())) && "opacity-50 cursor-not-allowed"
-                                                )}
-                                                disabled={isBefore(day, startOfDay(new Date()))}
-                                            >
-                                                <span className="text-xs">{format(day, 'E')}</span>
-                                                <span className="font-bold text-lg">{format(day, 'd')}</span>
-                                            </button>
-                                        ))}
-                                    </div>
+                                    <div className="flex items-center justify-between"><Button variant="outline" size="icon" onClick={() => setDate(prev => addDays(prev, -7))}><ChevronLeft className="w-4 h-4" /></Button><span className="font-semibold">{format(weekStart, 'MMMM yyyy')}</span><Button variant="outline" size="icon" onClick={() => setDate(prev => addDays(prev, 7))}><ChevronRight className="w-4 h-4" /></Button></div>
+                                    <div className="grid grid-cols-7 gap-2">{weekDays.map(day => (<button key={day.toString()} onClick={() => setDate(day)} className={cn("flex flex-col items-center justify-center p-2 rounded-lg border w-full aspect-square transition-colors", isSameDay(day, date) ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-accent", isBefore(day, startOfDay(new Date())) && "opacity-50 cursor-not-allowed")} disabled={isBefore(day, startOfDay(new Date()))}><span className="text-xs">{format(day, 'E')}</span><span className="font-bold text-lg">{format(day, 'd')}</span></button>))}</div>
                                     <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 pt-4">
-                                        {timeSlots.map(time => (
-                                            <Button key={time} variant={selectedTime === time ? 'default' : 'outline'} onClick={() => handleTimeSelect(time)}>
-                                                {format(parseISO(`1970-01-01T${time}:00`), 'h:mm a')}
-                                            </Button>
-                                        ))}
-                                        {timeSlots.length === 0 && (
-                                            <p className="col-span-full text-center text-sm text-muted-foreground py-4">No available slots for this day.</p>
-                                        )}
+                                        {timeSlots.map(time => (<Button key={time} variant={selectedTime === time ? 'default' : 'outline'} onClick={() => setSelectedTime(time)}>{format(parseISO(`1970-01-01T${time}:00`), 'h:mm a')}</Button>))}
+                                        {timeSlots.length === 0 && (<p className="col-span-full text-center text-sm text-muted-foreground py-4">No available slots for this day.</p>)}
                                     </div>
                                 </div>
                             </div>
                         )}
                         
-                        {step === 3 && (
+                        {currentStep === 'details' && (
                             <FormProvider {...methods}>
                                 <form id="booking-details-form" onSubmit={handleSubmit(handleConfirmBooking)}>
                                     <div className="space-y-4">
                                         <h3 className="text-lg font-medium">Your Information</h3>
-                                        <div className="space-y-2">
-                                            <Label htmlFor="name">Full Name</Label>
-                                            <Input id="name" {...register('clientName')} />
-                                            {errors.clientName && <p className="text-sm text-destructive">{errors.clientName.message}</p>}
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label htmlFor="email">Email</Label>
-                                            <Input id="email" type="email" {...register('clientEmail')} />
-                                            {errors.clientEmail && <p className="text-sm text-destructive">{errors.clientEmail.message}</p>}
-                                        </div>
+                                        <div className="space-y-2"><Label htmlFor="name">Full Name</Label><Input id="name" {...register('clientName')} />{errors.clientName && <p className="text-sm text-destructive">{errors.clientName.message}</p>}</div>
+                                        <div className="space-y-2"><Label htmlFor="email">Email</Label><Input id="email" type="email" {...register('clientEmail')} />{errors.clientEmail && <p className="text-sm text-destructive">{errors.clientEmail.message}</p>}</div>
                                         <PhoneInput name="clientPhone" label="Phone" />
                                     </div>
                                 </form>
                             </FormProvider>
                         )}
+                        {currentStep === 'consents' && (
+                            <div className="space-y-4">
+                                <h3 className="text-lg font-medium">Consent Forms</h3>
+                                {requiredForms.map(form => (
+                                    <Card key={form.id}>
+                                        <CardHeader><CardTitle className="text-base">{form.title}</CardTitle></CardHeader>
+                                        <CardContent className="space-y-4">
+                                            {form.fields?.map(field => <FormFieldRenderer key={field.id} field={field} />)}
+                                        </CardContent>
+                                        <CardFooter>
+                                            <Button onClick={() => setCompletedForms(prev => new Set(prev.add(form.id)))} disabled={completedForms.has(form.id)}>
+                                                {completedForms.has(form.id) ? <><CheckCircle className="w-4 h-4 mr-2"/>Completed</> : 'Acknowledge & Sign'}
+                                            </Button>
+                                        </CardFooter>
+                                    </Card>
+                                ))}
+                            </div>
+                        )}
+                        {currentStep === 'payment' && (
+                            <div className="space-y-4">
+                                <h3 className="text-lg font-medium">Deposit Required</h3>
+                                <Card><CardContent className="p-6 space-y-4">
+                                    <div className="text-center"><p className="text-sm text-muted-foreground">A deposit of</p><p className="text-4xl font-bold">${depositAmount.toFixed(2)}</p><p className="text-xs text-muted-foreground">is required to secure your booking.</p></div>
+                                    <div className="space-y-2"><Label htmlFor="card-number">Card Number</Label><Input id="card-number" placeholder="**** **** **** 1234" /></div>
+                                    <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label htmlFor="expiry">Expiry</Label><Input id="expiry" placeholder="MM / YY" /></div><div className="space-y-2"><Label htmlFor="cvc">CVC</Label><Input id="cvc" placeholder="123" /></div></div>
+                                </CardContent></Card>
+                            </div>
+                        )}
+                        {currentStep === 'summary' && (
+                             <div className="space-y-4">
+                                <h3 className="text-lg font-medium">Review & Confirm</h3>
+                                <Card className="bg-muted/50">
+                                    <CardContent className="p-4 text-sm space-y-3">
+                                        <div className="flex justify-between"><span>Service:</span> <span className="font-semibold">{service.name}</span></div>
+                                        <div className="flex justify-between"><span>Provider:</span> <span className="font-semibold">{selectedStaffId === 'any' ? 'Any Available' : staff.find(s=>s.id === selectedStaffId)?.name}</span></div>
+                                        <div className="flex justify-between"><span>Date:</span> <span className="font-semibold">{format(date, 'EEE, LLL d, yyyy')}</span></div>
+                                        <div className="flex justify-between"><span>Time:</span> <span className="font-semibold">{selectedTime ? format(parseISO(`1970-01-01T${selectedTime}:00`), 'h:mm a') : ''}</span></div>
+                                        <Separator className="my-2"/>
+                                        <div className="flex justify-between font-bold"><span>Total Due Today:</span> <span>${depositAmount > 0 ? depositAmount.toFixed(2) : service.price.toFixed(2)}</span></div>
+                                        {depositAmount > 0 && <p className="text-xs text-muted-foreground text-right">Remaining balance of ${(service.price - depositAmount).toFixed(2)} due at appointment.</p>}
+                                    </CardContent>
+                                </Card>
+                                <div className="space-y-3 p-4 border rounded-lg">
+                                    <h4 className="font-semibold">Booking Policies</h4>
+                                    <ScrollArea className="h-24 text-xs text-muted-foreground space-y-2">
+                                        {tenant?.cancellationPolicy && <p><strong>Cancellation:</strong> {tenant.cancellationPolicy}</p>}
+                                        {tenant?.lateArrivalPolicy && <p><strong>Late Arrival:</strong> {tenant.lateArrivalPolicy}</p>}
+                                        {tenant?.noShowPolicy && <p><strong>No-Show:</strong> {tenant.noShowPolicy}</p>}
+                                    </ScrollArea>
+                                    <div className="flex items-center space-x-2 pt-2">
+                                        <Checkbox id="terms" checked={agreedToPolicies} onCheckedChange={(checked) => setAgreedToPolicies(!!checked)} />
+                                        <label htmlFor="terms" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">I have read and agree to the policies.</label>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </>
                 )}
             </div>
         </ScrollArea>
-        {step < 5 && (
+        {currentStep !== 'confirmation' && (
             <SheetFooter className="p-6 border-t">
-                {step > 1 && <Button variant="ghost" onClick={handlePrevStep}>Back</Button>}
+                {currentStepIndex > 0 && <Button variant="ghost" onClick={handlePrevStep}>Back</Button>}
                 <div className="flex-1" />
-                {step === 3 ? (
-                    <Button type="submit" form="booking-details-form" className="w-full sm:w-auto">Book Appointment</Button>
-                ) : (
-                    <Button onClick={handleNextStep} className="w-full sm:w-auto" disabled={step === 2 && !selectedTime}>Continue</Button>
-                )}
+                <Button onClick={handleNextStep} className="w-full sm:w-auto">
+                    {currentStep === 'summary' ? 'Book Appointment' : 'Continue'}
+                </Button>
             </SheetFooter>
         )}
       </SheetContent>
