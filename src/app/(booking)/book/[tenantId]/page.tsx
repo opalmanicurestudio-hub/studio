@@ -3,13 +3,14 @@
 import React, { useState, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { useFirebase, useCollection, useMemoFirebase, useDoc } from '@/firebase';
-import { collection, doc } from 'firebase/firestore';
-import { type Service, type Staff, type Tenant } from '@/lib/data';
+import { collection, doc, query, where } from 'firebase/firestore';
+import { type Service, type Staff, type Tenant, type Appointment, type Event } from '@/lib/data';
 import { Card, CardContent } from '@/components/ui/card';
 import Image from 'next/image';
 import { Clock, DollarSign, Loader } from 'lucide-react';
 import { BookingSheet } from '@/components/booking/BookingSheet';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
+import { isSameDay, parseISO } from 'date-fns';
 
 const ServiceCard = ({ service, onSelect }: { service: Service, onSelect: () => void }) => {
   return (
@@ -58,17 +59,41 @@ export default function BookingPage() {
   const tenantDocRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
   const servicesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/services`), [firestore, tenantId]);
   const staffQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
+  const scheduleProfilesQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isPublic", "==", true)), [firestore, tenantId]);
+  const allAppointmentsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/appointments`), [firestore, tenantId]);
+  const allEventsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/events`), [firestore, tenantId]);
   
   const { data: tenant, isLoading: tenantLoading } = useDoc<Tenant>(tenantDocRef);
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
+  const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
+  const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(allAppointmentsQuery);
+  const { data: eventsFromDB, isLoading: eventsLoading } = useCollection<Event>(allEventsQuery);
+  
+  const appointments = useMemo(() => {
+    if (!appointmentsFromDB) return [];
+    return appointmentsFromDB.map(apt => ({
+      ...apt,
+      startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime as any),
+      endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any),
+    }));
+  }, [appointmentsFromDB]);
+
+  const events = useMemo(() => {
+    if (!eventsFromDB) return [];
+    return eventsFromDB.map(evt => ({
+        ...evt,
+        startTime: (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : parseISO(evt.startTime as any),
+        endTime: (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : parseISO(evt.endTime as any),
+    }));
+  }, [eventsFromDB]);
 
   const handleServiceSelect = (service: Service) => {
     setSelectedService(service);
     setIsSheetOpen(true);
   };
   
-  const isLoading = tenantLoading || servicesLoading || staffLoading;
+  const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || appointmentsLoading || eventsLoading;
 
   if (isLoading) {
       return (
@@ -101,6 +126,9 @@ export default function BookingPage() {
                 onOpenChange={setIsSheetOpen}
                 service={selectedService}
                 staff={staff || []}
+                appointments={appointments || []}
+                events={events || []}
+                scheduleProfiles={scheduleProfiles || []}
             />
         )}
     </div>

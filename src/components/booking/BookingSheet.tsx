@@ -13,17 +13,31 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   type Service,
-  type Staff
+  type Staff,
+  type Appointment,
+  type Event,
 } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
-import { Clock, DollarSign, Users, Calendar } from 'lucide-react';
+import { Clock, DollarSign, Users, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { Card, CardContent } from '../ui/card';
-
+import {
+  startOfWeek,
+  addDays,
+  isSameDay,
+  format,
+  setHours,
+  setMinutes,
+  startOfDay,
+  areIntervalsOverlapping,
+  addMinutes,
+  parse,
+  getDay,
+} from 'date-fns';
 
 const StaffSelectionCard = ({ staff, isSelected, onSelect }: { staff: Staff | { id: string, name: string, avatarUrl: string }, isSelected: boolean, onSelect: () => void }) => {
     const isAnyStaff = staff.id === 'any';
@@ -50,6 +64,9 @@ interface BookingSheetProps {
   onOpenChange: (open: boolean) => void;
   service: Service;
   staff: Staff[];
+  appointments: Appointment[];
+  events: Event[];
+  scheduleProfiles: any[];
 }
 
 export const BookingSheet: React.FC<BookingSheetProps> = ({
@@ -57,11 +74,16 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   onOpenChange,
   service,
   staff,
+  appointments,
+  events,
+  scheduleProfiles,
 }) => {
   const [step, setStep] = useState(1);
   const totalSteps = 3;
   
   const [selectedStaffId, setSelectedStaffId] = useState('any');
+  const [date, setDate] = useState(new Date());
+  const [selectedTime, setSelectedTime] = useState<string | null>(null);
 
   const progress = (step / totalSteps) * 100;
   
@@ -73,6 +95,108 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         service.requiredSkills!.every(skill => (s.skillSet || []).includes(skill))
     );
   }, [service, staff]);
+  
+  const weekStart = useMemo(() => startOfWeek(date, { weekStartsOn: 0 }), [date]);
+  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
+  
+  const timeSlots = useMemo(() => {
+    if (!service || !date || !scheduleProfiles?.length) return [];
+    
+    const publicScheduleProfile = scheduleProfiles.find(p => p.isActive);
+    if (!publicScheduleProfile) return [];
+
+    const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
+    const dayName = format(date, 'eeee').toLowerCase();
+    
+    const selectedStaff = staff.find(s => s.id === selectedStaffId);
+    let workingHours = publicScheduleProfile.week[dayName];
+    
+    if (selectedStaff && selectedStaff.availability?.week) {
+        const staffDayHours = selectedStaff.availability.week[dayName as keyof typeof selectedStaff.availability.week];
+        if (staffDayHours.enabled) {
+            workingHours = staffDayHours;
+        }
+    }
+
+    if (!workingHours || !workingHours.enabled) {
+      return [];
+    }
+
+    const openTimeParts = workingHours.start.match(/(\d+):(\d+) (AM|PM)/);
+    const closeTimeParts = workingHours.end.match(/(\d+):(\d+) (AM|PM)/);
+
+    if (!openTimeParts || !closeTimeParts) return [];
+
+    let openHour = parseInt(openTimeParts[1]);
+    if (openTimeParts[3] === 'PM' && openHour < 12) openHour += 12;
+    if (openTimeParts[3] === 'AM' && openHour === 12) openHour = 0;
+    
+    let closeHour = parseInt(closeTimeParts[1]);
+    if (closeTimeParts[3] === 'PM' && closeHour < 12) closeHour += 12;
+    if (closeTimeParts[3] === 'AM' && closeHour === 12) closeHour = 0;
+    
+    const dayStartWithBusinessHours = setMinutes(setHours(startOfDay(date), openHour), parseInt(openTimeParts[2]));
+    const dayEndWithBusinessHours = setMinutes(setHours(startOfDay(date), closeHour), parseInt(closeTimeParts[2]));
+    
+    const busyIntervals = [
+      ...appointments
+        .filter(apt => {
+          if (!isSameDay(apt.startTime, date)) return false;
+          if (selectedStaffId !== 'any' && apt.staffId !== selectedStaffId) return false;
+          return true;
+        })
+        .map(apt => ({ start: apt.startTime, end: apt.endTime })),
+      ...events
+        .filter(evt => {
+            if (!isSameDay(evt.startTime, date)) return false;
+            if (evt.type !== 'blocked') return false;
+            if (evt.staffId && evt.staffId !== 'all' && selectedStaffId !== 'any' && evt.staffId !== selectedStaffId) return false;
+            if (evt.staffId === 'all') return true;
+            if (!evt.staffId && selectedStaffId !== 'any') return false; // Event not for anyone specific
+            return true;
+        })
+        .map(evt => ({ start: evt.startTime, end: evt.endTime })),
+    ];
+    
+    const options: string[] = [];
+    let currentTime = dayStartWithBusinessHours;
+    
+    while(currentTime < dayEndWithBusinessHours) {
+        const potentialStartTime = currentTime;
+        const totalDuration = service.duration + (service.padBefore || 0) + (service.padAfter || 0);
+        const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
+
+        if (potentialEndTime > dayEndWithBusinessHours) {
+            break;
+        }
+
+        const isOverlapping = busyIntervals.some(interval =>
+            areIntervalsOverlapping(
+                { start: potentialStartTime, end: potentialEndTime },
+                interval,
+                { inclusive: false }
+            )
+        );
+
+        if (!isOverlapping) {
+            options.push(format(potentialStartTime, 'HH:mm'));
+        }
+
+        currentTime = addMinutes(currentTime, bookingInterval);
+    }
+    return options;
+}, [date, selectedStaffId, service, staff, appointments, events, scheduleProfiles]);
+
+  const handleStaffSelect = (staffId: string) => {
+    setSelectedStaffId(staffId);
+    setStep(3);
+    setSelectedTime(null);
+  };
+
+  const handleTimeSelect = (time: string) => {
+      setSelectedTime(time);
+      // Here you would proceed to the next step, e.g. client details
+  }
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -85,7 +209,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         </SheetHeader>
         <ScrollArea className="flex-1">
             <div className="p-6 space-y-8">
-                {/* Step 1: Service Confirmation (already selected) */}
+                {/* Step 1: Service Confirmation */}
                 <div className="space-y-4">
                     <div className="flex items-center justify-between">
                          <h3 className="text-lg font-medium">Your Selected Service</h3>
@@ -114,27 +238,56 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                  {/* Step 2: Staff Selection */}
                 <div className="space-y-4">
                     <h3 className="text-lg font-medium flex items-center gap-2"><Users className="w-5 h-5 text-primary" />Choose Your Provider</h3>
-                    <RadioGroup value={selectedStaffId} onValueChange={setSelectedStaffId} className="grid grid-cols-3 gap-4">
-                        <StaffSelectionCard staff={{id: 'any', name: 'Any Available', avatarUrl: ''}} isSelected={selectedStaffId === 'any'} onSelect={() => setSelectedStaffId('any')} />
+                    <RadioGroup onValueChange={handleStaffSelect} value={selectedStaffId} className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                        <StaffSelectionCard staff={{id: 'any', name: 'Any Available', avatarUrl: ''}} isSelected={selectedStaffId === 'any'} onSelect={() => handleStaffSelect('any')} />
                         {qualifiedStaff.map(s => (
-                            <StaffSelectionCard key={s.id} staff={s} isSelected={selectedStaffId === s.id} onSelect={() => setSelectedStaffId(s.id)} />
+                            <StaffSelectionCard key={s.id} staff={s} isSelected={selectedStaffId === s.id} onSelect={() => handleStaffSelect(s.id)} />
                         ))}
                     </RadioGroup>
                 </div>
 
-                {/* Step 3: Date & Time - Placeholder */}
-                <div className="space-y-4 opacity-50 pointer-events-none">
+                {/* Step 3: Date & Time */}
+                <div className={cn("space-y-4", step < 3 && "opacity-50 pointer-events-none")}>
                      <h3 className="text-lg font-medium flex items-center gap-2"><Calendar className="w-5 h-5 text-primary" />Select Date & Time</h3>
-                     <Card>
-                        <CardContent className="p-4 text-center text-muted-foreground">
-                            <p>Select a provider to see available times.</p>
-                        </CardContent>
-                     </Card>
+                     <div className="p-4 rounded-lg border space-y-4">
+                        <div className="flex items-center justify-between">
+                            <Button variant="outline" size="icon" onClick={() => setDate(prev => addDays(prev, -7))}><ChevronLeft className="w-4 h-4" /></Button>
+                            <span className="font-semibold">{format(weekStart, 'MMMM yyyy')}</span>
+                            <Button variant="outline" size="icon" onClick={() => setDate(prev => addDays(prev, 7))}><ChevronRight className="w-4 h-4" /></Button>
+                        </div>
+                        <div className="grid grid-cols-7 gap-2">
+                            {weekDays.map(day => (
+                                <button
+                                    key={day.toString()}
+                                    onClick={() => setDate(day)}
+                                    className={cn(
+                                        "flex flex-col items-center justify-center p-2 rounded-lg border w-full aspect-square transition-colors",
+                                        isSameDay(day, date)
+                                            ? "bg-primary text-primary-foreground border-primary"
+                                            : "bg-background hover:bg-accent"
+                                    )}
+                                >
+                                    <span className="text-xs">{format(day, 'E')}</span>
+                                    <span className="font-bold text-lg">{format(day, 'd')}</span>
+                                </button>
+                            ))}
+                        </div>
+                         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 pt-4">
+                            {timeSlots.map(time => (
+                                <Button key={time} variant={selectedTime === time ? 'default' : 'outline'} onClick={() => handleTimeSelect(time)}>
+                                    {format(parse(time, 'HH:mm', new Date()), 'h:mm a')}
+                                </Button>
+                            ))}
+                            {timeSlots.length === 0 && (
+                                <p className="col-span-full text-center text-sm text-muted-foreground py-4">No available slots for this day.</p>
+                            )}
+                        </div>
+                     </div>
                 </div>
             </div>
         </ScrollArea>
         <SheetFooter className="p-6 border-t">
-          <Button className="w-full" size="lg" disabled>Continue</Button>
+          <Button className="w-full" size="lg" disabled={!selectedTime}>Continue</Button>
         </SheetFooter>
       </SheetContent>
     </Sheet>
