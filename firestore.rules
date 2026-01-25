@@ -238,7 +238,7 @@ service cloud.firestore {
       allow list: if true;
       allow get: if isTenantOwner(tenantId) || isTenantAdmin(tenantId) || (isStaff(tenantId) && resource.data.staffId == request.auth.uid);
       allow create: if true;
-      allow update: if isTenantOwner(tenantId) || isTenantAdmin(tenantId) || (isStaff(tenantId) && resource.data.staffId == request.auth.uid) || request.auth.token.checkInToken == resource.data.checkInToken;
+      allow update: if isTenantOwner(tenantId) || isTenantAdmin(tenantId) || (isStaff(tenantId) && resource.data.staffId == request.auth.uid) || exists(/databases/$(database)/documents/appointmentCheckIns/$(resource.data.checkInToken));
       allow delete: if isTenantOwner(tenantId) || isTenantAdmin(tenantId) || (isStaff(tenantId) && resource.data.staffId == request.auth.uid);
     }
     

@@ -96,7 +96,11 @@ interface BookingSheetProps {
   services: Service[];
   consentForms: ConsentForm[];
   tenant: Tenant | null;
-  onConfirm: (appointmentData: Omit<Appointment, 'id'>) => void;
+  onConfirm: (
+    formData: { clientName: string; clientEmail: string; clientPhone?: string },
+    appointmentDetails: Omit<Appointment, 'id' | 'clientId' | 'clientName' | 'clientEmail' | 'clientPhone'>,
+    setBookingStep: (step: string) => void
+  ) => void;
 }
 
 const timeStringToDate = (timeStr: string, date: Date): Date => {
@@ -329,7 +333,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
   const handlePrevStep = () => {
     if (currentStepIndex > 0) {
-      setCurrentStepIndex(currentStepIndex + 1);
+      setCurrentStepIndex(currentStepIndex - 1);
     }
   };
 
@@ -346,21 +350,22 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     const startDateTime = setMinutes(setHours(startOfDay(date), hours), minutes);
     const endDateTime = addMinutes(startDateTime, service.duration);
 
-    const appointmentData: Omit<Appointment, 'id'> = {
-      clientId: '', // Will be handled on submission
-      clientName: data.clientName,
-      clientEmail: data.clientEmail,
-      clientPhone: data.clientPhone,
+    const clientData = {
+        clientName: data.clientName,
+        clientEmail: data.clientEmail,
+        clientPhone: data.clientPhone,
+    };
+
+    const appointmentDetails = {
       serviceId: service.id,
       staffId: selectedStaffId !== 'any' ? selectedStaffId : undefined,
       startTime: startDateTime.toISOString(),
       endTime: endDateTime.toISOString(),
-      status: 'confirmed',
+      status: 'confirmed' as const,
       isWalkIn: false,
     };
     
-    onConfirm(appointmentData);
-    setCurrentStepIndex(steps.indexOf('confirmation'));
+    onConfirm(clientData, appointmentDetails, (step) => setCurrentStepIndex(steps.indexOf(step)));
   };
 
   return (

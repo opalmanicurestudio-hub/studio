@@ -5,8 +5,8 @@
 import React, { useState, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { useFirebase, useCollection, useMemoFirebase, useDoc, addDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
-import { collection, doc, query, where } from 'firebase/firestore';
-import { type Service, type Staff, type Tenant, type Appointment, type Event, type ConsentForm } from '@/lib/data';
+import { collection, doc, query, where, getDocs } from 'firebase/firestore';
+import { type Service, type Staff, type Tenant, type Appointment, type Event, type ConsentForm, type Client } from '@/lib/data';
 import { Card, CardContent } from '@/components/ui/card';
 import Image from 'next/image';
 import { Clock, DollarSign, Loader } from 'lucide-react';
@@ -59,6 +59,7 @@ export default function BookingPage() {
 
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Fetch Tenant, Services, and Staff data
   const tenantDocRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
@@ -74,7 +75,7 @@ export default function BookingPage() {
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
   const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
   const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(allAppointmentsQuery);
-  const { data: eventsFromDB, isLoading: eventsLoading } = useCollection<Event>(allEventsQuery);
+  const { data: eventsFromDB, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
   const { data: consentForms, isLoading: consentFormsLoading } = useCollection<ConsentForm>(consentFormsQuery);
   
   const appointments = useMemo(() => {
@@ -100,26 +101,72 @@ export default function BookingPage() {
     setIsSheetOpen(true);
   };
   
-  const handleConfirmBooking = (appointmentData: Omit<Appointment, 'id'>) => {
+  const handleConfirmBooking = async (
+    formData: { clientName: string; clientEmail: string; clientPhone?: string },
+    appointmentDetails: Omit<Appointment, 'id' | 'clientId' | 'clientName' | 'clientEmail' | 'clientPhone'>,
+    setBookingStep: (step: string) => void
+  ) => {
     if (!firestore) return;
-    const appointmentRef = collection(firestore, `tenants/${tenantId}/appointments`);
-    
-    const newAppointment = {
-        ...appointmentData,
-        id: nanoid(),
-        checkInToken: nanoid(16),
-    };
+    setIsSubmitting(true);
+    try {
+        const clientsRef = collection(firestore, 'tenants', tenantId, 'clients');
+        const q = query(clientsRef, where("email", "==", formData.clientEmail.toLowerCase()));
+        const querySnapshot = await getDocs(q);
 
-    addDocumentNonBlocking(appointmentRef, newAppointment);
-    
-    // Also create the public check-in document
-    const checkInDocRef = doc(firestore, 'appointmentCheckIns', newAppointment.checkInToken);
-    setDocumentNonBlocking(checkInDocRef, newAppointment, {});
-    
-    toast({
-      title: 'Booking Confirmed!',
-      description: `Your appointment for a ${services?.find(s => s.id === appointmentData.serviceId)?.name} is all set.`,
-    });
+        let clientId: string;
+        let clientName: string = formData.clientName;
+
+        if (querySnapshot.empty) {
+            const newClientRef = doc(clientsRef);
+            clientId = newClientRef.id;
+            const newClient: Omit<Client, 'id'> = {
+                name: formData.clientName,
+                email: formData.clientEmail,
+                phone: formData.clientPhone || '',
+                avatarUrl: `https://picsum.photos/seed/${clientId}/100/100`,
+                lifetimeValue: 0,
+                lastAppointment: new Date().toISOString(),
+                status: 'active',
+            };
+            await setDoc(newClientRef, { ...newClient, id: clientId });
+            toast({ title: "Welcome!", description: "A new client profile has been created for you." });
+        } else {
+            const existingClientDoc = querySnapshot.docs[0];
+            clientId = existingClientDoc.id;
+            clientName = existingClientDoc.data().name;
+        }
+
+        const appointmentRef = collection(firestore, `tenants/${tenantId}/appointments`);
+        const newAppointmentId = nanoid();
+        const checkInToken = nanoid(16);
+
+        const newAppointment = {
+            ...appointmentDetails,
+            id: newAppointmentId,
+            clientId: clientId,
+            clientName: clientName,
+            clientEmail: formData.clientEmail,
+            clientPhone: formData.clientPhone,
+            checkInToken: checkInToken,
+        };
+
+        await setDoc(doc(appointmentRef, newAppointmentId), newAppointment);
+
+        const checkInDocRef = doc(firestore, 'appointmentCheckIns', checkInToken);
+        await setDoc(checkInDocRef, newAppointment);
+        
+        toast({
+          title: 'Booking Confirmed!',
+          description: `Your appointment is all set.`,
+        });
+        setBookingStep('confirmation');
+
+    } catch (error) {
+        console.error("Booking error:", error);
+        toast({ variant: 'destructive', title: "Booking Failed", description: "Could not save your appointment. Please try again." });
+    } finally {
+        setIsSubmitting(false);
+    }
   };
 
   const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || appointmentsLoading || eventsLoading || consentFormsLoading;

@@ -223,10 +223,11 @@ export default function CheckInPage() {
             updateData.lateTimeMinutes = lateMinutes;
         }
 
-        // Update both the public and private documents
+        // Update the public document
         const appointmentCheckInRef = doc(firestore, 'appointmentCheckIns', token);
         updateDocumentNonBlocking(appointmentCheckInRef, updateData);
 
+        // Update the private document
         const originalAppointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
         updateDocumentNonBlocking(originalAppointmentRef, updateData);
 
