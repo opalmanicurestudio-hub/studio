@@ -303,6 +303,8 @@ export default function SettingsPage() {
 
   const [lateGracePeriod, setLateGracePeriod] = useState(15);
   const [cancellationFee, setCancellationFee] = useState('25.00');
+  const [noShowFee, setNoShowFee] = useState('50.00');
+  const [cancellationWindow, setCancellationWindow] = useState(24);
   const [autoCancel, setAutoCancel] = useState(false);
   const [cancellationPolicy, setCancellationPolicy] = useState('');
   const [lateArrivalPolicy, setLateArrivalPolicy] = useState('');
@@ -316,6 +318,8 @@ export default function SettingsPage() {
       setSmsMessage(tenantData.smsNotificationMessage || "Hi {clientName}, your spot at {businessName} is ready! Please head to the front desk.");
       setLateGracePeriod(tenantData.lateArrivalGracePeriod || 15);
       setCancellationFee((tenantData.cancellationFee || 25).toFixed(2));
+      setNoShowFee((tenantData.noShowFee || 50).toFixed(2));
+      setCancellationWindow(tenantData.cancellationWindowHours || 24);
       setAutoCancel(tenantData.autoCancelLateArrivals || false);
       setCancellationPolicy(tenantData.cancellationPolicy || '');
       setLateArrivalPolicy(tenantData.lateArrivalPolicy || '');
@@ -333,6 +337,8 @@ export default function SettingsPage() {
             dataToUpdate = {
                 lateArrivalGracePeriod: lateGracePeriod,
                 cancellationFee: parseFloat(cancellationFee),
+                noShowFee: parseFloat(noShowFee),
+                cancellationWindowHours: cancellationWindow,
                 autoCancelLateArrivals: autoCancel,
                 cancellationPolicy: cancellationPolicy,
                 lateArrivalPolicy: lateArrivalPolicy,
@@ -399,48 +405,78 @@ export default function SettingsPage() {
             </CardHeader>
             <CardContent className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                    <Label htmlFor="late-grace-period">Late Arrival Grace Period (minutes)</Label>
-                    <Input
-                        id="late-grace-period"
-                        type="number"
-                        value={lateGracePeriod}
-                        onChange={(e) => setLateGracePeriod(Number(e.target.value))}
-                        placeholder="e.g., 15"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                        Time after which a client is considered late.
-                    </p>
-                    </div>
-                    <div className="space-y-2">
-                    <Label htmlFor="cancellation-fee">Late Cancellation / No-Show Fee</Label>
-                    <div className="relative">
-                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                     <div className="space-y-2">
+                        <Label htmlFor="late-grace-period">Late Arrival Grace Period (minutes)</Label>
                         <Input
-                        id="cancellation-fee"
-                        type="number"
-                        value={cancellationFee}
-                        onChange={(e) => setCancellationFee(e.target.value)}
-                        placeholder="25.00"
-                        className="pl-8"
+                            id="late-grace-period"
+                            type="number"
+                            value={lateGracePeriod}
+                            onChange={(e) => setLateGracePeriod(Number(e.target.value))}
+                            placeholder="e.g., 15"
                         />
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                        Fee charged for late cancellations or no-shows.
-                    </p>
-                    </div>
-                    <div className="flex items-center justify-between rounded-lg border p-4 md:col-span-2">
-                    <div className="space-y-0.5">
-                        <Label htmlFor="auto-cancel" className="font-semibold">Auto-Cancel Late Arrivals</Label>
                         <p className="text-xs text-muted-foreground">
-                            Automatically cancel appointments if the client is late beyond the grace period.
+                            Time after which a client is considered late.
                         </p>
                     </div>
-                    <Switch
-                        id="auto-cancel"
-                        checked={autoCancel}
-                        onCheckedChange={setAutoCancel}
-                    />
+                     <div className="space-y-2">
+                        <Label htmlFor="cancellation-window">Cancellation Window (hours)</Label>
+                        <Input 
+                            id="cancellation-window" 
+                            type="number" 
+                            value={cancellationWindow} 
+                            onChange={(e) => setCancellationWindow(Number(e.target.value))} 
+                            placeholder="e.g., 24"
+                        />
+                         <p className="text-xs text-muted-foreground">
+                            Clients can cancel for free outside this window.
+                        </p>
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="cancellation-fee">Late Cancellation Fee</Label>
+                        <div className="relative">
+                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                            id="cancellation-fee"
+                            type="number"
+                            value={cancellationFee}
+                            onChange={(e) => setCancellationFee(e.target.value)}
+                            placeholder="25.00"
+                            className="pl-8"
+                            />
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                            Fee for cancellations inside the window.
+                        </p>
+                    </div>
+                     <div className="space-y-2">
+                        <Label htmlFor="no-show-fee">No-Show Fee</Label>
+                        <div className="relative">
+                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                            id="no-show-fee"
+                            type="number"
+                            value={noShowFee}
+                            onChange={(e) => setNoShowFee(e.target.value)}
+                            placeholder="50.00"
+                            className="pl-8"
+                            />
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                            Fee charged when a client doesn't show up.
+                        </p>
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg border p-4 md:col-span-2">
+                        <div className="space-y-0.5">
+                            <Label htmlFor="auto-cancel" className="font-semibold">Auto-Cancel Late Arrivals</Label>
+                            <p className="text-xs text-muted-foreground">
+                                Automatically cancel appointments if the client is late beyond the grace period.
+                            </p>
+                        </div>
+                        <Switch
+                            id="auto-cancel"
+                            checked={autoCancel}
+                            onCheckedChange={setAutoCancel}
+                        />
                     </div>
                 </div>
                  <div className="space-y-2">

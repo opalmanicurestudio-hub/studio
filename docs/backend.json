@@ -71,7 +71,15 @@
         },
         "cancellationFee": {
             "type": "number",
-            "description": "Fee charged for late cancellations or no-shows."
+            "description": "Fee charged for late cancellations."
+        },
+        "cancellationWindowHours": {
+            "type": "number",
+            "description": "The window in hours before an appointment that a client can cancel without a fee."
+        },
+        "noShowFee": {
+            "type": "number",
+            "description": "Fee charged for clients who do not show up for their appointment."
         },
         "cancellationPolicy": {
             "type": "string",

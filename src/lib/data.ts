@@ -403,6 +403,8 @@ export type Tenant = {
   lateArrivalGracePeriod?: number;
   autoCancelLateArrivals?: boolean;
   cancellationFee?: number;
+  cancellationWindowHours?: number;
+  noShowFee?: number;
   cancellationPolicy?: string;
   noShowPolicy?: string;
   lateArrivalPolicy?: string;
