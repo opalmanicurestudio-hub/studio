@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -32,33 +33,31 @@ export default function CheckInPage() {
     const { firestore, isUserLoading } = useFirebase();
     const tenantId = 'tenant-abc';
 
-    // Fetch appointment by token
-    const appointmentsQuery = useMemoFirebase(() => {
+    // Fetch appointment by token from the public collection
+    const appointmentCheckInRef = useMemoFirebase(() => {
         if (!firestore || !token) return null;
-        return query(collection(firestore, 'tenants', tenantId, 'appointments'), where('checkInToken', '==', token));
+        return doc(firestore, 'appointmentCheckIns', token);
     }, [firestore, token]);
-    const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
+    const { data: appointmentFromCheckIn, isLoading: appointmentsLoading } = useDoc<Appointment>(appointmentCheckInRef);
 
     const appointment = useMemo(() => {
-        if (!appointmentsFromDB?.[0]) return null;
-        const aptData = appointmentsFromDB[0];
+        if (!appointmentFromCheckIn) return null;
         try {
-            // Firestore Timestamps need to be converted to JS Dates
-            const startTime = (aptData.startTime as any)?.toDate ? (aptData.startTime as any).toDate() : parseISO(aptData.startTime as any);
-            const endTime = (aptData.endTime as any)?.toDate ? (aptData.endTime as any).toDate() : parseISO(aptData.endTime as any);
+            const startTime = (appointmentFromCheckIn.startTime as any)?.toDate ? (appointmentFromCheckIn.startTime as any).toDate() : parseISO(appointmentFromCheckIn.startTime as any);
+            const endTime = (appointmentFromCheckIn.endTime as any)?.toDate ? (appointmentFromCheckIn.endTime as any).toDate() : parseISO(appointmentFromCheckIn.endTime as any);
             
-            // Check if the conversion resulted in a valid date
             if (isNaN(startTime.getTime())) {
-                console.error("Invalid startTime:", aptData.startTime);
+                console.error("Invalid startTime:", appointmentFromCheckIn.startTime);
                 return null;
             }
 
-            return { ...aptData, startTime, endTime };
+            return { ...appointmentFromCheckIn, startTime, endTime };
         } catch (e) {
             console.error("Error parsing appointment dates", e);
             return null;
         }
-    }, [appointmentsFromDB]);
+    }, [appointmentFromCheckIn]);
+
 
     // Fetch all other necessary data
     const clientsQuery = useMemoFirebase(() => firestore ? collection(firestore, 'tenants', tenantId, 'clients') : null, [firestore, tenantId]);
@@ -218,14 +217,19 @@ export default function CheckInPage() {
 
     const handleUpdateStatus = (newStatus: Appointment['checkInStatus'], lateMinutes?: number) => {
         if (!appointment || !firestore) return;
-        const appointmentRef = doc(firestore, 'tenants', 'tenant-abc', 'appointments', appointment.id);
         
         const updateData: Partial<Appointment> = { checkInStatus: newStatus };
         if (lateMinutes !== undefined) {
             updateData.lateTimeMinutes = lateMinutes;
         }
 
-        updateDocumentNonBlocking(appointmentRef, updateData);
+        // Update both the public and private documents
+        const appointmentCheckInRef = doc(firestore, 'appointmentCheckIns', token);
+        updateDocumentNonBlocking(appointmentCheckInRef, updateData);
+
+        const originalAppointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
+        updateDocumentNonBlocking(originalAppointmentRef, updateData);
+
         setCurrentStatus(newStatus);
     };
 
@@ -273,17 +277,21 @@ export default function CheckInPage() {
         const newStartTime = setMinutes(setHours(startOfDay(rescheduleDate), hours), minutes);
 
         const newEndTime = addMinutes(newStartTime, data.service.duration);
-
-        const appointmentRef = doc(firestore, 'tenants', 'tenant-abc', 'appointments', appointment.id);
         
-        await updateDocumentNonBlocking(appointmentRef, {
+        const updateData = {
             startTime: newStartTime.toISOString(),
             endTime: newEndTime.toISOString(),
-            status: 'confirmed',
-            checkInStatus: 'pending',
+            status: 'confirmed' as const,
+            checkInStatus: 'pending' as const,
             lateTimeMinutes: 0,
             automatedRescheduleOffered: true,
-        });
+        };
+
+        const appointmentCheckInRef = doc(firestore, 'appointmentCheckIns', token);
+        await updateDocumentNonBlocking(appointmentCheckInRef, updateData);
+        
+        const originalAppointmentRef = doc(firestore, 'tenants', 'tenant-abc', 'appointments', appointment.id);
+        await updateDocumentNonBlocking(originalAppointmentRef, updateData);
 
         setRescheduleStep('confirmed');
     };

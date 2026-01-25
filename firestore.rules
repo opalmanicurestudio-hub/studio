@@ -137,6 +137,15 @@ service cloud.firestore {
     function isTenantIdImmutable() {
       return request.resource.data.tenantId == resource.data.tenantId;
     }
+    
+    match /appointmentCheckIns/{token} {
+      allow read: if true;
+      allow update: if request.resource.data.checkInToken == token
+                    && request.resource.data.id == resource.data.id
+                    && request.resource.data.clientId == resource.data.clientId
+                    && request.resource.data.serviceId == resource.data.serviceId;
+    }
+
 
     /**
      * @description Rules for user profile documents.

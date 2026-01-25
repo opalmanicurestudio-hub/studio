@@ -596,15 +596,19 @@ const events = useMemo(() => {
     const appointmentDocId = nanoid();
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentDocId);
     
+    const checkInToken = nanoid(16);
     const appointmentToSave = { 
         ...newAppointment, 
         id: appointmentDocId,
         clientId: finalClientId, 
         clientName: finalClientName,
-        checkInToken: nanoid(16)
+        checkInToken: checkInToken,
     };
     
     await setDoc(appointmentRef, appointmentToSave);
+
+    const checkInDocRef = doc(firestore, 'appointmentCheckIns', checkInToken);
+    await setDoc(checkInDocRef, appointmentToSave);
     
     toast({
         title: "Appointment Booked",

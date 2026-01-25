@@ -4,7 +4,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { useParams } from 'next/navigation';
-import { useFirebase, useCollection, useMemoFirebase, useDoc, addDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, useDoc, addDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
 import { collection, doc, query, where } from 'firebase/firestore';
 import { type Service, type Staff, type Tenant, type Appointment, type Event, type ConsentForm } from '@/lib/data';
 import { Card, CardContent } from '@/components/ui/card';
@@ -104,7 +104,6 @@ export default function BookingPage() {
     if (!firestore) return;
     const appointmentRef = collection(firestore, `tenants/${tenantId}/appointments`);
     
-    // Generate a unique ID for the new appointment
     const newAppointment = {
         ...appointmentData,
         id: nanoid(),
@@ -113,11 +112,14 @@ export default function BookingPage() {
 
     addDocumentNonBlocking(appointmentRef, newAppointment);
     
+    // Also create the public check-in document
+    const checkInDocRef = doc(firestore, 'appointmentCheckIns', newAppointment.checkInToken);
+    setDocumentNonBlocking(checkInDocRef, newAppointment, {});
+    
     toast({
       title: 'Booking Confirmed!',
       description: `Your appointment for a ${services?.find(s => s.id === appointmentData.serviceId)?.name} is all set.`,
     });
-    // The sheet will handle its own closing/state change to confirmation
   };
 
   const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || appointmentsLoading || eventsLoading || consentFormsLoading;

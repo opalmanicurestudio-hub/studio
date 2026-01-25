@@ -1,3 +1,4 @@
+
 {
   "entities": {
     "User": {
@@ -734,6 +735,12 @@
         "$ref": "#/entities/Tenant"
       },
       "description": "Stores tenant (business) profiles. All business-specific data is nested under this."
+    },
+    "/appointmentCheckIns/{token}": {
+        "schema": {
+            "$ref": "#/entities/Appointment"
+        },
+        "description": "Publicly readable appointment data for check-in links. The document ID is the secret token."
     },
     "/tenants/{tenantId}/staff/{staffId}": {
       "schema": {
