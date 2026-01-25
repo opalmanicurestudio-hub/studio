@@ -1192,7 +1192,7 @@ const events = useMemo(() => {
               staff={staffToDisplay}
               itemsByStaff={itemsToDisplay}
               onCompleteClick={handleCompleteClick} 
-              onUpdateStatus={onUpdateStatus}
+              onUpdateStatus={handleUpdateStatus}
               onDeleteAppointment={handleDeleteAppointment} 
               onPrintReceipt={handlePrintReceipt}
               onPrintTicket={handlePrintTicket}
