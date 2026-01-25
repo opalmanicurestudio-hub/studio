@@ -147,37 +147,14 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     const dayStartWithBusinessHours = timeStringToDate(workingHours.start, date);
     const dayEndWithBusinessHours = timeStringToDate(workingHours.end, date);
     
-    const busyIntervals = [
-      ...appointments
-        .filter(apt => {
-          if (!isSameDay(apt.startTime, date)) return false;
-          if (selectedStaffId !== 'any' && apt.staffId !== selectedStaffId) return false;
-          return true;
-        })
-        .map(apt => {
-            const aptService = services.find(s => s.id === apt.serviceId);
-            const padBefore = aptService?.padBefore || 0;
-            const padAfter = aptService?.padAfter || 0;
-            return {
-                start: addMinutes(apt.startTime, -padBefore),
-                end: addMinutes(apt.endTime, padAfter)
-            }
-        }),
-      ...events
-        .filter(evt => {
-            if (!isSameDay(evt.startTime, date)) return false;
-            if (evt.type !== 'blocked') return false;
-            if (evt.staffId && evt.staffId !== 'all' && selectedStaffId !== 'any' && evt.staffId !== selectedStaffId) return false;
-            if (evt.staffId === 'all') return true;
-            if (!evt.staffId && selectedStaffId !== 'any') return false; // Event not for anyone specific
-            return true;
-        })
-        .map(evt => ({ start: evt.startTime, end: evt.endTime })),
-    ];
-    
     const options: string[] = [];
-    let currentTime = dayStartWithBusinessHours;
+    
     const now = new Date();
+    const roundedUpNow = new Date(
+        Math.ceil(now.getTime() / (bookingInterval * 60000)) * (bookingInterval * 60000)
+    );
+
+    let currentTime = dayStartWithBusinessHours;
 
     while (currentTime < dayEndWithBusinessHours) {
         const potentialStartTime = currentTime;
@@ -190,11 +167,39 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         }
         
         let skip = false;
-        if (isToday(date) && isBefore(potentialStartTime, now)) {
+        if (isToday(date) && isBefore(potentialStartTime, roundedUpNow)) {
             skip = true;
         }
 
         if (!skip) {
+            const busyIntervals = [
+              ...appointments
+                .filter(apt => {
+                  if (!isSameDay(apt.startTime, date)) return false;
+                  if (selectedStaffId !== 'any' && apt.staffId !== selectedStaffId) return false;
+                  return true;
+                })
+                .map(apt => {
+                    const aptService = services.find(s => s.id === apt.serviceId);
+                    const padBefore = aptService?.padBefore || 0;
+                    const padAfter = aptService?.padAfter || 0;
+                    return {
+                        start: addMinutes(apt.startTime, -padBefore),
+                        end: addMinutes(apt.endTime, padAfter)
+                    }
+                }),
+              ...events
+                .filter(evt => {
+                    if (!isSameDay(evt.startTime, date)) return false;
+                    if (evt.type !== 'blocked') return false;
+                    if (evt.staffId && evt.staffId !== 'all' && selectedStaffId !== 'any' && evt.staffId !== selectedStaffId) return false;
+                    if (evt.staffId === 'all') return true;
+                    if (!evt.staffId && selectedStaffId !== 'any') return false;
+                    return true;
+                })
+                .map(evt => ({ start: evt.startTime, end: evt.endTime })),
+            ];
+
             const isOverlapping = busyIntervals.some((interval) =>
             areIntervalsOverlapping(
                 { start: potentialStartTime, end: potentialEndTime },
@@ -319,3 +324,4 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     </Sheet>
   );
 };
+
