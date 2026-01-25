@@ -47,82 +47,56 @@ import {
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CalendarIcon, PlusCircle, Trash2, AlertTriangle } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Client, Service, Appointment, Staff } from '@/lib/data';
-import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes } from 'date-fns';
+import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, subWeeks, addWeeks, eachDayOfInterval, addDays, isSameDay, isBefore } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Card, CardContent } from '../ui/card';
 import { nanoid } from 'nanoid';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 
-const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: Date) => void }) => {
-    const isMobile = useIsMobile();
-    const [isOpen, setIsOpen] = useState(false);
+const DatePicker = ({ date, onDateChange }: { date: Date; onDateChange: (date: Date) => void }) => {
+  const weekStart = useMemo(() => startOfWeek(date, { weekStartsOn: 0 }), [date]);
+  const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
 
-    const handleSelect = (selectedDate: Date | undefined) => {
-        if (selectedDate) {
-            onDateChange(selectedDate);
-            setIsOpen(false);
-        }
-    }
-    
-    const TriggerContent = (
-        <span className="flex items-center">
-            <CalendarIcon className="mr-2 h-4 w-4" />
-            {date ? format(date, 'PPP') : "Pick a date"}
+  const handlePreviousWeek = () => onDateChange(subWeeks(date, 1));
+  const handleNextWeek = () => onDateChange(addWeeks(date, 1));
+
+  return (
+    <div className="rounded-lg border space-y-4 p-4">
+      <div className="flex items-center justify-between">
+        <Button variant="outline" size="icon" onClick={handlePreviousWeek}>
+          <ChevronLeft className="w-4 h-4" />
+        </Button>
+        <span className="font-semibold text-center">
+          {format(date, 'MMMM yyyy')}
         </span>
-    );
-    
-    const CalendarComponent = (
-        <Calendar
-            mode="single"
-            selected={date}
-            onSelect={handleSelect}
-            initialFocus
-            classNames={{
-                caption_label: "text-base font-medium",
-                day: "h-10 w-10",
-                day_selected: "rounded-md",
-                day_today: "rounded-md",
-            }}
-        />
-    );
-
-    if (isMobile) {
-        return (
-            <>
-                <Button
-                    variant="outline"
-                    className={cn("w-full justify-start text-left font-normal", !date && "text-muted-foreground")}
-                    onClick={() => setIsOpen(true)}
-                >
-                    {TriggerContent}
-                </Button>
-                <Sheet open={isOpen} onOpenChange={setIsOpen}>
-                    <SheetContent side="bottom" className="h-auto">
-                         <SheetHeader className="text-left">
-                            <SheetTitle>Select Date</SheetTitle>
-                        </SheetHeader>
-                        <div className="flex justify-center py-4">
-                            {CalendarComponent}
-                        </div>
-                    </SheetContent>
-                </Sheet>
-            </>
-        )
-    }
-
-    return (
-        <Popover open={isOpen} onOpenChange={setIsOpen}>
-            <PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), "w-full justify-start text-left font-normal", !date && "text-muted-foreground")}>
-                {TriggerContent}
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0">
-                {CalendarComponent}
-            </PopoverContent>
-        </Popover>
-    );
+        <Button variant="outline" size="icon" onClick={handleNextWeek}>
+          <ChevronRight className="w-4 h-4" />
+        </Button>
+      </div>
+      <div className="grid grid-cols-7 gap-2">
+        {weekDays.map((day) => (
+          <button
+            key={day.toISOString()}
+            onClick={() => onDateChange(day)}
+            disabled={isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))}
+            className={cn(
+              "flex flex-col items-center justify-center p-2 rounded-lg border w-full aspect-square transition-colors",
+              isSameDay(day, date)
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-background hover:bg-accent",
+              isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date())) && "opacity-50 cursor-not-allowed"
+            )}
+          >
+            <span className="text-xs">{format(day, 'E')}</span>
+            <span className="font-bold text-lg">{format(day, 'd')}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 };
 
 interface AddAppointmentDialogProps {
@@ -357,34 +331,32 @@ const AddAppointmentForm = ({
 
                     <div className="space-y-4">
                         <h3 className="text-lg font-medium">Date & Time</h3>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="date">Date</Label>
-                                <DatePicker date={date} onDateChange={setDate} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="start-time">Start Time</Label>
-                                <Select onValueChange={setStartTime} value={startTime}>
-                                    <SelectTrigger id="start-time" disabled={!selectedService}>
-                                        <SelectValue placeholder="Select a time" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {timeOptions.map(time => (
-                                            <SelectItem key={time} value={time}>{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="date">Date</Label>
+                            <DatePicker date={date} onDateChange={setDate} />
                         </div>
-                            {isOverlapping && (
-                            <Alert variant="destructive" className="mt-2">
-                                <AlertTriangle className="h-4 w-4" />
-                                <AlertTitle>Potential Double Booking</AlertTitle>
-                                <AlertDescription>
-                                    This time slot overlaps with an existing appointment.
-                                </AlertDescription>
-                            </Alert>
-                        )}
+                        <div className="space-y-2">
+                            <Label htmlFor="start-time">Start Time</Label>
+                            <Select onValueChange={setStartTime} value={startTime}>
+                                <SelectTrigger id="start-time" disabled={!selectedService}>
+                                    <SelectValue placeholder="Select a time" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {timeOptions.map(time => (
+                                        <SelectItem key={time} value={time}>{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        {isOverlapping && (
+                        <Alert variant="destructive" className="mt-2">
+                            <AlertTriangle className="h-4 w-4" />
+                            <AlertTitle>Potential Double Booking</AlertTitle>
+                            <AlertDescription>
+                                This time slot overlaps with an existing appointment.
+                            </AlertDescription>
+                        </Alert>
+                    )}
                     </div>
 
                     <div className="space-y-4">
