@@ -37,6 +37,8 @@ import {
   addMinutes,
   parse,
   getDay,
+  isBefore,
+  isToday,
 } from 'date-fns';
 
 const StaffSelectionCard = ({ staff, isSelected, onSelect }: { staff: Staff | { id: string, name: string, avatarUrl: string }, isSelected: boolean, onSelect: () => void }) => {
@@ -67,6 +69,7 @@ interface BookingSheetProps {
   appointments: Appointment[];
   events: Event[];
   scheduleProfiles: any[];
+  services: Service[];
 }
 
 export const BookingSheet: React.FC<BookingSheetProps> = ({
@@ -77,6 +80,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   appointments,
   events,
   scheduleProfiles,
+  services,
 }) => {
   const [step, setStep] = useState(1);
   const totalSteps = 3;
@@ -102,7 +106,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const timeSlots = useMemo(() => {
     if (!service || !date || !scheduleProfiles?.length) return [];
     
-    const publicScheduleProfile = scheduleProfiles.find(p => p.isActive);
+    const publicScheduleProfile = scheduleProfiles[0];
     if (!publicScheduleProfile) return [];
 
     const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
@@ -122,21 +126,8 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       return [];
     }
 
-    const openTimeParts = workingHours.start.match(/(\d+):(\d+) (AM|PM)/);
-    const closeTimeParts = workingHours.end.match(/(\d+):(\d+) (AM|PM)/);
-
-    if (!openTimeParts || !closeTimeParts) return [];
-
-    let openHour = parseInt(openTimeParts[1]);
-    if (openTimeParts[3] === 'PM' && openHour < 12) openHour += 12;
-    if (openTimeParts[3] === 'AM' && openHour === 12) openHour = 0;
-    
-    let closeHour = parseInt(closeTimeParts[1]);
-    if (closeTimeParts[3] === 'PM' && closeHour < 12) closeHour += 12;
-    if (closeTimeParts[3] === 'AM' && closeHour === 12) closeHour = 0;
-    
-    const dayStartWithBusinessHours = setMinutes(setHours(startOfDay(date), openHour), parseInt(openTimeParts[2]));
-    const dayEndWithBusinessHours = setMinutes(setHours(startOfDay(date), closeHour), parseInt(closeTimeParts[2]));
+    const dayStartWithBusinessHours = parse(workingHours.start, 'h:mm a', startOfDay(date));
+    const dayEndWithBusinessHours = parse(workingHours.end, 'h:mm a', startOfDay(date));
     
     const busyIntervals = [
       ...appointments
@@ -145,7 +136,15 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
           if (selectedStaffId !== 'any' && apt.staffId !== selectedStaffId) return false;
           return true;
         })
-        .map(apt => ({ start: apt.startTime, end: apt.endTime })),
+        .map(apt => {
+            const aptService = services.find(s => s.id === apt.serviceId);
+            const padBefore = aptService?.padBefore || 0;
+            const padAfter = aptService?.padAfter || 0;
+            return {
+                start: addMinutes(apt.startTime, -padBefore),
+                end: addMinutes(apt.endTime, padAfter)
+            }
+        }),
       ...events
         .filter(evt => {
             if (!isSameDay(evt.startTime, date)) return false;
@@ -163,6 +162,12 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     
     while(currentTime < dayEndWithBusinessHours) {
         const potentialStartTime = currentTime;
+
+        if (isToday(date) && isBefore(potentialStartTime, new Date())) {
+            currentTime = addMinutes(currentTime, bookingInterval);
+            continue;
+        }
+
         const totalDuration = service.duration + (service.padBefore || 0) + (service.padAfter || 0);
         const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
 
@@ -185,7 +190,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         currentTime = addMinutes(currentTime, bookingInterval);
     }
     return options;
-}, [date, selectedStaffId, service, staff, appointments, events, scheduleProfiles]);
+}, [date, selectedStaffId, service, staff, appointments, events, scheduleProfiles, services]);
 
   const handleStaffSelect = (staffId: string) => {
     setSelectedStaffId(staffId);

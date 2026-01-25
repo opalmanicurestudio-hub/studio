@@ -129,6 +129,7 @@ export default function BookingPage() {
                 appointments={appointments || []}
                 events={events || []}
                 scheduleProfiles={scheduleProfiles || []}
+                services={services || []}
             />
         )}
     </div>
