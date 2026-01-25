@@ -78,6 +78,11 @@ const timeStringToDate = (timeStr: string, date: Date): Date => {
     const d = new Date(date);
     d.setHours(0, 0, 0, 0); // Reset to start of day
 
+    if (!timeStr) {
+      // Default to midnight if time string is invalid
+      return d;
+    }
+
     const [time, period] = timeStr.split(' ');
     let [hours, minutes] = time.split(':').map(Number);
 
@@ -133,16 +138,21 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     const dayName = format(date, 'eeee').toLowerCase();
     
     const selectedStaffMember = staff.find(s => s.id === selectedStaffId);
-    let workingHours = publicScheduleProfile.week[dayName];
-    
-    // Check for staff-specific availability override
-    if (selectedStaffMember?.availability?.week) {
-        const staffDayHours = selectedStaffMember.availability.week[dayName as keyof typeof selectedStaffMember.availability.week];
-        if (staffDayHours.enabled) {
-            workingHours = staffDayHours;
-        }
-    }
+    let workingHours: { enabled: boolean; start: string; end: string; } | undefined;
 
+    // New, corrected logic:
+    // 1. Check for staff-specific availability first.
+    const staffDaySchedule = selectedStaffMember?.availability?.week?.[dayName as keyof typeof selectedStaffMember.availability.week];
+
+    if (staffDaySchedule) {
+        // If an override exists for the staff, it is the ONLY rule.
+        workingHours = staffDaySchedule;
+    } else {
+        // Otherwise, fall back to the main business hours.
+        workingHours = publicScheduleProfile.week[dayName];
+    }
+    
+    // 2. Now, check if the determined workingHours are enabled.
     if (!workingHours || !workingHours.enabled) {
       return [];
     }
@@ -150,13 +160,10 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     const dayStartWithBusinessHours = timeStringToDate(workingHours.start, date);
     const dayEndWithBusinessHours = timeStringToDate(workingHours.end, date);
     
-    // 1. Gather all "busy" intervals for the day
     const busyIntervals = [
       ...appointments
         .filter(apt => {
           if (!isSameDay(apt.startTime, date)) return false;
-          // If a specific staff is selected, only consider their appointments.
-          // If 'Any' is selected, we need to consider all appointments to find general availability.
           if (selectedStaffId !== 'any' && apt.staffId !== selectedStaffId) return false;
           return true;
         })
@@ -173,31 +180,24 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         .filter(evt => {
             if (!isSameDay(evt.startTime, date)) return false;
             if (evt.type !== 'blocked') return false;
-            // Block if it's a global block OR if it matches the selected staff
             return !evt.staffId || evt.staffId === 'all' || (selectedStaffId !== 'any' && evt.staffId === selectedStaffId);
         })
         .map(evt => ({ start: evt.startTime, end: evt.endTime })),
     ];
     
     const options: string[] = [];
-    let currentTime = dayStartWithBusinessHours;
     
+    let earliestBookableTime = dayStartWithBusinessHours;
     const now = new Date();
     
-    // If booking for today, find the next available interval slot.
-    if (isToday(date)) {
-        const currentMinutes = now.getHours() * 60 + now.getMinutes();
-        const startMinutes = dayStartWithBusinessHours.getHours() * 60 + dayStartWithBusinessHours.getMinutes();
-        
-        if (currentMinutes > startMinutes) {
-            const minutesPastStart = currentMinutes - startMinutes;
-            const intervalsPast = Math.ceil(minutesPastStart / bookingInterval);
-            currentTime = addMinutes(dayStartWithBusinessHours, intervalsPast * bookingInterval);
-        }
+    if (isToday(date) && now > dayStartWithBusinessHours) {
+        const minutesSinceStart = differenceInMinutes(now, dayStartWithBusinessHours);
+        const intervalsPast = Math.ceil(minutesSinceStart / bookingInterval);
+        earliestBookableTime = addMinutes(dayStartWithBusinessHours, intervalsPast * bookingInterval);
     }
+    
+    let currentTime = earliestBookableTime;
 
-
-    // 2. Generate and validate slots
     while (currentTime < dayEndWithBusinessHours) {
         const potentialStartTime = currentTime;
         const totalDuration = service.duration + (service.padBefore || 0) + (service.padAfter || 0);
@@ -232,7 +232,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
   const handleTimeSelect = (time: string) => {
       setSelectedTime(time);
-      // Here you would proceed to the next step, e.g. client details
   }
 
   return (
