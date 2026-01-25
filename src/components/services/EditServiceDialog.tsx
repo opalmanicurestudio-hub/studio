@@ -279,7 +279,7 @@ const EditServiceForm = ({
                                         <Controller name="depositAmount" control={control} render={({ field }) => (
                                         <div className="relative">
                                             <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                            <Input type="number" placeholder="25.00" {...field} className="pl-8" disabled={depositType === 'breakeven'}/>
+                                            <Input type="number" placeholder="25.00" {...field} value={field.value ?? ''} className="pl-8" disabled={depositType === 'breakeven'}/>
                                         </div>
                                         )} />
                                     </div>
@@ -493,3 +493,5 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
     </Dialog>
   );
 };
+
+    
