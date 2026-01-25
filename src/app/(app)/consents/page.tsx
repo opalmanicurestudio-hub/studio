@@ -38,7 +38,7 @@ import { AddConsentFormDialog } from '@/components/consents/AddConsentFormDialog
 import { PreviewConsentFormDialog } from '@/components/consents/PreviewConsentFormDialog';
 import { useToast } from '@/hooks/use-toast';
 import { type ConsentForm } from '@/lib/data';
-import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 
