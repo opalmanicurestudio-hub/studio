@@ -26,7 +26,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking, useDoc } from '@/firebase';
-import { collection, doc, writeBatch, query, where } from 'firebase/firestore';
+import { collection, doc, writeBatch, query, where, updateDoc } from 'firebase/firestore';
 import { type Tenant } from '@/lib/data';
 import { nanoid } from 'nanoid';
 
@@ -81,149 +81,31 @@ const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string;
 };
 
 
-const ScheduleProfileManager = ({ 
-    profiles, 
-    setProfiles, 
-    isEditing 
-}: {
-    profiles: any[],
-    setProfiles: React.Dispatch<React.SetStateAction<any[]>>,
-    isEditing: boolean,
-}) => {
-    
-    const orderedDays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-    const activeProfile = useMemo(() => profiles.find(p => p.isActive), [profiles]);
-
-    const handleScheduleChange = useCallback((day: string, field: string, value: any) => {
-        setProfiles((prev: any[]) => 
-            prev.map(p => 
-                p.isActive ? {
-                    ...p,
-                    week: {
-                        ...p.week,
-                        [day]: { ...p.week[day as keyof typeof p.week], [field]: value }
-                    }
-                } : p
-            )
-        );
-    }, [setProfiles]);
-
-    const handleTimeOffChange = useCallback((field: string, value: number) => {
-        setProfiles((prev: any[]) => 
-            prev.map(p => 
-                p.isActive ? {
-                    ...p,
-                    timeOff: { ...p.timeOff, [field]: value }
-                } : p
-            )
-        );
-    }, [setProfiles]);
-    
-    const handleBookingIntervalChange = useCallback((value: string) => {
-        const interval = parseInt(value, 10);
-        setProfiles((prev: any[]) => 
-            prev.map(p => 
-                p.isActive ? {
-                    ...p,
-                    bookingSlotInterval: interval
-                } : p
-            )
-        );
-    }, [setProfiles]);
-
-    return (
-        <Card>
-            <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <CardTitle className="flex items-center gap-2">
-                        <Building className="w-5 h-5 text-primary" />
-                        Business Hours &amp; Availability
-                    </CardTitle>
-                    <CardDescription>
-                        Set your schedules for financial calculations and public booking pages.
-                    </CardDescription>
-                </div>
-            </CardHeader>
-            <CardContent className="p-0">
-               {activeProfile && (
-                <div>
-                     {orderedDays.map((day) => {
-                        const dayData = activeProfile.week[day];
-                        if (!dayData) return null;
-                        return (
-                            <DayScheduleRow 
-                                key={day} 
-                                day={day} 
-                                dayData={dayData} 
-                                onDayChange={(field: string, value: any) => handleScheduleChange(day, field, value)}
-                                isEditing={isEditing} 
-                            />
-                        )
-                    })}
-                </div>
-               )}
-            </CardContent>
-            {activeProfile && (
-                <CardFooter className="pt-6 grid md:grid-cols-3 gap-6">
-                    <div className="space-y-2">
-                        <Label>Vacation Days / Year</Label>
-                        <Input 
-                            type="number" 
-                            value={activeProfile.timeOff?.vacationDays || ''}
-                            onChange={(e) => handleTimeOffChange('vacationDays', parseInt(e.target.value) || 0)} 
-                            disabled={!isEditing} 
-                        />
-                    </div>
-                     <div className="space-y-2">
-                        <Label>Statutory Holidays / Year</Label>
-                        <Input 
-                            type="number" 
-                            value={activeProfile.timeOff?.holidays || ''}
-                            onChange={(e) => handleTimeOffChange('holidays', parseInt(e.target.value) || 0)} 
-                            disabled={!isEditing} 
-                        />
-                    </div>
-                     <div className="space-y-2">
-                        <Label htmlFor="slot-interval">Booking Slot Interval</Label>
-                        <Select
-                            value={activeProfile.bookingSlotInterval?.toString() || '15'}
-                            onValueChange={handleBookingIntervalChange}
-                            disabled={!isEditing}
-                        >
-                            <SelectTrigger id="slot-interval">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="15">Every 15 minutes</SelectItem>
-                                <SelectItem value="30">Every 30 minutes</SelectItem>
-                                <SelectItem value="60">On the hour</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-                </CardFooter>
-            )}
-        </Card>
-    );
-};
-
-
 export default function SettingsPage() {
   const { toast } = useToast();
   const { firestore, user } = useFirebase();
   const [tenantId, setTenantId] = useState<string | null>(null);
 
-  const [isEditing, setIsEditing] = useState(false);
+  // Editing states for each card
+  const [isScheduleEditing, setIsScheduleEditing] = useState(false);
+  const [isPoliciesEditing, setIsPoliciesEditing] = useState(false);
+  const [isReferralEditing, setIsReferralEditing] = useState(false);
+  const [isQueueEditing, setIsQueueEditing] = useState(false);
+  const [isSmsEditing, setIsSmsEditing] = useState(false);
+
+  // Data states
   const [tenantData, setTenantData] = useState<Partial<Tenant>>({});
-  const [backupTenantData, setBackupTenantData] = useState<Partial<Tenant>>({});
-  
   const [scheduleProfiles, setScheduleProfiles] = useState<any[]>([]);
+
+  // Backup states for cancellation
+  const [backupTenantData, setBackupTenantData] = useState<Partial<Tenant>>({});
   const [backupScheduleProfiles, setBackupScheduleProfiles] = useState<any[]>([]);
-  
+
   const hasInitialized = useRef(false);
 
   const tenantQuery = useMemoFirebase(() => {
-      if (!user || !firestore) return null;
-      return query(collection(firestore, 'tenants'), where('userId', '==', user.uid));
+    if (!user || !firestore) return null;
+    return query(collection(firestore, 'tenants'), where('userId', '==', user.uid));
   }, [user, firestore]);
 
   const { data: tenants, isLoading: tenantsLoading } = useCollection(tenantQuery);
@@ -237,15 +119,12 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (initialTenantData && !tenantId) {
-        setTenantId(initialTenantData.id);
+      setTenantId(initialTenantData.id);
     }
-  }, [initialTenantData, tenantId]);
-
-  useEffect(() => {
     if (initialTenantData) {
       setTenantData(initialTenantData);
     }
-  }, [initialTenantData]);
+  }, [initialTenantData, tenantId]);
 
   useEffect(() => {
     if (initialScheduleProfiles) {
@@ -282,80 +161,145 @@ export default function SettingsPage() {
         }
     }, [scheduleProfilesLoading, scheduleProfiles, firestore, user, tenantId]);
 
-  const handleEditClick = () => {
-    setBackupTenantData(tenantData);
+  const orderedDays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const activeScheduleProfile = useMemo(() => scheduleProfiles.find(p => p.isActive), [scheduleProfiles]);
+
+  const handleDayChange = useCallback((day: string, field: string, value: any) => {
+    setScheduleProfiles((prev: any[]) =>
+      prev.map(p =>
+        p.isActive ? {
+          ...p,
+          week: {
+            ...p.week,
+            [day]: { ...p.week[day as keyof typeof p.week], [field]: value }
+          }
+        } : p
+      )
+    );
+  }, [setScheduleProfiles]);
+
+  const handleTimeOffChange = useCallback((field: string, value: number) => {
+    setScheduleProfiles((prev: any[]) =>
+      prev.map(p =>
+        p.isActive ? {
+          ...p,
+          timeOff: { ...p.timeOff, [field]: value }
+        } : p
+      )
+    );
+  }, [setScheduleProfiles]);
+
+  const handleBookingIntervalChange = useCallback((value: string) => {
+    const interval = parseInt(value, 10);
+    setScheduleProfiles((prev: any[]) =>
+      prev.map(p =>
+        p.isActive ? {
+          ...p,
+          bookingSlotInterval: interval
+        } : p
+      )
+    );
+  }, [setScheduleProfiles]);
+
+  // --- Handlers for Schedule Card ---
+  const handleScheduleEdit = () => {
     setBackupScheduleProfiles(JSON.parse(JSON.stringify(scheduleProfiles)));
-    setIsEditing(true);
+    setIsScheduleEditing(true);
   };
-  
-  const handleCancelClick = () => {
-    setTenantData(backupTenantData);
+
+  const handleScheduleCancel = () => {
     setScheduleProfiles(backupScheduleProfiles);
-    setIsEditing(false);
+    setIsScheduleEditing(false);
   };
 
-  const handleSaveSettings = () => {
+  const handleScheduleSave = async () => {
     if (!tenantId || !firestore) return;
-
-    const batch = writeBatch(firestore);
-
-    // Save tenant settings
-    const tenantRef = doc(firestore, 'tenants', tenantId);
-    
-    // Create a clean object with only the fields that should be saved, ensuring correct types.
-    const { id: tenantIdToSave, userId, ...tenantFieldsToSave } = tenantData;
-    batch.update(tenantRef, tenantFieldsToSave);
-
-    // Save schedule profiles
-    scheduleProfiles.forEach(profile => {
+    try {
+      const batch = writeBatch(firestore);
+      scheduleProfiles.forEach(profile => {
         const profileRef = doc(firestore, `tenants/${tenantId}/scheduleProfiles`, profile.id);
-        const { id: profileId, ...profileData } = profile;
+        const { id, ...profileData } = profile;
         batch.update(profileRef, profileData);
-    });
-
-
-    batch.commit().then(() => {
-        toast({
-            title: `Settings Saved`,
-            description: `Your changes have been updated.`,
-        });
-        setIsEditing(false);
-    }).catch(error => {
-        console.error("Error saving settings:", error);
-        toast({
-            variant: "destructive",
-            title: "Error Saving",
-            description: "There was a problem saving your settings."
-        })
-    });
+      });
+      await batch.commit();
+      toast({ title: "Schedule Saved!" });
+      setIsScheduleEditing(false);
+    } catch (e) {
+      console.error("Error saving schedule:", e);
+      toast({ variant: "destructive", title: "Error", description: "Could not save schedule settings." });
+    }
   };
 
-  const generatePolicy = (type: 'cancellation' | 'noShow' | 'late') => {
-      let policy = '';
-      const fee = type === 'cancellation' ? tenantData.cancellationFee : tenantData.noShowFee;
-      const window = tenantData.cancellationWindowHours;
-      const grace = tenantData.lateArrivalGracePeriod;
-
-      switch (type) {
-          case 'cancellation':
-              if ((window || 0) > 0 && (fee || 0) > 0) {
-                  policy = `Cancellations made within ${window} hours of the scheduled appointment time will be subject to a fee of $${fee?.toFixed(2)}.`;
-              } else if ((window || 0) > 0) {
-                  policy = `Please provide at least ${window} hours notice for any cancellations.`;
-              }
-              break;
-          case 'noShow':
-              if ((fee || 0) > 0) {
-                  policy = `Failure to show up for a scheduled appointment without notice will result in a no-show fee of $${fee?.toFixed(2)}.`;
-              }
-              break;
-          case 'late':
-              if ((grace || 0) > 0) {
-                  policy = `We offer a grace period of ${grace} minutes. Arriving later than this may require rescheduling and could be considered a no-show.`;
-              }
-              break;
+  const createGenericHandlers = (
+    isEditing: boolean,
+    setIsEditing: React.Dispatch<React.SetStateAction<boolean>>,
+    data: Partial<Tenant>,
+    setData: React.Dispatch<React.SetStateAction<Partial<Tenant>>>,
+    backupData: Partial<Tenant>,
+    setBackupData: React.Dispatch<React.SetStateAction<Partial<Tenant>>>,
+    fieldsToSave: (keyof Tenant)[]
+  ) => {
+    const handleEdit = () => {
+      setBackupData(data);
+      setIsEditing(true);
+    };
+    const handleCancel = () => {
+      setData(backupData);
+      setIsEditing(false);
+    };
+    const handleSave = async () => {
+      if (!tenantId || !firestore) return;
+      const dataToUpdate: Partial<Tenant> = {};
+      fieldsToSave.forEach(field => {
+        dataToUpdate[field] = data[field] as any;
+      });
+      try {
+        const tenantRef = doc(firestore, 'tenants', tenantId);
+        await updateDoc(tenantRef, dataToUpdate);
+        toast({ title: 'Settings Saved!' });
+        setIsEditing(false);
+      } catch (error) {
+        console.error("Save error:", error);
+        toast({ variant: 'destructive', title: 'Save Failed' });
       }
-      return policy;
+    };
+    return { handleEdit, handleCancel, handleSave };
+  };
+
+  const policiesFields: (keyof Tenant)[] = ['lateArrivalGracePeriod', 'cancellationWindowHours', 'cancellationFee', 'noShowFee', 'autoCancelLateArrivals', 'cancellationPolicy', 'lateArrivalPolicy', 'noShowPolicy'];
+  const referralFields: (keyof Tenant)[] = ['referrerReward', 'newClientDiscount'];
+  const queueFields: (keyof Tenant)[] = ['queueSkipTimeMinutes'];
+  const smsFields: (keyof Tenant)[] = ['smsNotificationMessage'];
+
+  const { handleEdit: handlePoliciesEdit, handleCancel: handlePoliciesCancel, handleSave: handlePoliciesSave } = createGenericHandlers(isPoliciesEditing, setIsPoliciesEditing, tenantData, setTenantData, backupTenantData, setBackupTenantData, policiesFields);
+  const { handleEdit: handleReferralEdit, handleCancel: handleReferralCancel, handleSave: handleReferralSave } = createGenericHandlers(isReferralEditing, setIsReferralEditing, tenantData, setTenantData, backupTenantData, setBackupTenantData, referralFields);
+  const { handleEdit: handleQueueEdit, handleCancel: handleQueueCancel, handleSave: handleQueueSave } = createGenericHandlers(isQueueEditing, setIsQueueEditing, tenantData, setTenantData, backupTenantData, setBackupTenantData, queueFields);
+  const { handleEdit: handleSmsEdit, handleCancel: handleSmsCancel, handleSave: handleSmsSave } = createGenericHandlers(isSmsEditing, setIsSmsEditing, tenantData, setTenantData, backupTenantData, setBackupTenantData, smsFields);
+  
+  const generatePolicy = (type: 'cancellation' | 'noShow' | 'late') => {
+    let policy = '';
+    const fee = type === 'cancellation' ? tenantData.cancellationFee : tenantData.noShowFee;
+    const window = tenantData.cancellationWindowHours;
+    const grace = tenantData.lateArrivalGracePeriod;
+
+    switch (type) {
+        case 'cancellation':
+            if (window != null && fee != null) {
+                policy = `Cancellations made within ${window} hours of the scheduled appointment time will be subject to a fee of $${fee?.toFixed(2)}.`;
+            }
+            break;
+        case 'noShow':
+            if (fee != null) {
+                policy = `Failure to show up for a scheduled appointment without notice will result in a no-show fee of $${fee?.toFixed(2)}.`;
+            }
+            break;
+        case 'late':
+            if (grace != null) {
+                policy = `We offer a grace period of ${grace} minutes. Arriving later than this may require rescheduling and could be considered a no-show.`;
+            }
+            break;
+    }
+    return policy;
   }
 
   const isLoading = tenantsLoading || scheduleProfilesLoading;
@@ -370,42 +314,122 @@ export default function SettingsPage() {
       </div>
     );
   }
-
+  
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Settings" />
       <main className="flex-1 p-4 md:p-8">
         <div className="max-w-4xl mx-auto space-y-8">
-          <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
-            <div>
-              <h1 className="text-3xl font-bold">Business Settings</h1>
-              <p className="text-muted-foreground mt-1">
-                Manage your application-wide settings and configurations.
-              </p>
-            </div>
-            <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
-              {isEditing ? (
-                  <>
-                      <Button variant="outline" onClick={handleCancelClick} className="flex-1 sm:w-auto">Cancel</Button>
-                      <Button onClick={handleSaveSettings} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save Settings</Button>
-                  </>
-              ) : (
-                  <Button onClick={handleEditClick} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit Settings</Button>
-              )}
-            </div>
+          <div>
+            <h1 className="text-3xl font-bold">Business Settings</h1>
+            <p className="text-muted-foreground mt-1">
+              Manage your application-wide settings and configurations.
+            </p>
           </div>
           
-          <ScheduleProfileManager profiles={scheduleProfiles} setProfiles={setScheduleProfiles} isEditing={isEditing} />
+           <Card>
+            <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <CardTitle className="flex items-center gap-2">
+                        <Building className="w-5 h-5 text-primary" />
+                        Business Hours &amp; Availability
+                    </CardTitle>
+                    <CardDescription>
+                        Set your schedules for financial calculations and public booking pages.
+                    </CardDescription>
+                </div>
+                 <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
+                  {isScheduleEditing ? (
+                      <>
+                          <Button variant="outline" onClick={handleScheduleCancel} className="flex-1 sm:w-auto">Cancel</Button>
+                          <Button onClick={handleScheduleSave} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save</Button>
+                      </>
+                  ) : (
+                      <Button onClick={handleScheduleEdit} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit</Button>
+                  )}
+                </div>
+            </CardHeader>
+            <CardContent className="p-0">
+               {activeScheduleProfile && (
+                <div>
+                     {orderedDays.map((day) => {
+                        const dayData = activeScheduleProfile.week[day];
+                        if (!dayData) return null;
+                        return (
+                            <DayScheduleRow 
+                                key={day} 
+                                day={day} 
+                                dayData={dayData} 
+                                onDayChange={(field: string, value: any) => handleDayChange(day, field, value)}
+                                isEditing={isScheduleEditing} 
+                            />
+                        )
+                    })}
+                </div>
+               )}
+            </CardContent>
+            {activeScheduleProfile && (
+                <CardFooter className="pt-6 grid md:grid-cols-3 gap-6">
+                    <div className="space-y-2">
+                        <Label>Vacation Days / Year</Label>
+                        <Input 
+                            type="number" 
+                            value={activeScheduleProfile.timeOff?.vacationDays || ''}
+                            onChange={(e) => handleTimeOffChange('vacationDays', parseInt(e.target.value) || 0)} 
+                            disabled={!isScheduleEditing} 
+                        />
+                    </div>
+                     <div className="space-y-2">
+                        <Label>Statutory Holidays / Year</Label>
+                        <Input 
+                            type="number" 
+                            value={activeScheduleProfile.timeOff?.holidays || ''}
+                            onChange={(e) => handleTimeOffChange('holidays', parseInt(e.target.value) || 0)} 
+                            disabled={!isScheduleEditing} 
+                        />
+                    </div>
+                     <div className="space-y-2">
+                        <Label htmlFor="slot-interval">Booking Slot Interval</Label>
+                        <Select
+                            value={activeScheduleProfile.bookingSlotInterval?.toString() || '15'}
+                            onValueChange={handleBookingIntervalChange}
+                            disabled={!isScheduleEditing}
+                        >
+                            <SelectTrigger id="slot-interval">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="15">Every 15 minutes</SelectItem>
+                                <SelectItem value="30">Every 30 minutes</SelectItem>
+                                <SelectItem value="60">On the hour</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </CardFooter>
+            )}
+        </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Clock className="w-5 h-5 text-primary" />
-                Scheduling Policies
-              </CardTitle>
-              <CardDescription>
-                Define rules for appointments, cancellations, and late arrivals.
-              </CardDescription>
+            <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-primary" />
+                  Scheduling Policies
+                </CardTitle>
+                <CardDescription>
+                  Define rules for appointments, cancellations, and late arrivals.
+                </CardDescription>
+              </div>
+               <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
+                  {isPoliciesEditing ? (
+                      <>
+                          <Button variant="outline" onClick={handlePoliciesCancel} className="flex-1 sm:w-auto">Cancel</Button>
+                          <Button onClick={handlePoliciesSave} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save Policies</Button>
+                      </>
+                  ) : (
+                      <Button onClick={handlePoliciesEdit} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit Policies</Button>
+                  )}
+                </div>
             </CardHeader>
             <CardContent className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -417,7 +441,7 @@ export default function SettingsPage() {
                             value={tenantData.lateArrivalGracePeriod || ''}
                             onChange={(e) => setTenantData(prev => ({...prev, lateArrivalGracePeriod: Number(e.target.value)}))}
                             placeholder="e.g., 15"
-                            disabled={!isEditing}
+                            disabled={!isPoliciesEditing}
                         />
                     </div>
                      <div className="space-y-2">
@@ -428,7 +452,7 @@ export default function SettingsPage() {
                             value={tenantData.cancellationWindowHours || ''}
                             onChange={(e) => setTenantData(prev => ({...prev, cancellationWindowHours: Number(e.target.value)}))} 
                             placeholder="e.g., 24"
-                            disabled={!isEditing}
+                            disabled={!isPoliciesEditing}
                         />
                     </div>
                     <div className="space-y-2">
@@ -442,7 +466,7 @@ export default function SettingsPage() {
                              onChange={(e) => setTenantData(prev => ({...prev, cancellationFee: Number(e.target.value)}))}
                             placeholder="25.00"
                             className="pl-8"
-                            disabled={!isEditing}
+                            disabled={!isPoliciesEditing}
                             />
                         </div>
                     </div>
@@ -457,7 +481,7 @@ export default function SettingsPage() {
                              onChange={(e) => setTenantData(prev => ({...prev, noShowFee: Number(e.target.value)}))}
                             placeholder="50.00"
                             className="pl-8"
-                            disabled={!isEditing}
+                            disabled={!isPoliciesEditing}
                             />
                         </div>
                     </div>
@@ -469,31 +493,52 @@ export default function SettingsPage() {
                             id="auto-cancel"
                              checked={tenantData.autoCancelLateArrivals}
                              onCheckedChange={(checked) => setTenantData(prev => ({...prev, autoCancelLateArrivals: checked}))}
-                            disabled={!isEditing}
+                            disabled={!isPoliciesEditing}
                         />
                     </div>
                 </div>
                  <div className="space-y-2">
                     <Label htmlFor="cancellation-policy">Cancellation Policy</Label>
-                     <Textarea id="cancellation-policy" value={tenantData.cancellationPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationPolicy: e.target.value}))} placeholder={generatePolicy('cancellation') || 'No cancellation policy set.'} rows={3} disabled={!isEditing} />
+                     <div className="relative">
+                        <Textarea id="cancellation-policy" value={tenantData.cancellationPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationPolicy: e.target.value}))} placeholder={generatePolicy('cancellation') || 'Set rules above or write your own policy.'} rows={3} disabled={!isPoliciesEditing} />
+                        {isPoliciesEditing && <Button size="xs" variant="secondary" className="absolute top-2 right-2" onClick={() => setTenantData(prev => ({...prev, cancellationPolicy: generatePolicy('cancellation')}))} type="button">Auto-generate</Button>}
+                    </div>
                 </div>
                 <div className="space-y-2">
                     <Label htmlFor="late-arrival-policy">Late Arrival Policy</Label>
-                    <Textarea id="late-arrival-policy" value={tenantData.lateArrivalPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, lateArrivalPolicy: e.target.value}))} placeholder={generatePolicy('late') || 'No late arrival policy set.'} rows={3} disabled={!isEditing} />
+                    <div className="relative">
+                        <Textarea id="late-arrival-policy" value={tenantData.lateArrivalPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, lateArrivalPolicy: e.target.value}))} placeholder={generatePolicy('late') || 'Set rules above or write your own policy.'} rows={3} disabled={!isPoliciesEditing} />
+                        {isPoliciesEditing && <Button size="xs" variant="secondary" className="absolute top-2 right-2" onClick={() => setTenantData(prev => ({...prev, lateArrivalPolicy: generatePolicy('late')}))} type="button">Auto-generate</Button>}
+                    </div>
                 </div>
                 <div className="space-y-2">
                     <Label htmlFor="no-show-policy">No-Show Policy</Label>
-                    <Textarea id="no-show-policy" value={tenantData.noShowPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, noShowPolicy: e.target.value}))} placeholder={generatePolicy('noShow') || 'No no-show policy set.'} rows={3} disabled={!isEditing} />
+                    <div className="relative">
+                        <Textarea id="no-show-policy" value={tenantData.noShowPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, noShowPolicy: e.target.value}))} placeholder={generatePolicy('noShow') || 'Set rules above or write your own policy.'} rows={3} disabled={!isPoliciesEditing} />
+                        {isPoliciesEditing && <Button size="xs" variant="secondary" className="absolute top-2 right-2" onClick={() => setTenantData(prev => ({...prev, noShowPolicy: generatePolicy('noShow')}))} type="button">Auto-generate</Button>}
+                    </div>
                 </div>
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Gift className="w-5 h-5 text-primary" />
-                Referral Program
-              </CardTitle>
+            <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <CardTitle className="flex items-center gap-2">
+                        <Gift className="w-5 h-5 text-primary" />
+                        Referral Program
+                    </CardTitle>
+                </div>
+                 <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
+                  {isReferralEditing ? (
+                      <>
+                          <Button variant="outline" onClick={handleReferralCancel} className="flex-1 sm:w-auto">Cancel</Button>
+                          <Button onClick={handleReferralSave} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save</Button>
+                      </>
+                  ) : (
+                      <Button onClick={handleReferralEdit} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit</Button>
+                  )}
+                </div>
             </CardHeader>
             <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
@@ -507,7 +552,7 @@ export default function SettingsPage() {
                     onChange={(e) => setTenantData(prev => ({...prev, referrerReward: Number(e.target.value)}))}
                     placeholder="10.00"
                     className="pl-8"
-                    disabled={!isEditing}
+                    disabled={!isReferralEditing}
                   />
                 </div>
               </div>
@@ -522,7 +567,7 @@ export default function SettingsPage() {
                     onChange={(e) => setTenantData(prev => ({...prev, newClientDiscount: Number(e.target.value)}))}
                     placeholder="15.00"
                     className="pl-8"
-                    disabled={!isEditing}
+                    disabled={!isReferralEditing}
                   />
                 </div>
               </div>
@@ -530,11 +575,23 @@ export default function SettingsPage() {
           </Card>
           
            <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <ListChecks className="w-5 h-5 text-primary" />
-                Walk-in Queue
-              </CardTitle>
+            <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <CardTitle className="flex items-center gap-2">
+                        <ListChecks className="w-5 h-5 text-primary" />
+                        Walk-in Queue
+                    </CardTitle>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
+                    {isQueueEditing ? (
+                        <>
+                            <Button variant="outline" onClick={handleQueueCancel} className="flex-1 sm:w-auto">Cancel</Button>
+                            <Button onClick={handleQueueSave} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save</Button>
+                        </>
+                    ) : (
+                        <Button onClick={handleQueueEdit} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit</Button>
+                    )}
+                </div>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
@@ -545,18 +602,30 @@ export default function SettingsPage() {
                   value={tenantData.queueSkipTimeMinutes || ''}
                   onChange={(e) => setTenantData(prev => ({...prev, queueSkipTimeMinutes: Number(e.target.value)}))}
                   placeholder="e.g., 5"
-                  disabled={!isEditing}
+                  disabled={!isQueueEditing}
                 />
               </div>
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <MessageSquare className="w-5 h-5 text-primary" />
-                SMS Notifications
-              </CardTitle>
+            <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <MessageSquare className="w-5 h-5 text-primary" />
+                  SMS Notifications
+                </CardTitle>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
+                  {isSmsEditing ? (
+                      <>
+                          <Button variant="outline" onClick={handleSmsCancel} className="flex-1 sm:w-auto">Cancel</Button>
+                          <Button onClick={handleSmsSave} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save</Button>
+                      </>
+                  ) : (
+                      <Button onClick={handleSmsEdit} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit</Button>
+                  )}
+              </div>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
@@ -567,7 +636,7 @@ export default function SettingsPage() {
                   onChange={(e) => setTenantData(prev => ({...prev, smsNotificationMessage: e.target.value}))}
                   placeholder="Enter your SMS message..."
                   rows={4}
-                  disabled={!isEditing}
+                  disabled={!isSmsEditing}
                 />
                 <p className="text-xs text-muted-foreground">
                   Use placeholders like &quot;{'{clientName}'}&quot; and &quot;{'{businessName}'}&quot;.
@@ -581,3 +650,4 @@ export default function SettingsPage() {
   );
 }
 
+    
