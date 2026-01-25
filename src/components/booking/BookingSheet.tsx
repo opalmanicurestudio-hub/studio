@@ -140,7 +140,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
   const [completedForms, setCompletedForms] = useState<Set<string>>(new Set());
   const [isDepositPaid, setIsDepositPaid] = useState(false);
-  const [agreedToPolicies, setAgreedToPolicies] = useState(false);
   const { toast } = useToast();
 
   const methods = useForm<BookingFormData>({
@@ -277,49 +276,9 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         return 0;
     }, [service]);
     
-    const {
-      cancellationPolicyText,
-      lateArrivalPolicyText,
-      noShowPolicyText
-    } = useMemo(() => {
-        const genPolicy = (type: 'cancellation' | 'noShow' | 'late') => {
-            if (!tenant) return null;
-
-            switch (type) {
-                case 'cancellation':
-                    if (tenant.cancellationPolicy) return tenant.cancellationPolicy;
-                    if (tenant.cancellationWindowHours != null && tenant.cancellationFee != null) {
-                        return `Cancellations made within ${tenant.cancellationWindowHours} hours of the scheduled appointment time will be subject to a fee of $${tenant.cancellationFee?.toFixed(2)}.`;
-                    }
-                    return null;
-                case 'noShow':
-                    if (tenant.noShowPolicy) return tenant.noShowPolicy;
-                    if (tenant.noShowFee != null) {
-                         return `Failure to show up for a scheduled appointment without notice will result in a no-show fee of $${tenant.noShowFee?.toFixed(2)}.`;
-                    }
-                    return null;
-                case 'late':
-                    if (tenant.lateArrivalPolicy) return tenant.lateArrivalPolicy;
-                     if (tenant.lateArrivalGracePeriod != null) {
-                        return `We offer a grace period of ${tenant.lateArrivalGracePeriod} minutes. Arriving later than this may require rescheduling and could be considered a no-show.`;
-                    }
-                    return null;
-                default:
-                    return null;
-            }
-        };
-
-        return {
-            cancellationPolicyText: genPolicy('cancellation'),
-            lateArrivalPolicyText: genPolicy('late'),
-            noShowPolicyText: genPolicy('noShow'),
-        };
-    }, [tenant]);
-    
     const steps = useMemo(() => {
         const flow = ['staff', 'dateTime', 'details'];
         if (requiredForms.length > 0) flow.push('consents');
-        // The summary and policy agreement now come BEFORE payment.
         flow.push('summary');
         if (depositAmount > 0) flow.push('payment');
         flow.push('confirmation');
@@ -328,7 +287,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
     const [currentStepIndex, setCurrentStepIndex] = useState(0);
     const currentStep = steps[currentStepIndex];
-    const totalSteps = steps.length - 1;
     const progress = useMemo(() => ((currentStepIndex + 1) / (steps.length - 1)) * 100, [currentStepIndex, steps.length]);
 
   const handleNextStep = async () => {
@@ -344,12 +302,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     if (currentStep === 'consents') {
         if (completedForms.size < requiredForms.length) {
             toast({ variant: 'destructive', title: 'Please complete all required forms.' });
-            isValid = false;
-        }
-    }
-    if (currentStep === 'summary') {
-        if (!agreedToPolicies) {
-            toast({ variant: 'destructive', title: 'Please agree to the policies.' });
             isValid = false;
         }
     }
@@ -377,7 +329,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
   const handlePrevStep = () => {
     if (currentStepIndex > 0) {
-      setCurrentStepIndex(currentStepIndex - 1);
+      setCurrentStepIndex(currentStepIndex + 1);
     }
   };
 
@@ -539,23 +491,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                         {depositAmount > 0 && <p className="text-xs text-muted-foreground text-right">Remaining balance of ${(service.price - depositAmount).toFixed(2)} due at appointment.</p>}
                                     </CardContent>
                                 </Card>
-                                <div className="space-y-3 p-4 border rounded-lg">
-                                    <h4 className="font-semibold">Booking Policies</h4>
-                                    <ScrollArea className="h-24 text-xs space-y-2">
-                                        {cancellationPolicyText && <p className="text-foreground"><strong className="text-muted-foreground">Cancellation:</strong> {cancellationPolicyText}</p>}
-                                        {lateArrivalPolicyText && <p className="text-foreground"><strong className="text-muted-foreground">Late Arrival:</strong> {lateArrivalPolicyText}</p>}
-                                        {noShowPolicyText && <p className="text-foreground"><strong className="text-muted-foreground">No-Show:</strong> {noShowPolicyText}</p>}
-                                        {!cancellationPolicyText && !lateArrivalPolicyText && !noShowPolicyText && (
-                                            <p className="text-muted-foreground text-center italic">No booking policies have been set by this business.</p>
-                                        )}
-                                    </ScrollArea>
-                                    <div className="flex items-center space-x-2 pt-2">
-                                        <Checkbox id="terms" checked={agreedToPolicies} onCheckedChange={(checked) => setAgreedToPolicies(!!checked)} />
-                                        <label htmlFor="terms" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                                            I have read and agree to the policies.
-                                        </label>
-                                    </div>
-                                </div>
                             </div>
                         )}
                         {currentStep === 'payment' && (
