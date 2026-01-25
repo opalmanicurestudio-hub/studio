@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
@@ -1006,21 +1005,7 @@ const events = useMemo(() => {
             </div>
         </div>
 
-        <div className="md:hidden flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-              <TooltipProvider>
-                <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="w-4 h-4" /><span className="sr-only">Weekly KPIs</span></Button></TooltipTrigger><TooltipContent><p>Weekly KPIs</p></TooltipContent></Tooltip>
-                <Tooltip><TooltipTrigger asChild>
-                    <Button variant="outline" size="icon" className="relative" onClick={() => setIsBillsSheetOpen(true)}>
-                        <BellRing className={cn("h-4 w-4", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
-                        {dailyBillInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
-                        <span className="sr-only">Bills Due Today</span>
-                    </Button>
-                </TooltipTrigger><TooltipContent><p>Bills Due Today</p></TooltipContent></Tooltip>
-                <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsPickingListOpen(true)}><List className="w-4 h-4" /><span className="sr-only">Picking List</span></Button></TooltipTrigger><TooltipContent><p>Picking List</p></TooltipContent></Tooltip>
-            </TooltipProvider>
-          </div>
-          <div className="flex items-center gap-2">
+        <div className="md:hidden flex items-center justify-end gap-2">
             <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
               <QrCode className="w-4 h-4"/>
               <span className="sr-only">Scan</span>
@@ -1028,18 +1013,18 @@ const events = useMemo(() => {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button size="sm">
-                  <PlusCircle className="mr-2 h-4 w-4" />
-                  New
+                  <MoreHorizontal className="mr-2 h-4 w-4" />
+                  Actions
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => setIsAddAppointmentOpen(true)}>
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  <span>New Appointment</span>
+                 <DropdownMenuItem onClick={() => setIsAddAppointmentOpen(true)}>
+                    <PlusCircle className="mr-2 h-4 w-4" />
+                    <span>New Appointment</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setIsAddEventOpen(true)}>
-                  <TicketIcon className="mr-2 h-4 w-4" />
-                  <span>New Event</span>
+                    <PlusCircle className="mr-2 h-4 w-4" />
+                    <span>New Event</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
@@ -1054,10 +1039,22 @@ const events = useMemo(() => {
                         Walk-in Kiosk
                     </Link>
                 </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setIsKpiSheetOpen(true)}>
+                    <BarChart className="mr-2 h-4 w-4" />
+                    Weekly KPIs
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setIsBillsSheetOpen(true)}>
+                    <BellRing className="mr-2 h-4 w-4" />
+                    Bills Due
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setIsPickingListOpen(true)}>
+                    <List className="mr-2 h-4 w-4" />
+                    Picking List
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-        </div>
 
         <div className="hidden md:block space-y-4">
             <div className="flex items-center justify-between gap-4">
@@ -1388,8 +1385,4 @@ const events = useMemo(() => {
   );
 }
 
-
-
-
-
-
+    
