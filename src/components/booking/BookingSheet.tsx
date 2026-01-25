@@ -40,6 +40,7 @@ import {
   isBefore,
   isToday,
   getDay,
+  parseISO,
 } from 'date-fns';
 
 const StaffSelectionCard = ({ staff, isSelected, onSelect }: { staff: Staff | { id: string, name: string, avatarUrl: string }, isSelected: boolean, onSelect: () => void }) => {
@@ -180,15 +181,24 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     
     const options: string[] = [];
     let currentTime = dayStartWithBusinessHours;
+    
+    const now = new Date();
+    
+    // If booking for today, find the next available interval slot.
+    if (isToday(date)) {
+        const currentMinutes = now.getHours() * 60 + now.getMinutes();
+        const startMinutes = dayStartWithBusinessHours.getHours() * 60 + dayStartWithBusinessHours.getMinutes();
+        
+        if (currentMinutes > startMinutes) {
+            const minutesPastStart = currentMinutes - startMinutes;
+            const intervalsPast = Math.ceil(minutesPastStart / bookingInterval);
+            currentTime = addMinutes(dayStartWithBusinessHours, intervalsPast * bookingInterval);
+        }
+    }
+
 
     // 2. Generate and validate slots
     while (currentTime < dayEndWithBusinessHours) {
-        // Skip past slots for today
-        if (isToday(date) && isBefore(currentTime, new Date())) {
-            currentTime = addMinutes(currentTime, bookingInterval);
-            continue;
-        }
-
         const potentialStartTime = currentTime;
         const totalDuration = service.duration + (service.padBefore || 0) + (service.padAfter || 0);
         const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
