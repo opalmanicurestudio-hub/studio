@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
@@ -49,7 +50,7 @@ import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceip
 import { PrintTicket, type TicketData } from '@/components/planner/PrintTicket';
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
 import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
-import { collection, query, where, Timestamp, doc } from 'firebase/firestore';
+import { collection, query, where, Timestamp, doc, setDoc } from 'firebase/firestore';
 import { EditEventDialog } from '@/components/planner/EditEventDialog';
 import { BillDueDateCard } from '@/components/planner/BillDueDateCard';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -563,7 +564,7 @@ const events = useMemo(() => {
     });
   };
   
-  const handleAddAppointment = async (newAppointment: Omit<Appointment, 'id'>) => {
+  const handleAddAppointment = async (newAppointment: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date}) => {
     if (!firestore) return;
     const newAptWithId = { ...newAppointment, id: nanoid() };
 
@@ -588,14 +589,14 @@ const events = useMemo(() => {
               status: 'active',
             };
             const clientDocRef = doc(firestore, 'tenants', tenantId, 'clients', newId);
-            await setDocumentNonBlocking(clientDocRef, newClient, {});
+            await setDoc(clientDocRef, newClient);
             finalClientId = newId;
             finalClientName = newClient.name;
         }
     }
 
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', newAptWithId.id);
-    setDocumentNonBlocking(appointmentRef, { ...newAppointment, clientId: finalClientId, clientName: finalClientName }, {});
+    await setDoc(appointmentRef, { ...newAppointment, clientId: finalClientId, clientName: finalClientName });
     
     toast({
         title: "Appointment Booked",
@@ -645,7 +646,7 @@ const events = useMemo(() => {
     setIsAddAppointmentOpen(true);
   };
 
-  const handleAddEvent = (newEvent: Omit<Event, 'id'>) => {
+  const handleAddEvent = (newEvent: Omit<Event, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date}) => {
     if (!firestore) return;
     const newEventWithId = { ...newEvent, id: nanoid() };
     const eventRef = doc(firestore, 'tenants', tenantId, 'events', newEventWithId.id);
@@ -694,7 +695,7 @@ const events = useMemo(() => {
         setIsEditEventOpen(false);
     }
     
-    const handleAddTransaction = (transaction: Omit<Transaction, 'id' | 'date'>) => {
+    const addTransaction = (transaction: Omit<Transaction, 'id' | 'date'>) => {
         if (!firestore || !user) {
             toast({
                 variant: 'destructive',
@@ -713,7 +714,7 @@ const events = useMemo(() => {
             title: "Expense Logged",
             description: `An expense of $${transaction.amount.toFixed(2)} for "${transaction.description}" has been recorded in your ledger.`
         });
-    }
+  }
   
   const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
     if (!firestore) return;
@@ -1150,10 +1151,30 @@ const events = useMemo(() => {
               <Label htmlFor="staff-selector">Viewing Schedule For</Label>
               <Select value={mobileSelectedStaffId} onValueChange={setMobileSelectedStaffId}>
                 <SelectTrigger id="staff-selector" className="mt-1">
-                  <SelectValue placeholder="Select a staff member" />
+                    {mobileSelectedStaffId && staff?.find(s => s.id === mobileSelectedStaffId) ? (
+                    <div className="flex items-center gap-2">
+                        <Avatar className="w-6 h-6">
+                        <AvatarImage src={staff.find(s => s.id === mobileSelectedStaffId)?.avatarUrl} />
+                        <AvatarFallback>{staff.find(s => s.id === mobileSelectedStaffId)?.name.charAt(0)}</AvatarFallback>
+                        </Avatar>
+                        <span>{staff.find(s => s.id === mobileSelectedStaffId)?.name}</span>
+                    </div>
+                    ) : (
+                    <SelectValue placeholder="Select a staff member" />
+                    )}
                 </SelectTrigger>
                 <SelectContent>
-                  {(staff || []).map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                  {(staff || []).map(s => (
+                    <SelectItem key={s.id} value={s.id}>
+                        <div className="flex items-center gap-2">
+                            <Avatar className="w-6 h-6">
+                                <AvatarImage src={s.avatarUrl} />
+                                <AvatarFallback>{s.name.charAt(0)}</AvatarFallback>
+                            </Avatar>
+                            <span>{s.name}</span>
+                        </div>
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -1172,7 +1193,7 @@ const events = useMemo(() => {
               onChecklistItemToggle={handleChecklistItemToggle}
               onUpdateEvent={handleUpdateEvent}
               dailyTransactions={dailyTransactions}
-              onAddTransaction={handleAddTransaction}
+              onAddTransaction={addTransaction}
               onReschedule={handleRescheduleClick}
               onRebook={handleRebook}
               onOpenPickingList={() => setIsPickingListOpen(true)}
@@ -1384,5 +1405,3 @@ const events = useMemo(() => {
     </div>
   );
 }
-
-    
