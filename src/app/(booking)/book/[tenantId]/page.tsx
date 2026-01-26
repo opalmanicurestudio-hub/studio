@@ -36,36 +36,39 @@ const getCategoryIcon = (category?: string) => {
 const ServiceCard = ({ service, onSelect }: { service: Service, onSelect: () => void }) => {
     return (
       <div 
-          className="cursor-pointer group"
+          className="cursor-pointer group h-full"
           onClick={onSelect}
       >
-        <Card className="overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1">
-            <CardContent className="p-0">
-            <div className="relative aspect-[4/3] w-full bg-muted/30 flex items-center justify-center">
-                {service.imageUrl ? (
-                    <Image
-                    src={service.imageUrl}
-                    alt={service.name}
-                    fill
-                    className="object-cover transition-transform duration-300 group-hover:scale-105"
-                    />
-                ) : (
-                    getCategoryIcon(service.category)
-                )}
-            </div>
-            <div className="p-4 space-y-2">
-                <h3 className="font-semibold truncate">{service.name}</h3>
-                <div className="flex items-center justify-between text-sm text-muted-foreground">
-                    <div className="flex items-center gap-2">
-                        <Clock className="w-4 h-4" />
-                        <span>{service.duration} min</span>
-                    </div>
-                    <div className="flex items-center gap-2 font-medium text-foreground">
-                        <DollarSign className="w-4 h-4" />
-                        <span>{service.price.toFixed(2)}</span>
+        <Card className="overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1 h-full flex flex-col">
+            <CardContent className="p-0 flex flex-col flex-1">
+                <div className="relative aspect-[4/3] w-full bg-muted/30 flex items-center justify-center">
+                    {service.imageUrl ? (
+                        <Image
+                        src={service.imageUrl}
+                        alt={service.name}
+                        fill
+                        className="object-cover transition-transform duration-300 group-hover:scale-105"
+                        />
+                    ) : (
+                        getCategoryIcon(service.category)
+                    )}
+                </div>
+                <div className="p-4 space-y-2 flex flex-col flex-1">
+                    <h3 className="font-semibold truncate">{service.name}</h3>
+                    <p className="text-xs text-muted-foreground line-clamp-2 flex-grow min-h-[40px]">
+                        {service.description || 'No description available.'}
+                    </p>
+                    <div className="flex items-center justify-between text-sm text-muted-foreground pt-2 border-t mt-auto">
+                        <div className="flex items-center gap-2">
+                            <Clock className="w-4 h-4" />
+                            <span>{service.duration} min</span>
+                        </div>
+                        <div className="flex items-center gap-2 font-medium text-foreground">
+                            <DollarSign className="w-4 h-4" />
+                            <span>{service.price.toFixed(2)}</span>
+                        </div>
                     </div>
                 </div>
-            </div>
             </CardContent>
         </Card>
       </div>
