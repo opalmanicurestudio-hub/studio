@@ -53,6 +53,7 @@ import {
   Star,
   Clock,
   BookOpen,
+  Users,
 } from 'lucide-react';
 import { appointments as initialAppointments, services as initialServices, inventory, type CustomFormula, Client, type Incident, type Appointment, type Service, Staff, DayHours } from '@/lib/data';
 import Link from 'next/link';
@@ -122,9 +123,9 @@ const getFormattedSchedule = (availability?: { week: { [key: string]: DayHours }
     days.forEach(day => {
         const dayInfo = availability.week[day];
         if (dayInfo && dayInfo.enabled) {
-            const rangeKey = `${dayInfo.start}-${dayInfo.end}`;
+            const rangeKey = `${'\'\'\'dayInfo.start\'\'\'\'\'\'\'dayInfo.end\'\'\'}`;
             if (rangeKey === lastRangeKey && (days.indexOf(day) === currentDayIndex + 1)) {
-                activeDays[rangeKey].days[activeDays[rangeKey].days.length - 1] = `${dayAbbr}-${day.substring(0,3)}`;
+                activeDays[rangeKey].days[activeDays[rangeKey].days.length - 1] = `${'\'\'\'dayAbbr\'\'\'\'\'\'\'day.substring(0,3)\'\'\'}`;
             } else {
                  if(!activeDays[rangeKey]) {
                     activeDays[rangeKey] = { start: dayInfo.start, end: dayInfo.end, days: [] };
@@ -139,7 +140,7 @@ const getFormattedSchedule = (availability?: { week: { [key: string]: DayHours }
         }
     });
 
-    return Object.values(activeDays).map(group => `${group.days.join(', ')}: ${group.start} - ${group.end}`).join(' | ');
+    return Object.values(activeDays).map(group => `${'\'\'\'group.days.join(\', \')\'\'\'}: ${'\'\'\'group.start\'\'\'\'\'\'\'group.end\'\'\'}`).join(' | ');
 };
 
 
@@ -153,14 +154,14 @@ export default function StaffDetailPage() {
   
   const staffDocRef = useMemoFirebase(() => {
       if (!firestore || !staffId) return null;
-      return doc(firestore, `tenants/${tenantId}/staff/${staffId}`);
+      return doc(firestore, `tenants/${'\'\'\'tenantId\'\'\'}/staff/${'\'\'\'staffId\'\'\'}`);
   }, [firestore, tenantId, staffId]);
 
   const { data: staffMember, isLoading: staffLoading } = useDoc<Staff>(staffDocRef);
   
-  const clientsQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/clients`) : null, [firestore, tenantId]);
+  const clientsQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${'\'\'\'tenantId\'\'\'}/clients`) : null, [firestore, tenantId]);
   const { data: allClients, isLoading: allClientsLoading } = useCollection<Client>(clientsQuery);
-  const appointmentsQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/appointments`) : null, [firestore, tenantId]);
+  const appointmentsQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${'\'\'\'tenantId\'\'\'}/appointments`) : null, [firestore, tenantId]);
   const { data: appointments, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
 
   const { services, staff } = useInventory();
@@ -245,19 +246,28 @@ export default function StaffDetailPage() {
                 </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-2 md:gap-4 max-w-lg mx-auto">
-                <div className="flex items-center justify-center gap-2 p-3 rounded-lg border bg-background text-sm">
-                    <Clock className="w-4 h-4 text-muted-foreground"/> 
-                    <div><span className="font-bold">{staffMember.yearsOfExperience || 5}+</span> yrs</div>
-                </div>
-                <div className="flex items-center justify-center gap-2 p-3 rounded-lg border bg-background text-sm">
-                    <UserIcon className="w-4 h-4 text-muted-foreground"/> 
-                    <div><span className="font-bold">{staffMember.clientCount || 200}+</span> clients</div>
-                </div>
-                <div className="flex items-center justify-center gap-2 p-3 rounded-lg border bg-background text-sm">
-                    <Star className="w-4 h-4 text-muted-foreground"/> 
-                    <div><span className="font-bold">4.9</span> rating</div>
-                </div>
+            <div className="grid grid-cols-3 gap-4 max-w-lg mx-auto text-center">
+                <Card>
+                    <CardContent className="p-4 space-y-1">
+                        <Award className="w-6 h-6 text-primary mx-auto" />
+                        <p className="text-xl font-bold">{staffMember.yearsOfExperience || 5}+</p>
+                        <p className="text-xs text-muted-foreground">Years Exp.</p>
+                    </CardContent>
+                </Card>
+                <Card>
+                    <CardContent className="p-4 space-y-1">
+                        <Users className="w-6 h-6 text-primary mx-auto" />
+                        <p className="text-xl font-bold">{staffMember.clientCount || 200}+</p>
+                        <p className="text-xs text-muted-foreground">Clients</p>
+                    </CardContent>
+                </Card>
+                <Card>
+                    <CardContent className="p-4 space-y-1">
+                        <Star className="w-6 h-6 text-primary mx-auto" />
+                        <p className="text-xl font-bold">4.9</p>
+                        <p className="text-xs text-muted-foreground">Rating</p>
+                    </CardContent>
+                </Card>
             </div>
             
             <Tabs defaultValue="about" className="max-w-lg mx-auto">
@@ -288,7 +298,7 @@ export default function StaffDetailPage() {
                             <div key={index} className="relative aspect-square w-64 h-64 md:w-80 md:h-80 flex-shrink-0 rounded-xl overflow-hidden group">
                                 <Image
                                 src={url}
-                                alt={`Portfolio image ${index + 1}`}
+                                alt={`Portfolio image ${'\'\'\'index + 1\'\'\'}`}
                                 fill
                                 className="object-cover transition-transform duration-300 group-hover:scale-110"
                                 />
