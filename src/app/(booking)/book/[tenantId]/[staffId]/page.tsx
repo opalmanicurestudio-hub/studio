@@ -238,7 +238,7 @@ export default function StaffDetailPage() {
 
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-50 dark:bg-slate-900">
+    <div className="flex w-full flex-col">
         <header className="sticky top-0 z-30 flex h-16 items-center gap-4 bg-background/80 px-4 backdrop-blur-sm md:px-6 print:hidden">
             <Button variant="outline" size="icon" asChild>
                  <Link href={`/book/${tenantId}`}>
