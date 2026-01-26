@@ -67,7 +67,6 @@ export const ClarityFlowLogo = () => (
 const setupNavItems = [
   { href: '/financials', icon: Wallet, label: 'Financials' },
   { href: '/services', icon: List, label: 'Services' },
-  { href: '/classes', icon: BookText, label: 'Classes' },
   { href: '/inventory', icon: Box, label: 'Inventory' },
   { href: '/resources', icon: Hammer, label: 'Resources' },
   { href: '/clients', icon: Users, label: 'Clients' },

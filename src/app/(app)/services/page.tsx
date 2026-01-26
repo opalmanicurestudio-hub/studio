@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -322,6 +323,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUp
             <div className="text-sm text-muted-foreground space-y-1 pt-1">
                 <div className="flex items-center gap-1.5"><Clock className="w-4 h-4" /> {service.duration} min {totalPadding > 0 && <span className='text-muted-foreground/50'>(+{totalPadding} pad)</span>}</div>
                 <div className="flex items-center gap-1.5"><Landmark className="w-4 h-4" /> {service.price.toFixed(2)}</div>
+                {service.capacity && service.capacity > 1 && <div className="flex items-center gap-1.5"><Users className="w-4 h-4" /> Up to {service.capacity}</div>}
             </div>
           </div>
         </div>

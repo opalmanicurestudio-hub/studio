@@ -59,6 +59,7 @@ const serviceSchema = z.object({
   imageUrl: z.string().optional(),
   isPrivate: z.boolean().optional(),
   isAddon: z.boolean().optional(),
+  capacity: z.coerce.number().min(1).optional(),
   
   products: z.array(z.any()).optional(),
   equipment: z.array(z.any()).optional(),
@@ -85,7 +86,8 @@ const Step1_BasicDetails = ({
     const { register, control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
-    
+    const category = watch('category');
+
     const handleAddNewCategory = () => {
         if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
             const newCategory = newCategoryName.trim();
@@ -148,6 +150,12 @@ const Step1_BasicDetails = ({
             <Input id="pad-after" type="number" placeholder="e.g., 15" {...register('padAfter', { valueAsNumber: true })} />
         </div>
     </div>
+     <div className="space-y-2">
+        <Label htmlFor="capacity">Capacity</Label>
+        <Input id="capacity" type="number" placeholder="1" {...register('capacity', { valueAsNumber: true })}/>
+        <p className="text-xs text-muted-foreground">Max number of clients for this service at the same time. Set to 1 for individual services.</p>
+        {errors.capacity && <p className="text-sm text-destructive">{errors.capacity.message}</p>}
+    </div>
     
     <div className="space-y-2">
       <Label htmlFor="description">Description</Label>
@@ -194,7 +202,6 @@ const Step2_Formula = ({ onScanClick }: { onScanClick: () => void }) => {
     
     const handleAddOnSelect = (addOns: Service[]) => {
         setValue('compatibleAddOnIds', addOns.map(a => a.id), { shouldDirty: true, shouldTouch: true });
-        setIsAddOnSelectorOpen(false);
     };
 
     const removeProduct = (productId: string) => {
@@ -483,6 +490,7 @@ export const AddServiceDialog: React.FC<{
         depositSubType: data.depositSubType,
         depositAmount: data.depositAmount,
         compatibleAddOnIds: data.compatibleAddOnIds,
+        capacity: data.capacity || 1,
       };
       
       onServiceAdded(newService);

@@ -190,6 +190,9 @@ export type Service = {
   depositAmount?: number;
   requiredSkills?: string[];
   compatibleAddOnIds?: string[];
+  capacity?: number;
+  fixedCost?: number;
+  costPerAttendee?: number;
 };
 
 export type Batch = {
@@ -580,6 +583,7 @@ export const services: Service[] = [
     requiredSkills: ['basic_manicure'],
     compatibleAddOnIds: ['svc-addon-1'],
     requiredFormIds: ['form-1'],
+    capacity: 1,
   },
   { 
     id: 'svc-2', 
@@ -599,6 +603,7 @@ export const services: Service[] = [
     depositAmount: 25,
     requiredSkills: ['haircut'],
     compatibleAddOnIds: ['svc-addon-2', 'svc-addon-4'],
+    capacity: 1,
   },
    { 
     id: 'svc-3', 
@@ -618,6 +623,7 @@ export const services: Service[] = [
     depositAmount: 20,
     requiredSkills: ['color'],
     requiredFormIds: ['form-2'],
+    capacity: 1,
   },
   { 
     id: 'svc-4', 
@@ -632,6 +638,7 @@ export const services: Service[] = [
     imageUrl: 'https://picsum.photos/seed/facial/200/200',
     isPrivate: false,
     depositType: 'none',
+    capacity: 1,
   },
   { 
     id: 'svc-5', 
@@ -648,6 +655,7 @@ export const services: Service[] = [
     isPrivate: false,
     depositType: 'breakeven',
     requiredSkills: ['color', 'balayage'],
+    capacity: 1,
   },
   { 
     id: 'svc-6', 
@@ -664,6 +672,7 @@ export const services: Service[] = [
     isPrivate: false,
     depositType: 'none',
     requiredSkills: ['haircut'],
+    capacity: 1,
   },
   { 
     id: 'svc-7', 
@@ -682,6 +691,7 @@ export const services: Service[] = [
     depositType: 'none',
     requiredSkills: ['basic_manicure', 'gel'],
     compatibleAddOnIds: ['svc-addon-1', 'svc-addon-3'],
+    capacity: 1,
   },
   { 
     id: 'svc-8', 
@@ -696,6 +706,7 @@ export const services: Service[] = [
     imageUrl: 'https://picsum.photos/seed/eyebrow/200/200',
     isPrivate: false,
     depositType: 'none',
+    capacity: 1,
   },
   { 
     id: 'svc-9', 
@@ -712,6 +723,7 @@ export const services: Service[] = [
     isPrivate: false,
     depositType: 'none',
     requiredSkills: ['color'],
+    capacity: 1,
   },
   { 
     id: 'svc-10', 
@@ -727,6 +739,7 @@ export const services: Service[] = [
     isPrivate: false,
     depositType: 'none',
     requiredSkills: ['color'],
+    capacity: 1,
   },
   { 
     id: 'svc-11', 
@@ -742,6 +755,7 @@ export const services: Service[] = [
     isPrivate: false,
     depositType: 'none',
     requiredSkills: ['styling'],
+    capacity: 1,
   },
   { 
     id: 'svc-12', 
@@ -758,6 +772,7 @@ export const services: Service[] = [
     status: 'archived',
     depositType: 'none',
     requiredSkills: ['styling'],
+    capacity: 1,
   },
   { 
     id: 'svc-addon-1', 
@@ -770,6 +785,7 @@ export const services: Service[] = [
     profit: 17.50,
     margin: 87.5,
     isPrivate: false,
+    capacity: 1,
   },
   { 
     id: 'svc-addon-2', 
@@ -782,6 +798,7 @@ export const services: Service[] = [
     profit: 27.00,
     margin: 77.1,
     isPrivate: false,
+    capacity: 1,
   },
   { 
     id: 'svc-addon-3', 
@@ -794,6 +811,7 @@ export const services: Service[] = [
     profit: 24.00,
     margin: 96.0,
     isPrivate: false,
+    capacity: 1,
   },
   {
     id: 'svc-addon-4',
@@ -806,6 +824,7 @@ export const services: Service[] = [
     profit: 30.00,
     margin: 75.0,
     isPrivate: false,
+    capacity: 1,
   },
 ];
 
