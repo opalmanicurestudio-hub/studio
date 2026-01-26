@@ -22,7 +22,17 @@ import { format, parseISO, getDay } from 'date-fns';
 
 const ServiceCard = ({ service, onBookNow }: { service: Service, onBookNow: (service: Service) => void }) => {
     return (
-        <Card className="flex flex-col hover:shadow-lg transition-shadow h-full">
+        <Card className="flex flex-col hover:shadow-lg transition-shadow h-full overflow-hidden">
+            {service.imageUrl && (
+                <div className="relative aspect-video w-full">
+                    <Image
+                        src={service.imageUrl}
+                        alt={service.name}
+                        fill
+                        className="object-cover"
+                    />
+                </div>
+            )}
             <CardHeader>
                 <CardTitle className="text-lg">{service.name}</CardTitle>
                 {service.description && (
@@ -245,7 +255,7 @@ export default function StaffDetailPage() {
 
 
   return (
-    <div className="flex w-full flex-col">
+    <div className="w-full">
         <header className="sticky top-0 z-30 flex h-16 items-center gap-4 bg-muted/80 px-4 backdrop-blur-sm md:px-6 print:hidden">
             <Button variant="outline" size="icon" asChild>
                  <Link href={`/book/${tenantId}`}>

@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -96,19 +97,35 @@ type ClientPhoto = {
 
 const ServiceCard = ({ service, onBookNow }: { service: Service, onBookNow: (service: Service) => void }) => {
     return (
-        <Card className="hover:shadow-md transition-shadow">
-            <CardContent className="p-4 flex items-center justify-between gap-4">
-                <div className="flex-1 space-y-1">
-                    <h4 className="font-semibold">{service.name}</h4>
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                        <span className="flex items-center gap-1.5"><Clock className="w-4 h-4"/>{service.duration} min</span>
-                        <span className="flex items-center gap-1.5"><DollarSign className="w-4 h-4"/>{service.price.toFixed(2)}</span>
-                    </div>
+        <Card className="flex flex-col hover:shadow-lg transition-shadow h-full overflow-hidden">
+            {service.imageUrl && (
+                <div className="relative aspect-video w-full">
+                    <Image
+                        src={service.imageUrl}
+                        alt={service.name}
+                        fill
+                        className="object-cover"
+                    />
+                </div>
+            )}
+            <CardHeader>
+                <CardTitle className="text-lg">{service.name}</CardTitle>
+                {service.description && (
+                    <CardDescription className="line-clamp-2 h-10 pt-1">
+                        {service.description}
+                    </CardDescription>
+                )}
+            </CardHeader>
+            <CardContent className="flex-1" />
+            <CardFooter className="flex items-center justify-between p-4 bg-muted/50">
+                <div className="flex items-center gap-4 text-sm font-medium">
+                    <div className="flex items-center gap-1.5"><Clock className="w-4 h-4 text-muted-foreground"/>{service.duration} min</div>
+                    <div className="flex items-center gap-1.5"><DollarSign className="w-4 h-4 text-muted-foreground"/>{service.price.toFixed(2)}</div>
                 </div>
                 <Button onClick={() => onBookNow(service)}><BookOpen className="w-4 h-4 mr-2"/>Book</Button>
-            </CardContent>
+            </CardFooter>
         </Card>
-    )
+    );
 }
 
 export default function StaffDetailPage() {
