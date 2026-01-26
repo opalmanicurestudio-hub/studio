@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -14,7 +15,14 @@ import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { isSameDay, parseISO } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  CarouselNext,
+  CarouselPrevious,
+} from "@/components/ui/carousel"
+
 
 const getCategoryIcon = (category?: string) => {
     switch(category?.toLowerCase()) {
@@ -26,58 +34,42 @@ const getCategoryIcon = (category?: string) => {
 }
 
 const ServiceCard = ({ service, onSelect }: { service: Service, onSelect: () => void }) => {
-  if (service.imageUrl) {
     return (
-      <Card 
-          className="cursor-pointer group transition-all duration-300 hover:shadow-lg hover:-translate-y-1"
+      <div 
+          className="cursor-pointer group"
           onClick={onSelect}
       >
-        <CardContent className="p-0">
-          <div className="relative aspect-[4/3] w-full overflow-hidden rounded-t-lg">
-            <Image
-              src={service.imageUrl}
-              alt={service.name}
-              fill
-              className="object-cover transition-transform duration-300 group-hover:scale-105"
-            />
-          </div>
-          <div className="p-4 space-y-2">
-              <h3 className="font-semibold truncate">{service.name}</h3>
-              <div className="flex items-center justify-between text-sm text-muted-foreground">
-                  <div className="flex items-center gap-2">
-                      <Clock className="w-4 h-4" />
-                      <span>{service.duration} min</span>
-                  </div>
-                  <div className="flex items-center gap-2 font-medium text-foreground">
-                      <DollarSign className="w-4 h-4" />
-                      <span>{service.price.toFixed(2)}</span>
-                  </div>
-              </div>
-          </div>
-        </CardContent>
-      </Card>
+        <Card className="overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1">
+            <CardContent className="p-0">
+            <div className="relative aspect-[4/3] w-full bg-muted/30 flex items-center justify-center">
+                {service.imageUrl ? (
+                    <Image
+                    src={service.imageUrl}
+                    alt={service.name}
+                    fill
+                    className="object-cover transition-transform duration-300 group-hover:scale-105"
+                    />
+                ) : (
+                    getCategoryIcon(service.category)
+                )}
+            </div>
+            <div className="p-4 space-y-2">
+                <h3 className="font-semibold truncate">{service.name}</h3>
+                <div className="flex items-center justify-between text-sm text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                        <Clock className="w-4 h-4" />
+                        <span>{service.duration} min</span>
+                    </div>
+                    <div className="flex items-center gap-2 font-medium text-foreground">
+                        <DollarSign className="w-4 h-4" />
+                        <span>{service.price.toFixed(2)}</span>
+                    </div>
+                </div>
+            </div>
+            </CardContent>
+        </Card>
+      </div>
     );
-  }
-
-  return (
-    <Card 
-        className="cursor-pointer group transition-all duration-300 hover:shadow-lg hover:border-primary/50"
-        onClick={onSelect}
-    >
-      <CardContent className="p-4 flex gap-4 items-center">
-          <div className="p-3 bg-muted rounded-lg">
-            {getCategoryIcon(service.category)}
-          </div>
-          <div className="flex-1 space-y-1">
-              <h3 className="font-semibold">{service.name}</h3>
-              <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                  <div className="flex items-center gap-1.5"><Clock className="w-3 h-3" />{service.duration} min</div>
-                  <div className="flex items-center gap-1.5"><DollarSign className="w-3 h-3" />{service.price.toFixed(2)}</div>
-              </div>
-          </div>
-      </CardContent>
-    </Card>
-  );
 };
 
 
@@ -234,22 +226,30 @@ export default function BookingPage() {
           <p className="text-muted-foreground">Select a service to begin booking</p>
         </header>
         
-        <Accordion type="multiple" defaultValue={Object.keys(servicesByCategory)} className="w-full space-y-4">
-            {Object.keys(servicesByCategory).sort().map(category => (
-                <AccordionItem key={category} value={category} className="border rounded-lg bg-card">
-                    <AccordionTrigger className="px-6 py-4 text-lg font-semibold hover:no-underline">
-                        {category}
-                    </AccordionTrigger>
-                    <AccordionContent className="p-6 pt-0">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                            {servicesByCategory[category].map(service => (
-                                <ServiceCard key={service.id} service={service} onSelect={() => handleServiceSelect(service)} />
-                            ))}
-                        </div>
-                    </AccordionContent>
-                </AccordionItem>
-            ))}
-        </Accordion>
+        <div className="space-y-12">
+          {Object.keys(servicesByCategory).sort().map(category => (
+            <div key={category}>
+                <h2 className="text-2xl font-bold mb-4">{category}</h2>
+                 <Carousel
+                    opts={{
+                        align: "start",
+                        dragFree: true,
+                    }}
+                    className="w-full"
+                    >
+                    <CarouselContent>
+                        {servicesByCategory[category].map((service) => (
+                        <CarouselItem key={service.id} className="basis-full sm:basis-1/2 md:basis-1/3">
+                            <ServiceCard service={service} onSelect={() => handleServiceSelect(service)} />
+                        </CarouselItem>
+                        ))}
+                    </CarouselContent>
+                    <CarouselPrevious className="hidden sm:flex" />
+                    <CarouselNext className="hidden sm:flex" />
+                </Carousel>
+            </div>
+          ))}
+        </div>
 
         {selectedService && (
             <BookingSheet 
@@ -269,4 +269,3 @@ export default function BookingPage() {
     </div>
   );
 }
-
