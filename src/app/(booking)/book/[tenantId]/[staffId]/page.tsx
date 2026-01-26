@@ -132,52 +132,7 @@ export default function StaffDetailPage() {
     return allServices.filter(service => staffMember.services?.includes(service.id) && !service.isPrivate);
   }, [staffMember, allServices]);
 
-  const formattedSchedule = useMemo(() => {
-        const availability = staffMember?.availability;
-        if (!availability?.week) return 'Not available';
-
-        const weekOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-        const groups: { startDay: string, endDay: string, start: string, end: string }[] = [];
-
-        let currentGroup: { startDay: string, endDay: string, start: string, end: string } | null = null;
-
-        for (const day of weekOrder) {
-            const dayInfo = availability.week[day as keyof typeof availability.week];
-            if (dayInfo && dayInfo.enabled) {
-                if (currentGroup && currentGroup.start === dayInfo.start && currentGroup.end === dayInfo.end) {
-                    currentGroup.endDay = day;
-                } else {
-                    if (currentGroup) {
-                        groups.push(currentGroup);
-                    }
-                    currentGroup = {
-                        startDay: day,
-                        endDay: day,
-                        start: dayInfo.start,
-                        end: dayInfo.end
-                    };
-                }
-            } else {
-                if (currentGroup) {
-                    groups.push(currentGroup);
-                }
-                currentGroup = null;
-            }
-        }
-        if (currentGroup) {
-            groups.push(currentGroup);
-        }
-        
-        if (groups.length === 0) return 'Not available on weekdays.';
-
-        return groups.map(group => {
-            const startDay = group.startDay.slice(0, 3);
-            const endDay = group.endDay.slice(0, 3);
-            const dayRange = startDay === endDay ? startDay.charAt(0).toUpperCase() + startDay.slice(1) : `${startDay.charAt(0).toUpperCase() + startDay.slice(1)} - ${endDay.charAt(0).toUpperCase() + endDay.slice(1)}`;
-            
-            return `${dayRange} (${group.start} - ${group.end})`;
-        }).join(' | ');
-    }, [staffMember?.availability]);
+  const weekOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
   const handleServiceSelect = (service: Service) => {
     setSelectedService(service);
@@ -353,16 +308,31 @@ export default function StaffDetailPage() {
                 </Card>
                 <Card>
                     <CardHeader><CardTitle>Working Time</CardTitle></CardHeader>
-                    <CardContent><p className="text-muted-foreground">{formattedSchedule}</p></CardContent>
+                    <CardContent className="space-y-2">
+                        {staffMember?.availability?.week ? (
+                            weekOrder.map(day => {
+                                const hours = staffMember.availability.week[day as keyof typeof staffMember.availability.week];
+                                if (!hours) return null;
+                                return (
+                                    <div key={day} className="flex justify-between items-center text-sm">
+                                        <span className="capitalize font-medium">{day.charAt(0).toUpperCase() + day.slice(1)}</span>
+                                        <span className="text-muted-foreground">
+                                            {hours.enabled ? `${hours.start} - ${hours.end}` : 'Closed'}
+                                        </span>
+                                    </div>
+                                )
+                            })
+                        ) : (
+                            <p className="text-muted-foreground">Not available</p>
+                        )}
+                    </CardContent>
                 </Card>
 
-                 <div id="services" className="space-y-6 pt-6">
+                 <div id="services" className="space-y-4 pt-6">
                     <h2 className="text-2xl font-bold text-center">Services</h2>
-                     <div className="grid md:grid-cols-2 gap-4">
-                        {staffServices.map(service => (
-                            <ServiceCard key={service.id} service={service} onBookNow={handleServiceSelect} />
-                        ))}
-                    </div>
+                    {staffServices.map(service => (
+                        <ServiceCard key={service.id} service={service} onBookNow={handleServiceSelect} />
+                    ))}
                  </div>
 
                  <div className="space-y-4 pt-6">
@@ -385,7 +355,7 @@ export default function StaffDetailPage() {
                  </div>
             </div>
       </main>
-
+      
         {selectedService && staff && (
             <BookingSheet 
                 open={isSheetOpen}
@@ -405,5 +375,3 @@ export default function StaffDetailPage() {
   );
 
 }
-
-    
