@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -196,11 +197,11 @@ export default function BookingPage() {
             >
                 <BookingHeader tenant={tenant} />
                 <BookingWelcome tenant={tenant} />
-                <BookingGallery />
                 <BookingServices services={services || []} onServiceSelect={handleServiceSelect} />
                 <BookingTeam tenantId={tenantId} staff={staff || []} />
                 <BookingReviews />
                 <BookingFAQ />
+                <BookingGallery />
                 <BookingContact tenant={tenant} />
                 <BookingPolicies tenant={tenant} />
             </motion.div>
