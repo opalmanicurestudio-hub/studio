@@ -2,7 +2,7 @@
 
 'use client';
 
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -74,6 +74,7 @@ import { cn } from '@/lib/utils';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch } from 'firebase/firestore';
+import { nanoid } from 'nanoid';
 
 const BillItemRow = ({
   bill,
@@ -555,15 +556,78 @@ export default function FinancialFoundationPage() {
     const businessProfilesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/businessProfiles`), [firestore, tenantId]);
     const scheduleProfilesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/scheduleProfiles`), [firestore, tenantId]);
 
-    const { data: lifestyleProfilesData } = useCollection(lifestyleProfilesQuery);
-    const { data: businessProfilesData } = useCollection(businessProfilesQuery);
-    const { data: scheduleProfilesData } = useCollection(scheduleProfilesQuery);
+    const { data: lifestyleProfilesData, isLoading: lifestyleProfilesLoading } = useCollection(lifestyleProfilesQuery);
+    const { data: businessProfilesData, isLoading: businessProfilesLoading } = useCollection(businessProfilesQuery);
+    const { data: scheduleProfilesData, isLoading: scheduleProfilesLoading } = useCollection(scheduleProfilesQuery);
     
     const [profiles, setProfiles] = useState({
       lifestyleProfiles: [],
       businessProfiles: [],
       scheduleProfiles: []
     });
+    
+    const hasInitializedProfiles = useRef({ lifestyle: false, business: false, schedule: false });
+
+    // Initialize Lifestyle Profiles
+    useEffect(() => {
+        if (!lifestyleProfilesLoading && (!lifestyleProfilesData || lifestyleProfilesData.length === 0) && firestore && user && tenantId && !hasInitializedProfiles.current.lifestyle) {
+            hasInitializedProfiles.current.lifestyle = true;
+            const defaultProfileId = nanoid();
+            const defaultProfile = {
+                id: defaultProfileId,
+                name: 'Default Lifestyle',
+                isActive: true,
+                categories: deepCopyTemplate(lifestyleCategoriesTemplate)
+            };
+            const profileDocRef = doc(firestore, `tenants/${tenantId}/lifestyleProfiles/${defaultProfileId}`);
+            setDocumentNonBlocking(profileDocRef, defaultProfile, {});
+        }
+    }, [lifestyleProfilesLoading, lifestyleProfilesData, firestore, user, tenantId]);
+
+    // Initialize Business Profiles
+    useEffect(() => {
+        if (!businessProfilesLoading && (!businessProfilesData || businessProfilesData.length === 0) && firestore && user && tenantId && !hasInitializedProfiles.current.business) {
+            hasInitializedProfiles.current.business = true;
+            const defaultProfileId = nanoid();
+            const defaultProfile = {
+                id: defaultProfileId,
+                name: 'Default Business',
+                isActive: true,
+                categories: deepCopyTemplate(businessCategoriesTemplate)
+            };
+            const profileDocRef = doc(firestore, `tenants/${tenantId}/businessProfiles/${defaultProfileId}`);
+            setDocumentNonBlocking(profileDocRef, defaultProfile, {});
+        }
+    }, [businessProfilesLoading, businessProfilesData, firestore, user, tenantId]);
+
+    // Initialize Schedule Profiles
+    useEffect(() => {
+        if (!scheduleProfilesLoading && (!scheduleProfilesData || scheduleProfilesData.length === 0) && firestore && user && tenantId && !hasInitializedProfiles.current.schedule) {
+            hasInitializedProfiles.current.schedule = true;
+            const defaultProfileId = nanoid();
+            const defaultProfile = {
+                id: defaultProfileId,
+                name: 'Default Schedule',
+                isActive: true,
+                week: {
+                    sunday: { enabled: false, start: '09:00 AM', end: '05:00 PM' },
+                    monday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
+                    tuesday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
+                    wednesday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
+                    thursday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
+                    friday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
+                    saturday: { enabled: false, start: '09:00 AM', end: '05:00 PM' },
+                },
+                timeOff: {
+                    vacationDays: 10,
+                    holidays: 8,
+                }
+            };
+            const profileDocRef = doc(firestore, `tenants/${tenantId}/scheduleProfiles/${defaultProfileId}`);
+            setDocumentNonBlocking(profileDocRef, defaultProfile, {});
+        }
+    }, [scheduleProfilesLoading, scheduleProfilesData, firestore, user, tenantId]);
+
 
     useEffect(() => {
         setProfiles({
