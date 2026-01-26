@@ -1,97 +1,25 @@
 
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { useFirebase, useCollection, useMemoFirebase, useDoc, addDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
 import { collection, doc, query, where, getDocs } from 'firebase/firestore';
 import { type Service, type Staff, type Tenant, type Appointment, type Event, type ConsentForm, type Client } from '@/lib/data';
-import { Card, CardContent } from '@/components/ui/card';
-import Image from 'next/image';
-import { Clock, DollarSign, Loader, Scissors, Palette, Droplet } from 'lucide-react';
+import { Loader, ArrowDown } from 'lucide-react';
 import { BookingSheet } from '@/components/booking/BookingSheet';
-import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { isSameDay, parseISO } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
-import {
-  Carousel,
-  CarouselContent,
-  CarouselItem,
-  CarouselNext,
-  CarouselPrevious,
-} from "@/components/ui/carousel"
+import { AnimatePresence, motion } from 'framer-motion';
 
-
-const ServiceCard = ({ service, onSelect }: { service: Service, onSelect: () => void }) => {
-  if (service.imageUrl) {
-    return (
-      <div className="cursor-pointer group h-full" onClick={onSelect}>
-        <Card className="overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1 h-full flex flex-col">
-          <CardContent className="p-0 flex flex-col flex-1">
-            <div className="relative aspect-[4/3] w-full bg-muted/30">
-              <Image
-                src={service.imageUrl}
-                alt={service.name}
-                fill
-                className="object-cover transition-transform duration-300 group-hover:scale-105"
-              />
-            </div>
-            <div className="p-4 space-y-2 flex flex-col flex-1">
-              <h3 className="font-semibold truncate">{service.name}</h3>
-              <div className="flex-grow min-h-[32px]">
-                {service.description && (
-                  <p className="text-xs text-muted-foreground line-clamp-2">
-                    {service.description}
-                  </p>
-                )}
-              </div>
-              <div className="flex items-center justify-between text-sm text-muted-foreground pt-2 border-t mt-auto">
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4" />
-                  <span>{service.duration} min</span>
-                </div>
-                <div className="flex items-center gap-2 font-medium text-foreground">
-                  <DollarSign className="w-4 h-4" />
-                  <span>{service.price.toFixed(2)}</span>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  // Text-based card
-  return (
-    <div className="cursor-pointer group h-full" onClick={onSelect}>
-      <Card className="transition-all duration-300 hover:shadow-lg hover:-translate-y-1 h-full flex flex-col bg-muted/30">
-        <CardContent className="p-4 flex flex-col flex-1">
-          <div className="flex-grow">
-            <h3 className="font-semibold text-lg mb-2">{service.name}</h3>
-            {service.description && (
-              <p className="text-xs text-muted-foreground line-clamp-3">
-                {service.description}
-              </p>
-            )}
-          </div>
-          <div className="flex items-center justify-between text-sm text-muted-foreground pt-4 border-t mt-4">
-            <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4" />
-              <span>{service.duration} min</span>
-            </div>
-            <div className="flex items-center gap-2 font-medium text-foreground">
-              <DollarSign className="w-4 h-4" />
-              <span>{service.price.toFixed(2)}</span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-};
-
+import { BookingHeader } from '@/components/booking/BookingHeader';
+import { BookingGallery } from '@/components/booking/BookingGallery';
+import { BookingServices } from '@/components/booking/BookingServices';
+import { BookingTeam } from '@/components/booking/BookingTeam';
+import { BookingReviews } from '@/components/booking/BookingReviews';
+import { BookingPolicies } from '@/components/booking/BookingPolicies';
+import { Button } from '@/components/ui/button';
 
 export default function BookingPage() {
   const params = useParams();
@@ -99,6 +27,7 @@ export default function BookingPage() {
   const { firestore } = useFirebase();
   const { toast } = useToast();
 
+  const [entered, setEntered] = useState(false);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -137,20 +66,6 @@ export default function BookingPage() {
         endTime: (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : parseISO(evt.endTime as any),
     }));
   }, [eventsFromDB]);
-
-  const servicesByCategory = useMemo(() => {
-    if (!services) return {};
-    return services
-        .filter(s => !s.isPrivate && s.type !== 'addon')
-        .reduce((acc, service) => {
-            const category = service.category || 'Other Services';
-            if (!acc[category]) {
-                acc[category] = [];
-            }
-            acc[category].push(service);
-            return acc;
-        }, {} as Record<string, Service[]>);
-  }, [services]);
 
   const handleServiceSelect = (service: Service) => {
     setSelectedService(service);
@@ -238,38 +153,54 @@ export default function BookingPage() {
 
   return (
     <div className="w-full">
-       <header className="mb-8 text-center">
-          <div className="inline-block p-3 bg-card rounded-full shadow-md mb-4">
-            <ClarityFlowLogo />
-          </div>
-          <h1 className="text-3xl font-bold tracking-tight">{tenant?.name || 'ClarityFlow Salon'}</h1>
-          <p className="text-muted-foreground">Select a service to begin booking</p>
-        </header>
-        
-        <div className="space-y-12">
-          {Object.keys(servicesByCategory).sort().map(category => (
-            <div key={category}>
-                <h2 className="text-2xl font-bold mb-4">{category}</h2>
-                 <Carousel
-                    opts={{
-                        align: "start",
-                        dragFree: true,
-                    }}
-                    className="w-full"
+        <AnimatePresence>
+            {!entered && (
+                <motion.div
+                    initial={{ opacity: 1 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    transition={{ duration: 0.5 }}
+                    className="fixed inset-0 bg-background z-50 flex flex-col items-center justify-center text-center p-4"
+                >
+                    <BookingHeader tenant={tenant} />
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.5, duration: 0.5 }}
                     >
-                    <CarouselContent>
-                        {servicesByCategory[category].map((service) => (
-                        <CarouselItem key={service.id} className="basis-full sm:basis-1/2 md:basis-1/3">
-                            <ServiceCard service={service} onSelect={() => handleServiceSelect(service)} />
-                        </CarouselItem>
-                        ))}
-                    </CarouselContent>
-                    <CarouselPrevious className="hidden sm:flex" />
-                    <CarouselNext className="hidden sm:flex" />
-                </Carousel>
-            </div>
-          ))}
-        </div>
+                        <Button size="lg" onClick={() => setEntered(true)}>
+                            Book Now
+                        </Button>
+                    </motion.div>
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: 1, duration: 1 }}
+                        className="absolute bottom-10"
+                    >
+                        <ArrowDown className="w-6 h-6 animate-bounce text-muted-foreground" />
+                    </motion.div>
+                </motion.div>
+            )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+        {entered && (
+            <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.8, delay: 0.2 }}
+                className="space-y-20"
+            >
+                <BookingHeader tenant={tenant} />
+                <BookingGallery />
+                <BookingServices services={services || []} onServiceSelect={handleServiceSelect} />
+                <BookingTeam staff={staff || []} />
+                <BookingReviews />
+                <BookingPolicies tenant={tenant} />
+            </motion.div>
+        )}
+        </AnimatePresence>
+      
 
         {selectedService && (
             <BookingSheet 
