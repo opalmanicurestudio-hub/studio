@@ -179,7 +179,6 @@ export type Service = {
   margin: number;
   imageUrl?: string;
   products?: (InventoryItem & { quantityUsed: number })[]; // Add quantityUsed
-  equipment?: InventoryItem[];
   description?: string;
   isPrivate?: boolean;
   confirmationMessage?: string;
@@ -584,9 +583,7 @@ export const services: Service[] = [
       { ...inventory.find(i => i.id === 'inv-5')!, quantityUsed: 1 },
       { ...inventory.find(i => i.id === 'inv-6')!, quantityUsed: 10 }, // 10ml
     ],
-    equipment: [
-        inventory.find(i => i.id === 'inv-7')!
-    ],
+    requiredResourceIds: ['res-1'], // Facial Room 1
     isPrivate: false,
     depositType: 'none',
     requiredSkills: ['basic_manicure'],
@@ -1016,3 +1013,5 @@ export const walkIns: WalkIn[] = [
 
 
 export { nanoid };
+
+  

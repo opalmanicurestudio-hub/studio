@@ -23,7 +23,7 @@ import {
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
-import { type Service, type InventoryItem, type Appointment } from '@/lib/data';
+import { type Service, type InventoryItem, type Appointment, type Resource } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -72,11 +72,11 @@ const InlineProfitTester = ({ service, tmhr, onPriceUpdate }: { service: Service
         return acc + (costPerUse * (p.quantityUsed || 1));
     }, 0);
 
-    const equipmentDepreciation = (service.equipment || []).reduce((acc, eq) => {
-        const equipmentItem = inventory.find(i => i.id === eq.id);
-        if (!equipmentItem || !equipmentItem.lifespanYears || equipmentItem.lifespanYears === 0) return acc;
+    const equipmentDepreciation = (service.requiredResourceIds || []).reduce((acc, resourceId) => {
+        const resource = inventory.find(i => i.id === resourceId && i.type === 'equipment');
+        if (!resource || !resource.lifespanYears || resource.lifespanYears === 0) return acc;
 
-        const annualDepreciation = (equipmentItem.costPerUnit || 0) / equipmentItem.lifespanYears;
+        const annualDepreciation = (resource.costPerUnit || 0) / resource.lifespanYears;
         const hourlyDepreciation = annualDepreciation / 2080; // Assuming 2080 work hours per year
         const serviceDurationHours = totalDuration / 60;
         
@@ -175,8 +175,8 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
       }
     });
 
-    const equipmentCosts = (service.equipment || []).map(e => {
-        const equipmentItem = inventory.find(i => i.id === e.id);
+    const equipmentCosts = (service.requiredResourceIds || []).map(resourceId => {
+        const equipmentItem = inventory.find(i => i.id === resourceId && i.type === 'equipment');
         let cost = 0;
         if (equipmentItem && equipmentItem.lifespanYears && equipmentItem.lifespanYears > 0) {
             const annualDepreciation = (equipmentItem.costPerUnit || 0) / equipmentItem.lifespanYears;
@@ -185,10 +185,12 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
             cost = hourlyDepreciation * serviceDurationHours;
         }
       return {
-        ...e,
+        id: resourceId,
+        name: equipmentItem?.name || 'Unknown Equipment',
+        imageUrl: equipmentItem?.imageUrl,
         cost: cost,
       }
-    });
+    }).filter(e => e.cost > 0);
 
     const totalProductCost = productCosts.reduce((acc, p) => acc + p.cost, 0);
     const totalEquipmentCost = equipmentCosts.reduce((acc, e) => acc + e.cost, 0);
@@ -465,6 +467,14 @@ export default function ServicesPage() {
   }, [firestore, user, isUserLoading, tenantId]);
 
   const { data: appointments, isLoading: areAppointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
+
+   const resourcesQuery = useMemoFirebase(() => {
+    if (isUserLoading || !user || !firestore) return null;
+    return collection(firestore, 'tenants', tenantId, 'resources');
+  }, [firestore, user, isUserLoading, tenantId]);
+
+  const { data: resources, isLoading: areResourcesLoading } = useCollection<Resource>(resourcesQuery);
+
 
   const handleItemSelect = useCallback((itemId: string) => {
     setSelectedItems(prev => {
@@ -752,6 +762,7 @@ export default function ServicesPage() {
         categories={serviceCategories}
         onNewCategory={handleNewCategory}
         onServiceAdded={handleAddNewService}
+        resources={resources || []}
       />
       {selectedService && (
         <EditServiceDialog 
@@ -761,6 +772,7 @@ export default function ServicesPage() {
             categories={serviceCategories}
             onNewCategory={handleNewCategory}
             onServiceUpdated={handleUpdateService}
+            resources={resources || []}
         />
       )}
 
@@ -783,3 +795,5 @@ export default function ServicesPage() {
     </div>
   );
 }
+
+  

@@ -35,7 +35,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { type InventoryItem, type Location, type ConsentForm } from '@/lib/data';
+import { type InventoryItem, type Location, type ConsentForm, type Resource } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -48,6 +48,7 @@ import { SelectAddOnsDialog } from './SelectAddOnsDialog';
 import { BrowseConsentFormsDialog } from './BrowseConsentFormsDialog';
 import { Switch } from '../ui/switch';
 import { useInventory } from '@/context/InventoryContext';
+import { SelectResourcesDialog } from './SelectResourcesDialog';
 
 const serviceSchema = z.object({
   name: z.string().min(1, 'Service name is required'),
@@ -62,7 +63,7 @@ const serviceSchema = z.object({
   capacity: z.coerce.number().min(1).optional(),
   
   products: z.array(z.any()).optional(),
-  equipment: z.array(z.any()).optional(),
+  requiredResourceIds: z.array(z.string()).optional(),
   compatibleAddOnIds: z.array(z.string()).optional(),
   
   depositType: z.enum(['none', 'deposit', 'full', 'breakeven']),
@@ -170,18 +171,22 @@ const Step1_BasicDetails = ({
     );
 };
 
-const Step2_Formula = ({ onScanClick }: { onScanClick: () => void }) => {
+const Step2_Formula = ({ onScanClick, resources }: { onScanClick: () => void, resources: Resource[] }) => {
     const { inventory } = useInventory();
     const { control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
 
     const selectedProducts = watch('products') || [];
-    const selectedEquipment = watch('equipment') || [];
+    const selectedResourceIds = watch('requiredResourceIds') || [];
     const compatibleAddOnIds = watch('compatibleAddOnIds') || [];
     const isAddon = watch('isAddon');
     
     const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
-    const [isEquipmentSelectorOpen, setIsEquipmentSelectorOpen] = useState(false);
+    const [isResourceSelectorOpen, setIsResourceSelectorOpen] = useState(false);
     const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
+
+    const selectedResources = useMemo(() => {
+        return resources.filter(r => selectedResourceIds.includes(r.id));
+    }, [resources, selectedResourceIds]);
 
     const handleProductSelect = (products: InventoryItem[]) => {
       const productsWithQuantity = products.map(p => {
@@ -195,9 +200,9 @@ const Step2_Formula = ({ onScanClick }: { onScanClick: () => void }) => {
       setIsProductBrowserOpen(false);
     };
     
-    const handleEquipmentSelect = (equipment: InventoryItem[]) => {
-        setValue('equipment', equipment, { shouldDirty: true, shouldTouch: true });
-        setIsEquipmentSelectorOpen(false);
+    const handleResourceSelect = (resources: Resource[]) => {
+        setValue('requiredResourceIds', resources.map(r => r.id), { shouldDirty: true, shouldTouch: true });
+        setIsResourceSelectorOpen(false);
     };
     
     const handleAddOnSelect = (addOns: Service[]) => {
@@ -209,8 +214,8 @@ const Step2_Formula = ({ onScanClick }: { onScanClick: () => void }) => {
       setValue('products', newProducts, { shouldDirty: true, shouldTouch: true });
     };
 
-    const removeEquipment = (equipmentId: string) => {
-        setValue('equipment', selectedEquipment.filter((e: any) => e.id !== equipmentId), { shouldDirty: true, shouldTouch: true });
+    const removeResource = (resourceId: string) => {
+        setValue('requiredResourceIds', selectedResourceIds.filter((id: string) => id !== resourceId), { shouldDirty: true, shouldTouch: true });
     };
     
     const removeAddOn = (addOnId: string) => {
@@ -256,16 +261,16 @@ const Step2_Formula = ({ onScanClick }: { onScanClick: () => void }) => {
                       )
                     })}</CardContent></Card>) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No products added yet.</CardContent></Card>)}
                     <div className='flex gap-2'><Button variant="outline" onClick={() => setIsProductBrowserOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Browse Library</Button><Button variant="outline" onClick={onScanClick} type="button"><QrCode className="mr-2 h-4 w-4" /> Scan to Add</Button></div></div>
-                    <div className="space-y-2"><div className='flex items-center gap-2'><Hammer className="w-5 h-5 text-primary" /><Label className="text-base font-semibold">Equipment Used</Label></div>
-                    {selectedEquipment.length > 0 ? (<Card><CardContent className="p-2 space-y-2">{selectedEquipment.map((item: any) => (<div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50"><span className="text-sm font-medium">{item.name}</span><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeEquipment(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}</CardContent></Card>) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No equipment added.</CardContent></Card>)}
-                    <Button variant="outline" onClick={() => setIsEquipmentSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Equipment</Button></div>
+                    <div className="space-y-2"><div className='flex items-center gap-2'><Hammer className="w-5 h-5 text-primary" /><Label className="text-base font-semibold">Required Resources</Label></div>
+                    {selectedResources.length > 0 ? (<Card><CardContent className="p-2 space-y-2">{selectedResources.map((item: any) => (<div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50"><span className="text-sm font-medium">{item.name}</span><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeResource(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}</CardContent></Card>) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No resources required.</CardContent></Card>)}
+                    <Button variant="outline" onClick={() => setIsResourceSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Resources</Button></div>
                     {!isAddon && (<div className="space-y-2"><div className='flex items-center gap-2'><PlusCircle className="w-5 h-5 text-primary" /><Label className="text-base font-semibold">Compatible Add-ons</Label></div>
                     {selectedAddOns.length > 0 ? (<Card><CardContent className="p-2 space-y-2">{selectedAddOns.map((item: any) => (<div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50"><span className="text-sm font-medium">{item.name}</span><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}</CardContent></Card>) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No add-ons selected.</CardContent></Card>)}
                     <Button variant="outline" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button></div>)}
                 </CardContent>
             </Card>
             <BrowseProductsDialog open={isProductBrowserOpen} onOpenChange={setIsProductBrowserOpen} onSelect={handleProductSelect} allProducts={inventory.filter(i => i.type === 'professional' || i.type === 'retail')} initialSelected={selectedProducts as InventoryItem[]} />
-            <SelectEquipmentDialog open={isEquipmentSelectorOpen} onOpenChange={setIsEquipmentSelectorOpen} onSelect={handleEquipmentSelect} allEquipment={inventory.filter(i => i.type === 'equipment')} initialSelected={selectedEquipment as InventoryItem[]} />
+            <SelectResourcesDialog open={isResourceSelectorOpen} onOpenChange={setIsResourceSelectorOpen} onSelect={handleResourceSelect} allResources={resources} initialSelected={selectedResources} />
             <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={handleAddOnSelect} allAddOns={allServices.filter(s => s.type === 'addon')} initialSelected={selectedAddOns as Service[]} />
         </>
     );
@@ -379,6 +384,7 @@ export const AddServiceDialog: React.FC<{
   categories: string[];
   onNewCategory: (category: string) => void;
   onServiceAdded: (service: Service) => void;
+  resources: Resource[];
 }> = ({
   open,
   onOpenChange,
@@ -386,6 +392,7 @@ export const AddServiceDialog: React.FC<{
   categories,
   onNewCategory,
   onServiceAdded,
+  resources,
 }) => {
   const [step, setStep] = useState(1);
   const totalSteps = 4;
@@ -405,7 +412,7 @@ export const AddServiceDialog: React.FC<{
       methods.reset({ 
         isAddon: initialType === 'addon',
         products: [],
-        equipment: [],
+        requiredResourceIds: [],
         compatibleAddOnIds: [],
         depositType: 'none',
         requiredFormIds: [],
@@ -416,7 +423,7 @@ export const AddServiceDialog: React.FC<{
 
   const { watch } = methods;
   const values = watch();
-  const { duration, padBefore, padAfter, products, equipment } = values;
+  const { duration, padBefore, padAfter, products, requiredResourceIds } = values;
   const [tmhr, setTmhr] = useState(0);
 
   const { inventory } = useInventory();
@@ -447,8 +454,8 @@ export const AddServiceDialog: React.FC<{
           return acc + (costPerUse * quantity);
       }, 0);
 
-      const equipmentDepreciation = (equipment || []).reduce((acc: any, eq: any) => {
-          const equipmentItem = inventory.find(i => i.id === eq.id);
+      const equipmentDepreciation = (requiredResourceIds || []).reduce((acc, resourceId) => {
+          const equipmentItem = inventory.find(i => i.id === resourceId && i.type === 'equipment');
           if (!equipmentItem) return acc;
           const lifespanInMinutes = (equipmentItem.lifespanYears || 5) * 365 * 8 * 60;
           const costPerMinute = (equipmentItem.costPerUnit || 0) / lifespanInMinutes;
@@ -456,7 +463,7 @@ export const AddServiceDialog: React.FC<{
       }, 0);
 
       return timeCost + productCost + equipmentDepreciation;
-  }, [duration, padBefore, padAfter, products, equipment, tmhr, inventory]);
+  }, [duration, padBefore, padAfter, products, requiredResourceIds, tmhr, inventory]);
   
   const handleOpenChange = (isOpen: boolean) => {
     onOpenChange(isOpen);
@@ -481,7 +488,7 @@ export const AddServiceDialog: React.FC<{
         margin: margin,
         imageUrl: data.imageUrl,
         products: data.products,
-        equipment: data.equipment,
+        requiredResourceIds: data.requiredResourceIds,
         description: data.description,
         isPrivate: data.isPrivate,
         confirmationMessage: data.confirmationMessage,
@@ -507,6 +514,9 @@ export const AddServiceDialog: React.FC<{
     if (step === 1) {
       fieldsToValidate.push('name', 'category', 'duration');
     }
+     if (step === 3) {
+      fieldsToValidate.push('price');
+    }
     
     const isValid = fieldsToValidate.length > 0 ? await methods.trigger(fieldsToValidate) : true;
     
@@ -520,7 +530,7 @@ export const AddServiceDialog: React.FC<{
   const getStepContent = () => {
       switch(step) {
           case 1: return <Step1_BasicDetails categories={categories} onNewCategory={onNewCategory} />;
-          case 2: return <Step2_Formula onScanClick={() => setIsScannerOpen(true)} />;
+          case 2: return <Step2_Formula onScanClick={() => setIsScannerOpen(true)} resources={resources} />;
           case 3: return <Step3_PricingBooking breakEvenCost={breakEvenCost} />;
           case 4: return <Step4_VisibilityConfirmation />;
           default: return null;
@@ -579,3 +589,5 @@ export const AddServiceDialog: React.FC<{
     </Dialog>
   );
 };
+
+  
