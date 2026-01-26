@@ -73,10 +73,10 @@ const InlineProfitTester = ({ service, tmhr, onPriceUpdate }: { service: Service
     }, 0);
 
     const equipmentDepreciation = (service.requiredResourceIds || []).reduce((acc, resourceId) => {
-        const resource = inventory.find(i => i.id === resourceId && i.type === 'equipment');
-        if (!resource || !resource.lifespanYears || resource.lifespanYears === 0) return acc;
+        const equipmentItem = inventory.find(i => i.id === resourceId && i.type === 'equipment');
+        if (!equipmentItem || !equipmentItem.lifespanYears || equipmentItem.lifespanYears === 0) return acc;
 
-        const annualDepreciation = (resource.costPerUnit || 0) / resource.lifespanYears;
+        const annualDepreciation = (equipmentItem.costPerUnit || 0) / equipmentItem.lifespanYears;
         const hourlyDepreciation = annualDepreciation / 2080; // Assuming 2080 work hours per year
         const serviceDurationHours = totalDuration / 60;
         
@@ -543,7 +543,7 @@ export default function ServicesPage() {
     
     const breakEvenCost = serviceToUpdate.cost;
     const newProfit = newPrice - breakEvenCost;
-    const newMargin = newPrice > 0 ? (newProfit / newPrice) * 100 : 0;
+    const newMargin = newPrice > 0 ? (newProfit / finalPrice) * 100 : 0;
 
     const serviceRef = doc(firestore, 'tenants', tenantId, 'services', serviceId);
     updateDocumentNonBlocking(serviceRef, { 
@@ -795,5 +795,3 @@ export default function ServicesPage() {
     </div>
   );
 }
-
-  

@@ -131,5 +131,3 @@ export const SelectResourcesDialog: React.FC<SelectResourcesDialogProps> = ({
     </Dialog>
   );
 };
-
-  
