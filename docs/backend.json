@@ -158,6 +158,7 @@
         "tiktokUrl": { "type": "string", "format": "uri", "description": "Link to TikTok profile."},
         "twitterUrl": { "type": "string", "format": "uri", "description": "Link to Twitter/X profile."},
         "pinterestUrl": { "type": "string", "format": "uri", "description": "Link to Pinterest profile."},
+        "youtubeUrl": { "type": "string", "format": "uri", "description": "Link to YouTube profile."},
         "portfolioUrl": { "type": "string", "format": "uri", "description": "Link to an external portfolio or website."},
         "yearsOfExperience": { "type": "number", "description": "The staff member's years of experience in the industry." },
         "clientCount": { "type": "number", "description": "The approximate number of clients the staff member has served." },

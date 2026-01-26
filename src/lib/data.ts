@@ -56,6 +56,7 @@ export type Staff = {
   tiktokUrl?: string;
   twitterUrl?: string;
   pinterestUrl?: string;
+  youtubeUrl?: string;
   portfolioUrl?: string;
   yearsOfExperience?: number;
   clientCount?: number;

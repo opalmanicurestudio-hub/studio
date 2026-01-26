@@ -41,7 +41,7 @@ import { PhoneInput } from '@/components/ui/phone-input';
 import { type Staff, type Service } from '@/lib/data';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '../ui/scroll-area';
-import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2, BookText, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pin } from 'lucide-react';
+import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2, BookText, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pin, Youtube } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { buttonVariants } from '../ui/button';
@@ -62,6 +62,7 @@ const addStaffSchema = z.object({
   tiktokUrl: z.string().url({ message: "Please enter a valid URL." }).optional().or(z.literal('')),
   twitterUrl: z.string().url({ message: "Please enter a valid URL." }).optional().or(z.literal('')),
   pinterestUrl: z.string().url({ message: "Please enter a valid URL." }).optional().or(z.literal('')),
+  youtubeUrl: z.string().url({ message: "Please enter a valid URL." }).optional().or(z.literal('')),
   portfolioUrl: z.string().url({ message: "Please enter a valid URL." }).optional().or(z.literal('')),
   role: z.enum(['admin', 'staff']),
   payStructure: z.enum(['commission', 'hourly', 'salary']),
@@ -172,6 +173,10 @@ const AddStaffForm = ({ services }: { services: Service[] }) => {
                                         <Input id="pinterestUrl" placeholder="https://pinterest.com/..." {...register('pinterestUrl')} className="pl-9" />
                                     </div>
                                     <div className="relative">
+                                        <Youtube className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input id="youtubeUrl" placeholder="https://youtube.com/..." {...register('youtubeUrl')} className="pl-9" />
+                                    </div>
+                                    <div className="relative">
                                         <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                         <Input id="portfolioUrl" placeholder="https://your-portfolio.com" {...register('portfolioUrl')} className="pl-9" />
                                     </div>
@@ -181,6 +186,7 @@ const AddStaffForm = ({ services }: { services: Service[] }) => {
                                 {errors.tiktokUrl && <p className="text-sm text-destructive">{errors.tiktokUrl.message}</p>}
                                 {errors.twitterUrl && <p className="text-sm text-destructive">{errors.twitterUrl.message}</p>}
                                 {errors.pinterestUrl && <p className="text-sm text-destructive">{errors.pinterestUrl.message}</p>}
+                                {errors.youtubeUrl && <p className="text-sm text-destructive">{errors.youtubeUrl.message}</p>}
                                 {errors.portfolioUrl && <p className="text-sm text-destructive">{errors.portfolioUrl.message}</p>}
                             </div>
                         </AccordionContent>
