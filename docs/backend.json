@@ -763,7 +763,9 @@
         "capacity": { "type": "number" },
         "attendees": { "type": "array", "items": { "type": "string" }, "description": "List of client IDs attending." },
         "price": { "type": "number" },
-        "requiredResourceIds": { "type": "array", "items": { "type": "string" } }
+        "requiredResourceIds": { "type": "array", "items": { "type": "string" } },
+        "costPerAttendee": { "type": "number", "description": "The cost of materials for a single attendee." },
+        "fixedCost": { "type": "number", "description": "Any fixed costs associated with running the class (e.g., room rental)." }
       },
       "required": ["id", "name", "startTime", "endTime", "capacity", "price"]
     }
