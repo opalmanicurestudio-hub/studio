@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo, useState } from 'react';
@@ -41,7 +42,7 @@ export default function StaffDetailPage() {
   // Other data needed for BookingSheet
   const appointmentsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/appointments`), [firestore, tenantId]);
   const eventsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/events`), [firestore, tenantId]);
-  const scheduleProfilesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/scheduleProfiles`), [firestore, tenantId]);
+  const scheduleProfilesQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isPublic", "==", true)), [firestore, tenantId]);
   const consentFormsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/consentForms`), [firestore, tenantId]);
   const tenantDocRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
 
@@ -50,7 +51,8 @@ export default function StaffDetailPage() {
   const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection(scheduleProfilesQuery);
   const { data: consentForms, isLoading: consentFormsLoading } = useCollection(consentFormsQuery);
   const { data: tenant, isLoading: tenantLoading } = useDoc<Tenant>(tenantDocRef);
-  const { data: staff, isLoading: allStaffLoading } = useCollection(collection(firestore, `tenants/${tenantId}/staff`));
+  const allStaffQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
+  const { data: staff, isLoading: allStaffLoading } = useCollection(allStaffQuery);
 
 
   // Filter services offered by this staff member
