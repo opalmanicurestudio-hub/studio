@@ -7,7 +7,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useFirebase, useDoc, useCollection, useMemoFirebase } from '@/firebase';
 import { doc, collection, query, where, getDocs } from 'firebase/firestore';
 import { type Staff, type Service, Appointment, Event, ConsentForm, Tenant, Client } from '@/lib/data';
-import { Loader, ArrowLeft, Clock, DollarSign, BookOpen, Award, Users, Star } from 'lucide-react';
+import { Loader, ArrowLeft, Clock, DollarSign, BookOpen, Award, Users, Star, Instagram, Link as LinkIcon } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -188,12 +188,28 @@ export default function StaffDetailPage() {
           <AvatarImage src={staffMember.avatarUrl} />
           <AvatarFallback>{staffMember.name.substring(0, 2)}</AvatarFallback>
         </Avatar>
-        <div className="space-y-2">
+        <div className="space-y-3">
           <h1 className="text-4xl font-extrabold tracking-tight">{staffMember.name}</h1>
           {staffMember.specialties && staffMember.specialties.length > 0 && (
             <p className="text-xl font-medium text-primary">{staffMember.specialties.join(' / ')}</p>
           )}
           <p className="text-muted-foreground max-w-xl">{staffMember.bio || 'A passionate professional dedicated to their craft and clients.'}</p>
+           <div className="flex items-center justify-center md:justify-start gap-2 pt-2">
+            {staffMember.instagramUrl && (
+              <Button variant="outline" size="icon" asChild>
+                <a href={staffMember.instagramUrl} target="_blank" rel="noopener noreferrer">
+                  <Instagram className="h-5 w-5" />
+                </a>
+              </Button>
+            )}
+             {staffMember.portfolioUrl && (
+              <Button variant="outline" size="icon" asChild>
+                <a href={staffMember.portfolioUrl} target="_blank" rel="noopener noreferrer">
+                  <LinkIcon className="h-5 w-5" />
+                </a>
+              </Button>
+            )}
+          </div>
         </div>
       </section>
 

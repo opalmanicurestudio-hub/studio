@@ -153,6 +153,8 @@
         "bio": { "type": "string", "description": "A short biography for the staff member's public profile." },
         "specialties": { "type": "array", "items": { "type": "string" }, "description": "A list of specialties or skills to highlight." },
         "portfolioImageUrls": { "type": "array", "items": { "type": "string", "format": "uri" }, "description": "A gallery of images showcasing the staff member's work." },
+        "instagramUrl": { "type": "string", "format": "uri", "description": "Link to Instagram profile."},
+        "portfolioUrl": { "type": "string", "format": "uri", "description": "Link to an external portfolio or website."},
         "yearsOfExperience": { "type": "number", "description": "The staff member's years of experience in the industry." },
         "clientCount": { "type": "number", "description": "The approximate number of clients the staff member has served." },
         "role": { "type": "string", "enum": ["admin", "staff"] },
@@ -843,4 +845,3 @@
     }
   }
 }
-

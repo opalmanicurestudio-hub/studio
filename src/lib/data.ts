@@ -51,6 +51,10 @@ export type Staff = {
   services?: string[];
   bio?: string;
   specialties?: string[];
+  instagramUrl?: string;
+  portfolioUrl?: string;
+  yearsOfExperience?: number;
+  clientCount?: number;
   emergencyContact?: {
     name: string;
     relationship: string;
@@ -501,7 +505,9 @@ export const staff: Staff[] = [
     compliance: {
       licenseNumber: 'C-12345',
       licenseExpiry: addDays(new Date(), 15).toISOString(),
-    }
+    },
+    instagramUrl: 'https://instagram.com',
+    portfolioUrl: 'https://behance.net'
   },
   { 
     id: 'staff-2', 
@@ -520,7 +526,8 @@ export const staff: Staff[] = [
     compliance: {
       licenseNumber: 'C-67890',
       licenseExpiry: subDays(new Date(), 10).toISOString(),
-    }
+    },
+    instagramUrl: 'https://instagram.com'
   },
 ];
 
