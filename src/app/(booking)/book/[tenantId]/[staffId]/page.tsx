@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -368,12 +369,13 @@ export default function StaffDetailPage() {
                 onOpenChange={setIsSheetOpen}
                 service={selectedService}
                 staff={staff}
+                initialStaffId={staffId}
                 appointments={appointments || []}
                 events={events || []}
                 scheduleProfiles={scheduleProfiles || []}
                 services={allServices || []}
                 consentForms={consentForms || []}
-                tenant={tenant}
+                tenant={tenant || null}
                 onConfirm={handleConfirmBooking}
             />
         )}
@@ -381,5 +383,3 @@ export default function StaffDetailPage() {
   );
 
 }
-
-    

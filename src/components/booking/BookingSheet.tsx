@@ -65,11 +65,11 @@ const bookingSchema = z.object({
 type BookingFormData = z.infer<typeof bookingSchema>;
 
 
-const StaffSelectionCard = ({ staff, isSelected, onSelect }: { staff: Staff | { id: string, name: string, avatarUrl: string }, isSelected: boolean, onSelect: () => void }) => {
+const StaffSelectionCard = ({ staff, isSelected, disabled }: { staff: Staff | { id: string, name: string, avatarUrl: string }, isSelected: boolean, disabled?: boolean }) => {
     const isAnyStaff = staff.id === 'any';
     return (
-        <label htmlFor={`staff-${staff.id}`} className="block cursor-pointer">
-            <Card className={`transition-all ${isSelected ? 'border-primary ring-2 ring-primary' : 'hover:border-primary/50'}`}>
+        <label htmlFor={`staff-${staff.id}`} className={cn("block cursor-pointer", disabled && "cursor-not-allowed opacity-50")}>
+            <Card className={cn('transition-all', isSelected ? 'border-primary ring-2 ring-primary' : 'hover:border-primary/50', disabled && 'bg-muted/50 hover:border-muted')}>
                 <CardContent className="p-4 flex flex-col items-center gap-3">
                     <Avatar className="w-16 h-16">
                         {staff.avatarUrl ? <AvatarImage src={staff.avatarUrl} /> : null}
@@ -78,7 +78,7 @@ const StaffSelectionCard = ({ staff, isSelected, onSelect }: { staff: Staff | { 
                         </AvatarFallback>
                     </Avatar>
                     <p className="font-semibold text-sm text-center">{staff.name}</p>
-                    <RadioGroupItem value={staff.id} id={`staff-${staff.id}`} className="sr-only" />
+                    <RadioGroupItem value={staff.id} id={`staff-${staff.id}`} className="sr-only" disabled={disabled} />
                 </CardContent>
             </Card>
         </label>
@@ -90,6 +90,7 @@ interface BookingSheetProps {
   onOpenChange: (open: boolean) => void;
   service: Service;
   staff: Staff[];
+  initialStaffId?: string;
   appointments: Appointment[];
   events: Event[];
   scheduleProfiles: any[];
@@ -130,6 +131,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   onOpenChange,
   service,
   staff,
+  initialStaffId,
   appointments,
   events,
   scheduleProfiles,
@@ -138,7 +140,9 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   tenant,
   onConfirm,
 }) => {
-  const [selectedStaffId, setSelectedStaffId] = useState('any');
+  if (!service) return null
+  
+  const [selectedStaffId, setSelectedStaffId] = useState(initialStaffId || 'any');
   const [date, setDate] = useState(new Date());
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
 
@@ -153,7 +157,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const { control, handleSubmit, register, formState: { errors } } = methods;
 
   const qualifiedStaff = useMemo(() => {
-    if (!service || !service.requiredSkills || service.requiredSkills.length === 0) {
+    if (!service?.requiredSkills || service.requiredSkills.length === 0) {
         return staff;
     }
     return staff.filter(s => 
@@ -293,6 +297,24 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     const currentStep = steps[currentStepIndex];
     const progress = useMemo(() => ((currentStepIndex + 1) / (steps.length - 1)) * 100, [currentStepIndex, steps.length]);
 
+  useEffect(() => {
+    if (open) {
+        if (initialStaffId) {
+            setSelectedStaffId(initialStaffId);
+            setCurrentStepIndex(1); // Skip to dateTime step
+        } else {
+            setSelectedStaffId('any');
+            setCurrentStepIndex(0); // Start at staff selection
+        }
+        // Reset other states
+        setSelectedTime(null);
+        setDate(new Date());
+        methods.reset();
+        setCompletedForms(new Set());
+        setIsDepositPaid(false);
+    }
+}, [open, initialStaffId, methods]);
+
   const handleNextStep = async () => {
     let isValid = true;
 
@@ -333,11 +355,14 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
   const handlePrevStep = () => {
     if (currentStepIndex > 0) {
+      // Don't allow changing staff if one was pre-selected
+      if (initialStaffId && currentStepIndex === 1) return;
       setCurrentStepIndex(currentStepIndex - 1);
     }
   };
 
   const handleStaffSelect = (staffId: string) => {
+    if (initialStaffId) return;
     setSelectedStaffId(staffId);
     setCurrentStepIndex(1);
     setSelectedTime(null);
@@ -410,7 +435,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                             <div className="space-y-4">
                                 <div className="flex items-center justify-between">
                                     <h3 className="text-lg font-medium flex items-center gap-2"><Users className="w-5 h-5 text-primary" />Provider</h3>
-                                    <Button variant="link" size="sm" className="p-0" onClick={() => setCurrentStepIndex(0)}>Change</Button>
+                                    <Button variant="link" size="sm" className="p-0" onClick={handlePrevStep}>Change</Button>
                                 </div>
                                 <p className="text-muted-foreground text-sm">Selected: {selectedStaffId === 'any' ? 'Any Available' : staff.find(s=>s.id === selectedStaffId)?.name}</p>
                             </div>
@@ -420,9 +445,18 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                            <div className="space-y-4">
                                 <h3 className="text-lg font-medium flex items-center gap-2"><Users className="w-5 h-5 text-primary" />Choose Your Provider</h3>
                                 <RadioGroup onValueChange={handleStaffSelect} value={selectedStaffId} className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                                    <StaffSelectionCard staff={{id: 'any', name: 'Any Available', avatarUrl: ''}} isSelected={selectedStaffId === 'any'} onSelect={() => handleStaffSelect('any')} />
+                                    <StaffSelectionCard 
+                                        staff={{id: 'any', name: 'Any Available', avatarUrl: ''}} 
+                                        isSelected={selectedStaffId === 'any'}
+                                        disabled={!!initialStaffId}
+                                    />
                                     {qualifiedStaff.map(s => (
-                                        <StaffSelectionCard key={s.id} staff={s} isSelected={selectedStaffId === s.id} onSelect={() => handleStaffSelect(s.id)} />
+                                        <StaffSelectionCard 
+                                            key={s.id} 
+                                            staff={s} 
+                                            isSelected={selectedStaffId === s.id}
+                                            disabled={!!initialStaffId && s.id !== initialStaffId}
+                                        />
                                     ))}
                                 </RadioGroup>
                             </div>
