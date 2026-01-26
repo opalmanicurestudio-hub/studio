@@ -266,7 +266,7 @@ service cloud.firestore {
      * @allow (create) Anyone can create a walk-in to join the queue.
      * @allow (read,update,delete) Only staff/owner can manage the queue.
      */
-    match /tenants/{tenantId}/walkins/{walkInId} {
+    match /tenants/{tenantId}/walkIns/{walkInId} {
       allow read, write: if true;
     }
     
