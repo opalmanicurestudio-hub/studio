@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -9,7 +10,7 @@ import type { Staff, Service, Appointment, Event, ConsentForm, Tenant, Client } 
 import { Loader, ArrowLeft, Clock, DollarSign, BookOpen, Award, Users, Star, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pin, Youtube } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { BookingSheet } from '@/components/booking/BookingSheet';
 import Link from 'next/link';
 import { nanoid } from 'nanoid';
@@ -21,20 +22,26 @@ import { format, parseISO, getDay } from 'date-fns';
 
 const ServiceCard = ({ service, onBookNow }: { service: Service, onBookNow: (service: Service) => void }) => {
     return (
-        <Card className="hover:shadow-md transition-shadow">
-            <CardContent className="p-4 flex items-center justify-between gap-4">
-                <div className="flex-1 space-y-1">
-                    <h4 className="font-semibold">{service.name}</h4>
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                        <span className="flex items-center gap-1.5"><Clock className="w-4 h-4"/>{service.duration} min</span>
-                        <span className="flex items-center gap-1.5"><DollarSign className="w-4 h-4"/>{service.price.toFixed(2)}</span>
-                    </div>
+        <Card className="flex flex-col hover:shadow-lg transition-shadow h-full">
+            <CardHeader>
+                <CardTitle className="text-lg">{service.name}</CardTitle>
+                {service.description && (
+                    <CardDescription className="line-clamp-2 h-10 pt-1">
+                        {service.description}
+                    </CardDescription>
+                )}
+            </CardHeader>
+            <CardContent className="flex-1" />
+            <CardFooter className="flex items-center justify-between p-4 bg-muted/50">
+                <div className="flex items-center gap-4 text-sm font-medium">
+                    <div className="flex items-center gap-1.5"><Clock className="w-4 h-4 text-muted-foreground"/>{service.duration} min</div>
+                    <div className="flex items-center gap-1.5"><DollarSign className="w-4 h-4 text-muted-foreground"/>{service.price.toFixed(2)}</div>
                 </div>
-                <Button onClick={() => onBookNow(service)}><BookOpen className="w-4 h-4 mr-2"/>Book</Button>
-            </CardContent>
+                <Button onClick={() => onBookNow(service)}>Book</Button>
+            </CardFooter>
         </Card>
-    )
-}
+    );
+};
 
 export default function StaffDetailPage() {
   const params = useParams();
@@ -303,11 +310,13 @@ export default function StaffDetailPage() {
                     <CardContent><p className="text-muted-foreground">{formattedSchedule}</p></CardContent>
                 </Card>
 
-                 <div id="services" className="space-y-4 pt-6">
+                 <div id="services" className="space-y-6 pt-6">
                     <h2 className="text-2xl font-bold text-center">Services</h2>
-                    {staffServices.map(service => (
-                        <ServiceCard key={service.id} service={service} onBookNow={handleServiceSelect} />
-                    ))}
+                     <div className="grid md:grid-cols-2 gap-4">
+                        {staffServices.map(service => (
+                            <ServiceCard key={service.id} service={service} onBookNow={handleServiceSelect} />
+                        ))}
+                    </div>
                  </div>
 
                  <div className="space-y-4 pt-6">
@@ -331,7 +340,7 @@ export default function StaffDetailPage() {
             </div>
       </main>
       
-        <footer className="sticky bottom-0 z-30 p-4 bg-muted/80 backdrop-blur-sm print:hidden">
+        <footer className="sticky bottom-0 z-30 p-4 border-t bg-background/80 backdrop-blur-sm print:hidden">
             <div className="max-w-lg mx-auto">
                 <Button asChild className="w-full h-12 text-lg">
                     <a href="#services">Book Appointment</a>
@@ -356,4 +365,5 @@ export default function StaffDetailPage() {
         )}
     </div>
   );
+
 }
