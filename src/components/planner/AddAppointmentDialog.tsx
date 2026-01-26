@@ -54,6 +54,7 @@ import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Card, CardContent } from '../ui/card';
 import { nanoid } from 'nanoid';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { Calendar } from '../ui/calendar';
 
 interface AddAppointmentDialogProps {
   open: boolean;
@@ -300,19 +301,17 @@ const AddAppointmentForm = ({
                             <div className="flex gap-2">
                                 <Select value={selectedClientId} onValueChange={setSelectedClientId}>
                                     <SelectTrigger id="client">
-                                        <SelectValue asChild>
-                                            {selectedClient ? (
-                                                <div className="flex items-center gap-2">
-                                                    <Avatar className="w-6 h-6">
-                                                        <AvatarImage src={selectedClient.avatarUrl} />
-                                                        <AvatarFallback>{selectedClient.name.charAt(0)}</AvatarFallback>
-                                                    </Avatar>
-                                                    <span>{selectedClient.name}</span>
-                                                </div>
-                                            ) : (
-                                                <span>Select an existing client</span>
-                                            )}
-                                        </SelectValue>
+                                         {selectedClient ? (
+                                            <div className="flex items-center gap-2">
+                                                <Avatar className="w-6 h-6">
+                                                    <AvatarImage src={selectedClient.avatarUrl} />
+                                                    <AvatarFallback>{selectedClient.name.charAt(0)}</AvatarFallback>
+                                                </Avatar>
+                                                <span>{selectedClient.name}</span>
+                                            </div>
+                                        ) : (
+                                            <SelectValue placeholder="Select an existing client" />
+                                        )}
                                     </SelectTrigger>
                                     <SelectContent>
                                     {clients.map(c => (
@@ -335,19 +334,17 @@ const AddAppointmentForm = ({
                             <Label htmlFor="staff">Staff Member</Label>
                             <Select value={selectedStaffId} onValueChange={setSelectedStaffId}>
                                 <SelectTrigger id="staff">
-                                     <SelectValue asChild>
-                                        {selectedStaff ? (
-                                            <div className="flex items-center gap-2">
-                                                <Avatar className="w-6 h-6">
-                                                    <AvatarImage src={selectedStaff.avatarUrl} />
-                                                    <AvatarFallback>{selectedStaff.name.charAt(0)}</AvatarFallback>
-                                                </Avatar>
-                                                <span>{selectedStaff.name}</span>
-                                            </div>
-                                        ) : (
-                                            <span>Select a staff member</span>
-                                        )}
-                                    </SelectValue>
+                                    {selectedStaff ? (
+                                        <div className="flex items-center gap-2">
+                                            <Avatar className="w-6 h-6">
+                                                <AvatarImage src={selectedStaff.avatarUrl} />
+                                                <AvatarFallback>{selectedStaff.name.charAt(0)}</AvatarFallback>
+                                            </Avatar>
+                                            <span>{selectedStaff.name}</span>
+                                        </div>
+                                    ) : (
+                                        <SelectValue placeholder="Select a staff member" />
+                                    )}
                                 </SelectTrigger>
                                 <SelectContent>
                                 {staff.map(s => (
