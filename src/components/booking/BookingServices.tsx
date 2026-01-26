@@ -13,6 +13,7 @@ import Image from 'next/image';
 import { Clock, DollarSign } from 'lucide-react';
 import { Service } from '@/lib/data';
 import { useMemo } from 'react';
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 
 const ServiceCard = ({ service, onSelect }: { service: Service, onSelect: () => void }) => {
   if (service.imageUrl) {
@@ -107,23 +108,26 @@ export const BookingServices = ({ services, onServiceSelect }: { services: Servi
       {Object.keys(servicesByCategory).sort().map(category => (
         <div key={category}>
             <h3 className="text-2xl font-bold mb-4">{category}</h3>
-             <Carousel
-                opts={{
-                    align: "start",
-                    dragFree: true,
-                }}
-                className="w-full"
-                >
-                <CarouselContent>
-                    {servicesByCategory[category].map((service) => (
-                    <CarouselItem key={service.id} className="basis-full sm:basis-1/2 md:basis-1/3">
-                        <ServiceCard service={service} onSelect={() => onServiceSelect(service)} />
-                    </CarouselItem>
-                    ))}
-                </CarouselContent>
-                <CarouselPrevious className="hidden sm:flex" />
-                <CarouselNext className="hidden sm:flex" />
-            </Carousel>
+            <ScrollArea>
+              <Carousel
+                  opts={{
+                      align: "start",
+                      dragFree: true,
+                  }}
+                  className="w-full"
+                  >
+                  <CarouselContent>
+                      {servicesByCategory[category].map((service) => (
+                      <CarouselItem key={service.id} className="basis-4/5 sm:basis-1/2 md:basis-1/3">
+                          <ServiceCard service={service} onSelect={() => onServiceSelect(service)} />
+                      </CarouselItem>
+                      ))}
+                  </CarouselContent>
+                  <CarouselPrevious className="hidden sm:flex" />
+                  <CarouselNext className="hidden sm:flex" />
+              </Carousel>
+              <ScrollBar orientation="horizontal" className="md:hidden" />
+            </ScrollArea>
         </div>
       ))}
     </section>
