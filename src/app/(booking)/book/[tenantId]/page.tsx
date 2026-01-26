@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -9,42 +8,73 @@ import { collection, doc, query, where, getDocs } from 'firebase/firestore';
 import { type Service, type Staff, type Tenant, type Appointment, type Event, type ConsentForm, type Client } from '@/lib/data';
 import { Card, CardContent } from '@/components/ui/card';
 import Image from 'next/image';
-import { Clock, DollarSign, Loader } from 'lucide-react';
+import { Clock, DollarSign, Loader, Scissors, Palette, Droplet } from 'lucide-react';
 import { BookingSheet } from '@/components/booking/BookingSheet';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { isSameDay, parseISO } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+
+const getCategoryIcon = (category?: string) => {
+    switch(category?.toLowerCase()) {
+        case 'hair': return <Scissors className="w-8 h-8 text-primary/70" />;
+        case 'color': return <Palette className="w-8 h-8 text-primary/70" />;
+        case 'skincare': return <Droplet className="w-8 h-8 text-primary/70" />;
+        default: return <Scissors className="w-8 h-8 text-primary/70" />;
+    }
+}
 
 const ServiceCard = ({ service, onSelect }: { service: Service, onSelect: () => void }) => {
+  if (service.imageUrl) {
+    return (
+      <Card 
+          className="cursor-pointer group transition-all duration-300 hover:shadow-lg hover:-translate-y-1"
+          onClick={onSelect}
+      >
+        <CardContent className="p-0">
+          <div className="relative aspect-[4/3] w-full overflow-hidden rounded-t-lg">
+            <Image
+              src={service.imageUrl}
+              alt={service.name}
+              fill
+              className="object-cover transition-transform duration-300 group-hover:scale-105"
+            />
+          </div>
+          <div className="p-4 space-y-2">
+              <h3 className="font-semibold truncate">{service.name}</h3>
+              <div className="flex items-center justify-between text-sm text-muted-foreground">
+                  <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4" />
+                      <span>{service.duration} min</span>
+                  </div>
+                  <div className="flex items-center gap-2 font-medium text-foreground">
+                      <DollarSign className="w-4 h-4" />
+                      <span>{service.price.toFixed(2)}</span>
+                  </div>
+              </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card 
-        className="cursor-pointer group transition-all duration-300 hover:shadow-lg hover:-translate-y-1"
+        className="cursor-pointer group transition-all duration-300 hover:shadow-lg hover:border-primary/50"
         onClick={onSelect}
     >
-      <CardContent className="p-0">
-        <div className="relative aspect-[4/3] w-full overflow-hidden rounded-t-lg">
-          <Image
-            src={service.imageUrl || 'https://picsum.photos/seed/1/400/300'}
-            alt={service.name}
-            fill
-            className="object-cover transition-transform duration-300 group-hover:scale-105"
-            data-ai-hint="manicure nails"
-          />
-        </div>
-        <div className="p-4 space-y-2">
-            <h3 className="font-semibold truncate">{service.name}</h3>
-            <div className="flex items-center justify-between text-sm text-muted-foreground">
-                <div className="flex items-center gap-2">
-                    <Clock className="w-4 h-4" />
-                    <span>{service.duration} min</span>
-                </div>
-                <div className="flex items-center gap-2 font-medium text-foreground">
-                    <DollarSign className="w-4 h-4" />
-                    <span>{service.price.toFixed(2)}</span>
-                </div>
-            </div>
-        </div>
+      <CardContent className="p-4 flex gap-4 items-center">
+          <div className="p-3 bg-muted rounded-lg">
+            {getCategoryIcon(service.category)}
+          </div>
+          <div className="flex-1 space-y-1">
+              <h3 className="font-semibold">{service.name}</h3>
+              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                  <div className="flex items-center gap-1.5"><Clock className="w-3 h-3" />{service.duration} min</div>
+                  <div className="flex items-center gap-1.5"><DollarSign className="w-3 h-3" />{service.price.toFixed(2)}</div>
+              </div>
+          </div>
       </CardContent>
     </Card>
   );
@@ -95,6 +125,20 @@ export default function BookingPage() {
         endTime: (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : parseISO(evt.endTime as any),
     }));
   }, [eventsFromDB]);
+
+  const servicesByCategory = useMemo(() => {
+    if (!services) return {};
+    return services
+        .filter(s => !s.isPrivate && s.type !== 'addon')
+        .reduce((acc, service) => {
+            const category = service.category || 'Other Services';
+            if (!acc[category]) {
+                acc[category] = [];
+            }
+            acc[category].push(service);
+            return acc;
+        }, {} as Record<string, Service[]>);
+  }, [services]);
 
   const handleServiceSelect = (service: Service) => {
     setSelectedService(service);
@@ -190,11 +234,22 @@ export default function BookingPage() {
           <p className="text-muted-foreground">Select a service to begin booking</p>
         </header>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-            {(services || []).filter(s => !s.isPrivate && s.type !== 'addon').map(service => (
-                <ServiceCard key={service.id} service={service} onSelect={() => handleServiceSelect(service)} />
+        <Accordion type="multiple" defaultValue={Object.keys(servicesByCategory)} className="w-full space-y-4">
+            {Object.keys(servicesByCategory).sort().map(category => (
+                <AccordionItem key={category} value={category} className="border rounded-lg bg-card">
+                    <AccordionTrigger className="px-6 py-4 text-lg font-semibold hover:no-underline">
+                        {category}
+                    </AccordionTrigger>
+                    <AccordionContent className="p-6 pt-0">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                            {servicesByCategory[category].map(service => (
+                                <ServiceCard key={service.id} service={service} onSelect={() => handleServiceSelect(service)} />
+                            ))}
+                        </div>
+                    </AccordionContent>
+                </AccordionItem>
             ))}
-        </div>
+        </Accordion>
 
         {selectedService && (
             <BookingSheet 
@@ -214,3 +269,4 @@ export default function BookingPage() {
     </div>
   );
 }
+
