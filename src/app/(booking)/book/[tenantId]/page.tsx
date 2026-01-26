@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -22,6 +21,7 @@ import { BookingPolicies } from '@/components/booking/BookingPolicies';
 import { Button } from '@/components/ui/button';
 import { BookingFAQ } from '@/components/booking/BookingFAQ';
 import { BookingContact } from '@/components/booking/BookingContact';
+import { BookingWelcome } from '@/components/booking/BookingWelcome';
 
 export default function BookingPage() {
   const params = useParams();
@@ -195,6 +195,7 @@ export default function BookingPage() {
                 className="space-y-20"
             >
                 <BookingHeader tenant={tenant} />
+                <BookingWelcome tenant={tenant} />
                 <BookingGallery />
                 <BookingServices services={services || []} onServiceSelect={handleServiceSelect} />
                 <BookingTeam tenantId={tenantId} staff={staff || []} />
