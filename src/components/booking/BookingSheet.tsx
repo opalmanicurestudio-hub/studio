@@ -152,12 +152,8 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
   const { control, handleSubmit, register, formState: { errors } } = methods;
 
-  if (!service) {
-    return null;
-  }
-
   const qualifiedStaff = useMemo(() => {
-    if (!service.requiredSkills || service.requiredSkills.length === 0) {
+    if (!service || !service.requiredSkills || service.requiredSkills.length === 0) {
         return staff;
     }
     return staff.filter(s => 
@@ -337,7 +333,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
   const handlePrevStep = () => {
     if (currentStepIndex > 0) {
-      setCurrentStepIndex(currentStepIndex - 1);
+      setCurrentStepIndex(currentStepIndex + 1);
     }
   };
 
@@ -372,6 +368,10 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     onConfirm(clientData, appointmentDetails, (step) => setCurrentStepIndex(steps.indexOf(step)));
   };
 
+  if (!service) {
+    return null;
+  }
+  
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-lg p-0 flex flex-col">
