@@ -71,7 +71,15 @@
         },
         "cancellationFee": {
             "type": "number",
-            "description": "Fee charged for late cancellations or no-shows."
+            "description": "Fee charged for late cancellations."
+        },
+        "cancellationWindowHours": {
+            "type": "number",
+            "description": "The window in hours before an appointment that a client can cancel without a fee."
+        },
+        "noShowFee": {
+            "type": "number",
+            "description": "Fee charged for clients who do not show up for their appointment."
         },
         "cancellationPolicy": {
             "type": "string",
@@ -145,6 +153,15 @@
         "bio": { "type": "string", "description": "A short biography for the staff member's public profile." },
         "specialties": { "type": "array", "items": { "type": "string" }, "description": "A list of specialties or skills to highlight." },
         "portfolioImageUrls": { "type": "array", "items": { "type": "string", "format": "uri" }, "description": "A gallery of images showcasing the staff member's work." },
+        "instagramUrl": { "type": "string", "format": "uri", "description": "Link to Instagram profile."},
+        "facebookUrl": { "type": "string", "format": "uri", "description": "Link to Facebook profile."},
+        "tiktokUrl": { "type": "string", "format": "uri", "description": "Link to TikTok profile."},
+        "twitterUrl": { "type": "string", "format": "uri", "description": "Link to Twitter/X profile."},
+        "pinterestUrl": { "type": "string", "format": "uri", "description": "Link to Pinterest profile."},
+        "youtubeUrl": { "type": "string", "format": "uri", "description": "Link to YouTube profile."},
+        "portfolioUrl": { "type": "string", "format": "uri", "description": "Link to an external portfolio or website."},
+        "yearsOfExperience": { "type": "number", "description": "The staff member's years of experience in the industry." },
+        "clientCount": { "type": "number", "description": "The approximate number of clients the staff member has served." },
         "role": { "type": "string", "enum": ["admin", "staff"] },
         "payStructure": { "type": "string", "enum": ["commission", "hourly", "salary"] },
         "commissionRate": { "type": "number", "description": "Commission rate as a percentage (e.g., 40 for 40%)." },
@@ -246,6 +263,23 @@
             "type": "array",
             "description": "A list of skills required to perform this service.",
             "items": { "type": "string" }
+        },
+        "requiredResourceIds": {
+            "type": "array",
+            "description": "A list of resource IDs required for this service.",
+            "items": { "type": "string" }
+        },
+        "capacity": {
+            "type": "number",
+            "description": "The maximum number of clients that can book this service for the same time slot. Defaults to 1."
+        },
+        "costPerAttendee": {
+          "type": "number",
+          "description": "The cost of materials for a single attendee, used for group services/classes."
+        },
+        "fixedCost": {
+          "type": "number",
+          "description": "Any fixed costs associated with offering the service once (e.g., instructor pay for a class)."
         }
       },
       "required": [
@@ -254,6 +288,19 @@
         "durationMinutes",
         "price"
       ]
+    },
+    "Resource": {
+      "title": "Resource",
+      "type": "object",
+      "description": "Represents a bookable asset, like a room or a specific piece of equipment.",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["room", "equipment"] },
+        "capacity": { "type": "number", "description": "Number of clients this resource can accommodate at once." },
+        "inventoryItemId": { "type": "string", "description": "The ID of the linked inventory item, if this is an equipment resource." }
+      },
+      "required": ["id", "name", "type"]
     },
     "Product": {
       "title": "Product",
@@ -436,6 +483,11 @@
         "automatedRescheduleOffered": {
             "type": "boolean",
             "description": "Indicates if an automated reschedule option has been offered to a late client."
+        },
+        "requiredResourceIds": {
+            "type": "array",
+            "description": "A list of resource IDs required for this appointment.",
+            "items": { "type": "string" }
         }
       },
       "required": [
@@ -675,6 +727,40 @@
         "quoteId": { "type": "string", "description": "The ID of the quote this event was booked from." }
       },
       "required": ["id", "title", "startTime", "endTime"]
+    },
+    "ConsentForm": {
+        "title": "Consent Form",
+        "description": "A reusable consent form template (e.g., intake, waiver).",
+        "type": "object",
+        "properties": {
+            "id": { "type": "string" },
+            "title": { "type": "string" },
+            "category": { "type": "string", "enum": ["Intake", "Waiver", "Release", "General"] },
+            "isPasswordProtected": { "type": "boolean" },
+            "notifyOnEdit": { "type": "boolean" },
+            "fields": {
+                "type": "array",
+                "items": {
+                    "$ref": "#/entities/FormField"
+                }
+            }
+        },
+        "required": ["id", "title", "category"]
+    },
+    "FormField": {
+        "title": "Form Field",
+        "description": "A single field within a consent form.",
+        "type": "object",
+        "properties": {
+            "id": { "type": "string" },
+            "type": { "type": "string", "enum": ["heading", "paragraph", "short-text", "long-text", "multiple-choice", "checkboxes", "image-upload", "signature"] },
+            "label": { "type": "string" },
+            "options": {
+                "type": "array",
+                "items": { "type": "string" }
+            }
+        },
+        "required": ["id", "type", "label"]
     }
   },
   "auth": {
@@ -695,6 +781,12 @@
       },
       "description": "Stores tenant (business) profiles. All business-specific data is nested under this."
     },
+    "/appointmentCheckIns/{token}": {
+        "schema": {
+            "$ref": "#/entities/Appointment"
+        },
+        "description": "Publicly readable appointment data for check-in links. The document ID is the secret token."
+    },
     "/tenants/{tenantId}/staff/{staffId}": {
       "schema": {
         "$ref": "#/entities/Staff"
@@ -712,6 +804,12 @@
         "$ref": "#/entities/Service"
       },
       "description": "Services offered by a specific tenant."
+    },
+    "/tenants/{tenantId}/resources/{resourceId}": {
+      "schema": {
+        "$ref": "#/entities/Resource"
+      },
+      "description": "Bookable assets like rooms or specific equipment."
     },
     "/tenants/{tenantId}/products/{productId}": {
       "schema": {
@@ -784,6 +882,13 @@
         "$ref": "#/entities/StockCorrection"
       },
       "description": "An audit log of all inventory stock changes."
+    },
+    "/tenants/{tenantId}/consentForms/{formId}": {
+      "schema": {
+        "$ref": "#/entities/ConsentForm"
+      },
+      "description": "Stores consent form templates created by the tenant."
     }
   }
 }
+
