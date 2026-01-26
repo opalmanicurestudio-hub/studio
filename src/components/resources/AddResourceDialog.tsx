@@ -71,12 +71,17 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
   }, [selectedInventoryItemId, equipmentInventory, setValue]);
 
   const handleSave = (data: ResourceFormData) => {
-    onSave({
+    const resourceToSave: Omit<Resource, 'id'> = {
       name: data.name,
       type: data.type,
       capacity: data.capacity,
-      inventoryItemId: data.inventoryItemId,
-    });
+    };
+
+    if (data.type === 'equipment' && data.inventoryItemId) {
+      resourceToSave.inventoryItemId = data.inventoryItemId;
+    }
+    
+    onSave(resourceToSave);
     onOpenChange(false);
   };
   
@@ -89,68 +94,68 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Add New Resource</DialogTitle>
-          <DialogDescription>
-            Add a room, station, or piece of equipment to be scheduled.
-          </DialogDescription>
-        </DialogHeader>
         <form onSubmit={handleSubmit(handleSave)}>
-          <div className="grid gap-6 py-4">
-            <Controller
-              name="type"
-              control={control}
-              render={({ field }) => (
-                <div className="space-y-2">
-                  <Label>Resource Type</Label>
-                  <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
-                    <div>
-                      <RadioGroupItem value="room" id="room" className="peer sr-only" />
-                      <Label htmlFor="room" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Room/Station</Label>
-                    </div>
-                    <div>
-                      <RadioGroupItem value="equipment" id="equipment" className="peer sr-only" />
-                      <Label htmlFor="equipment" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Equipment</Label>
-                    </div>
-                  </RadioGroup>
-                </div>
-              )}
-            />
-            {resourceType === 'equipment' ? (
+            <DialogHeader>
+            <DialogTitle>Add New Resource</DialogTitle>
+            <DialogDescription>
+                Add a room, station, or piece of equipment to be scheduled.
+            </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-6 py-4">
                 <Controller
-                    name="inventoryItemId"
-                    control={control}
-                    render={({ field }) => (
-                         <div className="space-y-2">
-                            <Label htmlFor="inventory-item">Link to Inventory Item</Label>
-                            <Select onValueChange={field.onChange} value={field.value}>
-                                <SelectTrigger id="inventory-item"><SelectValue placeholder="Select equipment..." /></SelectTrigger>
-                                <SelectContent>{equipmentInventory.map(item => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent>
-                            </Select>
-                            {errors.inventoryItemId && <p className="text-sm text-destructive">{errors.inventoryItemId.message}</p>}
+                name="type"
+                control={control}
+                render={({ field }) => (
+                    <div className="space-y-2">
+                    <Label>Resource Type</Label>
+                    <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
+                        <div>
+                        <RadioGroupItem value="room" id="room" className="peer sr-only" />
+                        <Label htmlFor="room" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Room/Station</Label>
                         </div>
-                    )}
+                        <div>
+                        <RadioGroupItem value="equipment" id="equipment" className="peer sr-only" />
+                        <Label htmlFor="equipment" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Equipment</Label>
+                        </div>
+                    </RadioGroup>
+                    </div>
+                )}
                 />
-            ) : (
-                 <div className="space-y-2">
-                    <Label htmlFor="resource-name">Name</Label>
-                    <Input id="resource-name" {...register('name')} placeholder="e.g., Facial Room 1" />
-                    {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+                {resourceType === 'equipment' ? (
+                    <Controller
+                        name="inventoryItemId"
+                        control={control}
+                        render={({ field }) => (
+                            <div className="space-y-2">
+                                <Label htmlFor="inventory-item">Link to Inventory Item</Label>
+                                <Select onValueChange={field.onChange} value={field.value}>
+                                    <SelectTrigger id="inventory-item"><SelectValue placeholder="Select equipment..." /></SelectTrigger>
+                                    <SelectContent>{equipmentInventory.map(item => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent>
+                                </Select>
+                                {errors.inventoryItemId && <p className="text-sm text-destructive">{errors.inventoryItemId.message}</p>}
+                            </div>
+                        )}
+                    />
+                ) : (
+                    <div className="space-y-2">
+                        <Label htmlFor="resource-name">Name</Label>
+                        <Input id="resource-name" {...register('name')} placeholder="e.g., Facial Room 1" />
+                        {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+                    </div>
+                )}
+                <div className="space-y-2">
+                <Label htmlFor="capacity">Capacity</Label>
+                <Input id="capacity" type="number" defaultValue={1} {...register('capacity')} />
+                <p className="text-xs text-muted-foreground">How many clients can use this resource at once?</p>
+                {errors.capacity && <p className="text-sm text-destructive">{errors.capacity.message}</p>}
                 </div>
-            )}
-            <div className="space-y-2">
-              <Label htmlFor="capacity">Capacity</Label>
-              <Input id="capacity" type="number" defaultValue={1} {...register('capacity')} />
-              <p className="text-xs text-muted-foreground">How many clients can use this resource at once?</p>
-              {errors.capacity && <p className="text-sm text-destructive">{errors.capacity.message}</p>}
             </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => onOpenChange(false)} type="button">
-              Cancel
-            </Button>
-            <Button type="submit">Save Resource</Button>
-          </DialogFooter>
+            <DialogFooter>
+                <Button variant="outline" onClick={() => onOpenChange(false)} type="button">
+                Cancel
+                </Button>
+                <Button type="submit">Save Resource</Button>
+            </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
