@@ -7,7 +7,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useFirebase, useDoc, useCollection, useMemoFirebase } from '@/firebase';
 import { doc, collection, query, where, getDocs } from 'firebase/firestore';
 import { type Staff, type Service, Appointment, Event, ConsentForm, Tenant, Client } from '@/lib/data';
-import { Loader, ArrowLeft, Clock, DollarSign, BookOpen } from 'lucide-react';
+import { Loader, ArrowLeft, Clock, DollarSign, BookOpen, Award, Users, Star } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -17,6 +17,8 @@ import Link from 'next/link';
 import { nanoid } from 'nanoid';
 import { useToast } from '@/hooks/use-toast';
 import { setDocumentNonBlocking } from '@/firebase';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import Image from 'next/image';
 
 export default function StaffDetailPage() {
   const params = useParams();
@@ -160,6 +162,18 @@ export default function StaffDetailPage() {
     );
   }
 
+  // Mock portfolio images if not present
+  const portfolioImages = staffMember.portfolioImageUrls && staffMember.portfolioImageUrls.length > 0 
+    ? staffMember.portfolioImageUrls 
+    : [
+        'https://picsum.photos/seed/p1/600/600',
+        'https://picsum.photos/seed/p2/600/600',
+        'https://picsum.photos/seed/p3/600/600',
+        'https://picsum.photos/seed/p4/600/600',
+        'https://picsum.photos/seed/p5/600/600',
+    ];
+
+
   return (
     <div className="space-y-12">
         <Button variant="outline" asChild>
@@ -180,6 +194,26 @@ export default function StaffDetailPage() {
             <p className="text-xl font-medium text-primary">{staffMember.specialties.join(' / ')}</p>
           )}
           <p className="text-muted-foreground max-w-xl">{staffMember.bio || 'A passionate professional dedicated to their craft and clients.'}</p>
+        </div>
+      </section>
+
+      <Separator />
+
+      <section className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
+        <div className="p-4 bg-muted/50 rounded-lg">
+          <Award className="w-8 h-8 text-primary mx-auto mb-2" />
+          <p className="text-2xl font-bold">{staffMember.yearsOfExperience || 5}+</p>
+          <p className="text-sm text-muted-foreground">Years Experience</p>
+        </div>
+        <div className="p-4 bg-muted/50 rounded-lg">
+          <Users className="w-8 h-8 text-primary mx-auto mb-2" />
+          <p className="text-2xl font-bold">{staffMember.clientCount || 200}+</p>
+          <p className="text-sm text-muted-foreground">Happy Clients</p>
+        </div>
+        <div className="p-4 bg-muted/50 rounded-lg">
+          <Star className="w-8 h-8 text-primary mx-auto mb-2" />
+          <p className="text-2xl font-bold">4.9</p>
+          <p className="text-sm text-muted-foreground">Average Rating</p>
         </div>
       </section>
 
@@ -210,6 +244,26 @@ export default function StaffDetailPage() {
             )}
           </CardContent>
         </Card>
+      </section>
+
+      <Separator />
+      <section className="space-y-6">
+        <h2 className="text-3xl font-bold text-center">Portfolio</h2>
+        <ScrollArea>
+          <div className="flex space-x-4 pb-4">
+            {portfolioImages.map((url, index) => (
+              <div key={index} className="relative aspect-square w-64 h-64 md:w-80 md:h-80 flex-shrink-0 rounded-xl overflow-hidden group">
+                <Image
+                  src={url}
+                  alt={`Portfolio image ${index + 1}`}
+                  fill
+                  className="object-cover transition-transform duration-300 group-hover:scale-110"
+                />
+              </div>
+            ))}
+          </div>
+          <ScrollBar orientation="horizontal" />
+        </ScrollArea>
       </section>
       
       {selectedService && staff && (
