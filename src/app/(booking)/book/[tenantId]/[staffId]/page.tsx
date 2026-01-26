@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useFirebase, useDoc, useCollection, useMemoFirebase, setDocumentNonBlocking } from '@/firebase';
 import { doc, collection, query, where, getDocs } from 'firebase/firestore';
@@ -17,7 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import Image from 'next/image';
 import { cn } from '@/lib/utils';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, getDay } from 'date-fns';
 
 const ServiceCard = ({ service, onBookNow }: { service: Service, onBookNow: (service: Service) => void }) => {
     return (
@@ -158,7 +158,7 @@ export default function StaffDetailPage() {
                 lastAppointment: new Date().toISOString(),
                 status: 'active',
             };
-            await setDocumentNonBlocking(newClientRef, { ...newClient, id: clientId }, {});
+            await setDocumentNonBlocking(newClientRef, { ...newClient, id: clientId });
             toast({ title: "Welcome!", description: "A new client profile has been created for you." });
         } else {
             const existingClientDoc = querySnapshot.docs[0];
@@ -180,10 +180,10 @@ export default function StaffDetailPage() {
             checkInToken: checkInToken,
         };
 
-        await setDocumentNonBlocking(doc(appointmentRef, newAppointmentId), newAppointment, {});
+        await setDocumentNonBlocking(doc(appointmentRef, newAppointmentId), newAppointment);
 
         const checkInDocRef = doc(firestore, 'appointmentCheckIns', checkInToken);
-        await setDocumentNonBlocking(checkInDocRef, newAppointment, {});
+        await setDocumentNonBlocking(checkInDocRef, newAppointment);
         
         toast({
           title: 'Booking Confirmed!',
@@ -239,7 +239,7 @@ export default function StaffDetailPage() {
 
   return (
     <div className="flex w-full flex-col">
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-4 bg-background/80 px-4 backdrop-blur-sm md:px-6 print:hidden">
+        <header className="sticky top-0 z-30 flex h-16 items-center gap-4 bg-muted/80 px-4 backdrop-blur-sm md:px-6 print:hidden">
             <Button variant="outline" size="icon" asChild>
                  <Link href={`/book/${tenantId}`}>
                     <ArrowLeft className="h-4 w-4" />
@@ -331,7 +331,7 @@ export default function StaffDetailPage() {
             </div>
       </main>
       
-        <footer className="sticky bottom-0 z-30 p-4 border-t bg-background/80 backdrop-blur-sm print:hidden">
+        <footer className="sticky bottom-0 z-30 p-4 bg-muted/80 backdrop-blur-sm print:hidden">
             <div className="max-w-lg mx-auto">
                 <Button asChild className="w-full h-12 text-lg">
                     <a href="#services">Book Appointment</a>
