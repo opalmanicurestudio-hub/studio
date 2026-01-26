@@ -44,60 +44,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { CalendarIcon, PlusCircle, Trash2, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Client, Service, Appointment, Staff } from '@/lib/data';
-import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, subWeeks, addWeeks, eachDayOfInterval, addDays, isSameDay, isBefore } from 'date-fns';
+import { Client, Service, Appointment, Staff, Event } from '@/lib/data';
+import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, subWeeks, addWeeks, eachDayOfInterval, addDays, isSameDay, isBefore, getDay, parse, isToday } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Card, CardContent } from '../ui/card';
 import { nanoid } from 'nanoid';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
-
-const DatePicker = ({ date, onDateChange }: { date: Date; onDateChange: (date: Date) => void }) => {
-  const weekStart = useMemo(() => startOfWeek(date, { weekStartsOn: 0 }), [date]);
-  const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
-
-  const handlePreviousWeek = () => onDateChange(subWeeks(date, 1));
-  const handleNextWeek = () => onDateChange(addWeeks(date, 1));
-
-  return (
-    <div className="rounded-lg border space-y-4 p-4">
-      <div className="flex items-center justify-between">
-        <Button variant="outline" size="icon" onClick={handlePreviousWeek}>
-          <ChevronLeft className="w-4 h-4" />
-        </Button>
-        <span className="font-semibold text-center">
-          {format(date, 'MMMM yyyy')}
-        </span>
-        <Button variant="outline" size="icon" onClick={handleNextWeek}>
-          <ChevronRight className="w-4 h-4" />
-        </Button>
-      </div>
-      <div className="grid grid-cols-7 gap-2">
-        {weekDays.map((day) => (
-          <button
-            key={day.toISOString()}
-            onClick={() => onDateChange(day)}
-            disabled={isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))}
-            className={cn(
-              "flex flex-col items-center justify-center p-2 rounded-lg border w-full aspect-square transition-colors",
-              isSameDay(day, date)
-                ? "bg-primary text-primary-foreground border-primary"
-                : "bg-background hover:bg-accent",
-              isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date())) && "opacity-50 cursor-not-allowed"
-            )}
-          >
-            <span className="text-xs">{format(day, 'E')}</span>
-            <span className="font-bold text-lg">{format(day, 'd')}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-};
 
 interface AddAppointmentDialogProps {
   open: boolean;
@@ -106,9 +62,33 @@ interface AddAppointmentDialogProps {
   services: Service[];
   staff: Staff[];
   appointments: Appointment[];
+  events: Event[];
+  scheduleProfiles: any[];
   onConfirm: (apt: Omit<Appointment, 'id'>) => void;
   initialClientId?: string;
   appointmentToRebook?: Appointment | null;
+}
+
+const timeStringToDate = (timeStr: string, date: Date): Date => {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+
+    if (!timeStr) {
+      return d;
+    }
+
+    const [time, period] = timeStr.split(' ');
+    let [hours, minutes] = time.split(':').map(Number);
+
+    if (period === 'PM' && hours < 12) {
+        hours += 12;
+    }
+    if (period === 'AM' && hours === 12) {
+        hours = 0;
+    }
+
+    d.setHours(hours, minutes);
+    return d;
 }
 
 const AddAppointmentForm = ({ 
@@ -116,6 +96,8 @@ const AddAppointmentForm = ({
     services,
     staff,
     appointments,
+    events,
+    scheduleProfiles,
     onConfirm,
     initialClientId,
     appointmentToRebook,
@@ -139,18 +121,109 @@ const AddAppointmentForm = ({
     const selectedService = useMemo(() => services.find(s => s.id === selectedServiceId), [services, selectedServiceId]);
     const selectedClient = useMemo(() => clients.find(c => c.id === selectedClientId), [clients, selectedClientId]);
     const selectedStaff = useMemo(() => staff.find(s => s.id === selectedStaffId), [staff, selectedStaffId]);
+    
+    const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
+    const weekStart = useMemo(() => startOfWeek(date, { weekStartsOn: 0 }), [date]);
+    const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
 
-    const timeOptions = useMemo(() => {
-        const options = [];
-        if (!date) return [];
-        const dayStart = startOfDay(date);
-        for (let i = 0; i < 24 * 4; i++) { // 24 hours * 4 slots per hour (15 min)
-            const minutes = i * 15;
-            const time = addMinutes(dayStart, minutes);
-            options.push(format(time, 'HH:mm'));
+    const timeSlots = useMemo(() => {
+        if (!selectedService || !date || !publicScheduleProfile) return [];
+
+        const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
+        const dayName = format(date, 'eeee').toLowerCase();
+        
+        const selectedStaffMember = staff.find(s => s.id === selectedStaffId);
+        let workingHours: { enabled: boolean; start: string; end: string; };
+
+        const staffDaySchedule = selectedStaffMember?.availability?.week?.[dayName as keyof typeof selectedStaffMember.availability.week];
+
+        if (staffDaySchedule && staffDaySchedule.enabled) {
+            workingHours = staffDaySchedule;
+        } else if (!staffDaySchedule && publicScheduleProfile?.week?.[dayName]) {
+            workingHours = publicScheduleProfile.week[dayName];
+        } else {
+            return []; // Staff is explicitly not available or no schedule found
+        }
+        
+        if (!workingHours || !workingHours.enabled) {
+          return [];
+        }
+        
+        const dayStartWithBusinessHours = timeStringToDate(workingHours.start, date);
+        const dayEndWithBusinessHours = timeStringToDate(workingHours.end, date);
+        
+        const busyIntervals: { start: Date, end: Date }[] = [];
+
+        appointments
+          .filter(apt => {
+            if (!isSameDay(apt.startTime, date)) return false;
+            // When 'any' staff is selected, consider all appointments.
+            // When a specific staff is selected, only consider their appointments.
+            if (selectedStaffId !== 'any' && apt.staffId !== selectedStaffId) return false;
+            return true;
+          })
+          .forEach(apt => {
+            const aptService = services.find(s => s.id === apt.serviceId);
+            const padBefore = aptService?.padBefore || 0;
+            const padAfter = aptService?.padAfter || 0;
+            busyIntervals.push({
+              start: addMinutes(apt.startTime, -padBefore),
+              end: addMinutes(apt.endTime, padAfter),
+            });
+          });
+
+        events
+          .filter(evt => {
+            if (!isSameDay(evt.startTime, date)) return false;
+            if (evt.type !== 'blocked') return false;
+            // Block if event is for 'all' or for the specific staff member
+            return !evt.staffId || evt.staffId === 'all' || (selectedStaffId !== 'any' && evt.staffId === selectedStaffId);
+          })
+          .forEach(evt => {
+            busyIntervals.push({ start: evt.startTime, end: evt.endTime });
+          });
+
+        const options: string[] = [];
+        
+        let earliestBookableTime = dayStartWithBusinessHours;
+        const now = new Date();
+
+        if (isToday(date) && now > dayStartWithBusinessHours) {
+            const minutesSinceStartOfDay = (now.getHours() * 60) + now.getMinutes();
+            const businessStartMinutes = (earliestBookableTime.getHours() * 60) + earliestBookableTime.getMinutes();
+            const intervalsToSkip = Math.ceil((minutesSinceStartOfDay - businessStartMinutes) / bookingInterval);
+            if (intervalsToSkip > 0) {
+                earliestBookableTime = addMinutes(dayStartWithBusinessHours, intervalsToSkip * bookingInterval);
+            }
+        }
+        
+        let currentTime = earliestBookableTime;
+
+        while (currentTime < dayEndWithBusinessHours) {
+            const potentialStartTime = currentTime;
+            const totalDuration = selectedService.duration + (selectedService.padBefore || 0) + (selectedService.padAfter || 0);
+            const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
+            
+            if (potentialEndTime > dayEndWithBusinessHours) {
+                break;
+            }
+            
+            const isOverlapping = busyIntervals.some((interval) =>
+                areIntervalsOverlapping(
+                    { start: potentialStartTime, end: potentialEndTime },
+                    interval,
+                    { inclusive: false }
+                )
+            );
+
+            if (!isOverlapping) {
+                options.push(format(potentialStartTime, 'HH:mm'));
+            }
+
+            currentTime = addMinutes(currentTime, bookingInterval);
         }
         return options;
-    }, [date]);
+    }, [date, selectedStaffId, selectedService, staff, appointments, events, publicScheduleProfile, services]);
 
     useEffect(() => {
         if (!selectedService || !date || !startTime) {
@@ -331,22 +404,54 @@ const AddAppointmentForm = ({
 
                     <div className="space-y-4">
                         <h3 className="text-lg font-medium">Date & Time</h3>
-                        <div className="space-y-2">
-                            <Label htmlFor="date">Date</Label>
-                            <DatePicker date={date} onDateChange={setDate} />
+                         <div className="rounded-lg border space-y-4 p-4">
+                            <div className="flex items-center justify-between">
+                                <Button variant="outline" size="icon" onClick={() => setDate(prev => subWeeks(prev, 1))} type="button"><ChevronLeft className="w-4 h-4" /></Button>
+                                <span className="font-semibold text-center">
+                                    {format(date, 'MMMM yyyy')}
+                                </span>
+                                <Button variant="outline" size="icon" onClick={() => setDate(prev => addWeeks(prev, 1))} type="button"><ChevronRight className="w-4 h-4" /></Button>
+                            </div>
+                            <div className="grid grid-cols-7 gap-2">
+                                {weekDays.map(day => (
+                                    <button
+                                        key={day.toISOString()}
+                                        onClick={() => setDate(day)}
+                                        disabled={isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))}
+                                        className={cn(
+                                            "flex flex-col items-center justify-center p-2 rounded-lg border w-full aspect-square transition-colors",
+                                            isSameDay(day, date)
+                                                ? "bg-primary text-primary-foreground border-primary"
+                                                : "bg-background hover:bg-accent",
+                                            (isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))) && "opacity-50 cursor-not-allowed"
+                                        )}
+                                        type="button"
+                                    >
+                                        <span className="text-xs">{format(day, 'E')}</span>
+                                        <span className="font-bold text-lg">{format(day, 'd')}</span>
+                                    </button>
+                                ))}
+                            </div>
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="start-time">Start Time</Label>
-                            <Select onValueChange={setStartTime} value={startTime}>
-                                <SelectTrigger id="start-time" disabled={!selectedService}>
-                                    <SelectValue placeholder="Select a time" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {timeOptions.map(time => (
-                                        <SelectItem key={time} value={time}>{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                            <Label>Start Time</Label>
+                             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                                {timeSlots.map(time => (
+                                    <Button
+                                        key={time}
+                                        variant={startTime === time ? 'default' : 'outline'}
+                                        onClick={() => setStartTime(time)}
+                                        type="button"
+                                    >
+                                        {format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}
+                                    </Button>
+                                ))}
+                                {timeSlots.length === 0 && (
+                                    <div className="col-span-full text-center text-sm text-muted-foreground py-4">
+                                        No available slots for this day.
+                                    </div>
+                                )}
+                            </div>
                         </div>
                         {isOverlapping && (
                         <Alert variant="destructive" className="mt-2">
@@ -368,9 +473,9 @@ const AddAppointmentForm = ({
             <SelectAddOnsDialog
                 open={isAddOnSelectorOpen}
                 onOpenChange={setIsAddOnSelectorOpen}
-                onSelect={setSelectedAddOns}
                 allAddOns={services.filter(s => s.type === 'addon')}
                 initialSelected={selectedAddOns}
+                onSelect={setSelectedAddOns}
             />
                 <AlertDialog open={showConfirmation} onOpenChange={setShowConfirmation}>
                 <AlertDialogContent>
@@ -390,7 +495,7 @@ const AddAppointmentForm = ({
     )
 }
 
-export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, clients, services, staff, appointments, onConfirm, initialClientId, appointmentToRebook }) => {
+export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, clients, services, staff, appointments, events, scheduleProfiles, onConfirm, initialClientId, appointmentToRebook }) => {
   const isMobile = useIsMobile();
 
   const formKey = useMemo(() => {
@@ -406,6 +511,8 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
     services={services} 
     staff={staff}
     appointments={appointments} 
+    events={events}
+    scheduleProfiles={scheduleProfiles}
     onConfirm={onConfirm} 
     initialClientId={initialClientId} 
     appointmentToRebook={appointmentToRebook}

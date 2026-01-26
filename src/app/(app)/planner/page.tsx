@@ -162,6 +162,12 @@ export default function PlannerPage() {
     return collection(firestore, `tenants/${tenantId}/events`);
   }, [firestore, user, tenantId]);
 
+  const scheduleProfilesQuery = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    return collection(firestore, `tenants/${tenantId}/scheduleProfiles`);
+  }, [firestore, user, tenantId]);
+  const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
+
   const { data: fetchedBillDefinitions, isLoading: billDefinitionsLoading } = useCollection<BillDefinition>(billDefinitionsQuery);
   const { data: fetchedBillInstances, isLoading: billInstancesLoading } = useCollection<BillInstance>(billInstancesQuery);
   const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
@@ -969,7 +975,7 @@ const events = useMemo(() => {
   
   const showStaffColumnHeader = !isMobile;
 
-  if (!hasMounted || isUserLoading || appointmentsLoading || servicesLoading || clientsLoading || walkInsLoading || staffLoading || eventsLoading || billDefinitionsLoading || billInstancesLoading) {
+  if (!hasMounted || isUserLoading || appointmentsLoading || servicesLoading || clientsLoading || walkInsLoading || staffLoading || eventsLoading || billDefinitionsLoading || billInstancesLoading || scheduleProfilesLoading) {
     return (
       <div className="flex h-screen w-full flex-col">
         <AppHeaderClient title="Planner" />
@@ -1260,6 +1266,8 @@ const events = useMemo(() => {
         onConfirm={handleAddAppointment}
         initialClientId={appointmentToRebook ? appointmentToRebook.clientId : initialClientIdForNewApt}
         appointmentToRebook={appointmentToRebook}
+        events={events || []}
+        scheduleProfiles={scheduleProfiles || []}
       />
        {selectedAppointment && (
         <EditAppointmentDialog 
