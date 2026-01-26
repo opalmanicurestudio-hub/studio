@@ -52,6 +52,10 @@ export type Staff = {
   bio?: string;
   specialties?: string[];
   instagramUrl?: string;
+  facebookUrl?: string;
+  tiktokUrl?: string;
+  twitterUrl?: string;
+  pinterestUrl?: string;
   portfolioUrl?: string;
   yearsOfExperience?: number;
   clientCount?: number;
