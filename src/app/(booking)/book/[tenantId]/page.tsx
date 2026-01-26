@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -290,11 +291,11 @@ export default function BookingPage() {
                 <BookingMemberships memberships={memberships || []} onPurchase={(item) => handlePurchase(item, 'membership')} />
                 <BookingPackages packages={packages || []} services={services || []} onPurchase={(item) => handlePurchase(item, 'package')} />
                 <BookingTeam tenantId={tenantId} staff={staff || []} />
+                <BookingFAQ />
                 <BookingReviews />
                 <BookingGallery />
                 <BookingContact tenant={tenant} />
                 <BookingPolicies tenant={tenant} />
-                <BookingFAQ />
             </motion.div>
         )}
         </AnimatePresence>
@@ -327,4 +328,3 @@ export default function BookingPage() {
     </div>
   );
 }
-
