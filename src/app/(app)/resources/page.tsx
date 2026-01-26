@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -19,7 +18,10 @@ import {
   Building,
   HardHat,
   Trash2,
+  Users,
+  Edit,
 } from 'lucide-react';
+import Image from 'next/image';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,44 +37,59 @@ import { nanoid } from 'nanoid';
 import { addDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase/non-blocking-updates';
 import { useToast } from '@/hooks/use-toast';
 
-const ResourceCard = ({ resource, inventory, onDelete }: { resource: Resource, inventory: InventoryItem[], onDelete: (id: string) => void }) => {
+const ResourceCard = ({ resource, inventory, onDelete, onEdit }: { resource: Resource, inventory: InventoryItem[], onDelete: (id: string) => void, onEdit: (resource: Resource) => void }) => {
     const linkedItem = resource.inventoryItemId ? inventory.find(i => i.id === resource.inventoryItemId) : null;
-
     const Icon = resource.type === 'room' ? Building : HardHat;
+    const imageUrl = linkedItem?.imageUrl || `https://picsum.photos/seed/res${resource.id}/200/200`;
 
     return (
-        <Card>
-            <CardHeader>
-                <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                         <Icon className="w-6 h-6 text-muted-foreground" />
-                         <CardTitle className="text-lg">{resource.name}</CardTitle>
+        <Card className="flex flex-col overflow-hidden transition-all duration-200 hover:shadow-lg hover:-translate-y-1">
+            <CardHeader className="p-4 bg-muted/50">
+                <div className="flex items-center gap-4">
+                    <div className="p-3 bg-background rounded-lg border">
+                        <Icon className="w-6 h-6 text-primary" />
                     </div>
-                     <DropdownMenu>
+                    <div>
+                        <CardTitle className="text-lg">{resource.name}</CardTitle>
+                        <CardDescription className="capitalize">{resource.type}</CardDescription>
+                    </div>
+                    <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 -mt-2 -mr-2">
+                            <Button variant="ghost" size="icon" className="h-8 w-8 ml-auto shrink-0">
                                 <MoreHorizontal className="w-4 h-4" />
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent>
+                            <DropdownMenuItem onClick={() => onEdit(resource)}>
+                                <Edit className="w-4 h-4 mr-2" />
+                                Edit
+                            </DropdownMenuItem>
                             <DropdownMenuItem className="text-destructive" onClick={() => onDelete(resource.id)}>
                                 <Trash2 className="w-4 h-4 mr-2" /> Delete
                             </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
                 </div>
-                 <CardDescription className="pl-9">{resource.type === 'room' ? 'Room / Location' : 'Equipment'}</CardDescription>
             </CardHeader>
-            <CardContent>
-                 {linkedItem && (
-                    <div className="text-sm text-muted-foreground p-3 bg-muted/50 rounded-md">
-                        <p className="font-semibold text-foreground">Linked to Inventory Item:</p>
-                        <p>{linkedItem.name}</p>
+            <CardContent className="p-4 flex-1 space-y-4">
+                {resource.type === 'equipment' && linkedItem && (
+                    <div className="flex items-center gap-3 p-3 bg-background rounded-md border">
+                        <div className="w-12 h-12 bg-muted rounded-md flex-shrink-0 relative">
+                            <Image src={imageUrl} alt={linkedItem.name} fill className="object-cover rounded-md" />
+                        </div>
+                        <div className="text-sm">
+                            <p className="text-muted-foreground text-xs">Linked Inventory</p>
+                            <p className="font-semibold">{linkedItem.name}</p>
+                        </div>
                     </div>
-                 )}
+                )}
+                <div className="flex items-center justify-between p-3 bg-background rounded-md border">
+                    <p className="font-medium text-sm flex items-center gap-2"><Users className="w-4 h-4 text-muted-foreground" /> Capacity</p>
+                    <p className="font-bold text-lg">{resource.capacity || 1}</p>
+                </div>
             </CardContent>
-            <CardFooter>
-                 <p className="text-sm text-muted-foreground">Capacity: {resource.capacity || 1}</p>
+            <CardFooter className="p-2 border-t">
+                <Button variant="ghost" className="w-full">View Schedule</Button>
             </CardFooter>
         </Card>
     );
@@ -96,10 +113,14 @@ export default function ResourcesPage() {
     const handleSaveResource = (resourceData: Omit<Resource, 'id'>) => {
         if (!firestore) return;
         
-        const newResource = {
+        const newResource: Omit<Resource, 'id'> & { id: string } = {
             ...resourceData,
             id: `res-${nanoid()}`
         };
+
+        if (newResource.type === 'room') {
+            delete (newResource as Partial<Resource>).inventoryItemId;
+        }
         
         const resourceRef = collection(firestore, 'tenants', tenantId, 'resources');
         addDocumentNonBlocking(resourceRef, newResource);
@@ -121,6 +142,14 @@ export default function ResourcesPage() {
             description: "The resource has been removed."
         });
     }
+
+    const handleEditResource = (resource: Resource) => {
+        // Logic to open an edit dialog would go here
+        toast({
+            title: "Edit Action",
+            description: `Editing ${resource.name}. (Functionality to be implemented)`,
+        });
+    };
 
     const equipmentInventory = useMemo(() => inventory.filter(i => i.type === 'equipment'), [inventory]);
 
@@ -145,7 +174,7 @@ export default function ResourcesPage() {
         ) : (resources && resources.length > 0) ? (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {resources.map(resource => (
-                    <ResourceCard key={resource.id} resource={resource} inventory={inventory} onDelete={handleDeleteResource} />
+                    <ResourceCard key={resource.id} resource={resource} inventory={inventory} onDelete={handleDeleteResource} onEdit={handleEditResource} />
                 ))}
             </div>
         ) : (
