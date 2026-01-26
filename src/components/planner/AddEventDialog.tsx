@@ -45,30 +45,54 @@ import {
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CalendarIcon, PlusCircle, Trash2, DollarSign, AlertTriangle } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2, DollarSign, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { type Event, type EventChecklistItem, type Appointment, type Staff } from '@/lib/data';
-import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping } from 'date-fns';
+import { type Event, type EventChecklistItem, type Appointment, type Staff, services as allServices } from '@/lib/data';
+import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday } from 'date-fns';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '../ui/checkbox';
 import { Switch } from '../ui/switch';
+
+const timeStringToDate = (timeStr: string, date: Date): Date => {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+
+    if (!timeStr) {
+    return d;
+    }
+
+    const [time, period] = timeStr.split(' ');
+    let [hours, minutes] = time.split(':').map(Number);
+
+    if (period === 'PM' && hours < 12) {
+        hours += 12;
+    }
+    if (period === 'AM' && hours === 12) {
+        hours = 0;
+    }
+
+    d.setHours(hours, minutes);
+    return d;
+}
 
 const AddEventForm = ({
     onConfirm,
     appointments,
     events,
-    staff
+    staff,
+    scheduleProfiles
 }: {
     onConfirm: (event: Omit<Event, 'id'>) => void;
     appointments: Appointment[];
     events: Event[];
     staff: Staff[];
+    scheduleProfiles: any[];
 }) => {
     const [title, setTitle] = useState('');
     const [type, setType] = useState<'personal' | 'business' | 'blocked'>('business');
     const [date, setDate] = useState<Date>(new Date());
-    const [startTime, setStartTime] = useState<string>('09:00');
-    const [endTime, setEndTime] = useState<string>('10:00');
+    const [startTime, setStartTime] = useState<string>('');
+    const [duration, setDuration] = useState<number>(60);
     const [allDay, setAllDay] = useState(false);
     const [staffId, setStaffId] = useState('');
     const [notes, setNotes] = useState('');
@@ -78,25 +102,27 @@ const AddEventForm = ({
 
     const [isOverlapping, setIsOverlapping] = useState(false);
     const [showConfirmation, setShowConfirmation] = useState(false);
+    
+    const weekStart = useMemo(() => startOfWeek(date, { weekStartsOn: 0 }), [date]);
+    const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
+    const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
 
     useEffect(() => {
         if (allDay) {
             setStartTime('00:00');
-            setEndTime('23:59');
+            setDuration(24 * 60 -1);
         }
     }, [allDay]);
 
     useEffect(() => {
-        if (!date || !startTime || !endTime) {
+        if (!date || !startTime || !duration) {
             setIsOverlapping(false);
             return;
         }
 
         const [startHours, startMinutes] = startTime.split(':').map(Number);
         const startDateTime = setMinutes(setHours(startOfDay(date), startHours), startMinutes);
-
-        const [endHours, endMinutes] = endTime.split(':').map(Number);
-        const endDateTime = setMinutes(setHours(startOfDay(date), endHours), endMinutes);
+        const endDateTime = addMinutes(startDateTime, duration);
 
         if (startDateTime >= endDateTime) {
             setIsOverlapping(false);
@@ -113,17 +139,104 @@ const AddEventForm = ({
         });
 
         setIsOverlapping(hasOverlap);
-    }, [date, startTime, endTime, appointments, events]);
+    }, [date, startTime, duration, appointments, events]);
 
+    const timeSlots = useMemo(() => {
+        if (!duration || !date || !publicScheduleProfile) return [];
 
-    const timeOptions = useMemo(() => {
-        const options = [];
-        for (let i = 0; i < 24; i++) {
-            options.push(`${i.toString().padStart(2, '0')}:00`);
-            options.push(`${i.toString().padStart(2, '0')}:30`);
+        const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
+        const dayName = format(date, 'eeee').toLowerCase();
+        
+        const selectedStaffMember = staff.find(s => s.id === staffId);
+        let workingHours: { enabled: boolean; start: string; end: string; };
+
+        const staffDaySchedule = selectedStaffMember?.availability?.week?.[dayName as keyof typeof selectedStaffMember.availability.week];
+
+        if (staffDaySchedule && staffDaySchedule.enabled) {
+            workingHours = staffDaySchedule;
+        } else if (!staffDaySchedule && publicScheduleProfile?.week?.[dayName]) {
+            workingHours = publicScheduleProfile.week[dayName];
+        } else {
+            return []; // Staff is explicitly not available or no schedule found
+        }
+        
+        if (!workingHours || !workingHours.enabled) {
+          return [];
+        }
+        
+        const dayStartWithBusinessHours = timeStringToDate(workingHours.start, date);
+        const dayEndWithBusinessHours = timeStringToDate(workingHours.end, date);
+        
+        const busyIntervals: { start: Date, end: Date }[] = [];
+
+        appointments
+          .filter(apt => {
+            if (!isSameDay(apt.startTime, date)) return false;
+            if (staffId && staffId !== 'all' && apt.staffId !== staffId) return false;
+            return true;
+          })
+          .forEach(apt => {
+            const service = allServices.find(s => s.id === apt.serviceId);
+            const padBefore = service?.padBefore || 0;
+            const padAfter = service?.padAfter || 0;
+            busyIntervals.push({
+              start: addMinutes(apt.startTime, -padBefore),
+              end: addMinutes(apt.endTime, padAfter),
+            });
+          });
+
+        events
+          .filter(evt => {
+            if (!isSameDay(evt.startTime, date)) return false;
+            if (evt.type !== 'blocked') return false;
+            return !evt.staffId || evt.staffId === 'all' || (staffId && staffId !== 'all' && evt.staffId === staffId);
+          })
+          .forEach(evt => {
+            busyIntervals.push({ start: evt.startTime, end: evt.endTime });
+          });
+
+        const options: string[] = [];
+        
+        let earliestBookableTime = dayStartWithBusinessHours;
+        const now = new Date();
+
+        if (isToday(date) && now > dayStartWithBusinessHours) {
+            const minutesSinceStartOfDay = (now.getHours() * 60) + now.getMinutes();
+            const businessStartMinutes = (earliestBookableTime.getHours() * 60) + earliestBookableTime.getMinutes();
+            const intervalsToSkip = Math.ceil((minutesSinceStartOfDay - businessStartMinutes) / bookingInterval);
+            if (intervalsToSkip > 0) {
+                earliestBookableTime = addMinutes(dayStartWithBusinessHours, intervalsToSkip * bookingInterval);
+            }
+        }
+        
+        let currentTime = earliestBookableTime;
+
+        while (currentTime < dayEndWithBusinessHours) {
+            const potentialStartTime = currentTime;
+            const totalDuration = duration;
+            const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
+            
+            if (potentialEndTime > dayEndWithBusinessHours) {
+                break;
+            }
+            
+            const isOverlapping = busyIntervals.some((interval) =>
+                areIntervalsOverlapping(
+                    { start: potentialStartTime, end: potentialEndTime },
+                    interval,
+                    { inclusive: false }
+                )
+            );
+
+            if (!isOverlapping) {
+                options.push(format(potentialStartTime, 'HH:mm'));
+            }
+
+            currentTime = addMinutes(currentTime, bookingInterval);
         }
         return options;
-    }, []);
+    }, [date, staffId, duration, staff, appointments, events, publicScheduleProfile]);
+
 
     const handleAddChecklistItem = () => {
         if (newChecklistItem.trim()) {
@@ -144,13 +257,11 @@ const AddEventForm = ({
     };
 
     const confirmAndSubmit = () => {
-        if (!title || !date) return;
+        if (!title || !date || !startTime) return;
 
         const [startHours, startMinutes] = startTime.split(':').map(Number);
         const startDateTime = setMinutes(setHours(startOfDay(date), startHours), startMinutes);
-
-        const [endHours, endMinutes] = endTime.split(':').map(Number);
-        const endDateTime = setMinutes(setHours(startOfDay(date), endHours), endMinutes);
+        const endDateTime = addMinutes(startDateTime, duration);
 
         const newEvent: Omit<Event, 'id'> = {
             title,
@@ -219,67 +330,60 @@ const AddEventForm = ({
 
                     <div className="space-y-4">
                         <h3 className="text-lg font-medium">Date & Time</h3>
-                        <div className="space-y-2">
-                            <Label htmlFor="event-date">Date</Label>
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        variant={"outline"}
+                         <div className="rounded-lg border space-y-4 p-4">
+                            <div className="flex items-center justify-between">
+                                <Button variant="outline" size="icon" onClick={() => setDate(prev => subWeeks(prev, 1))} type="button"><ChevronLeft className="w-4 h-4" /></Button>
+                                <span className="font-semibold text-center">
+                                    {format(weekStart, 'MMMM yyyy')}
+                                </span>
+                                <Button variant="outline" size="icon" onClick={() => setDate(prev => addWeeks(prev, 1))} type="button"><ChevronRight className="w-4 h-4" /></Button>
+                            </div>
+                            <div className="grid grid-cols-7 gap-2">
+                                {weekDays.map(day => (
+                                    <button
+                                        key={day.toISOString()}
+                                        onClick={() => setDate(day)}
+                                        disabled={isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))}
                                         className={cn(
-                                        "w-full justify-start text-left font-normal",
-                                        !date && "text-muted-foreground"
+                                            "flex flex-col items-center justify-center p-2 rounded-lg border w-full aspect-square transition-colors",
+                                            isSameDay(day, date)
+                                                ? "bg-primary text-primary-foreground border-primary"
+                                                : "bg-background hover:bg-accent",
+                                            (isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))) && "opacity-50 cursor-not-allowed"
                                         )}
+                                        type="button"
                                     >
-                                        <span className="flex items-center">
-                                            <CalendarIcon className="mr-2 h-4 w-4" />
-                                            {date ? format(date, 'PPP') : "Pick a date"}
-                                        </span>
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0">
-                                    <Calendar
-                                        mode="single"
-                                        selected={date}
-                                        onSelect={(d) => setDate(d || new Date())}
-                                        initialFocus
-                                    />
-                                </PopoverContent>
-                            </Popover>
+                                        <span className="text-xs">{format(day, 'E')}</span>
+                                        <span className="font-bold text-lg">{format(day, 'd')}</span>
+                                    </button>
+                                ))}
+                            </div>
                         </div>
                          <div className="flex items-center justify-between">
                             <Label htmlFor="all-day">All Day Event</Label>
                             <Switch id="all-day" checked={allDay} onCheckedChange={setAllDay} />
                         </div>
-                        {!allDay && (
+                        {!allDay ? (
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
                                     <Label htmlFor="start-time">Start Time</Label>
-                                    <Select onValueChange={setStartTime} defaultValue={startTime}>
+                                    <Select onValueChange={setStartTime} value={startTime}>
                                         <SelectTrigger id="start-time">
-                                            <SelectValue />
+                                            <SelectValue placeholder="Select a time" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            {timeOptions.map(time => (
+                                            {timeSlots.map(time => (
                                                 <SelectItem key={`start-${time}`} value={time}>{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</SelectItem>
                                             ))}
                                         </SelectContent>
                                     </Select>
                                 </div>
                                 <div className="space-y-2">
-                                    <Label htmlFor="end-time">End Time</Label>
-                                    <Select onValueChange={setEndTime} defaultValue={endTime}>
-                                        <SelectTrigger id="end-time">
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {timeOptions.map(time => (
-                                                <SelectItem key={`end-${time}`} value={time}>{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                    <Label htmlFor="duration">Duration (minutes)</Label>
+                                    <Input id="duration" type="number" value={duration} onChange={(e) => setDuration(Number(e.target.value))} placeholder="e.g., 60" />
                                 </div>
                             </div>
-                        )}
+                        ) : null}
                         {isOverlapping && type === 'blocked' && (
                             <Alert variant="destructive" className="mt-2">
                                 <AlertTriangle className="h-4 w-4" />
@@ -342,13 +446,13 @@ const AddEventForm = ({
     )
 }
 
-export const AddEventDialog = ({ open, onOpenChange, onConfirm, appointments, events, staff }: { open: boolean, onOpenChange: (open: boolean) => void, onConfirm: (event: Omit<Event, 'id'>) => void, appointments: Appointment[], events: Event[], staff: Staff[] }) => {
+export const AddEventDialog = ({ open, onOpenChange, onConfirm, appointments, events, staff, scheduleProfiles }: AddEventDialogProps) => {
   const isMobile = useIsMobile();
 
   const title = "Add New Event";
   const description = "Add a personal or business event to your calendar.";
   
-  const FormContent = <AddEventForm onConfirm={onConfirm} appointments={appointments} events={events} staff={staff} />;
+  const FormContent = <AddEventForm onConfirm={onConfirm} appointments={appointments} events={events} staff={staff} scheduleProfiles={scheduleProfiles} />;
 
   if (isMobile) {
     return (

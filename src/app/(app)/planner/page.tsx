@@ -1263,11 +1263,11 @@ const events = useMemo(() => {
         services={services || []}
         staff={staff || []}
         appointments={appointments || []}
+        events={events || []}
+        scheduleProfiles={scheduleProfiles || []}
         onConfirm={handleAddAppointment}
         initialClientId={appointmentToRebook ? appointmentToRebook.clientId : initialClientIdForNewApt}
         appointmentToRebook={appointmentToRebook}
-        events={events || []}
-        scheduleProfiles={scheduleProfiles || []}
       />
        {selectedAppointment && (
         <EditAppointmentDialog 
@@ -1298,6 +1298,7 @@ const events = useMemo(() => {
         appointments={appointments || []}
         events={events || []}
         staff={staff || []}
+        scheduleProfiles={scheduleProfiles || []}
       />
        {selectedEvent && (
         <EditEventDialog
