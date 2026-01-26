@@ -46,7 +46,7 @@ export default function BookingPage() {
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
   const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
   const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(allAppointmentsQuery);
-  const { data: eventsFromDB, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
+  const { data: eventsFromDB, isLoading: eventsLoading } = useCollection<Event>(allEventsQuery);
   const { data: consentForms, isLoading: consentFormsLoading } = useCollection<ConsentForm>(consentFormsQuery);
   
   const appointments = useMemo(() => {
