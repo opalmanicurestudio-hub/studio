@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -316,8 +315,15 @@ export default function StaffDetailPage() {
                                 return (
                                     <div key={day} className="flex justify-between items-center text-sm">
                                         <span className="capitalize font-medium">{day.charAt(0).toUpperCase() + day.slice(1)}</span>
-                                        <span className="text-muted-foreground">
-                                            {hours.enabled ? `${hours.start} - ${hours.end}` : 'Closed'}
+                                        <span className="text-muted-foreground flex items-center gap-2">
+                                            {hours.enabled ? (
+                                                <>
+                                                    <Clock className="w-4 h-4" />
+                                                    <span>{hours.start} - {hours.end}</span>
+                                                </>
+                                            ) : (
+                                                'Closed'
+                                            )}
                                         </span>
                                     </div>
                                 )
@@ -375,3 +381,5 @@ export default function StaffDetailPage() {
   );
 
 }
+
+    
