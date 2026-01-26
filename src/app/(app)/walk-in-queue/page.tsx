@@ -484,13 +484,18 @@ export default function WalkInQueuePage() {
     if (!firestore || !user) return null;
     return collection(firestore, `tenants/${tenantId}/events`);
   }, [firestore, user, tenantId]);
+  
+  const appointmentsQuery = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    return collection(firestore, `tenants/${tenantId}/appointments`);
+  }, [firestore, user, tenantId]);
 
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
   const { data: walkIns, isLoading: walkInsLoading } = useCollection<WalkIn>(walkInQuery);
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
   const { data: clients, isLoading: clientsLoading } = useCollection<Client>(clientsQuery);
   const { data: fetchedEvents, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
-  const { data: appointments } = useCollection<Appointment>(collection(firestore, `tenants/${tenantId}/appointments`));
+  const { data: appointments } = useCollection<Appointment>(appointmentsQuery);
 
   const events = useMemo(() => {
     if (!fetchedEvents) return [];
