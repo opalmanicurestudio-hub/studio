@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -7,7 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useFirebase, useCollection, useMemoFirebase, useDoc, addDocumentNonBlocking, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { collection, doc, query, where, getDocs } from 'firebase/firestore';
 import { type Service, type Staff, type Tenant, type Appointment, type Event, type ConsentForm, type Client, memberships, packages, type Membership, type Package } from '@/lib/data';
-import { Loader, ArrowDown } from 'lucide-react';
+import { Loader, ArrowDown, Users } from 'lucide-react';
 import { BookingSheet } from '@/components/booking/BookingSheet';
 import { isSameDay, parseISO } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
@@ -27,6 +26,7 @@ import { BookingWelcome } from '@/components/booking/BookingWelcome';
 import { BookingMemberships } from '@/components/booking/BookingMemberships';
 import { BookingPackages } from '@/components/booking/BookingPackages';
 import { PurchaseSheet } from '@/components/booking/PurchaseSheet';
+import Link from 'next/link';
 
 export default function BookingPage() {
   const params = useParams();
@@ -260,9 +260,16 @@ export default function BookingPage() {
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: 0.5, duration: 0.5 }}
+                        className="flex flex-col sm:flex-row gap-4 items-center"
                     >
                         <Button size="lg" onClick={() => setEntered(true)}>
-                            Book Now
+                            Book an Appointment
+                        </Button>
+                        <Button size="lg" variant="outline" asChild>
+                            <Link href="/walk-in">
+                                <Users className="mr-2 h-5 w-5" />
+                                Join Walk-in List
+                            </Link>
                         </Button>
                     </motion.div>
                     <motion.div
@@ -294,8 +301,8 @@ export default function BookingPage() {
                 <BookingFAQ />
                 <BookingReviews />
                 <BookingGallery />
-                <BookingContact tenant={tenant} />
                 <BookingPolicies tenant={tenant} />
+                <BookingContact tenant={tenant} />
             </motion.div>
         )}
         </AnimatePresence>
