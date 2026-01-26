@@ -333,7 +333,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
   const handlePrevStep = () => {
     if (currentStepIndex > 0) {
-      setCurrentStepIndex(currentStepIndex + 1);
+      setCurrentStepIndex(currentStepIndex - 1);
     }
   };
 
