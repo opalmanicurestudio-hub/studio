@@ -205,9 +205,9 @@ const businessCategoriesTemplate = [
 ];
 
 const deepCopyTemplate = (template: any[]) => {
-  return template.map(category => ({
+  // Omit the 'icon' property from each category before saving to Firestore.
+  return template.map(({ icon, ...category }) => ({
     ...category,
-    icon: category.icon, // Keep the icon as a React element reference
     bills: category.bills.map((bill: any) => ({ ...bill }))
   }));
 };
