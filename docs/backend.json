@@ -263,6 +263,11 @@
             "type": "array",
             "description": "A list of skills required to perform this service.",
             "items": { "type": "string" }
+        },
+        "requiredResourceIds": {
+            "type": "array",
+            "description": "A list of resource IDs required for this service.",
+            "items": { "type": "string" }
         }
       },
       "required": [
@@ -453,6 +458,11 @@
         "automatedRescheduleOffered": {
             "type": "boolean",
             "description": "Indicates if an automated reschedule option has been offered to a late client."
+        },
+        "requiredResourceIds": {
+            "type": "array",
+            "description": "A list of resource IDs required for this appointment.",
+            "items": { "type": "string" }
         }
       },
       "required": [
@@ -726,6 +736,36 @@
             }
         },
         "required": ["id", "type", "label"]
+    },
+    "Resource": {
+      "title": "Resource",
+      "type": "object",
+      "description": "Represents a bookable physical asset, like a room or piece of equipment.",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string", "description": "e.g., 'Room', 'Equipment'" },
+        "capacity": { "type": "number", "description": "How many appointments can use this resource simultaneously (usually 1)." }
+      },
+      "required": ["id", "name", "type"]
+    },
+    "Class": {
+      "title": "Class",
+      "type": "object",
+      "description": "A group session or event that multiple clients can book.",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "startTime": { "type": "string", "format": "date-time" },
+        "endTime": { "type": "string", "format": "date-time" },
+        "staffId": { "type": "string" },
+        "capacity": { "type": "number" },
+        "attendees": { "type": "array", "items": { "type": "string" }, "description": "List of client IDs attending." },
+        "price": { "type": "number" },
+        "requiredResourceIds": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["id", "name", "startTime", "endTime", "capacity", "price"]
     }
   },
   "auth": {
@@ -847,6 +887,14 @@
         "$ref": "#/entities/ConsentForm"
       },
       "description": "Stores consent form templates created by the tenant."
+    },
+    "/tenants/{tenantId}/resources/{resourceId}": {
+      "schema": { "$ref": "#/entities/Resource" },
+      "description": "Bookable resources like rooms or equipment."
+    },
+    "/tenants/{tenantId}/classes/{classId}": {
+      "schema": { "$ref": "#/entities/Class" },
+      "description": "Scheduled classes or workshops."
     }
   }
 }

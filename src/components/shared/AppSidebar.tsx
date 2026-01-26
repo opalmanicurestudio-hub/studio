@@ -36,6 +36,8 @@ import {
   ListChecks,
   BarChart,
   PanelLeft,
+  BookText,
+  Hammer
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -65,7 +67,9 @@ export const ClarityFlowLogo = () => (
 const setupNavItems = [
   { href: '/financials', icon: Wallet, label: 'Financials' },
   { href: '/services', icon: List, label: 'Services' },
+  { href: '/classes', icon: BookText, label: 'Classes' },
   { href: '/inventory', icon: Box, label: 'Inventory' },
+  { href: '/resources', icon: Hammer, label: 'Resources' },
   { href: '/clients', icon: Users, label: 'Clients' },
   { href: '/staff', icon: Briefcase, label: 'Staff' },
   { href: '/memberships', icon: Gift, label: 'Memberships' },
