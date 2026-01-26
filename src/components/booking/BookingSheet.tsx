@@ -152,6 +152,10 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
   const { control, handleSubmit, register, formState: { errors } } = methods;
 
+  if (!service) {
+    return null;
+  }
+
   const qualifiedStaff = useMemo(() => {
     if (!service.requiredSkills || service.requiredSkills.length === 0) {
         return staff;
