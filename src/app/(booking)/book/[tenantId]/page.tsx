@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -19,6 +18,7 @@ import { BookingServices } from '@/components/booking/BookingServices';
 import { BookingTeam } from '@/components/booking/BookingTeam';
 import { BookingReviews } from '@/components/booking/BookingReviews';
 import { BookingPolicies } from '@/components/booking/BookingPolicies';
+import { BookingFAQ } from '@/components/booking/BookingFAQ';
 import { Button } from '@/components/ui/button';
 
 export default function BookingPage() {
@@ -196,6 +196,7 @@ export default function BookingPage() {
                 <BookingServices services={services || []} onServiceSelect={handleServiceSelect} />
                 <BookingTeam tenantId={tenantId} staff={staff || []} />
                 <BookingReviews />
+                <BookingFAQ />
                 <BookingPolicies tenant={tenant} />
             </motion.div>
         )}
