@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, KeyboardEvent, useEffect } from 'react';
@@ -45,7 +44,7 @@ import {
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CalendarIcon, PlusCircle, Trash2, DollarSign, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2, DollarSign, AlertTriangle, ChevronLeft, ChevronRight, Briefcase, User, Lock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type Event, type EventChecklistItem, type Appointment, type Staff, services as allServices } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, getDay, parse } from 'date-fns';
@@ -304,15 +303,24 @@ const AddEventForm = ({
                             <RadioGroup value={type} onValueChange={(v: any) => setType(v)} className="grid grid-cols-3 gap-2">
                                 <div>
                                     <RadioGroupItem value="business" id="business" className="peer sr-only" />
-                                    <Label htmlFor="business" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Business</Label>
+                                    <Label htmlFor="business" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
+                                        <Briefcase className="w-5 h-5 mb-2"/>
+                                        Business
+                                    </Label>
                                 </div>
                                 <div>
                                     <RadioGroupItem value="personal" id="personal" className="peer sr-only" />
-                                    <Label htmlFor="personal" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Personal</Label>
+                                    <Label htmlFor="personal" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
+                                        <User className="w-5 h-5 mb-2"/>
+                                        Personal
+                                    </Label>
                                 </div>
                                 <div>
                                     <RadioGroupItem value="blocked" id="blocked" className="peer sr-only" />
-                                    <Label htmlFor="blocked" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Blocked</Label>
+                                    <Label htmlFor="blocked" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
+                                        <Lock className="w-5 h-5 mb-2"/>
+                                        Blocked
+                                    </Label>
                                 </div>
                             </RadioGroup>
                         </div>
