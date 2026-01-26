@@ -7,7 +7,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useFirebase, useDoc, useCollection, useMemoFirebase } from '@/firebase';
 import { doc, collection, query, where, getDocs } from 'firebase/firestore';
 import { type Staff, type Service, Appointment, Event, ConsentForm, Tenant, Client } from '@/lib/data';
-import { Loader, ArrowLeft, Clock, DollarSign, BookOpen, Award, Users, Star, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pinterest } from 'lucide-react';
+import { Loader, ArrowLeft, Clock, DollarSign, BookOpen, Award, Users, Star, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pin } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -226,7 +226,7 @@ export default function StaffDetailPage() {
             {staffMember.pinterestUrl && (
                 <Button variant="outline" size="icon" asChild>
                     <a href={staffMember.pinterestUrl} target="_blank" rel="noopener noreferrer">
-                        <Pinterest className="h-5 w-5" />
+                        <Pin className="h-5 w-5" />
                     </a>
                 </Button>
             )}
