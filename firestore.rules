@@ -192,10 +192,10 @@ service cloud.firestore {
     }
     
      /**
-     * @description Rules for group classes or workshops.
-     * @path /tenants/{tenantId}/classes/{classId}
+     * @description Rules for bookable resources.
+     * @path /tenants/{tenantId}/resources/{resourceId}
      */
-    match /tenants/{tenantId}/classes/{classId} {
+    match /tenants/{tenantId}/resources/{resourceId} {
       allow get, list: if true;
       allow write: if isTenantOwner(tenantId) || isStaff(tenantId);
     }

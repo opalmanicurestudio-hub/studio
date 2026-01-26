@@ -193,6 +193,7 @@ export type Service = {
   capacity?: number;
   fixedCost?: number;
   costPerAttendee?: number;
+  requiredResourceIds?: string[];
 };
 
 export type Batch = {
@@ -277,6 +278,7 @@ export type Appointment = {
   checkInToken?: string;
   lateTimeMinutes?: number;
   automatedRescheduleOffered?: boolean;
+  requiredResourceIds?: string[];
 };
 
 export type EventChecklistItem = {
@@ -426,6 +428,13 @@ export type Tenant = {
   smsNotificationMessage?: string;
 };
 
+export type Resource = {
+  id: string;
+  name: string;
+  type: 'room' | 'equipment';
+  capacity?: number;
+  inventoryItemId?: string;
+};
 
 export type Bill = BillDefinition;
 export const bills: Bill[] = billDefinitions;

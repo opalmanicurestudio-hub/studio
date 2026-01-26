@@ -289,6 +289,19 @@
         "price"
       ]
     },
+    "Resource": {
+      "title": "Resource",
+      "type": "object",
+      "description": "Represents a bookable asset, like a room or a specific piece of equipment.",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["room", "equipment"] },
+        "capacity": { "type": "number", "description": "Number of clients this resource can accommodate at once." },
+        "inventoryItemId": { "type": "string", "description": "The ID of the linked inventory item, if this is an equipment resource." }
+      },
+      "required": ["id", "name", "type"]
+    },
     "Product": {
       "title": "Product",
       "type": "object",
@@ -792,6 +805,12 @@
       },
       "description": "Services offered by a specific tenant."
     },
+    "/tenants/{tenantId}/resources/{resourceId}": {
+      "schema": {
+        "$ref": "#/entities/Resource"
+      },
+      "description": "Bookable assets like rooms or specific equipment."
+    },
     "/tenants/{tenantId}/products/{productId}": {
       "schema": {
         "$ref": "#/entities/Product"
@@ -872,3 +891,4 @@
     }
   }
 }
+

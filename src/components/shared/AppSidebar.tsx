@@ -37,7 +37,8 @@ import {
   BarChart,
   PanelLeft,
   BookText,
-  Hammer
+  Hammer,
+  HardHat
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -68,6 +69,7 @@ const setupNavItems = [
   { href: '/financials', icon: Wallet, label: 'Financials' },
   { href: '/services', icon: List, label: 'Services' },
   { href: '/inventory', icon: Box, label: 'Inventory' },
+  { href: '/resources', icon: HardHat, label: 'Resources' },
   { href: '/clients', icon: Users, label: 'Clients' },
   { href: '/staff', icon: Briefcase, label: 'Staff' },
   { href: '/memberships', icon: Gift, label: 'Memberships' },
