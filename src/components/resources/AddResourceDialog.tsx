@@ -95,7 +95,7 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
             Add a room, station, or piece of equipment to be scheduled.
           </DialogDescription>
         </DialogHeader>
-        <form id="add-resource-form" onSubmit={handleSubmit(handleSave)}>
+        <form onSubmit={handleSubmit(handleSave)}>
           <div className="grid gap-6 py-4">
             <Controller
               name="type"
@@ -145,13 +145,13 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
               {errors.capacity && <p className="text-sm text-destructive">{errors.capacity.message}</p>}
             </div>
           </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)} type="button">
+              Cancel
+            </Button>
+            <Button type="submit">Save Resource</Button>
+          </DialogFooter>
         </form>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} type="button">
-            Cancel
-          </Button>
-          <Button type="submit" form="add-resource-form">Save Resource</Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
