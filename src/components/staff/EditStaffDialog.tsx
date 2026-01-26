@@ -41,7 +41,7 @@ import { PhoneInput } from '@/components/ui/phone-input';
 import { type Staff, type Service, type DayHours } from '@/lib/data';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '../ui/scroll-area';
-import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2, Clock } from 'lucide-react';
+import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2, Clock, Instagram, Link as LinkIcon } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { buttonVariants } from '../ui/button';
@@ -108,6 +108,8 @@ const editStaffSchema = z.object({
   avatarUrl: z.string().optional(),
   bio: z.string().optional(),
   specialties: z.string().optional(),
+  instagramUrl: z.string().url({ message: "Please enter a valid URL." }).optional().or(z.literal('')),
+  portfolioUrl: z.string().url({ message: "Please enter a valid URL." }).optional().or(z.literal('')),
   role: z.enum(['admin', 'staff']),
   payStructure: z.enum(['commission', 'hourly', 'salary']),
   commissionRate: z.coerce.number().min(0).max(100).optional(),
@@ -204,6 +206,24 @@ const EditStaffForm = ({ services }: { services: Service[] }) => {
                             </div>
                             <div className="space-y-2 mt-4"><Label htmlFor="bio">Bio</Label><Textarea id="bio" placeholder="A short bio for their public profile..." {...register('bio')} /></div>
                             <div className="space-y-2 mt-4"><Label htmlFor="specialties">Specialties</Label><Input id="specialties" placeholder="e.g., Balayage, Nail Art, Vivid Colors" {...register('specialties')} /><p className="text-xs text-muted-foreground">Enter specialties separated by commas.</p></div>
+                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="instagramUrl">Instagram URL</Label>
+                                    <div className="relative">
+                                        <Instagram className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input id="instagramUrl" placeholder="https://instagram.com/..." {...register('instagramUrl')} className="pl-9" />
+                                    </div>
+                                    {errors.instagramUrl && <p className="text-sm text-destructive">{errors.instagramUrl.message}</p>}
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="portfolioUrl">Portfolio URL</Label>
+                                    <div className="relative">
+                                        <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input id="portfolioUrl" placeholder="https://your-portfolio.com" {...register('portfolioUrl')} className="pl-9" />
+                                    </div>
+                                    {errors.portfolioUrl && <p className="text-sm text-destructive">{errors.portfolioUrl.message}</p>}
+                                </div>
+                            </div>
                         </AccordionContent>
                     </AccordionItem>
                     <AccordionItem value="item-availability" className="border rounded-lg">
@@ -340,6 +360,8 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
             ...staffMember,
             specialties: specialtiesString,
             avatarUrl: staffMember.avatarUrl || '',
+            instagramUrl: staffMember.instagramUrl || '',
+            portfolioUrl: staffMember.portfolioUrl || '',
             compliance: {
                 ...staffMember.compliance,
                 licenseExpiry: staffMember.compliance?.licenseExpiry ? parseISO(staffMember.compliance.licenseExpiry) : undefined,

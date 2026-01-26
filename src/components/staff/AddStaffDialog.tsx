@@ -41,13 +41,14 @@ import { PhoneInput } from '@/components/ui/phone-input';
 import { type Staff, type Service } from '@/lib/data';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '../ui/scroll-area';
-import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2, BookText } from 'lucide-react';
+import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2, BookText, Instagram, Link as LinkIcon } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { buttonVariants } from '../ui/button';
 import { nanoid } from 'nanoid';
 import { SelectServicesDialog } from './SelectServicesDialog';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { Switch } from '../ui/switch';
 
 const addStaffSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
@@ -56,6 +57,8 @@ const addStaffSchema = z.object({
   avatarUrl: z.string().optional(),
   bio: z.string().optional(),
   specialties: z.string().optional(),
+  instagramUrl: z.string().url({ message: "Please enter a valid URL." }).optional().or(z.literal('')),
+  portfolioUrl: z.string().url({ message: "Please enter a valid URL." }).optional().or(z.literal('')),
   role: z.enum(['admin', 'staff']),
   payStructure: z.enum(['commission', 'hourly', 'salary']),
   commissionRate: z.coerce.number().min(0).max(100).optional(),
@@ -141,6 +144,24 @@ const AddStaffForm = ({ services }: { services: Service[] }) => {
                             </div>
                             <div className="space-y-2 mt-4"><Label htmlFor="bio">Bio</Label><Textarea id="bio" placeholder="A short bio for their public profile..." {...register('bio')} /></div>
                             <div className="space-y-2 mt-4"><Label htmlFor="specialties">Specialties</Label><Input id="specialties" placeholder="e.g., Balayage, Nail Art, Vivid Colors" {...register('specialties')} /><p className="text-xs text-muted-foreground">Enter specialties separated by commas.</p></div>
+                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="instagramUrl">Instagram URL</Label>
+                                    <div className="relative">
+                                        <Instagram className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input id="instagramUrl" placeholder="https://instagram.com/..." {...register('instagramUrl')} className="pl-9" />
+                                    </div>
+                                    {errors.instagramUrl && <p className="text-sm text-destructive">{errors.instagramUrl.message}</p>}
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="portfolioUrl">Portfolio URL</Label>
+                                    <div className="relative">
+                                        <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input id="portfolioUrl" placeholder="https://your-portfolio.com" {...register('portfolioUrl')} className="pl-9" />
+                                    </div>
+                                    {errors.portfolioUrl && <p className="text-sm text-destructive">{errors.portfolioUrl.message}</p>}
+                                </div>
+                            </div>
                         </AccordionContent>
                     </AccordionItem>
                      <AccordionItem value="item-services" className="border rounded-lg">
@@ -276,7 +297,6 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
     const staffDataToSave: Omit<Staff, 'id' | 'avatarUrl'> = {
         ...data,
         specialties: data.specialties?.split(',').map(s => s.trim()).filter(s => s),
-        avatarUrl: data.avatarUrl || `https://picsum.photos/seed/${nanoid()}/100`,
         commissionRate: data.commissionRate || 0,
         hourlyRate: data.hourlyRate,
         services: data.services || [],
