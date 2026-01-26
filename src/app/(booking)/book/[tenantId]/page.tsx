@@ -3,9 +3,9 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useFirebase, useCollection, useMemoFirebase, useDoc, addDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, useDoc, addDocumentNonBlocking, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { collection, doc, query, where, getDocs } from 'firebase/firestore';
-import { type Service, type Staff, type Tenant, type Appointment, type Event, type ConsentForm, type Client } from '@/lib/data';
+import { type Service, type Staff, type Tenant, type Appointment, type Event, type ConsentForm, type Client, memberships, packages, type Membership, type Package } from '@/lib/data';
 import { Loader, ArrowDown } from 'lucide-react';
 import { BookingSheet } from '@/components/booking/BookingSheet';
 import { isSameDay, parseISO } from 'date-fns';
@@ -23,6 +23,9 @@ import { Button } from '@/components/ui/button';
 import { BookingFAQ } from '@/components/booking/BookingFAQ';
 import { BookingContact } from '@/components/booking/BookingContact';
 import { BookingWelcome } from '@/components/booking/BookingWelcome';
+import { BookingMemberships } from '@/components/booking/BookingMemberships';
+import { BookingPackages } from '@/components/booking/BookingPackages';
+import { PurchaseSheet } from '@/components/booking/PurchaseSheet';
 
 export default function BookingPage() {
   const params = useParams();
@@ -35,6 +38,9 @@ export default function BookingPage() {
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [itemToPurchase, setItemToPurchase] = useState<Membership | Package | null>(null);
+  const [purchaseType, setPurchaseType] = useState<'membership' | 'package' | null>(null);
+  const [isPurchaseSheetOpen, setIsPurchaseSheetOpen] = useState(false);
 
   // Fetch Tenant, Services, and Staff data
   const tenantDocRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
@@ -74,6 +80,12 @@ export default function BookingPage() {
   const handleServiceSelect = (service: Service) => {
     setSelectedService(service);
     setIsSheetOpen(true);
+  };
+
+  const handlePurchase = (item: Membership | Package, type: 'membership' | 'package') => {
+    setItemToPurchase(item);
+    setPurchaseType(type);
+    setIsPurchaseSheetOpen(true);
   };
   
   const handleConfirmBooking = async (
@@ -144,6 +156,83 @@ export default function BookingPage() {
     }
   };
 
+  const handleConfirmPurchase = async (formData: { clientName: string; clientEmail: string; clientPhone?: string }, item: Membership | Package, type: 'membership' | 'package') => {
+    if (!firestore) return;
+    setIsSubmitting(true);
+    try {
+      const clientsRef = collection(firestore, 'tenants', tenantId, 'clients');
+      const q = query(clientsRef, where("email", "==", formData.clientEmail.toLowerCase()));
+      const querySnapshot = await getDocs(q);
+
+      let clientId: string;
+      let client: Client;
+
+      if (querySnapshot.empty) {
+        const newClientRef = doc(clientsRef);
+        clientId = newClientRef.id;
+        const newClientData: Omit<Client, 'id'> = {
+            name: formData.clientName,
+            email: formData.clientEmail,
+            phone: formData.clientPhone || '',
+            avatarUrl: `https://picsum.photos/seed/${clientId}/100/100`,
+            lifetimeValue: item.price,
+            lastAppointment: new Date().toISOString(),
+            status: 'active',
+        };
+        client = { ...newClientData, id: clientId };
+        await setDocumentNonBlocking(newClientRef, client);
+        toast({ title: "Welcome!", description: "A new client profile has been created for you." });
+      } else {
+        const existingClientDoc = querySnapshot.docs[0];
+        clientId = existingClientDoc.id;
+        client = existingClientDoc.data() as Client;
+        const clientDocRef = doc(firestore, 'tenants', tenantId, 'clients', clientId);
+        await updateDocumentNonBlocking(clientDocRef, { lifetimeValue: (client.lifetimeValue || 0) + item.price });
+      }
+      
+      const clientDocRef = doc(firestore, 'tenants', tenantId, 'clients', clientId);
+
+      if (type === 'membership') {
+          await updateDocumentNonBlocking(clientDocRef, { activeMembershipId: item.id });
+      } else { // package
+          const existingPackages = client.activePackages || [];
+          const newPackage = {
+              packageId: item.id,
+              sessionsRemaining: (item as Package).sessions
+          };
+          await updateDocumentNonBlocking(clientDocRef, { activePackages: [...existingPackages, newPackage] });
+      }
+
+      const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+      const newTransaction = {
+          date: new Date().toISOString(),
+          description: `Purchase: ${item.name}`,
+          clientOrVendor: client.name,
+          type: 'income' as const,
+          context: 'Business' as const,
+          category: type === 'membership' ? 'Membership Sales' : 'Package Sales',
+          amount: item.price,
+          paymentMethod: 'Card Online',
+          hasReceipt: true,
+      };
+      await addDocumentNonBlocking(transactionsRef, newTransaction);
+
+
+      toast({
+        title: 'Purchase Successful!',
+        description: `Your ${type} is now active.`,
+      });
+      setIsPurchaseSheetOpen(false);
+
+    } catch (error) {
+        console.error("Purchase error:", error);
+        toast({ variant: 'destructive', title: "Purchase Failed", description: "Could not complete your purchase. Please try again." });
+    } finally {
+        setIsSubmitting(false);
+    }
+  };
+
+
   const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || appointmentsLoading || eventsLoading || consentFormsLoading;
 
   if (isLoading) {
@@ -198,12 +287,14 @@ export default function BookingPage() {
                 <BookingHeader tenant={tenant} />
                 <BookingWelcome tenant={tenant} />
                 <BookingServices services={services || []} onServiceSelect={handleServiceSelect} />
+                <BookingMemberships memberships={memberships || []} onPurchase={(item) => handlePurchase(item, 'membership')} />
+                <BookingPackages packages={packages || []} services={services || []} onPurchase={(item) => handlePurchase(item, 'package')} />
                 <BookingTeam tenantId={tenantId} staff={staff || []} />
                 <BookingReviews />
-                <BookingFAQ />
                 <BookingGallery />
                 <BookingContact tenant={tenant} />
                 <BookingPolicies tenant={tenant} />
+                <BookingFAQ />
             </motion.div>
         )}
         </AnimatePresence>
@@ -224,6 +315,16 @@ export default function BookingPage() {
                 onConfirm={handleConfirmBooking}
             />
         )}
+        {itemToPurchase && purchaseType && (
+            <PurchaseSheet
+                open={isPurchaseSheetOpen}
+                onOpenChange={setIsPurchaseSheetOpen}
+                item={itemToPurchase}
+                type={purchaseType}
+                onConfirm={handleConfirmPurchase}
+            />
+        )}
     </div>
   );
 }
+
