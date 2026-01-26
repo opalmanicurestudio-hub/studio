@@ -20,7 +20,7 @@ import { Badge } from '@/components/ui/badge';
 import Image from 'next/image';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { format, differenceInMonths, parseISO, differenceInYears } from 'date-fns';
-import { type MaintenanceRecord, services, appointments, clients, type LifespanTestResult, type InventoryItem } from '@/lib/data';
+import { type MaintenanceRecord, type Service, appointments as initialAppointments, clients as initialClients, type LifespanTestResult, type InventoryItem } from '@/lib/data';
 import {
   Dialog,
   DialogContent,
@@ -140,7 +140,7 @@ const LogMaintenanceDialog = ({
 
 export default function EquipmentDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { inventory, setInventory, locations } = useInventory();
+  const { inventory, setInventory, locations, services, appointments, clients } = useInventory();
   const [isLogMaintenanceOpen, setIsLogMaintenanceOpen] = useState(false);
   const [isEndExperimentOpen, setIsEndExperimentOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -185,7 +185,7 @@ export default function EquipmentDetailPage() {
   }, [equipment]);
   
   const usageHistory = useMemo(() => {
-    if (!equipment) return [];
+    if (!equipment || !appointments) return [];
     
     return appointments
       .filter(apt => {
@@ -198,9 +198,9 @@ export default function EquipmentDetailPage() {
           client: clients.find(c => c.id === apt.clientId),
           service: services.find(s => s.id === apt.serviceId),
       }))
-      .sort((a,b) => b.endTime.getTime() - a.endTime.getTime());
+      .sort((a,b) => parseISO(b.endTime).getTime() - parseISO(a.endTime).getTime());
 
-  }, [equipment]);
+  }, [equipment, appointments, services, clients]);
 
   const handleSaveMaintenance = (entry: Omit<MaintenanceRecord, 'id'>) => {
     if (!equipment) return;
@@ -235,7 +235,6 @@ export default function EquipmentDetailPage() {
                 lastTestResult: results,
             };
             
-            // If it's a product, update estimatedUses. If equipment, update actualLifespanMonths.
             if (item.type === 'professional' || item.type === 'retail') {
                 updatedItem.estimatedUses = results.actualLifespanMonths; // Re-using this field for actual uses
             } else if (item.type === 'equipment') {
@@ -415,7 +414,7 @@ export default function EquipmentDetailPage() {
                             {usageHistory.length > 0 ? (
                                 usageHistory.map(apt => (
                                     <TableRow key={apt.id}>
-                                        <TableCell>{format(apt.endTime, 'MMM d, yyyy')}</TableCell>
+                                        <TableCell>{format(parseISO(apt.endTime), 'MMM d, yyyy')}</TableCell>
                                         <TableCell>
                                             <div className='flex items-center gap-2'>
                                                  <User className="h-4 w-4 text-muted-foreground"/>

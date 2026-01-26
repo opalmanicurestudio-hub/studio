@@ -191,14 +191,6 @@ service cloud.firestore {
       allow delete: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
     }
     
-    /**
-     * @description Rules for bookable resources like rooms or equipment.
-     * @path /tenants/{tenantId}/resources/{resourceId}
-     */
-    match /tenants/{tenantId}/resources/{resourceId} {
-      allow read, write: if isTenantOwner(tenantId) || isStaff(tenantId);
-    }
-    
      /**
      * @description Rules for group classes or workshops.
      * @path /tenants/{tenantId}/classes/{classId}

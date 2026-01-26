@@ -748,18 +748,6 @@
             }
         },
         "required": ["id", "type", "label"]
-    },
-    "Resource": {
-      "title": "Resource",
-      "type": "object",
-      "description": "Represents a bookable physical asset, like a room or piece of equipment.",
-      "properties": {
-        "id": { "type": "string" },
-        "name": { "type": "string" },
-        "type": { "type": "string", "description": "e.g., 'Room', 'Equipment'" },
-        "capacity": { "type": "number", "description": "How many appointments can use this resource simultaneously (usually 1)." }
-      },
-      "required": ["id", "name", "type"]
     }
   },
   "auth": {
@@ -881,11 +869,6 @@
         "$ref": "#/entities/ConsentForm"
       },
       "description": "Stores consent form templates created by the tenant."
-    },
-    "/tenants/{tenantId}/resources/{resourceId}": {
-      "schema": { "$ref": "#/entities/Resource" },
-      "description": "Bookable resources like rooms or equipment."
     }
   }
 }
-
