@@ -4,8 +4,8 @@
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square } from 'lucide-react';
-import { type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState } from '@/lib/data';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, Building, HardHat } from 'lucide-react';
+import { type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState, type Resource } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping } from 'date-fns';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -66,8 +66,9 @@ import { WalkIn, type Client, type Service } from '@/lib/data';
 
 export const DayTimeline = ({ 
     date, 
-    staff,
-    itemsByStaff,
+    columns,
+    itemsByColumn,
+    showColumnHeader,
     onCompleteClick, 
     onUpdateStatus, 
     onDeleteAppointment, 
@@ -88,11 +89,11 @@ export const DayTimeline = ({
     walkIns,
     clients,
     services,
-    showStaffColumnHeader,
 }: { 
     date: Date; 
-    staff: Staff[];
-    itemsByStaff: Map<string, (Appointment | Event)[]>;
+    columns: (Staff | Resource)[];
+    itemsByColumn: Map<string, (Appointment | Event)[]>;
+    showColumnHeader: boolean;
     onCompleteClick: (apt: Appointment) => void; 
     onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void; 
     onDeleteAppointment: (appointmentId: string) => void; 
@@ -113,7 +114,6 @@ export const DayTimeline = ({
     walkIns: WalkIn[] | null;
     clients: Client[] | null;
     services: Service[] | null;
-    showStaffColumnHeader: boolean;
 }) => {
     const START_HOUR = 0; // Start at midnight
     const hours = Array.from({ length: 24 - START_HOUR }, (_, i) => i + START_HOUR);
@@ -128,11 +128,10 @@ export const DayTimeline = ({
       }
     }, []);
 
-    const staffSchedules = useMemo(() => {
-        return staff.map(staffMember => {
-            const staffItems = itemsByStaff.get(staffMember.id) || [];
-            
-            let layoutInfo = staffItems.map(item => ({
+    const positionedItemsByColumn = useMemo(() => {
+        const positionedMap = new Map<string, any[]>();
+        for (const [columnId, items] of itemsByColumn.entries()) {
+            let layoutInfo = items.map(item => ({
                 ...item,
                 layout: { cols: 0, col: 0 }
             }));
@@ -140,7 +139,6 @@ export const DayTimeline = ({
             function positionCluster(cluster: any[]) {
                 cluster.sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
                 
-                // On mobile, all items take up the full width of the column to avoid being squished.
                 if (isMobile) {
                     for (const item of cluster) {
                         item.layout = { cols: 1, col: 0 };
@@ -162,7 +160,6 @@ export const DayTimeline = ({
                     }
                     if (!placed) {
                         columns.push([item]);
-                        item.layout.col = columns.length - 1;
                         item.layout.col = columns.length - 1;
                     }
                 }
@@ -193,10 +190,10 @@ export const DayTimeline = ({
                     left: `${(100 / item.layout.cols) * item.layout.col}%`,
                 }
             }));
-
-            return { staffMember, positionedItems };
-        });
-    }, [staff, itemsByStaff, isMobile]);
+            positionedMap.set(columnId, positionedItems);
+        }
+        return positionedMap;
+    }, [itemsByColumn, isMobile]);
 
     const renderAppointment = (item: any) => {
         const dayStart = setHours(startOfDay(date), START_HOUR);
@@ -326,10 +323,10 @@ export const DayTimeline = ({
                 behavior: 'smooth'
             });
         }
-    }, [date, staff]); // Rerun when date or staff changes
+    }, [date, columns]); // Rerun when date or staff changes
 
     const gridStyle = {
-      gridTemplateColumns: `repeat(${staff.length}, minmax(${isMobile ? '0' : '250px'}, 1fr))`
+      gridTemplateColumns: `repeat(${columns.length}, minmax(${isMobile ? '0' : '250px'}, 1fr))`
     };
 
     return (
@@ -338,12 +335,18 @@ export const DayTimeline = ({
                 
                 <div className="sticky top-0 z-30 bg-background h-14 border-b border-r grid" style={{ width: isMobile ? '40px' : '48px' }} />
                 <div className="sticky top-0 z-20 grid col-start-2 bg-background" style={gridStyle}>
-                    {staff.map(staffMember => (
-                        <div key={staffMember.id} className="p-2 h-14 border-b border-r text-center flex items-center justify-center">
-                            {showStaffColumnHeader && (
+                    {columns.map(column => (
+                        <div key={column.id} className="p-2 h-14 border-b border-r text-center flex items-center justify-center">
+                            {showColumnHeader && (
                                 <div className="flex items-center justify-center gap-2 h-full">
-                                    <Avatar className="w-6 h-6"><AvatarImage src={staffMember.avatarUrl} /><AvatarFallback>{staffMember.name.charAt(0)}</AvatarFallback></Avatar>
-                                    <p className="font-semibold text-sm truncate">{staffMember.name}</p>
+                                    {'avatarUrl' in column ? (
+                                        <Avatar className="w-6 h-6"><AvatarImage src={(column as Staff).avatarUrl} /><AvatarFallback>{column.name.charAt(0)}</AvatarFallback></Avatar>
+                                    ) : (
+                                        <div className="w-6 h-6 flex items-center justify-center">
+                                            {(column as Resource).type === 'room' ? <Building className="w-5 h-5 text-muted-foreground" /> : <HardHat className="w-5 h-5 text-muted-foreground" />}
+                                        </div>
+                                    )}
+                                    <p className="font-semibold text-sm truncate">{column.name}</p>
                                 </div>
                             )}
                         </div>
@@ -361,23 +364,26 @@ export const DayTimeline = ({
 
                 {/* Main content grid */}
                 <div className="col-start-2 grid relative" style={gridStyle}>
-                    {staffSchedules.map(({ staffMember, positionedItems }) => (
-                        <div key={staffMember.id} className="relative border-r">
-                            {/* Grid lines */}
-                            {hours.map(hour => (
-                                <div key={hour} className="h-40 border-b border-dashed" />
-                            ))}
-                            {/* Items */}
-                            {positionedItems.map(item => {
-                                if ((item as any).itemType === 'appointment') {
-                                    return renderAppointment(item);
-                                } else if ((item as any).itemType === 'event') {
-                                    return renderEvent(item);
-                                }
-                                return null;
-                            })}
-                        </div>
-                    ))}
+                    {columns.map(column => {
+                        const positionedItems = positionedItemsByColumn.get(column.id) || [];
+                        return (
+                            <div key={column.id} className="relative border-r">
+                                {/* Grid lines */}
+                                {hours.map(hour => (
+                                    <div key={hour} className="h-40 border-b border-dashed" />
+                                ))}
+                                {/* Items */}
+                                {positionedItems.map(item => {
+                                    if ((item as any).itemType === 'appointment') {
+                                        return renderAppointment(item);
+                                    } else if ((item as any).itemType === 'event') {
+                                        return renderEvent(item);
+                                    }
+                                    return null;
+                                })}
+                            </div>
+                        )
+                    })}
 
                     {isToday(date) && <TimeIndicator />}
                 </div>

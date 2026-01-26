@@ -4,8 +4,8 @@
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, QrCode, Globe } from 'lucide-react';
-import { type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState } from '@/lib/data';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, QrCode, Globe, Building, HardHat } from 'lucide-react';
+import { type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState, type Resource } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping } from 'date-fns';
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
@@ -75,6 +75,7 @@ import { BillsDueSheet } from '@/components/planner/BillsDueSheet';
 import { Html5Qrcode } from 'html5-qrcode';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 import Link from 'next/link';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 
 export default function PlannerPage() {
@@ -121,6 +122,8 @@ export default function PlannerPage() {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannedData, setScannedData] = useState<string | null>(null);
 
+  const [activeView, setActiveView] = useState('staff');
+
   // --- Data Fetching ---
   const billDefinitionsQuery = useMemoFirebase(() => {
     if (isUserLoading || !user || !firestore) return null;
@@ -166,6 +169,12 @@ export default function PlannerPage() {
     if (!firestore || !user) return null;
     return collection(firestore, `tenants/${tenantId}/scheduleProfiles`);
   }, [firestore, user, tenantId]);
+
+  const resourcesQuery = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    return collection(firestore, `tenants/${tenantId}/resources`);
+  }, [firestore, user, tenantId]);
+
   const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
 
   const { data: fetchedBillDefinitions, isLoading: billDefinitionsLoading } = useCollection<BillDefinition>(billDefinitionsQuery);
@@ -176,6 +185,7 @@ export default function PlannerPage() {
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
   const { data: fetchedEvents, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
+  const { data: resources, isLoading: resourcesLoading } = useCollection<Resource>(resourcesQuery);
 
   useEffect(() => {
     if (staff && staff.length > 0 && !mobileSelectedStaffId) {
@@ -340,6 +350,30 @@ const events = useMemo(() => {
 
     return map;
   }, [currentDate, appointments, events, staff]);
+  
+    const itemsByResource = useMemo(() => {
+        const map = new Map<string, (Appointment | Event)[]>();
+        if (!resources) return map;
+        resources.forEach(res => map.set(res.id, []));
+
+        (appointments || [])
+        .filter(apt => apt.requiredResourceIds && isSameDay(apt.startTime, currentDate))
+        .forEach(apt => {
+            apt.requiredResourceIds!.forEach(resourceId => {
+                if (map.has(resourceId)) {
+                    map.get(resourceId)!.push({ ...apt, itemType: 'appointment' });
+                }
+            });
+        });
+
+        // Events don't currently have resources, so we only handle appointments.
+
+        map.forEach(items => {
+            items.sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+        });
+
+        return map;
+    }, [currentDate, appointments, resources]);
 
   const staffToDisplay = useMemo(() => {
     if (isMobile) {
@@ -350,7 +384,7 @@ const events = useMemo(() => {
     return staff || [];
   }, [isMobile, mobileSelectedStaffId, staff]);
 
-  const itemsToDisplay = useMemo(() => {
+  const staffItemsToDisplay = useMemo(() => {
       if (isMobile) {
           if (!mobileSelectedStaffId || !itemsByStaff.has(mobileSelectedStaffId)) return new Map();
           return new Map([[mobileSelectedStaffId, itemsByStaff.get(mobileSelectedStaffId)!]]);
@@ -975,7 +1009,9 @@ const events = useMemo(() => {
   
   const showStaffColumnHeader = !isMobile;
 
-  if (!hasMounted || isUserLoading || appointmentsLoading || servicesLoading || clientsLoading || walkInsLoading || staffLoading || eventsLoading || billDefinitionsLoading || billInstancesLoading || scheduleProfilesLoading) {
+  const isLoading = isUserLoading || appointmentsLoading || servicesLoading || clientsLoading || walkInsLoading || staffLoading || eventsLoading || billDefinitionsLoading || billInstancesLoading || scheduleProfilesLoading || resourcesLoading;
+
+  if (!hasMounted || isLoading) {
     return (
       <div className="flex h-screen w-full flex-col">
         <AppHeaderClient title="Planner" />
@@ -1135,6 +1171,12 @@ const events = useMemo(() => {
                 <Button size="sm" onClick={() => setIsAddEventOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Event</Button>
                 <Button size="sm" onClick={() => setIsAddAppointmentOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Appointment</Button>
             </div>
+             <Tabs value={activeView} onValueChange={setActiveView} className="pt-2">
+                <TabsList>
+                    <TabsTrigger value="staff">Staff View</TabsTrigger>
+                    <TabsTrigger value="resources">Resource View</TabsTrigger>
+                </TabsList>
+            </Tabs>
         </div>
       </div>
 
@@ -1164,7 +1206,7 @@ const events = useMemo(() => {
     </div>
       
       <main className="flex-1 flex flex-col min-h-0">
-          {isMobile && (
+          {isMobile && activeView === 'staff' && (
             <div className="p-4 border-b">
               <Label htmlFor="staff-selector">Viewing Schedule For</Label>
               <Select value={mobileSelectedStaffId} onValueChange={setMobileSelectedStaffId}>
@@ -1197,32 +1239,64 @@ const events = useMemo(() => {
               </Select>
             </div>
           )}
-          <DayTimeline 
-              date={currentDate} 
-              staff={staffToDisplay}
-              itemsByStaff={itemsToDisplay}
-              onCompleteClick={handleCompleteClick} 
-              onUpdateStatus={handleUpdateStatus}
-              onDeleteAppointment={handleDeleteAppointment} 
-              onPrintReceipt={handlePrintReceipt}
-              onPrintTicket={handlePrintTicket}
-              onEditAppointment={handleEditClick}
-              onEditEvent={handleEditEventClick}
-              onChecklistItemToggle={handleChecklistItemToggle}
-              onUpdateEvent={handleUpdateEvent}
-              dailyTransactions={dailyTransactions}
-              onAddTransaction={addTransaction}
-              onReschedule={handleRescheduleClick}
-              onRebook={handleRebook}
-              onOpenPickingList={() => setIsPickingListOpen(true)}
-              onStartService={handleStartService}
-              onFinishService={handleFinishService}
-              onBookNewForClient={handleBookNewAppointmentForClient}
-              walkIns={walkIns}
-              clients={clients}
-              services={services}
-              showStaffColumnHeader={showStaffColumnHeader}
-          />
+
+           {activeView === 'staff' && (
+            <DayTimeline 
+                date={currentDate} 
+                columns={staffToDisplay}
+                itemsByColumn={staffItemsToDisplay}
+                showColumnHeader={showStaffColumnHeader}
+                onCompleteClick={handleCompleteClick} 
+                onUpdateStatus={handleUpdateStatus}
+                onDeleteAppointment={handleDeleteAppointment} 
+                onPrintReceipt={handlePrintReceipt}
+                onPrintTicket={handlePrintTicket}
+                onEditAppointment={handleEditClick}
+                onEditEvent={handleEditEventClick}
+                onChecklistItemToggle={handleChecklistItemToggle}
+                onUpdateEvent={handleUpdateEvent}
+                dailyTransactions={dailyTransactions}
+                onAddTransaction={addTransaction}
+                onReschedule={handleRescheduleClick}
+                onRebook={handleRebook}
+                onOpenPickingList={() => setIsPickingListOpen(true)}
+                onStartService={handleStartService}
+                onFinishService={handleFinishService}
+                onBookNewForClient={handleBookNewAppointmentForClient}
+                walkIns={walkIns}
+                clients={clients}
+                services={services}
+            />
+          )}
+
+          {activeView === 'resources' && (
+             <DayTimeline 
+                date={currentDate} 
+                columns={resources || []}
+                itemsByColumn={itemsByResource}
+                showColumnHeader={true}
+                onCompleteClick={handleCompleteClick} 
+                onUpdateStatus={handleUpdateStatus}
+                onDeleteAppointment={handleDeleteAppointment} 
+                onPrintReceipt={handlePrintReceipt}
+                onPrintTicket={handlePrintTicket}
+                onEditAppointment={handleEditClick}
+                onEditEvent={handleEditEventClick}
+                onChecklistItemToggle={handleChecklistItemToggle}
+                onUpdateEvent={handleUpdateEvent}
+                dailyTransactions={dailyTransactions}
+                onAddTransaction={addTransaction}
+                onReschedule={handleRescheduleClick}
+                onRebook={handleRebook}
+                onOpenPickingList={() => setIsPickingListOpen(true)}
+                onStartService={onStartService}
+                onFinishService={handleFinishService}
+                onBookNewForClient={handleBookNewAppointmentForClient}
+                walkIns={walkIns}
+                clients={clients}
+                services={services}
+            />
+          )}
       </main>
       {selectedAppointmentData && (
         <CompleteAppointmentDialog
