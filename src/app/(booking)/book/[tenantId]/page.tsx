@@ -1,7 +1,8 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useFirebase, useCollection, useMemoFirebase, useDoc, addDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
 import { collection, doc, query, where, getDocs } from 'firebase/firestore';
 import { type Service, type Staff, type Tenant, type Appointment, type Event, type ConsentForm, type Client } from '@/lib/data';
@@ -18,11 +19,13 @@ import { BookingServices } from '@/components/booking/BookingServices';
 import { BookingTeam } from '@/components/booking/BookingTeam';
 import { BookingReviews } from '@/components/booking/BookingReviews';
 import { BookingPolicies } from '@/components/booking/BookingPolicies';
-import { BookingFAQ } from '@/components/booking/BookingFAQ';
 import { Button } from '@/components/ui/button';
+import { BookingFAQ } from '@/components/booking/BookingFAQ';
+import { BookingContact } from '@/components/booking/BookingContact';
 
 export default function BookingPage() {
   const params = useParams();
+  const router = useRouter();
   const tenantId = params.tenantId as string;
   const { firestore } = useFirebase();
   const { toast } = useToast();
@@ -197,6 +200,7 @@ export default function BookingPage() {
                 <BookingTeam tenantId={tenantId} staff={staff || []} />
                 <BookingReviews />
                 <BookingFAQ />
+                <BookingContact tenant={tenant} />
                 <BookingPolicies tenant={tenant} />
             </motion.div>
         )}
