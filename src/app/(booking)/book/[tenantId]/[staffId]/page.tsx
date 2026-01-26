@@ -21,35 +21,71 @@ import { cn } from '@/lib/utils';
 import { format, parseISO, getDay } from 'date-fns';
 
 const ServiceCard = ({ service, onBookNow }: { service: Service, onBookNow: (service: Service) => void }) => {
-    return (
-        <Card className="flex flex-col hover:shadow-lg transition-shadow h-full overflow-hidden">
-            {service.imageUrl && (
-                <div className="relative aspect-video w-full">
-                    <Image
-                        src={service.imageUrl}
-                        alt={service.name}
-                        fill
-                        className="object-cover"
-                    />
+    if (service.imageUrl) {
+        return (
+        <div className="cursor-pointer group h-full" onClick={onBookNow}>
+            <Card className="overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1 h-full flex flex-col">
+            <CardContent className="p-0 flex flex-col flex-1">
+                <div className="relative aspect-[4/3] w-full bg-muted/30">
+                <Image
+                    src={service.imageUrl}
+                    alt={service.name}
+                    fill
+                    className="object-cover transition-transform duration-300 group-hover:scale-110"
+                />
                 </div>
-            )}
-            <CardHeader>
-                <CardTitle className="text-lg">{service.name}</CardTitle>
-                {service.description && (
-                    <CardDescription className="line-clamp-2 h-10 pt-1">
+                <div className="p-4 space-y-2 flex flex-col flex-1">
+                <h3 className="font-semibold truncate">{service.name}</h3>
+                <div className="flex-grow min-h-[32px]">
+                    {service.description && (
+                    <p className="text-xs text-muted-foreground line-clamp-2">
                         {service.description}
-                    </CardDescription>
-                )}
-            </CardHeader>
-            <CardContent className="flex-1" />
-            <CardFooter className="flex items-center justify-between p-4 bg-muted/50">
-                <div className="flex items-center gap-4 text-sm font-medium">
-                    <div className="flex items-center gap-1.5"><Clock className="w-4 h-4 text-muted-foreground"/>{service.duration} min</div>
-                    <div className="flex items-center gap-1.5"><DollarSign className="w-4 h-4 text-muted-foreground"/>{service.price.toFixed(2)}</div>
+                    </p>
+                    )}
                 </div>
-                <Button onClick={() => onBookNow(service)}>Book</Button>
-            </CardFooter>
+                <div className="flex items-center justify-between text-sm text-muted-foreground pt-2 border-t mt-auto">
+                    <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4" />
+                    <span>{service.duration} min</span>
+                    </div>
+                    <div className="flex items-center gap-2 font-medium text-foreground">
+                    <DollarSign className="w-4 h-4" />
+                    <span>{service.price.toFixed(2)}</span>
+                    </div>
+                </div>
+                </div>
+            </CardContent>
+            </Card>
+        </div>
+        );
+    }
+
+    // Text-based card
+    return (
+        <div className="cursor-pointer group h-full" onClick={onBookNow}>
+        <Card className="transition-all duration-300 hover:shadow-lg hover:-translate-y-1 h-full flex flex-col bg-muted/30">
+            <CardContent className="p-4 flex flex-col flex-1">
+            <div className="flex-grow">
+                <h3 className="font-semibold text-lg mb-2">{service.name}</h3>
+                {service.description && (
+                <p className="text-xs text-muted-foreground line-clamp-3">
+                    {service.description}
+                </p>
+                )}
+            </div>
+            <div className="flex items-center justify-between text-sm text-muted-foreground pt-4 border-t mt-4">
+                <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4" />
+                <span>{service.duration} min</span>
+                </div>
+                <div className="flex items-center gap-2 font-medium text-foreground">
+                <DollarSign className="w-4 h-4" />
+                <span>{service.price.toFixed(2)}</span>
+                </div>
+            </div>
+            </CardContent>
         </Card>
+        </div>
     );
 };
 
@@ -264,7 +300,7 @@ export default function StaffDetailPage() {
             </Button>
         </header>
 
-      <main className="flex-1 p-4 md:p-6 space-y-6 pb-24">
+      <main className="flex-1 p-4 md:p-6 space-y-6">
            <div className="text-center space-y-4">
                 <Avatar className="w-28 h-28 text-4xl border-4 border-background mx-auto shadow-lg">
                     <AvatarImage src={staffMember.avatarUrl} alt={staffMember.name} />
@@ -349,14 +385,6 @@ export default function StaffDetailPage() {
                  </div>
             </div>
       </main>
-      
-        <footer className="sticky bottom-0 z-30 p-4 border-t bg-background/80 backdrop-blur-sm print:hidden">
-            <div className="max-w-lg mx-auto">
-                <Button asChild className="w-full h-12 text-lg">
-                    <a href="#services">Book Appointment</a>
-                </Button>
-            </div>
-        </footer>
 
         {selectedService && staff && (
             <BookingSheet 
@@ -377,3 +405,5 @@ export default function StaffDetailPage() {
   );
 
 }
+
+    
