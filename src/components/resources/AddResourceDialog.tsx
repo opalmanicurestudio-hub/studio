@@ -145,13 +145,13 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
               {errors.capacity && <p className="text-sm text-destructive">{errors.capacity.message}</p>}
             </div>
           </div>
-           <DialogFooter>
-                <Button variant="outline" onClick={() => onOpenChange(false)} type="button">
-                    Cancel
-                </Button>
-                <Button type="submit">Save Resource</Button>
-            </DialogFooter>
         </form>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} type="button">
+            Cancel
+          </Button>
+          <Button type="submit" form="add-resource-form">Save Resource</Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
