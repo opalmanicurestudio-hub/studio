@@ -9,7 +9,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  CardFooter
+  CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -20,7 +20,8 @@ import {
   Clock,
   DollarSign,
   BarChart,
-  User
+  User,
+  BookOpen
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
@@ -31,6 +32,7 @@ import { Badge } from '@/components/ui/badge';
 import { nanoid } from 'nanoid';
 import { addDocumentNonBlocking } from '@/firebase/non-blocking-updates';
 import { useToast } from '@/hooks/use-toast';
+import { Label } from '@/components/ui/label';
 
 const ClassCard = ({ classItem, staff, resources }: { classItem: Class, staff: Staff[], resources: Resource[] }) => {
     const instructor = staff.find(s => s.id === classItem.staffId);
@@ -113,6 +115,7 @@ export default function ClassesPage() {
         title: "Class Created!",
         description: `${newClass.name} has been added to your schedule.`
     });
+    setIsAddClassDialogOpen(false);
   };
 
   const isLoading = classesLoading || staffLoading || resourcesLoading;
@@ -143,7 +146,7 @@ export default function ClassesPage() {
         ) : (
             <Card>
                 <CardContent className="py-20 flex flex-col items-center justify-center text-center text-muted-foreground">
-                    <BookText className="w-16 h-16 mb-4"/>
+                    <BookOpen className="w-16 h-16 mb-4"/>
                     <h3 className="text-xl font-semibold mb-2 text-foreground">No Classes Created Yet</h3>
                     <p className="mb-4">Click the button to schedule your first group class or workshop.</p>
                 </CardContent>

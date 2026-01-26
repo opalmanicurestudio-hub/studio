@@ -31,6 +31,7 @@ import type { Class, Staff, Resource } from '@/lib/data';
 import { CalendarIcon, DollarSign } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, setHours, setMinutes, startOfDay } from 'date-fns';
+import { buttonVariants } from '../ui/button';
 
 const classSchema = z.object({
   name: z.string().min(1, 'Class name is required'),
