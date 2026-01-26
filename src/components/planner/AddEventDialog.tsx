@@ -48,10 +48,11 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { CalendarIcon, PlusCircle, Trash2, DollarSign, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type Event, type EventChecklistItem, type Appointment, type Staff, services as allServices } from '@/lib/data';
-import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday } from 'date-fns';
+import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, getDay, parse } from 'date-fns';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '../ui/checkbox';
 import { Switch } from '../ui/switch';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 
 const timeStringToDate = (timeStr: string, date: Date): Date => {
     const d = new Date(date);
@@ -106,6 +107,8 @@ const AddEventForm = ({
     const weekStart = useMemo(() => startOfWeek(date, { weekStartsOn: 0 }), [date]);
     const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
     const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
+
+    const selectedStaff = useMemo(() => staff.find(s => s.id === staffId), [staff, staffId]);
 
     useEffect(() => {
         if (allDay) {
@@ -317,11 +320,31 @@ const AddEventForm = ({
                             <Label htmlFor="staff-block">Assign to Staff</Label>
                             <Select value={staffId} onValueChange={setStaffId}>
                                 <SelectTrigger id="staff-block">
-                                    <SelectValue placeholder={type === 'blocked' ? 'All Staff' : 'Optional'} />
+                                     {selectedStaff ? (
+                                        <div className="flex items-center gap-2">
+                                            <Avatar className="w-6 h-6">
+                                                <AvatarImage src={selectedStaff.avatarUrl} />
+                                                <AvatarFallback>{selectedStaff.name.charAt(0)}</AvatarFallback>
+                                            </Avatar>
+                                            <span>{selectedStaff.name}</span>
+                                        </div>
+                                    ) : (
+                                        <SelectValue placeholder={type === 'blocked' ? 'All Staff' : 'Optional'} />
+                                    )}
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="all">{type === 'blocked' ? 'All Staff' : 'None'}</SelectItem>
-                                    {staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                                    {staff.map(s => (
+                                        <SelectItem key={s.id} value={s.id}>
+                                            <div className="flex items-center gap-2">
+                                                <Avatar className="w-6 h-6">
+                                                    <AvatarImage src={s.avatarUrl} />
+                                                    <AvatarFallback>{s.name.charAt(0)}</AvatarFallback>
+                                                </Avatar>
+                                                <span>{s.name}</span>
+                                            </div>
+                                        </SelectItem>
+                                    ))}
                                 </SelectContent>
                             </Select>
                             {type === 'blocked' && <p className="text-xs text-muted-foreground">Select a staff member to block only their schedule. Leave as "All Staff" to block everyone.</p>}
@@ -446,7 +469,15 @@ const AddEventForm = ({
     )
 }
 
-export const AddEventDialog = ({ open, onOpenChange, onConfirm, appointments, events, staff, scheduleProfiles }: AddEventDialogProps) => {
+export const AddEventDialog = ({ open, onOpenChange, onConfirm, appointments, events, staff, scheduleProfiles }: { 
+    open: boolean; 
+    onOpenChange: (open: boolean) => void; 
+    onConfirm: (event: Omit<Event, 'id'>) => void;
+    appointments: Appointment[];
+    events: Event[];
+    staff: Staff[];
+    scheduleProfiles: any[];
+}) => {
   const isMobile = useIsMobile();
 
   const title = "Add New Event";
