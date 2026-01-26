@@ -368,10 +368,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     onConfirm(clientData, appointmentDetails, (step) => setCurrentStepIndex(steps.indexOf(step)));
   };
 
-  if (!service) {
-    return null;
-  }
-  
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-lg p-0 flex flex-col">
@@ -386,7 +382,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                         <CheckCircle className="w-16 h-16 mx-auto text-green-500 mb-4" />
                         <h2 className="text-2xl font-bold">Booking Confirmed!</h2>
                         <p className="text-muted-foreground mt-2">
-                            Your appointment for a {service.name} is all set. We've sent a confirmation to your email.
+                            Your appointment for a {service?.name} is all set. We've sent a confirmation to your email.
                         </p>
                     </div>
                 ) : (
@@ -398,12 +394,12 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                             </div>
                             <Card className="bg-muted/50">
                                 <CardContent className="p-4 flex gap-4 items-center">
-                                    <Image src={service.imageUrl || 'https://picsum.photos/seed/1/100/100'} alt={service.name} width={80} height={80} className="rounded-md object-cover" />
+                                    <Image src={service?.imageUrl || 'https://picsum.photos/seed/1/100/100'} alt={service?.name || ''} width={80} height={80} className="rounded-md object-cover" />
                                     <div className="space-y-1">
-                                        <p className="font-semibold">{service.name}</p>
+                                        <p className="font-semibold">{service?.name}</p>
                                         <div className="text-sm text-muted-foreground flex items-center gap-4">
-                                            <span className="flex items-center gap-1.5"><Clock className="w-4 h-4"/>{service.duration} min</span>
-                                            <span className="flex items-center gap-1.5"><DollarSign className="w-4 h-4"/>{service.price.toFixed(2)}</span>
+                                            <span className="flex items-center gap-1.5"><Clock className="w-4 h-4"/>{service?.duration} min</span>
+                                            <span className="flex items-center gap-1.5"><DollarSign className="w-4 h-4"/>{service?.price?.toFixed(2)}</span>
                                         </div>
                                     </div>
                                 </CardContent>
@@ -449,7 +445,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                     <div className="flex items-center justify-between"><Button variant="outline" size="icon" onClick={() => setDate(prev => addDays(prev, -7))}><ChevronLeft className="w-4 h-4" /></Button><span className="font-semibold">{format(weekStart, 'MMMM yyyy')}</span><Button variant="outline" size="icon" onClick={() => setDate(prev => addDays(prev, 7))}><ChevronRight className="w-4 h-4" /></Button></div>
                                     <div className="grid grid-cols-7 gap-2">{weekDays.map(day => (<button key={day.toString()} onClick={() => setDate(day)} className={cn("flex flex-col items-center justify-center p-2 rounded-lg border w-full aspect-square transition-colors", isSameDay(day, date) ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-accent", isBefore(day, startOfDay(new Date())) && "opacity-50 cursor-not-allowed")} disabled={isBefore(day, startOfDay(new Date()))}><span className="text-xs">{format(day, 'E')}</span><span className="font-bold text-lg">{format(day, 'd')}</span></button>))}</div>
                                     <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 pt-4">
-                                        {timeSlots.map(time => (<Button key={time} variant={selectedTime === time ? 'default' : 'outline'} onClick={() => setSelectedTime(time)}>{format(parseISO(`1970-01-01T${time}:00`), 'h:mm a')}</Button>))}
+                                        {timeSlots.map(time => (<Button key={time} variant={selectedTime === time ? 'default' : 'outline'} onClick={() => setSelectedTime(time)}>{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</Button>))}
                                         {timeSlots.length === 0 && (<p className="col-span-full text-center text-sm text-muted-foreground py-4">No available slots for this day.</p>)}
                                     </div>
                                 </div>
@@ -491,13 +487,13 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                                 <h3 className="text-lg font-medium">Review & Confirm</h3>
                                 <Card className="bg-muted/50">
                                     <CardContent className="p-4 text-sm space-y-3">
-                                        <div className="flex justify-between"><span>Service:</span> <span className="font-semibold">{service.name}</span></div>
+                                        <div className="flex justify-between"><span>Service:</span> <span className="font-semibold">{service?.name}</span></div>
                                         <div className="flex justify-between"><span>Provider:</span> <span className="font-semibold">{selectedStaffId === 'any' ? 'Any Available' : staff.find(s=>s.id === selectedStaffId)?.name}</span></div>
                                         <div className="flex justify-between"><span>Date:</span> <span className="font-semibold">{format(date, 'EEEE, LLL d, yyyy')}</span></div>
                                         <div className="flex justify-between"><span>Time:</span> <span className="font-semibold">{selectedTime ? format(parseISO(`1970-01-01T${selectedTime}:00`), 'h:mm a') : ''}</span></div>
                                         <Separator className="my-2"/>
-                                        <div className="flex justify-between font-bold"><span>Total Due Today:</span> <span>${depositAmount > 0 ? depositAmount.toFixed(2) : service.price.toFixed(2)}</span></div>
-                                        {depositAmount > 0 && <p className="text-xs text-muted-foreground text-right">Remaining balance of ${(service.price - depositAmount).toFixed(2)} due at appointment.</p>}
+                                        <div className="flex justify-between font-bold"><span>Total Due Today:</span> <span>${depositAmount > 0 ? depositAmount.toFixed(2) : service?.price?.toFixed(2) ?? '0.00'}</span></div>
+                                        {depositAmount > 0 && <p className="text-xs text-muted-foreground text-right">Remaining balance of ${((service?.price ?? 0) - depositAmount).toFixed(2)} due at appointment.</p>}
                                     </CardContent>
                                 </Card>
                             </div>
