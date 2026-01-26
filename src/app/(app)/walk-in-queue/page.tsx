@@ -11,7 +11,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { useCollection, useFirebase, updateDocumentNonBlocking, useMemoFirebase, setDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc, getDocs, query, where } from 'firebase/firestore';
 import type { WalkIn, Staff, Appointment, Service, ActivityLog, Client, Event } from '@/lib/data';
-import { formatDistanceToNowStrict, parseISO, addMinutes, differenceInMinutes, differenceInSeconds, format } from 'date-fns';
+import { formatDistanceToNowStrict, parseISO, addMinutes, differenceInMinutes, differenceInSeconds, format, areIntervalsOverlapping } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
@@ -490,6 +490,7 @@ export default function WalkInQueuePage() {
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
   const { data: clients, isLoading: clientsLoading } = useCollection<Client>(clientsQuery);
   const { data: fetchedEvents, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
+  const { data: appointments } = useCollection<Appointment>(collection(firestore, `tenants/${tenantId}/appointments`));
 
   const events = useMemo(() => {
     if (!fetchedEvents) return [];
@@ -518,16 +519,30 @@ export default function WalkInQueuePage() {
   };
   
     const canNotifyNext = useMemo(() => {
-        if (!staff || !walkIns || !events) return false;
+        if (!staff || !walkIns || !events || !services || !appointments) return false;
+
+        const waitingCustomers = walkIns.filter(w => w.status === 'waiting');
+        if (waitingCustomers.length === 0) return false;
+        
+        const notifiedCustomers = walkIns.filter(w => w.status === 'notified');
         const now = new Date();
+
+        const busyResourceIds = new Set<string>();
+        appointments.forEach(apt => {
+            const aptStart = (apt.startTime as any).toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime);
+            const aptEnd = (apt.endTime as any).toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime);
+            
+            if ((apt.status === 'servicing' || apt.status === 'assigned' || apt.status === 'confirmed') && now >= aptStart && now < aptEnd) {
+                (apt.requiredResourceIds || []).forEach(id => busyResourceIds.add(id));
+            }
+        });
+
         const idleStaff = staff.filter(s => {
             if (s.status !== 'idle' || s.onBreak) return false;
-
-            // Check for blocking events
             const isBlocked = events.some(event => {
                 if (event.type !== 'blocked') return false;
-                const eventStart = parseISO(event.startTime);
-                const eventEnd = parseISO(event.endTime);
+                const eventStart = event.startTime;
+                const eventEnd = event.endTime;
                 if (now >= eventStart && now < eventEnd) {
                     if (!event.staffId || event.staffId === 'all' || event.staffId === s.id) {
                         return true;
@@ -535,16 +550,23 @@ export default function WalkInQueuePage() {
                 }
                 return false;
             });
-            
             return !isBlocked;
         });
 
         if (idleStaff.length === 0) return false;
-        const waitingCustomers = walkIns.filter(w => w.status === 'waiting');
-        if (waitingCustomers.length === 0) return false;
-        const notifiedCustomers = walkIns.filter(w => w.status === 'notified');
+
+        const customerToNotify = waitingCustomers[0];
+        const walkInServices = customerToNotify.serviceIds.map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
+        const requiredResourceIds = [...new Set(walkInServices.flatMap(s => s.requiredResourceIds || []))];
+        const areResourcesAvailable = requiredResourceIds.every(id => !busyResourceIds.has(id));
+        if (!areResourcesAvailable) return false;
+        
+        const requiredSkills = customerToNotify.requiredSkills || [];
+        const isAnyStaffQualified = idleStaff.some(s => requiredSkills.every(skill => (s.skillSet || []).includes(skill)));
+        if (!isAnyStaffQualified) return false;
+
         return notifiedCustomers.length < idleStaff.length;
-    }, [staff, walkIns, events]);
+    }, [staff, walkIns, events, services, appointments]);
 
   const assignWalkIn = useCallback(async (walkInId: string, staffId: string) => {
     if (!firestore || !walkIns || !staff || !services || !clients) return;
@@ -557,7 +579,6 @@ export default function WalkInQueuePage() {
     let finalClientId: string;
     let finalClientName: string;
 
-    // Check for existing client or create a new one
     const existingClient = clients.find(c => 
         (walkIn.customerEmail && c.email && c.email.toLowerCase() === walkIn.customerEmail.toLowerCase()) || 
         (walkIn.customerPhone && c.phone && c.phone === walkIn.customerPhone)
@@ -567,7 +588,6 @@ export default function WalkInQueuePage() {
         finalClientId = existingClient.id;
         finalClientName = existingClient.name;
     } else {
-        // Create new client
         const newId = `cli-${nanoid()}`;
         const newClientData: Omit<Client, 'id'> = {
             name: walkIn.customerName,
@@ -590,7 +610,6 @@ export default function WalkInQueuePage() {
         });
     }
 
-    // Now create the appointment with the real client ID
     const now = new Date();
     const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
     const walkInUpdate = {
@@ -604,15 +623,19 @@ export default function WalkInQueuePage() {
     const staffUpdate = { status: 'busy' as const };
     updateDocumentNonBlocking(staffDocRef, staffUpdate);
 
-    const service = services.find(s => s.id === walkIn.serviceIds[0]);
-    if (service) {
+    const mainService = services.find(s => s.id === walkIn.serviceIds[0]);
+    if (mainService) {
         const appointmentEndTime = addMinutes(now, walkIn.estimatedDuration);
+        
+        const allServicesForWalkIn = walkIn.serviceIds.map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
+        const allRequiredResourceIds = [...new Set(allServicesForWalkIn.flatMap(s => s.requiredResourceIds || []))];
+
         const newAppointmentForFirestore: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & { startTime: Date, endTime: Date, clientName: string, clientEmail?: string, clientPhone?: string } = {
             clientId: finalClientId,
             clientName: finalClientName,
             clientEmail: walkIn.customerEmail,
             clientPhone: walkIn.customerPhone,
-            serviceId: service.id,
+            serviceId: mainService.id,
             staffId: staffId,
             startTime: now,
             endTime: appointmentEndTime,
@@ -620,6 +643,7 @@ export default function WalkInQueuePage() {
             isWalkIn: true,
             addOnIds: walkIn.serviceIds.slice(1),
             checkInToken: nanoid(16),
+            requiredResourceIds: allRequiredResourceIds,
         };
         const aptDocRef = doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkIn.id}`);
         setDocumentNonBlocking(aptDocRef, newAppointmentForFirestore, {});
@@ -627,24 +651,37 @@ export default function WalkInQueuePage() {
   }, [firestore, tenantId, walkIns, staff, services, clients, toast]);
 
   const handleStartServiceFromNotified = useCallback((walkIn: WalkIn) => {
-    if (!staff || !services || !events) return;
+    if (!staff || !services || !events || !appointments) return;
+    
     const now = new Date();
+    
+    const busyResourceIds = new Set<string>();
+    appointments.forEach(apt => {
+        const aptStart = (apt.startTime as any).toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime);
+        const aptEnd = (apt.endTime as any).toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime);
+        const newAptEnd = addMinutes(now, walkIn.estimatedDuration);
+
+        if ((apt.status === 'servicing' || apt.status === 'assigned' || apt.status === 'confirmed') && areIntervalsOverlapping({start: now, end: newAptEnd}, {start: aptStart, end: aptEnd})) {
+            (apt.requiredResourceIds || []).forEach(id => busyResourceIds.add(id));
+        }
+    });
+
+    const walkInServices = walkIn.serviceIds.map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
+    const requiredResourceIds = [...new Set(walkInServices.flatMap(s => s.requiredResourceIds || []))];
+
+    if (requiredResourceIds.some(id => busyResourceIds.has(id))) {
+        toast({ variant: 'destructive', title: 'Resources Busy', description: 'The required room or equipment for this service is currently in use.' });
+        return;
+    }
+
     const idleStaff = staff.filter(s => {
         if (s.status !== 'idle' || s.onBreak) return false;
-
-        const isBlocked = events.some(event => {
+        return !events.some(event => {
             if (event.type !== 'blocked') return false;
-            const eventStart = parseISO(event.startTime);
-            const eventEnd = parseISO(event.endTime);
-            if (now >= eventStart && now < eventEnd) {
-                if (!event.staffId || event.staffId === 'all' || event.staffId === s.id) {
-                    return true;
-                }
-            }
-            return false;
+            const eventStart = event.startTime;
+            const eventEnd = event.endTime;
+            return now >= eventStart && now < eventEnd && (!event.staffId || event.staffId === 'all' || event.staffId === s.id);
         });
-        
-        return !isBlocked;
     });
 
     const qualifiedStaff = idleStaff.filter(s => (walkIn.requiredSkills || []).every(skill => (s.skillSet || []).includes(skill)));
@@ -654,11 +691,10 @@ export default function WalkInQueuePage() {
       return;
     }
     
-    // Simplistic: assign to the first qualified idle staff. Could be enhanced with nextUp logic.
     const staffToAssign = qualifiedStaff[0];
     assignWalkIn(walkIn.id, staffToAssign.id);
 
-  }, [staff, services, assignWalkIn, toast, events]);
+  }, [staff, services, events, appointments, assignWalkIn, toast]);
 
     const handleNotifyNext = () => {
         if (!canNotifyNext || !walkIns || !staff || !firestore || !services) {
@@ -711,11 +747,10 @@ export default function WalkInQueuePage() {
     const idleStaff = staff.filter(s => {
         if (s.status !== 'idle' || s.onBreak) return false;
         
-        // Check for blocking events
         const isBlocked = events.some(event => {
             if (event.type !== 'blocked') return false;
-            const eventStart = parseISO(event.startTime);
-            const eventEnd = parseISO(event.endTime);
+            const eventStart = event.startTime;
+            const eventEnd = event.endTime;
             if (now >= eventStart && now < eventEnd) {
                 if (!event.staffId || event.staffId === 'all' || event.staffId === s.id) {
                     return true;
@@ -771,13 +806,12 @@ export default function WalkInQueuePage() {
     
     const appointmentId = `apt-walkin-${walkIn.id}`;
     
-    // This is a temporary structure. Ideally you fetch the appointment from state.
     const tempAppointment: Appointment = {
       id: appointmentId,
       clientId: walkIn.clientId || '',
       serviceId: walkIn.serviceIds[0],
       startTime: walkIn.serviceStartTime || new Date().toISOString(),
-      endTime: new Date().toISOString(), // This should be updated on finish
+      endTime: new Date().toISOString(),
       status: 'servicing',
       isWalkIn: true,
       actualStartTime: walkIn.serviceStartTime,
@@ -874,12 +908,11 @@ export default function WalkInQueuePage() {
     setCheckoutAppointment(null);
   };
 
-  // Auto-skip timer
   useEffect(() => {
     const timer = setInterval(() => {
         if (!firestore || !walkIns) return;
         const now = new Date();
-        const skipTimeMinutes = 5; // Replace with tenant setting
+        const skipTimeMinutes = 5;
 
         walkIns.forEach(walkIn => {
             if (walkIn.status === 'notified' && walkIn.notifiedTimestamp) {
@@ -893,7 +926,7 @@ export default function WalkInQueuePage() {
                 }
             }
         });
-    }, 10000); // Check every 10 seconds
+    }, 10000);
     return () => clearInterval(timer);
   }, [firestore, walkIns, handleWalkInStatusChange, toast]);
 
@@ -1260,3 +1293,4 @@ export default function WalkInQueuePage() {
     </>
   );
 }
+
