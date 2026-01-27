@@ -414,7 +414,19 @@ export default function ReportsPage() {
                         {performanceAndPayrollData.map(data => (
                             <TableRow key={data.id}>
                                 <TableCell className="font-medium">{data.name}</TableCell>
-                                <TableCell className="capitalize">{data.payStructure}</TableCell>
+                                <TableCell>
+                                    <div className="font-medium capitalize">{data.payStructure}</div>
+                                    {data.payStructure === 'commission' && data.commissionRate !== undefined && (
+                                        <div className="text-xs text-muted-foreground">
+                                            {data.commissionRate}% (Svc) / {data.retailCommissionRate || 0}% (Retail)
+                                        </div>
+                                    )}
+                                    {data.payStructure === 'hourly' && data.hourlyRate !== undefined && (
+                                        <div className="text-xs text-muted-foreground">
+                                            ${data.hourlyRate.toFixed(2)}/hr
+                                        </div>
+                                    )}
+                                </TableCell>
                                 <TableCell className="text-right font-mono">${data.stats.serviceRevenue.toFixed(2)}</TableCell>
                                 <TableCell className="text-right font-mono">${data.stats.retailSales.toFixed(2)}</TableCell>
                                 <TableCell className="text-right font-mono">${data.stats.wages.toFixed(2)}</TableCell>
