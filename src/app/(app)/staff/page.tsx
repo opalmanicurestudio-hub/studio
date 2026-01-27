@@ -184,6 +184,8 @@ export default function StaffPage() {
     return collection(firestore, 'tenants', tenantId, 'stockCorrections');
   }, [firestore, user, tenantId]);
   const { data: stockCorrections } = useCollection<StockCorrection>(stockCorrectionsQuery);
+  
+  // NOTE: Inventory is still using context as a temporary measure.
   const { inventory } = useInventory();
 
 
@@ -237,7 +239,6 @@ export default function StaffPage() {
             const sortedLogs = staffLogs.sort((a, b) => parseISO(a.timestamp).getTime() - parseISO(b.timestamp).getTime());
 
             let clockInTime: Date | null = null;
-            let onBreak = false;
             let breakStartTime: Date | null = null;
             let totalBreakMinutes = 0;
             
@@ -245,7 +246,6 @@ export default function StaffPage() {
                 const logTime = parseISO(log.timestamp);
                 if (log.type === 'clock_in') {
                     if (clockInTime) {
-                         // Missed clock out, calculate session until now or end of day
                         const sessionEnd = toDate && logTime > toDate ? toDate : logTime;
                         totalMinutesWorked += differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes;
                     }

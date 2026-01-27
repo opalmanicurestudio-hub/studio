@@ -331,7 +331,8 @@ service cloud.firestore {
      * @path /tenants/{tenantId}/activityLogs/{logId}
      */
     match /tenants/{tenantId}/activityLogs/{logId} {
-      allow read, create: if isTenantOwner(tenantId) || isStaff(tenantId);
+      allow read: if isTenantOwner(tenantId) || isStaff(tenantId);
+      allow create: if isTenantAdmin(tenantId) || (isStaff(tenantId) && request.auth.uid == request.resource.data.staffId);
       allow update, delete: if false;
     }
   }
