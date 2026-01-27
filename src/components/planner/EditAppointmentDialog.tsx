@@ -44,6 +44,9 @@ import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Card, CardContent } from '../ui/card';
 import { useInventory } from '@/context/InventoryContext';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { Switch } from '../ui/switch';
+import { useToast } from '@/hooks/use-toast';
 
 const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: Date) => void }) => {
     const isMobile = useIsMobile();
@@ -56,16 +59,11 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
         }
     }
     
-    const TriggerButton = (
-        <button
-            className={cn(buttonVariants({ variant: 'outline' }), "w-full justify-start text-left font-normal", !date && "text-muted-foreground")}
-             onClick={() => setIsOpen(true)}
-        >
-            <span className="flex items-center">
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                {date ? format(date, 'PPP') : "Pick a date"}
-            </span>
-        </button>
+    const TriggerContent = (
+        <span className="flex items-center">
+            <CalendarIcon className="mr-2 h-4 w-4" />
+            {date ? format(date, 'PPP') : "Pick a date"}
+        </span>
     );
     
     const CalendarComponent = (
@@ -86,7 +84,13 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
     if (isMobile) {
         return (
             <>
-                {TriggerButton}
+                <Button
+                    variant="outline"
+                    className={cn("w-full justify-start text-left font-normal h-12", !date && "text-muted-foreground")}
+                     onClick={() => setIsOpen(true)}
+                >
+                    {TriggerContent}
+                </Button>
                  <Sheet open={isOpen} onOpenChange={setIsOpen}>
                     <SheetContent side="bottom">
                          <SheetHeader className="text-left">
@@ -103,8 +107,14 @@ const DatePicker = ({ date, onDateChange }: { date: Date, onDateChange: (date: D
 
     return (
         <Popover open={isOpen} onOpenChange={setIsOpen}>
-            <PopoverTrigger asChild>
-                {TriggerButton}
+            <PopoverTrigger
+                className={cn(
+                    buttonVariants({ variant: "outline" }),
+                    "w-full justify-start text-left font-normal h-12",
+                    !date && "text-muted-foreground"
+                )}
+            >
+                {TriggerContent}
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0">
                 {CalendarComponent}
@@ -129,9 +139,10 @@ const EditAppointmentForm = ({
     onConfirm
 }: { 
     appointment: Appointment;
-    clients: Client[];
-    services: Service[];
+    client: Client;
+    service: Service;
     appointments: Appointment[];
+    services: Service[];
     onConfirm: (apt: Appointment) => void;
 }) => {
     const { inventory } = useInventory();
@@ -226,6 +237,9 @@ const EditAppointmentForm = ({
 
         const endDateTime = new Date(startDateTime.getTime() + (selectedService.duration * 60000));
 
+        const allServices = [selectedService, ...selectedAddOns];
+        const allRequiredResourceIds = [...new Set(allServices.flatMap(s => s.requiredResourceIds || []))];
+
         const updatedAppointment: Appointment = {
             ...appointment,
             clientId: selectedClientId,
@@ -233,6 +247,7 @@ const EditAppointmentForm = ({
             startTime: startDateTime,
             endTime: endDateTime,
             addOnIds: selectedAddOns.map(s => s.id),
+            requiredResourceIds: allRequiredResourceIds,
         };
         // Here we would also save the edited formula, likely on the appointment object itself
         // For now, it just updates the appointment time/service
@@ -431,11 +446,15 @@ const EditAppointmentForm = ({
 
 export const EditAppointmentDialog = ({ open, onOpenChange, appointment, clients, services, appointments, onConfirm }: { open: boolean, onOpenChange: (open: boolean) => void, appointment: Appointment, clients: Client[], services: Service[], appointments: Appointment[], onConfirm: (apt: Appointment) => void }) => {
   const isMobile = useIsMobile();
+  const client = clients.find(c => c.id === appointment.clientId);
+  const service = services.find(s => s.id === appointment.serviceId);
+
+  if (!client || !service) return null;
 
   const title = "Edit Appointment";
   const description = "Modify the details for this appointment.";
   
-  const FormContent = <EditAppointmentForm appointment={appointment} clients={clients} services={services} appointments={appointments} onConfirm={onConfirm} />;
+  const FormContent = <EditAppointmentForm appointment={appointment} client={client} service={service} appointments={appointments} services={services} onConfirm={onConfirm} />;
 
   if (isMobile) {
     return (

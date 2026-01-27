@@ -49,7 +49,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { CalendarIcon, PlusCircle, Trash2, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Client, Service, Appointment, Staff, Event } from '@/lib/data';
-import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, subWeeks, addWeeks, eachDayOfInterval, addDays, isSameDay, isBefore, getDay, parse, isToday } from 'date-fns';
+import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, getDay, parse, isToday } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Card, CardContent } from '../ui/card';
 import { nanoid } from 'nanoid';
@@ -260,6 +260,9 @@ const AddAppointmentForm = ({
         const startDateTime = setMinutes(setHours(startOfDay(date), hours), minutes);
 
         const endDateTime = new Date(startDateTime.getTime() + (selectedService.duration * 60000));
+        
+        const allServices = [selectedService, ...selectedAddOns];
+        const allRequiredResourceIds = [...new Set(allServices.flatMap(s => s.requiredResourceIds || []))];
 
         const newAppointment: Omit<Appointment, 'id'> = {
             clientId: selectedClientId,
@@ -270,6 +273,7 @@ const AddAppointmentForm = ({
             status: 'confirmed',
             addOnIds: selectedAddOns.map(s => s.id),
             checkInToken: nanoid(16),
+            requiredResourceIds: allRequiredResourceIds,
         };
         onConfirm(newAppointment);
     }
