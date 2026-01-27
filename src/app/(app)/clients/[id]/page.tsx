@@ -179,7 +179,7 @@ export default function ClientDetailPage() {
       if (!firestore) return null;
       return collection(firestore, `tenants/${tenantId}/clients`);
   }, [firestore, tenantId]);
-  const { data: allClients, isLoading: allClientsLoading } = useCollection<Client>(allClientsQuery);
+  const { data: allClients } = useCollection<Client>(allClientsQuery);
   
   const appointmentsQuery = useMemoFirebase(() => {
       if (!firestore || !clientId) return null;
@@ -242,7 +242,7 @@ export default function ClientDetailPage() {
       setIsCodeDirty(false);
   }, [client?.referralCode]);
 
-  const isLoading = isUserLoading || clientLoading || appointmentsLoading || servicesLoading || allClientsLoading || staffLoading;
+  const isLoading = isUserLoading || clientLoading || appointmentsLoading || servicesLoading || staffLoading;
 
   if (isLoading) {
       return (
@@ -532,9 +532,8 @@ export default function ClientDetailPage() {
                            <div className="lg:col-span-1 space-y-6">
                                <Card>
                                    <CardHeader><CardTitle>Client Wallet</CardTitle></CardHeader>
-                                  <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                  <CardContent className="grid grid-cols-1 gap-4">
                                       <div className="p-4 rounded-lg bg-muted/50"><div className="text-sm text-muted-foreground">Store Credit</div><div className="text-2xl font-bold">${(client.walletCredit || 0).toFixed(2)}</div></div>
-                                      <div className="p-4 rounded-lg bg-muted/50"><div className="text-sm text-muted-foreground">Gift Card Balance</div><div className="text-2xl font-bold">$50.00</div></div>
                                   </CardContent>
                               </Card>
                               <Card>
@@ -761,5 +760,7 @@ export default function ClientDetailPage() {
 
 
 
+
+    
 
     
