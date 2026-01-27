@@ -189,7 +189,7 @@ const StaffStatusCard = ({ staffMember, onStatusChange, isNextUp, appointments, 
   );
 }
 
-const WaitingCustomerCard = ({ walkIn, services, resources, onPrintTicket, onOpenAssignDialog, queuePosition }: { walkIn: WalkIn, services: any[], resources: Resource[], onPrintTicket: (data: WalkIn) => void, onOpenAssignDialog: (walkIn: WalkIn) => void, queuePosition: number }) => {
+const WaitingCustomerCard = ({ walkIn, services, resources, onPrintTicket, onOpenAssignDialog, queuePosition, estimatedWaitTime }: { walkIn: WalkIn, services: any[], resources: Resource[], onPrintTicket: (data: WalkIn) => void, onOpenAssignDialog: (walkIn: WalkIn) => void, queuePosition: number, estimatedWaitTime: number | null }) => {
     const walkInServices = services.filter(s => walkIn.serviceIds.includes(s.id));
     const requiredResourceIds = useMemo(() => {
         return [...new Set(walkInServices.flatMap(s => s.requiredResourceIds || []))];
@@ -206,10 +206,17 @@ const WaitingCustomerCard = ({ walkIn, services, resources, onPrintTicket, onOpe
                         <div className="text-3xl font-bold text-primary w-10 text-center">{queuePosition}</div>
                         <div>
                             <p className="font-bold text-xl">{walkIn.customerName}</p>
-                            <div className="flex items-center gap-2 text-lg font-semibold text-primary mt-1">
-                                <Clock className="h-5 w-5" />
-                                <span>Waiting <Timer startTime={walkIn.checkInTime} /></span>
-                            </div>
+                            {queuePosition === 1 && estimatedWaitTime !== null && estimatedWaitTime > 0 ? (
+                                <div className="flex items-center gap-2 text-lg font-semibold text-primary mt-1">
+                                    <Clock className="h-5 w-5" />
+                                    <span>Est. Wait: ~{estimatedWaitTime} min</span>
+                                </div>
+                            ) : (
+                                <div className="flex items-center gap-2 text-lg font-semibold text-primary mt-1">
+                                    <Clock className="h-5 w-5" />
+                                    <span>Waiting <Timer startTime={walkIn.checkInTime} /></span>
+                                </div>
+                            )}
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -406,7 +413,7 @@ const ServicingCustomerCard = ({ walkIn, services, resources, staff, onStatusCha
 };
 
 const ReadyForCheckoutCard = ({ walkIn, services, resources, staff, onCheckoutClick }: { walkIn: WalkIn, services: Service[], resources: Resource[], staff: Staff[], onCheckoutClick: (walkIn: WalkIn) => void }) => {
-    const walkInServices = services.filter(s => s.serviceIds.includes(s.id));
+    const walkInServices = services.filter(s => walkIn.serviceIds.includes(s.id));
     const assignedStaff = staff.find(s => s.id === walkIn.assignedStaffId);
      const requiredResourceIds = useMemo(() => {
         return [...new Set(walkInServices.flatMap(s => s.requiredResourceIds || []))];
@@ -1071,6 +1078,67 @@ export default function WalkInQueuePage() {
     }, 10000);
     return () => clearInterval(timer);
   }, [firestore, walkIns, handleWalkInStatusChange, toast]);
+  
+  const estimatedWaitTime = useMemo(() => {
+    if (!staff || !services || !appointments || !events || !walkIns) return null;
+    const now = new Date();
+    
+    const waitingCustomers = walkIns.filter(w => w.status === 'waiting').sort((a,b) => parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
+    const nextInQueue = waitingCustomers[0];
+    if (!nextInQueue) return null;
+    
+    const staffToConsider = nextUpStaffId ? staff.filter(s => s.id === nextUpStaffId) : staff;
+
+    let bestStartTime: Date | null = null;
+
+    for (const staffMember of staffToConsider) {
+      // Check if staff is available and qualified
+      const isAvailable = staffMember.status === 'idle' && !staffMember.onBreak;
+      const isBlocked = events.some(event => {
+        if (event.type !== 'blocked') return false;
+        const eventStart = event.startTime;
+        const eventEnd = event.endTime;
+        return now >= eventStart && now < eventEnd && (!event.staffId || event.staffId === 'all' || event.staffId === staffMember.id);
+      });
+      const isQualified = (nextInQueue.requiredSkills || []).every(skill => (staffMember.skillSet || []).includes(skill));
+
+      if (!isAvailable || isBlocked || !isQualified) continue;
+
+      // Find earliest start time for this staff member
+      const staffAppointments = appointments
+        .filter(apt => apt.staffId === staffMember.id && apt.endTime > now)
+        .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+      
+      let potentialStartTime = now;
+
+      // Find next available slot
+      if (staffAppointments.length > 0) {
+        let lastAppointmentEnd = now;
+        let slotFound = false;
+        for (const apt of staffAppointments) {
+          // Check gap before this appointment
+          if (differenceInMinutes(apt.startTime, lastAppointmentEnd) >= nextInQueue.estimatedDuration) {
+            potentialStartTime = lastAppointmentEnd;
+            slotFound = true;
+            break;
+          }
+          lastAppointmentEnd = apt.endTime;
+        }
+        if (!slotFound) {
+          potentialStartTime = lastAppointmentEnd;
+        }
+      }
+      
+      if (!bestStartTime || potentialStartTime < bestStartTime) {
+        bestStartTime = potentialStartTime;
+      }
+    }
+
+    if (!bestStartTime) return null;
+
+    return differenceInMinutes(bestStartTime, now);
+  }, [walkIns, staff, appointments, events, services, nextUpStaffId]);
+
 
   const ticketData: WalkInTicketData | null = ticketToPrint && services ? {
     id: ticketToPrint.id,
@@ -1264,7 +1332,7 @@ export default function WalkInQueuePage() {
                     </Button>
                     {waitingQueue.length > 0 ? (
                         waitingQueue.map((walkIn, index) => (
-                            <WaitingCustomerCard key={walkIn.id} walkIn={walkIn} services={services || []} resources={resources || []} onPrintTicket={setTicketToPrint} onOpenAssignDialog={setWalkInToAssign} queuePosition={index + 1} />
+                            <WaitingCustomerCard key={walkIn.id} walkIn={walkIn} services={services || []} resources={resources || []} onPrintTicket={setTicketToPrint} onOpenAssignDialog={setWalkInToAssign} queuePosition={index + 1} estimatedWaitTime={index === 0 ? estimatedWaitTime : null} />
                         ))
                     ) : (
                         <div className="text-center py-16 px-6 text-muted-foreground">
@@ -1443,6 +1511,7 @@ export default function WalkInQueuePage() {
     </>
   );
 }
+
 
 
 
