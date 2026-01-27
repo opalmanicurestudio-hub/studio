@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -55,7 +56,7 @@ const ResourceCard = ({ resource, inventory, onDelete, onEdit }: { resource: Res
                     </div>
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 ml-auto shrink-0">
+                            <Button variant="ghost" size="icon" className="h-8 w-8 ml-auto shrink-0" onClick={(e) => e.stopPropagation()}>
                                 <MoreHorizontal className="w-4 h-4" />
                             </Button>
                         </DropdownMenuTrigger>
@@ -113,15 +114,11 @@ export default function ResourcesPage() {
     const handleSaveResource = (resourceData: Omit<Resource, 'id'>) => {
         if (!firestore) return;
         
-        const newResource: Omit<Resource, 'id'> & { id: string } = {
+        const newResource: Resource = {
             ...resourceData,
-            id: `res-${nanoid()}`
+            id: nanoid(),
         };
 
-        if (newResource.type === 'room') {
-            delete (newResource as Partial<Resource>).inventoryItemId;
-        }
-        
         const resourceRef = collection(firestore, 'tenants', tenantId, 'resources');
         addDocumentNonBlocking(resourceRef, newResource);
         
@@ -144,7 +141,6 @@ export default function ResourcesPage() {
     }
 
     const handleEditResource = (resource: Resource) => {
-        // Logic to open an edit dialog would go here
         toast({
             title: "Edit Action",
             description: `Editing ${resource.name}. (Functionality to be implemented)`,
@@ -153,13 +149,16 @@ export default function ResourcesPage() {
 
     const equipmentInventory = useMemo(() => inventory.filter(i => i.type === 'equipment'), [inventory]);
 
+    const roomsAndStations = useMemo(() => resources?.filter(r => r.type === 'room') || [], [resources]);
+    const equipment = useMemo(() => resources?.filter(r => r.type === 'equipment') || [], [resources]);
+
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Resources" />
-      <main className="flex-1 p-4 md:p-8">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-8">
+      <main className="flex-1 p-4 md:p-8 space-y-8">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold">Resource Management</h1>
+            <h1 className="text-3xl font-bold">Studio Layout & Resources</h1>
             <p className="text-muted-foreground mt-1">
               Manage your bookable rooms, stations, and equipment.
             </p>
@@ -172,10 +171,31 @@ export default function ResourcesPage() {
         {resourcesLoading ? (
             <p>Loading...</p>
         ) : (resources && resources.length > 0) ? (
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {resources.map(resource => (
-                    <ResourceCard key={resource.id} resource={resource} inventory={inventory} onDelete={handleDeleteResource} onEdit={handleEditResource} />
-                ))}
+            <div className="space-y-8">
+                 <section>
+                    <h2 className="text-2xl font-semibold mb-4 border-b pb-2">Rooms & Stations</h2>
+                    {roomsAndStations.length > 0 ? (
+                         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {roomsAndStations.map(resource => (
+                                <ResourceCard key={resource.id} resource={resource} inventory={inventory} onDelete={handleDeleteResource} onEdit={handleEditResource} />
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="text-muted-foreground text-sm py-4">No rooms or stations have been created yet.</p>
+                    )}
+                </section>
+                <section>
+                    <h2 className="text-2xl font-semibold mb-4 border-b pb-2">Equipment</h2>
+                    {equipment.length > 0 ? (
+                        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {equipment.map(resource => (
+                                <ResourceCard key={resource.id} resource={resource} inventory={inventory} onDelete={handleDeleteResource} onEdit={handleEditResource} />
+                            ))}
+                        </div>
+                    ) : (
+                         <p className="text-muted-foreground text-sm py-4">No equipment resources have been created yet.</p>
+                    )}
+                </section>
             </div>
         ) : (
              <Card>
