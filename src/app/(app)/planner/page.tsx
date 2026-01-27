@@ -1291,7 +1291,7 @@ const events = useMemo(() => {
                 onReschedule={handleRescheduleClick}
                 onRebook={handleRebook}
                 onOpenPickingList={() => setIsPickingListOpen(true)}
-                onStartService={onStartService}
+                onStartService={handleStartService}
                 onFinishService={handleFinishService}
                 onBookNewForClient={handleBookNewAppointmentForClient}
                 walkIns={walkIns}
@@ -1506,3 +1506,6 @@ const events = useMemo(() => {
 
 
 
+
+
+    
