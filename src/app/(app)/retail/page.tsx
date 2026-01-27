@@ -788,25 +788,29 @@ export default function RetailPage() {
     });
     
     // Create transaction
-    const newTransaction: Omit<Transaction, 'id'> = {
-        date: new Date().toISOString(),
+    const newTransaction: Omit<Transaction, 'id' | 'date'> = {
         description: `Retail Sale (${cart.map(i => i.name).join(', ')})`,
         clientOrVendor: selectedClient?.name || 'In-Store Customer',
+        clientId: selectedClientId || undefined,
         type: 'income',
         context: 'Business',
         category: 'Retail',
-        amount: total,
+        amount: grandTotal,
         paymentMethod: paymentTab,
         hasReceipt: true,
+        tipAmount: tipAmount > 0 ? tipAmount : undefined,
     };
-    setTransactions(prev => [...prev, { ...newTransaction, id: `txn-${Date.now()}` }]);
+    addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/transactions`), { ...newTransaction, date: new Date().toISOString() });
     
     // Update Client State
     if (selectedClient && firestore) {
         const membershipItem = cart.find(item => item.type === 'membership');
         const packageItems = cart.filter(item => item.type === 'package');
 
-        let clientUpdate: Partial<Client> = {};
+        const clientUpdate: Partial<Client> = {
+            lifetimeValue: (selectedClient.lifetimeValue || 0) + grandTotal,
+            lastAppointment: new Date().toISOString(),
+        };
         
         if (appliedStoreCredit > 0) {
             clientUpdate.walletCredit = (selectedClient.walletCredit || 0) - appliedStoreCredit;
@@ -827,10 +831,8 @@ export default function RetailPage() {
             clientUpdate.activePackages = [...(selectedClient.activePackages || []), ...newPackages];
         }
 
-        if (Object.keys(clientUpdate).length > 0) {
-            const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id);
-            updateDocumentNonBlocking(clientDocRef, clientUpdate);
-        }
+        const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id);
+        updateDocumentNonBlocking(clientDocRef, clientUpdate);
     }
 
 
@@ -846,10 +848,10 @@ export default function RetailPage() {
         discount: totalDiscount,
         tax: mockTax,
         tip: tipAmount,
-        total: total,
+        total: grandTotal,
         payment: {
             method: paymentTab,
-            amountTendered: paymentTab === 'cash' ? amountTendered : total,
+            amountTendered: paymentTab === 'cash' ? amountTendered : grandTotal,
             changeDue: changeDue > 0 ? changeDue : 0,
         }
     };
@@ -861,7 +863,7 @@ export default function RetailPage() {
 
     toast({
         title: 'Sale Complete!',
-        description: `Successfully processed a sale of $${total.toFixed(2)}. Inventory has been updated.`
+        description: `Successfully processed a sale of $${grandTotal.toFixed(2)}. Inventory has been updated.`
     });
 
     // Reset State
@@ -884,7 +886,7 @@ export default function RetailPage() {
   const handleKeepTheChange = () => {
     if (changeDue > 0) {
         setTipAmount(prevTip => prevTip + changeDue);
-        setAmountTendered(total + changeDue); 
+        setAmountTendered(grandTotal + changeDue); 
         toast({ title: "Tip Added!", description: `$${changeDue.toFixed(2)} has been added as a tip.` });
     }
   };
@@ -910,10 +912,10 @@ export default function RetailPage() {
     // 1. Service Revenue Transactions
     allPerformedServices.forEach(service => {
         const staffId = serviceStaffOverrides[service.id] || checkoutAppointment.staffId;
-        const newTransaction: Omit<Transaction, 'id'> = {
-            date: new Date().toISOString(),
+        const newTransaction: Omit<Transaction, 'id' | 'date'> = {
             description: `Service: ${service.name}`,
             clientOrVendor: clients.find(c => c.id === checkoutAppointment.clientId)?.name || 'N/A',
+            clientId: checkoutAppointment.clientId,
             type: 'income',
             context: 'Business',
             category: 'Service Revenue',
@@ -923,16 +925,16 @@ export default function RetailPage() {
             staffId: staffId,
             appointmentId: checkoutAppointment.id,
         };
-        addDocumentNonBlocking(transactionsRef, newTransaction);
+        addDocumentNonBlocking(transactionsRef, {...newTransaction, date: new Date().toISOString()});
     });
         
     // 2. Tip Transactions
     Object.entries(tipAllocations).forEach(([staffId, tipAmount]) => {
         if (tipAmount > 0) {
-            const newTransaction: Omit<Transaction, 'id'> = {
-                date: new Date().toISOString(),
+            const newTransaction: Omit<Transaction, 'id' | 'date'> = {
                 description: `Tip for Appointment #${checkoutAppointment.id.slice(-4)}`,
                 clientOrVendor: clients.find(c => c.id === checkoutAppointment.clientId)?.name || 'N/A',
+                clientId: checkoutAppointment.clientId,
                 type: 'income',
                 context: 'Business',
                 category: 'Tips',
@@ -943,7 +945,7 @@ export default function RetailPage() {
                 tipAmount: tipAmount,
                 appointmentId: checkoutAppointment.id,
             };
-            addDocumentNonBlocking(transactionsRef, newTransaction);
+            addDocumentNonBlocking(transactionsRef, {...newTransaction, date: new Date().toISOString()});
         }
     });
         
@@ -981,20 +983,25 @@ export default function RetailPage() {
       updateDocumentNonBlocking(walkInDocRef, { status: 'completed' });
     }
 
-    // 7. Update client packages
-    if (redeemedOffer?.type === 'package') {
-        const clientToUpdate = clients.find(c => c.id === checkoutAppointment.clientId);
-        if (clientToUpdate) {
-            const updatedPackages = clientToUpdate.activePackages?.map(p => {
+     // 7. Update Client Lifetime Value
+    const clientToUpdate = clients.find(c => c.id === checkoutAppointment.clientId);
+    if (clientToUpdate) {
+        const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, clientToUpdate.id);
+        const updates: Partial<Client> = {
+            lifetimeValue: (clientToUpdate.lifetimeValue || 0) + receiptData.total,
+            lastAppointment: new Date().toISOString()
+        };
+
+        if (redeemedOffer?.type === 'package') {
+            updates.activePackages = clientToUpdate.activePackages?.map(p => {
                 if (p.packageId === redeemedOffer.id) {
                     return { ...p, sessionsRemaining: p.sessionsRemaining - 1 };
                 }
                 return p;
             }).filter(p => p.sessionsRemaining > 0);
-
-            const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, clientToUpdate.id);
-            updateDocumentNonBlocking(clientDocRef, { activePackages: updatedPackages });
         }
+
+        updateDocumentNonBlocking(clientDocRef, updates);
     }
         
     toast({
@@ -1286,7 +1293,7 @@ export default function RetailPage() {
             <DialogHeader className="p-4 pb-0">
                 <DialogTitle>Scan Product</DialogTitle>
                 <DialogDescription>
-                    Position the product's QR code inside the frame to add it to the cart.
+                    Position the product's barcode or QR code inside the frame to add it to the cart.
                 </DialogDescription>
             </DialogHeader>
             <div className="p-4 relative">
@@ -1301,4 +1308,3 @@ export default function RetailPage() {
   );
 }
 
-    

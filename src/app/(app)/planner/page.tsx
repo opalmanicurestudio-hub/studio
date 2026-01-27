@@ -1,6 +1,5 @@
 
 
-
 'use client';
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
@@ -517,10 +516,10 @@ const events = useMemo(() => {
     // 1. Service Revenue Transactions
     allPerformedServices.forEach(service => {
         const staffId = serviceStaffOverrides[service.id] || selectedAppointment.staffId;
-        const newTransaction: Omit<Transaction, 'id'> = {
-            date: new Date().toISOString(),
+        const newTransaction: Omit<Transaction, 'id' | 'date'> = {
             description: `Service: ${service.name}`,
             clientOrVendor: (clients || []).find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
+            clientId: selectedAppointment.clientId,
             type: 'income',
             context: 'Business',
             category: 'Service Revenue',
@@ -528,17 +527,18 @@ const events = useMemo(() => {
             paymentMethod: receiptData.payment.method,
             hasReceipt: true,
             staffId: staffId,
+            appointmentId: selectedAppointment.id,
         };
-        addDocumentNonBlocking(transactionsRef, newTransaction);
+        addDocumentNonBlocking(transactionsRef, {...newTransaction, date: new Date().toISOString()});
     });
 
     // 2. Tip Transactions
     Object.entries(tipAllocations).forEach(([staffId, tipAmount]) => {
         if (tipAmount > 0) {
-            const newTransaction: Omit<Transaction, 'id'> = {
-                date: new Date().toISOString(),
+            const newTransaction: Omit<Transaction, 'id' | 'date'> = {
                 description: `Tip for Appointment #${selectedAppointment.id.slice(-4)}`,
                 clientOrVendor: (clients || []).find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
+                clientId: selectedAppointment.clientId,
                 type: 'income',
                 context: 'Business',
                 category: 'Tips',
@@ -547,8 +547,9 @@ const events = useMemo(() => {
                 hasReceipt: true,
                 staffId: staffId,
                 tipAmount: tipAmount,
+                appointmentId: selectedAppointment.id,
             };
-            addDocumentNonBlocking(transactionsRef, newTransaction);
+            addDocumentNonBlocking(transactionsRef, {...newTransaction, date: new Date().toISOString()});
         }
     });
 
@@ -560,10 +561,10 @@ const events = useMemo(() => {
             return acc + (item.quantity * price);
         }, 0);
         if (retailTotal > 0) {
-            const newTransaction: Omit<Transaction, 'id'> = {
-                date: new Date().toISOString(),
+            const newTransaction: Omit<Transaction, 'id' | 'date'> = {
                 description: `Retail Sale (${retailItems.length} items)`,
                 clientOrVendor: (clients || []).find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
+                clientId: selectedAppointment.clientId,
                 type: 'income',
                 context: 'Business',
                 category: 'Retail',
@@ -571,8 +572,9 @@ const events = useMemo(() => {
                 paymentMethod: receiptData.payment.method,
                 hasReceipt: true,
                 staffId: selectedAppointment.staffId, // Or assign to a specific staff
+                appointmentId: selectedAppointment.id,
             };
-            addDocumentNonBlocking(transactionsRef, newTransaction);
+            addDocumentNonBlocking(transactionsRef, {...newTransaction, date: new Date().toISOString()});
         }
     }
     
@@ -594,8 +596,6 @@ const events = useMemo(() => {
     const staffIdsInvolved = new Set(Object.values(serviceStaffOverrides));
     staffIdsInvolved.forEach(staffId => {
       if (staffId) {
-        // A more complex implementation could check if the staff has other ongoing appointments.
-        // For now, we assume completing an appointment makes them idle.
         const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
         updateDocumentNonBlocking(staffDocRef, {
           status: 'idle',
@@ -610,21 +610,26 @@ const events = useMemo(() => {
       const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
       updateDocumentNonBlocking(walkInDocRef, { status: 'completed' });
     }
+    
+    // 8. Update Client Lifetime Value
+    const clientToUpdate = (clients || []).find(c => c.id === selectedAppointment.clientId);
+    if (clientToUpdate) {
+        const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, clientToUpdate.id);
+        const updates: Partial<Client> = {
+            lifetimeValue: (clientToUpdate.lifetimeValue || 0) + receiptData.total,
+            lastAppointment: new Date().toISOString()
+        };
 
-    // 8. Update client packages
-    if (redeemedOffer?.type === 'package') {
-        const clientToUpdate = (clients || []).find(c => c.id === selectedAppointment.clientId);
-        if (clientToUpdate) {
-            const updatedPackages = clientToUpdate.activePackages?.map(p => {
+        if (redeemedOffer?.type === 'package') {
+            updates.activePackages = clientToUpdate.activePackages?.map(p => {
                 if (p.packageId === redeemedOffer.id) {
                     return { ...p, sessionsRemaining: p.sessionsRemaining - 1 };
                 }
                 return p;
             }).filter(p => p.sessionsRemaining > 0);
-
-            const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, clientToUpdate.id);
-            updateDocumentNonBlocking(clientDocRef, { activePackages: updatedPackages });
         }
+
+        updateDocumentNonBlocking(clientDocRef, updates);
     }
     
     setReceiptDataForPrompt({
@@ -1551,5 +1556,3 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
-
-    

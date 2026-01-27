@@ -1023,5 +1023,3 @@ export const resources: Resource[] = [
 
 
 export { nanoid };
-
-  
