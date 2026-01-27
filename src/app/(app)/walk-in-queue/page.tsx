@@ -1,11 +1,12 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { User, Users, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal, Printer, UserPlus, ArrowUp, ArrowDown, DollarSign, Bell, Lock, Building, HardHat, TrendingUp, UserX } from 'lucide-react';
+import { User, Users, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal, Printer, UserPlus, ArrowUp, ArrowDown, DollarSign, Bell, Lock, Building, HardHat, TrendingUp, UserX, SlidersHorizontal } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { useCollection, useFirebase, updateDocumentNonBlocking, useMemoFirebase, setDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc, getDocs, query, where } from 'firebase/firestore';
@@ -32,6 +33,8 @@ import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 import { Tooltip, TooltipProvider, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 
 const Timer = ({ startTime }: { startTime: string }) => {
     const [elapsed, setElapsed] = useState('');
@@ -351,25 +354,7 @@ const ServicingCustomerCard = ({ walkIn, services, resources, staff, onStatusCha
                 <div className="flex justify-between items-start">
                     <div className="space-y-1">
                         <p className="font-bold text-xl">{walkIn.customerName}</p>
-                        <div className="flex items-center gap-2">
-                             <p className="text-sm text-primary">Assigned to: {assignedStaff?.name || 'N/A'}</p>
-                             {requiredResources.length > 0 && (
-                                <div className="flex items-center gap-1.5">
-                                    {requiredResources.map(resource => (
-                                        <TooltipProvider key={resource.id} delayDuration={0}>
-                                            <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                    <div className="p-1 bg-muted rounded-full">
-                                                        {resource.type === 'room' ? <Building className="w-3 h-3 text-primary/80" /> : <HardHat className="w-3 h-3 text-primary/80" />}
-                                                    </div>
-                                                </TooltipTrigger>
-                                                <TooltipContent><p>{resource.name}</p></TooltipContent>
-                                            </Tooltip>
-                                        </TooltipProvider>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
+                        <p className="text-sm text-primary">Assigned to: {assignedStaff?.name || 'N/A'}</p>
                         {assignedSlot && <p className="text-sm font-semibold">{format(parseISO(walkIn.serviceStartTime!), 'MMM d, yyyy')} &middot; {assignedSlot}</p>}
                         {waitTime !== null && <p className="text-xs text-muted-foreground">Waited {waitTime} minutes</p>}
                     </div>
@@ -585,6 +570,9 @@ export default function WalkInQueuePage() {
   const [staffOrder, setStaffOrder] = useState<Staff[]>([]);
   const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
+
+  const isMobile = useIsMobile();
+  const [isKpiSheetOpen, setIsKpiSheetOpen] = useState(false);
 
 
   const staffQuery = useMemoFirebase(() => {
@@ -1247,53 +1235,76 @@ export default function WalkInQueuePage() {
     });
   };
 
+  const KpiCards = () => (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <Card className="bg-blue-500/10 border-blue-500/20">
+          <CardHeader>
+              <CardTitle className="text-sm font-medium flex items-center justify-between text-blue-800 dark:text-blue-300">
+                  Total Walk-ins Today <Users className="w-4 h-4 text-blue-500/80" />
+              </CardTitle>
+          </CardHeader>
+          <CardContent>
+              <p className="text-2xl font-bold text-blue-800 dark:text-blue-400">{dailyStats.total}</p>
+          </CardContent>
+      </Card>
+      <Card className="bg-purple-500/10 border-purple-500/20">
+          <CardHeader>
+              <CardTitle className="text-sm font-medium flex items-center justify-between text-purple-800 dark:text-purple-300">
+                  Avg. Wait Time <Clock className="w-4 h-4 text-purple-500/80" />
+              </CardTitle>
+          </CardHeader>
+          <CardContent>
+              <p className="text-2xl font-bold text-purple-800 dark:text-purple-400">~{dailyStats.avgWaitTime.toFixed(0)} min</p>
+          </CardContent>
+      </Card>
+      <Card className="bg-green-500/10 border-green-500/20">
+          <CardHeader>
+              <CardTitle className="text-sm font-medium flex items-center justify-between text-green-800 dark:text-green-300">
+                  Conversion Rate <TrendingUp className="w-4 h-4 text-green-500/80" />
+              </CardTitle>
+          </CardHeader>
+          <CardContent>
+              <p className="text-2xl font-bold text-green-800 dark:text-green-400">{dailyStats.conversionRate.toFixed(1)}%</p>
+          </CardContent>
+      </Card>
+      <Card className="bg-red-500/10 border-red-500/20">
+          <CardHeader>
+              <CardTitle className="text-sm font-medium flex items-center justify-between text-red-800 dark:text-red-300">
+                  Skipped / Cancelled <UserX className="w-4 h-4 text-red-500/80" />
+              </CardTitle>
+          </CardHeader>
+          <CardContent>
+              <p className="text-2xl font-bold text-red-800 dark:text-red-400">{dailyStats.skippedOrCancelled}</p>
+          </CardContent>
+      </Card>
+    </div>
+  );
+
   return (
     <>
     <div className="flex h-screen w-full flex-col">
       <AppHeader title="Smart Walk-in Queue" />
       <main className="flex-1 p-4 md:p-8 space-y-8 flex flex-col">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card>
-                <CardHeader>
-                    <CardTitle className="text-sm font-medium flex items-center justify-between">
-                        Total Walk-ins Today <Users className="w-4 h-4 text-muted-foreground" />
-                    </CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <p className="text-2xl font-bold">{dailyStats.total}</p>
-                </CardContent>
-            </Card>
-            <Card>
-                <CardHeader>
-                    <CardTitle className="text-sm font-medium flex items-center justify-between">
-                        Avg. Wait Time <Clock className="w-4 h-4 text-muted-foreground" />
-                    </CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <p className="text-2xl font-bold">~{dailyStats.avgWaitTime.toFixed(0)} min</p>
-                </CardContent>
-            </Card>
-            <Card>
-                <CardHeader>
-                    <CardTitle className="text-sm font-medium flex items-center justify-between">
-                        Conversion Rate <TrendingUp className="w-4 h-4 text-muted-foreground" />
-                    </CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <p className="text-2xl font-bold">{dailyStats.conversionRate.toFixed(1)}%</p>
-                </CardContent>
-            </Card>
-            <Card>
-                <CardHeader>
-                    <CardTitle className="text-sm font-medium flex items-center justify-between">
-                        Skipped / Cancelled <UserX className="w-4 h-4 text-muted-foreground" />
-                    </CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <p className="text-2xl font-bold">{dailyStats.skippedOrCancelled}</p>
-                </CardContent>
-            </Card>
-        </div>
+        {isMobile ? (
+            <Sheet open={isKpiSheetOpen} onOpenChange={setIsKpiSheetOpen}>
+                <SheetTrigger asChild>
+                    <Button variant="outline" className="w-full">
+                        <SlidersHorizontal className="mr-2 h-4 w-4" />
+                        View Live Stats
+                    </Button>
+                </SheetTrigger>
+                <SheetContent side="bottom" className="h-[60vh] p-0 flex flex-col">
+                    <SheetHeader className="p-6 text-left">
+                        <SheetTitle>Live Queue Stats</SheetTitle>
+                    </SheetHeader>
+                    <div className="p-6 pt-0 flex-1 overflow-y-auto">
+                        <KpiCards />
+                    </div>
+                </SheetContent>
+            </Sheet>
+        ) : (
+            <KpiCards />
+        )}
 
         <Card>
             <CardHeader>
