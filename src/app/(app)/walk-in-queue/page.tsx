@@ -5,12 +5,12 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { User, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal, Printer, UserPlus, ArrowUp, ArrowDown, DollarSign, Bell, Lock, Building, HardHat } from 'lucide-react';
+import { User, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal, Printer, UserPlus, ArrowUp, ArrowDown, DollarSign, Bell, Lock, Building, HardHat, TrendingUp, UserX } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { useCollection, useFirebase, updateDocumentNonBlocking, useMemoFirebase, setDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc, getDocs, query, where } from 'firebase/firestore';
 import type { WalkIn, Staff, Appointment, Service, ActivityLog, Client, Event, Resource } from '@/lib/data';
-import { formatDistanceToNowStrict, parseISO, addMinutes, differenceInMinutes, differenceInSeconds, format, areIntervalsOverlapping } from 'date-fns';
+import { formatDistanceToNowStrict, parseISO, addMinutes, differenceInMinutes, differenceInSeconds, format, areIntervalsOverlapping, isToday } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
@@ -114,7 +114,7 @@ const StaffResourceIndicator = ({ staffMember, appointments, services, resources
     );
 };
 
-const StaffStatusCard = ({ staffMember, onStatusChange, isNextUp, appointments, services, resources }: { staffMember: Staff, onStatusChange: (staffId: string, status: Partial<Staff>) => void, isNextUp: boolean, appointments: Appointment[], services: Service[], resources: Resource[] }) => {
+const StaffStatusCard = ({ staffMember, onStatusChange, isNextUp, appointments, services, resources }: { staffMember: Staff & { stats: any }, onStatusChange: (staffId: string, status: Partial<Staff>) => void, isNextUp: boolean, appointments: Appointment[], services: Service[], resources: Resource[] }) => {
     const { events } = useInventory();
     
     const isBlocked = useMemo(() => {
@@ -653,6 +653,32 @@ export default function WalkInQueuePage() {
         setStaffOrder(staff);
     }
   }, [staff]);
+
+    const dailyStats = useMemo(() => {
+    if (!walkIns) return { total: 0, completed: 0, skippedOrCancelled: 0, avgWaitTime: 0, conversionRate: 0 };
+
+    const todayWalkIns = walkIns.filter(w => isToday(parseISO(w.checkInTime)));
+    const total = todayWalkIns.length;
+
+    const completed = todayWalkIns.filter(w => w.status === 'completed' && w.serviceStartTime);
+    const skippedOrCancelled = todayWalkIns.filter(w => w.status === 'skipped' || w.status === 'cancelled');
+
+    const totalWaitTime = completed.reduce((acc, w) => {
+        return acc + differenceInMinutes(parseISO(w.serviceStartTime!), parseISO(w.checkInTime));
+    }, 0);
+
+    const avgWaitTime = completed.length > 0 ? totalWaitTime / completed.length : 0;
+    
+    const terminalWalkIns = completed.length + skippedOrCancelled.length;
+    const conversionRate = terminalWalkIns > 0 ? (completed.length / terminalWalkIns) * 100 : 0;
+
+    return { 
+        total, 
+        conversionRate, 
+        skippedOrCancelled: skippedOrCancelled.length,
+        avgWaitTime,
+    };
+  }, [walkIns]);
 
   const handleReorder = (index: number, direction: 'up' | 'down') => {
     const newOrder = [...staffOrder];
@@ -1226,6 +1252,49 @@ export default function WalkInQueuePage() {
     <div className="flex h-screen w-full flex-col">
       <AppHeader title="Smart Walk-in Queue" />
       <main className="flex-1 p-4 md:p-8 space-y-8 flex flex-col">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Card>
+                <CardHeader>
+                    <CardTitle className="text-sm font-medium flex items-center justify-between">
+                        Total Walk-ins Today <Users className="w-4 h-4 text-muted-foreground" />
+                    </CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <p className="text-2xl font-bold">{dailyStats.total}</p>
+                </CardContent>
+            </Card>
+            <Card>
+                <CardHeader>
+                    <CardTitle className="text-sm font-medium flex items-center justify-between">
+                        Avg. Wait Time <Clock className="w-4 h-4 text-muted-foreground" />
+                    </CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <p className="text-2xl font-bold">~{dailyStats.avgWaitTime.toFixed(0)} min</p>
+                </CardContent>
+            </Card>
+            <Card>
+                <CardHeader>
+                    <CardTitle className="text-sm font-medium flex items-center justify-between">
+                        Conversion Rate <TrendingUp className="w-4 h-4 text-muted-foreground" />
+                    </CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <p className="text-2xl font-bold">{dailyStats.conversionRate.toFixed(1)}%</p>
+                </CardContent>
+            </Card>
+            <Card>
+                <CardHeader>
+                    <CardTitle className="text-sm font-medium flex items-center justify-between">
+                        Skipped / Cancelled <UserX className="w-4 h-4 text-muted-foreground" />
+                    </CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <p className="text-2xl font-bold">{dailyStats.skippedOrCancelled}</p>
+                </CardContent>
+            </Card>
+        </div>
+
         <Card>
             <CardHeader>
                 <CardTitle>Public Check-in Link</CardTitle>
