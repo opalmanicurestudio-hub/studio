@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo } from 'react';
@@ -47,10 +48,12 @@ export default function ReportsPage() {
 
       let totalMinutesVariance = 0;
       let totalInServiceMinutes = 0;
+      let appointmentsWithTimeTracking = 0;
 
       staffAppointments.forEach(apt => {
         const service = services.find(s => s.id === apt.serviceId);
         if (apt.actualStartTime && apt.actualEndTime && service) {
+          appointmentsWithTimeTracking++;
           const actualDuration = differenceInMinutes(
             parseISO(apt.actualEndTime),
             parseISO(apt.actualStartTime)
@@ -62,8 +65,13 @@ export default function ReportsPage() {
       });
 
       const avgVariance =
-        staffAppointments.length > 0
-          ? totalMinutesVariance / staffAppointments.length
+        appointmentsWithTimeTracking > 0
+          ? totalMinutesVariance / appointmentsWithTimeTracking
+          : 0;
+          
+      const avgActualServiceTime =
+        appointmentsWithTimeTracking > 0
+          ? totalInServiceMinutes / appointmentsWithTimeTracking
           : 0;
 
       return {
@@ -71,6 +79,7 @@ export default function ReportsPage() {
         staffName: staffMember.name,
         totalServices: staffAppointments.length,
         avgVariance: avgVariance,
+        avgActualServiceTime: avgActualServiceTime,
         totalInServiceHours: totalInServiceMinutes / 60,
       };
     });
@@ -168,6 +177,7 @@ export default function ReportsPage() {
                   <TableRow>
                     <TableHead>Staff Member</TableHead>
                     <TableHead className="text-right">Total Services</TableHead>
+                    <TableHead className="text-right">Avg. Actual Time</TableHead>
                     <TableHead className="text-right">Avg. Time Variance</TableHead>
                     <TableHead className="text-right">Total In-Service</TableHead>
                   </TableRow>
@@ -177,6 +187,7 @@ export default function ReportsPage() {
                     <TableRow key={data.staffId}>
                       <TableCell className="font-medium">{data.staffName}</TableCell>
                       <TableCell className="text-right">{data.totalServices}</TableCell>
+                      <TableCell className="text-right">{data.avgActualServiceTime.toFixed(1)} min</TableCell>
                       <TableCell className={`text-right font-medium ${data.avgVariance > 0 ? 'text-destructive' : 'text-green-500'}`}>
                         {data.avgVariance > 0 ? '+' : ''}{data.avgVariance.toFixed(1)} min
                       </TableCell>
