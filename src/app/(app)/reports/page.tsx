@@ -119,6 +119,29 @@ export default function ReportsPage() {
 
   }, [walkIns]);
 
+  const salonWideStats = useMemo(() => {
+    const completedAppointments = appointments.filter(apt => apt.status === 'completed');
+    let totalInServiceMinutes = 0;
+    let appointmentsWithTimeTracking = 0;
+
+    completedAppointments.forEach(apt => {
+        if (apt.actualStartTime && apt.actualEndTime) {
+            appointmentsWithTimeTracking++;
+            const actualDuration = differenceInMinutes(
+                parseISO(apt.actualEndTime),
+                parseISO(apt.actualStartTime)
+            );
+            totalInServiceMinutes += actualDuration;
+        }
+    });
+
+    const avgActualServiceTime = appointmentsWithTimeTracking > 0
+        ? totalInServiceMinutes / appointmentsWithTimeTracking
+        : 0;
+
+    return { avgActualServiceTime };
+  }, [appointments]);
+
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Reports & Analytics" />
@@ -139,6 +162,16 @@ export default function ReportsPage() {
                 <CardContent>
                 <div className="text-2xl font-bold">{waitTimeData.avgWaitTime.toFixed(1)} min</div>
                 <p className="text-xs text-muted-foreground">Average for all walk-ins</p>
+                </CardContent>
+            </Card>
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Avg. Service Time</CardTitle>
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                <div className="text-2xl font-bold">{salonWideStats.avgActualServiceTime.toFixed(1)} min</div>
+                <p className="text-xs text-muted-foreground">For all completed services</p>
                 </CardContent>
             </Card>
              <Card>
