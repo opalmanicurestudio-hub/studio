@@ -1,14 +1,15 @@
 
+
 'use client';
 
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
-import { ArrowLeft, Printer, BarChart, DollarSign, Package, Store, Hammer, Recycle, TrendingUp, AlertTriangle, Download, Target, Ban, Repeat, UserPlus, Users, Wallet, ShoppingCart, Activity } from 'lucide-react';
+import { ArrowLeft, Printer, BarChart, DollarSign, Package, Store, Hammer, Recycle, TrendingUp, AlertTriangle, Download, Target, Ban, Repeat, UserPlus, Users, Wallet, ShoppingCart, Activity, Ban as BanIcon } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { format, isPast, parseISO, subDays, startOfDay, endOfDay, differenceInMinutes, differenceInDays, getHours, setHours } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -497,7 +498,7 @@ export default function ReportsPage() {
                   </CardContent>
               </Card>
               <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium flex items-center gap-2"><Ban className="w-4 h-4"/>Cancellation Rate</CardTitle></CardHeader>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium flex items-center gap-2"><BanIcon className="w-4 h-4"/>Cancellation Rate</CardTitle></CardHeader>
                   <CardContent>
                       <div className="text-2xl font-bold">{salonWideStats.cancellationRate.toFixed(1)}%</div>
                       <p className="text-xs text-muted-foreground">% of appointments marked as cancelled.</p>
@@ -539,109 +540,103 @@ export default function ReportsPage() {
                   <CardDescription>A summary of staff earnings and business profitability for the selected period.</CardDescription>
               </CardHeader>
               <CardContent>
-                  <ScrollArea>
-                      <Table>
-                          <TableHeader>
-                              <TableRow>
-                                  <TableHead className="w-12"></TableHead>
-                                  <TableHead>Staff Member</TableHead>
-                                  <TableHead>Pay Structure</TableHead>
-                                  <TableHead className="text-right">Service Rev.</TableHead>
-                                  <TableHead className="text-right">Retail Sales</TableHead>
-                                  <TableHead className="text-right">Retail Comm.</TableHead>
-                                  <TableHead className="text-right">Wages</TableHead>
-                                  <TableHead className="text-right">Tips</TableHead>
-                                  <TableHead className="text-right font-bold text-primary">Total Payout</TableHead>
-                                  <TableHead className="text-right font-bold">Net Contribution</TableHead>
+                  <Table>
+                      <TableHeader>
+                          <TableRow>
+                              <TableHead className="w-12"></TableHead>
+                              <TableHead>Staff Member</TableHead>
+                              <TableHead>Pay Structure</TableHead>
+                              <TableHead className="text-right">Service Rev.</TableHead>
+                              <TableHead className="text-right">Retail Sales</TableHead>
+                              <TableHead className="text-right">Retail Comm.</TableHead>
+                              <TableHead className="text-right">Wages</TableHead>
+                              <TableHead className="text-right">Tips</TableHead>
+                              <TableHead className="text-right font-bold text-primary">Total Payout</TableHead>
+                              <TableHead className="text-right font-bold">Net Contribution</TableHead>
+                          </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                          {performanceAndPayrollData.map(data => (
+                              <TableRow key={data.id}>
+                                  <TableCell>
+                                      <Avatar className="h-9 w-9">
+                                          <AvatarImage src={data.avatarUrl} alt={data.name} />
+                                          <AvatarFallback>{data.name.substring(0, 2)}</AvatarFallback>
+                                      </Avatar>
+                                  </TableCell>
+                                  <TableCell className="font-medium">{data.name}</TableCell>
+                                  <TableCell>
+                                      <div className="font-medium capitalize">{data.payStructure}</div>
+                                      {data.payStructure === 'commission' && data.commissionRate !== undefined && (
+                                          <div className="text-xs text-muted-foreground">
+                                              {data.commissionRate}% (Svc) / {data.retailCommissionRate || 0}% (Retail)
+                                          </div>
+                                      )}
+                                      {data.payStructure === 'hourly' && data.hourlyRate !== undefined && (
+                                          <div className="text-xs text-muted-foreground">
+                                              ${data.hourlyRate.toFixed(2)}/hr
+                                          </div>
+                                      )}
+                                  </TableCell>
+                                  <TableCell className="text-right font-mono">${data.stats.serviceRevenue.toFixed(2)}</TableCell>
+                                  <TableCell className="text-right font-mono">${data.stats.retailSales.toFixed(2)}</TableCell>
+                                  <TableCell className="text-right font-mono text-blue-500">${data.stats.retailCommission.toFixed(2)}</TableCell>
+                                  <TableCell className="text-right font-mono">${data.stats.wages.toFixed(2)}</TableCell>
+                                  <TableCell className="text-right font-mono text-green-500">${data.stats.tips.toFixed(2)}</TableCell>
+                                  <TableCell className="text-right font-mono font-bold text-primary bg-primary/5">${data.stats.totalPay.toFixed(2)}</TableCell>
+                                  <TableCell className={cn("text-right font-mono font-bold", data.stats.netProfit >= 0 ? 'text-primary' : 'text-destructive')}>${data.stats.netProfit.toFixed(2)}</TableCell>
                               </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                              {performanceAndPayrollData.map(data => (
-                                  <TableRow key={data.id}>
-                                      <TableCell>
-                                          <Avatar className="h-9 w-9">
-                                              <AvatarImage src={data.avatarUrl} alt={data.name} />
-                                              <AvatarFallback>{data.name.substring(0, 2)}</AvatarFallback>
-                                          </Avatar>
-                                      </TableCell>
-                                      <TableCell className="font-medium">{data.name}</TableCell>
-                                      <TableCell>
-                                          <div className="font-medium capitalize">{data.payStructure}</div>
-                                          {data.payStructure === 'commission' && data.commissionRate !== undefined && (
-                                              <div className="text-xs text-muted-foreground">
-                                                  {data.commissionRate}% (Svc) / {data.retailCommissionRate || 0}% (Retail)
-                                              </div>
-                                          )}
-                                          {data.payStructure === 'hourly' && data.hourlyRate !== undefined && (
-                                              <div className="text-xs text-muted-foreground">
-                                                  ${data.hourlyRate.toFixed(2)}/hr
-                                              </div>
-                                          )}
-                                      </TableCell>
-                                      <TableCell className="text-right font-mono">${data.stats.serviceRevenue.toFixed(2)}</TableCell>
-                                      <TableCell className="text-right font-mono">${data.stats.retailSales.toFixed(2)}</TableCell>
-                                      <TableCell className="text-right font-mono text-blue-500">${data.stats.retailCommission.toFixed(2)}</TableCell>
-                                      <TableCell className="text-right font-mono">${data.stats.wages.toFixed(2)}</TableCell>
-                                      <TableCell className="text-right font-mono text-green-500">${data.stats.tips.toFixed(2)}</TableCell>
-                                      <TableCell className="text-right font-mono font-bold text-primary bg-primary/5">${data.stats.totalPay.toFixed(2)}</TableCell>
-                                      <TableCell className={cn("text-right font-mono font-bold", data.stats.netProfit >= 0 ? 'text-primary' : 'text-destructive')}>${data.stats.netProfit.toFixed(2)}</TableCell>
-                                  </TableRow>
-                              ))}
-                          </TableBody>
-                          <TableFooter>
-                              <TableRow><TableCell colSpan={9} className="font-semibold">Total Gross Revenue</TableCell><TableCell className="text-right font-mono font-semibold">${totalGrossRevenue.toFixed(2)}</TableCell></TableRow>
-                              <TableRow><TableCell colSpan={10} className="pt-0 pb-2 text-xs text-muted-foreground">Total revenue from all sales before any costs.</TableCell></TableRow>
-                              
-                              <TableRow><TableCell colSpan={9} className="text-muted-foreground pl-8">Cost of Goods Sold (COGS)</TableCell><TableCell className="text-right font-mono text-destructive">-${totalCOGS.toFixed(2)}</TableCell></TableRow>
-                              <TableRow><TableCell colSpan={10} className="pt-0 pb-2 text-xs text-muted-foreground pl-8">Direct costs of products used in services.</TableCell></TableRow>
-    
-                              <TableRow className="font-bold border-t"><TableCell colSpan={9}>Gross Profit</TableCell><TableCell className="text-right font-mono">${grossProfit.toFixed(2)}</TableCell></TableRow>
-                              <TableRow><TableCell colSpan={10} className="pt-0 pb-2 text-xs text-muted-foreground">Profit after subtracting the direct cost of services.</TableCell></TableRow>
-    
-                              <TableRow><TableCell colSpan={10} className="py-2"></TableCell></TableRow>
-                              
-                              <TableRow><TableCell colSpan={9} className="font-semibold">Operating Expenses</TableCell><TableCell></TableCell></TableRow>
-                              <TableRow><TableCell colSpan={10} className="pt-0 pb-2 text-xs text-muted-foreground">Day-to-day costs of running the business.</TableCell></TableRow>
-    
-                              <TableRow><TableCell colSpan={9} className="text-muted-foreground pl-8">Service Wages</TableCell><TableCell className="text-right font-mono text-destructive">-${payrollTotals.totalWages.toFixed(2)}</TableCell></TableRow>
-                              <TableRow><TableCell colSpan={9} className="text-muted-foreground pl-8">Retail Commission</TableCell><TableCell className="text-right font-mono text-destructive">-${payrollTotals.totalRetailCommission.toFixed(2)}</TableCell></TableRow>
-                              
-                              <TableRow className="font-bold border-t"><TableCell colSpan={9}>Operating Profit</TableCell><TableCell className={cn("text-right font-mono", payrollTotals.totalNetProfit >= 0 ? 'text-primary' : 'text-destructive')}>${payrollTotals.totalNetProfit.toFixed(2)}</TableCell></TableRow>
-                              <TableRow><TableCell colSpan={10} className="pt-0 pb-2 text-xs text-muted-foreground">Profit after payroll and direct service costs.</TableCell></TableRow>
-    
-                              <TableRow><TableCell colSpan={10} className="py-2"></TableCell></TableRow>
-                              
-                              <TableRow><TableCell colSpan={9} className="font-semibold">Overhead Expenses</TableCell><TableCell className="text-right font-mono text-destructive">-${periodOverhead.toFixed(2)}</TableCell></TableRow>
-                               <TableRow><TableCell colSpan={10} className="pt-0 pb-2 text-xs text-muted-foreground">Your fixed business and personal costs for the period.</TableCell></TableRow>
-    
-                              <TableRow className="font-bold text-lg bg-muted/50"><TableCell colSpan={9}>True Net Profit</TableCell><TableCell className={cn("text-right font-mono", (payrollTotals.totalNetProfit - periodOverhead) >= 0 ? 'text-primary' : 'text-destructive')}>${(payrollTotals.totalNetProfit - periodOverhead).toFixed(2)}</TableCell></TableRow>
-                              <TableRow><TableCell colSpan={10} className="pt-0 pb-2 text-xs text-muted-foreground">The final profit after all costs and overhead.</TableCell></TableRow>
-                          </TableFooter>
-                      </Table>
-                      <ScrollBar orientation="horizontal" />
-                  </ScrollArea>
+                          ))}
+                      </TableBody>
+                      <TableFooter>
+                          <TableRow><TableCell colSpan={9} className="font-semibold">Total Gross Revenue</TableCell><TableCell className="text-right font-mono font-semibold">${totalGrossRevenue.toFixed(2)}</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={10} className="pt-0 pb-2 text-xs text-muted-foreground">Total revenue from all sales before any costs.</TableCell></TableRow>
+                          
+                          <TableRow><TableCell colSpan={9} className="text-muted-foreground pl-8">Cost of Goods Sold (COGS)</TableCell><TableCell className="text-right font-mono text-destructive">-${totalCOGS.toFixed(2)}</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={10} className="pt-0 pb-2 text-xs text-muted-foreground pl-8">Direct costs of products used in services.</TableCell></TableRow>
+
+                          <TableRow className="font-bold border-t"><TableCell colSpan={9}>Gross Profit</TableCell><TableCell className="text-right font-mono">${grossProfit.toFixed(2)}</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={10} className="pt-0 pb-2 text-xs text-muted-foreground">Profit after subtracting the direct cost of services.</TableCell></TableRow>
+
+                          <TableRow><TableCell colSpan={10} className="py-2"></TableCell></TableRow>
+                          
+                          <TableRow><TableCell colSpan={9} className="font-semibold">Operating Expenses</TableCell><TableCell></TableCell></TableRow>
+                          <TableRow><TableCell colSpan={10} className="pt-0 pb-2 text-xs text-muted-foreground">Day-to-day costs of running the business.</TableCell></TableRow>
+
+                          <TableRow><TableCell colSpan={9} className="text-muted-foreground pl-8">Service Wages</TableCell><TableCell className="text-right font-mono text-destructive">-${payrollTotals.totalWages.toFixed(2)}</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={9} className="text-muted-foreground pl-8">Retail Commission</TableCell><TableCell className="text-right font-mono text-destructive">-${payrollTotals.totalRetailCommission.toFixed(2)}</TableCell></TableRow>
+                          
+                          <TableRow className="font-bold border-t"><TableCell colSpan={9}>Operating Profit</TableCell><TableCell className={cn("text-right font-mono", payrollTotals.totalNetProfit >= 0 ? 'text-primary' : 'text-destructive')}>${payrollTotals.totalNetProfit.toFixed(2)}</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={10} className="pt-0 pb-2 text-xs text-muted-foreground">Profit after payroll and direct service costs.</TableCell></TableRow>
+
+                          <TableRow><TableCell colSpan={10} className="py-2"></TableCell></TableRow>
+                          
+                          <TableRow><TableCell colSpan={9} className="font-semibold">Overhead Expenses</TableCell><TableCell className="text-right font-mono text-destructive">-${periodOverhead.toFixed(2)}</TableCell></TableRow>
+                           <TableRow><TableCell colSpan={10} className="pt-0 pb-2 text-xs text-muted-foreground">Your fixed business and personal costs for the period.</TableCell></TableRow>
+
+                          <TableRow className="font-bold text-lg bg-muted/50"><TableCell colSpan={9}>True Net Profit</TableCell><TableCell className={cn("text-right font-mono", (payrollTotals.totalNetProfit - periodOverhead) >= 0 ? 'text-primary' : 'text-destructive')}>${(payrollTotals.totalNetProfit - periodOverhead).toFixed(2)}</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={10} className="pt-0 pb-2 text-xs text-muted-foreground">The final profit after all costs and overhead.</TableCell></TableRow>
+                      </TableFooter>
+                  </Table>
               </CardContent>
           </Card>
           
           <Card>
               <CardHeader><CardTitle>Service Performance</CardTitle><CardDescription>Breakdown of performance by individual service.</CardDescription></CardHeader>
               <CardContent>
-                  <ScrollArea>
-                      <Table>
-                          <TableHeader><TableRow><TableHead>Service</TableHead><TableHead className="text-right"># Bookings</TableHead><TableHead className="text-right">Avg. Time</TableHead><TableHead className="text-right">Total Revenue</TableHead></TableRow></TableHeader>
-                          <TableBody>
-                              {servicePerformanceData.map(service => (
-                                  <TableRow key={service.id}>
-                                      <TableCell className="font-medium">{service.name}</TableCell>
-                                      <TableCell className="text-right font-mono">{service.totalBookings}</TableCell>
-                                      <TableCell className="text-right font-mono">{service.avgTime.toFixed(0)} min</TableCell>
-                                      <TableCell className="text-right font-mono">${service.totalRevenue.toFixed(2)}</TableCell>
-                                  </TableRow>
-                              ))}
-                          </TableBody>
-                      </Table>
-                      <ScrollBar orientation="horizontal" />
-                  </ScrollArea>
+                  <Table>
+                      <TableHeader><TableRow><TableHead>Service</TableHead><TableHead className="text-right"># Bookings</TableHead><TableHead className="text-right">Avg. Time</TableHead><TableHead className="text-right">Total Revenue</TableHead></TableRow></TableHeader>
+                      <TableBody>
+                          {servicePerformanceData.map(service => (
+                              <TableRow key={service.id}>
+                                  <TableCell className="font-medium">{service.name}</TableCell>
+                                  <TableCell className="text-right font-mono">{service.totalBookings}</TableCell>
+                                  <TableCell className="text-right font-mono">{service.avgTime.toFixed(0)} min</TableCell>
+                                  <TableCell className="text-right font-mono">${service.totalRevenue.toFixed(2)}</TableCell>
+                              </TableRow>
+                          ))}
+                      </TableBody>
+                  </Table>
               </CardContent>
           </Card>
 
@@ -654,33 +649,30 @@ export default function ReportsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                  <ScrollArea>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Staff Member</TableHead>
-                          <TableHead className="text-right">Utilization</TableHead>
-                          <TableHead className="text-right">Avg. Ticket</TableHead>
-                          <TableHead className="text-right">Retail Attach</TableHead>
-                          <TableHead className="text-right">Time Variance</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {performanceAndPayrollData.map(data => (
-                          <TableRow key={data.id}>
-                            <TableCell className="font-medium">{data.name}</TableCell>
-                            <TableCell className="text-right font-mono">{data.stats.utilizationRate.toFixed(1)}%</TableCell>
-                            <TableCell className="text-right font-mono">${data.stats.avgTicket.toFixed(2)}</TableCell>
-                            <TableCell className="text-right font-mono">{data.stats.retailAttachmentRate.toFixed(1)}%</TableCell>
-                            <TableCell className={cn('text-right font-mono text-xs', data.stats.avgVariance > 0 ? 'text-destructive' : 'text-green-500')}>
-                              {data.stats.avgVariance > 0 ? '+' : ''}{data.stats.avgVariance.toFixed(1)} min
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                    <ScrollBar orientation="horizontal" />
-                  </ScrollArea>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Staff Member</TableHead>
+                      <TableHead className="text-right">Utilization</TableHead>
+                      <TableHead className="text-right">Avg. Ticket</TableHead>
+                      <TableHead className="text-right">Retail Attach</TableHead>
+                      <TableHead className="text-right">Time Variance</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {performanceAndPayrollData.map(data => (
+                      <TableRow key={data.id}>
+                        <TableCell className="font-medium">{data.name}</TableCell>
+                        <TableCell className="text-right font-mono">{data.stats.utilizationRate.toFixed(1)}%</TableCell>
+                        <TableCell className="text-right font-mono">${data.stats.avgTicket.toFixed(2)}</TableCell>
+                        <TableCell className="text-right font-mono">{data.stats.retailAttachmentRate.toFixed(1)}%</TableCell>
+                        <TableCell className={cn('text-right font-mono text-xs', data.stats.avgVariance > 0 ? 'text-destructive' : 'text-green-500')}>
+                          {data.stats.avgVariance > 0 ? '+' : ''}{data.stats.avgVariance.toFixed(1)} min
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </CardContent>
             </Card>
             <Card className="lg:col-span-3">
