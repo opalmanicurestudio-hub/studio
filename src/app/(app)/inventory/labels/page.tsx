@@ -155,18 +155,22 @@ const GeneratedLabel = ({ product, options }: { product: InventoryItem, options:
     }, [product]);
 
     return (
-        <div className="p-2 border border-dashed border-gray-400 text-center flex flex-col items-center justify-center break-words text-[8px] leading-tight">
-            {options.showProductName && <p className="font-bold text-[9px] mb-1">{product.name}</p>}
-            {options.showPrice && price && <p className="mb-1 font-mono">${price.toFixed(2)}</p>}
-            {options.showSKU && <p className="font-mono text-[7px] mb-1">SKU: {product.id.slice(-6)}</p>}
+        <div className="p-1 border border-dashed border-gray-400 text-center flex flex-col items-center justify-around break-words h-full">
+            <div className="leading-tight space-y-0.5">
+                {options.showProductName && <p className="font-bold text-[8px]">{product.name}</p>}
+                {options.showPrice && price && <p className="font-mono text-[7px]">${price.toFixed(2)}</p>}
+                {options.showSKU && <p className="font-mono text-[6px]">SKU: {product.id.slice(-6)}</p>}
+            </div>
             {options.showQRCode && (
-                 <Image
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${encodeURIComponent(`clarityflow://product/${product.id}`)}`}
-                    alt={`QR code for ${product.name}`}
-                    width={50}
-                    height={50}
-                    className="object-contain"
-                />
+                 <div className="flex-shrink-0">
+                    <Image
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${encodeURIComponent(`clarityflow://product/${product.id}`)}`}
+                        alt={`QR code for ${product.name}`}
+                        width={40}
+                        height={40}
+                        className="object-contain"
+                    />
+                </div>
             )}
         </div>
     )
@@ -179,18 +183,22 @@ const SingleLabel = ({ product, options }: { product: InventoryItem, options: La
     }, [product]);
 
     return (
-        <div className="text-center flex flex-col items-center justify-center break-words text-black">
-            {options.showProductName && <p className="font-bold text-xs mb-1">{product.name}</p>}
-            {options.showPrice && price && <p className="mb-1 font-mono text-sm">${price.toFixed(2)}</p>}
-            {options.showSKU && <p className="font-mono text-[10px] mb-1">SKU: {product.id.slice(-6)}</p>}
+        <div className="text-center flex flex-col items-center justify-around h-full w-full break-words text-black">
+            <div className="leading-tight space-y-1">
+                {options.showProductName && <p className="font-bold text-[10px]">{product.name}</p>}
+                {options.showPrice && price && <p className="font-mono text-[10px]">${price.toFixed(2)}</p>}
+                {options.showSKU && <p className="font-mono text-[8px]">SKU: {product.id.slice(-6)}</p>}
+            </div>
             {options.showQRCode && (
-                 <Image
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(`clarityflow://product/${product.id}`)}`}
-                    alt={`QR code for ${product.name}`}
-                    width={100}
-                    height={100}
-                    className="object-contain"
-                />
+                <div className="flex-shrink-0">
+                     <Image
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(`clarityflow://product/${product.id}`)}`}
+                        alt={`QR code for ${product.name}`}
+                        width={60}
+                        height={60}
+                        className="object-contain"
+                    />
+                </div>
             )}
         </div>
     )
@@ -236,13 +244,13 @@ const PrintPreview = ({
       <CardContent className="bg-muted/50 rounded-md p-4">
         {selectedProducts.length > 0 ? (
             printMode === 'sheet' ? (
-                <div id="label-sheet" className="grid grid-cols-3 gap-x-2 gap-y-0 p-4 bg-white shadow-lg aspect-[8.5/11]">
+                <div id="label-sheet" className="grid grid-cols-3 grid-rows-10 gap-x-2 gap-y-0 p-4 bg-white shadow-lg aspect-[8.5/11]">
                     {labelsToRender.map((product, index) => (
                         product ? <GeneratedLabel key={`${product.id}-${index}`} product={product} options={labelContent} /> : <div key={index} className="border border-dashed border-gray-400"></div>
                     ))}
                 </div>
             ) : (
-                <div id="single-label-preview" className="bg-white shadow-lg mx-auto" style={{ width: '2.25in', height: '1.25in', padding: '0.1in', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div id="single-label-preview" className="bg-white shadow-lg mx-auto" style={{ width: '2.25in', height: '1.25in', padding: '0.1in' }}>
                    {labelsToRender[0] && <SingleLabel product={labelsToRender[0]} options={labelContent} />}
                 </div>
             )
@@ -409,5 +417,6 @@ export default function LabelPage() {
         </Suspense>
     );
 }
+
 
 
