@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -26,7 +27,7 @@ import {
   ChartConfig,
 } from '@/components/ui/chart';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
-import { format, parseISO, startOfDay, endOfDay, subDays, differenceInMinutes, differenceInDays, getHours } from 'date-fns';
+import { format, parseISO, startOfDay, endOfDay, subDays, differenceInMinutes, differenceInDays, getHours, setHours } from 'date-fns';
 import { Clock, BarChart as BarChartIcon, Hourglass, Users, Wallet, Calendar as CalendarIcon, ShoppingCart, Percent, Target, TrendingUp, DollarSign, Ban, Loader, Repeat, UserPlus } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
@@ -360,7 +361,7 @@ export default function ReportsPage() {
     });
 
     const chartData = Object.entries(hourlyWaitTimes).map(([hour, data]) => ({
-      hour: `${parseInt(hour, 10)}:00`,
+      hour: format(setHours(new Date(0), parseInt(hour, 10)), 'ha'),
       waitTime: data.count > 0 ? data.totalWait / data.count : 0,
     }));
     
