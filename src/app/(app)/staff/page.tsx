@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -39,20 +38,24 @@ import { StaffDetailsSheet } from '@/components/staff/StaffDetailsSheet';
 import { useCollection, useFirebase, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
 import { EditStaffDialog } from '@/components/staff/EditStaffDialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
-
-const StaffStatusCard = ({ member, stats, services, onViewDetails, onEdit, onStatusChange }: { member: Staff, stats: any, services: Service[], onViewDetails: (member: Staff & { stats: any }) => void, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void }) => {
+const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewDetails }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewDetails: (member: Staff & { stats: any }) => void }) => {
     const [licenseInfo, setLicenseInfo] = useState<{
         isExpired: boolean;
         isExpiringSoon: boolean;
         daysUntilExpiry: number | null;
         expiryDate: Date | null;
     } | null>(null);
-
-    const staffServices = useMemo(() => {
-      if (!member.services) return [];
-      return services.filter(s => member.services!.includes(s.id));
-    }, [member.services, services]);
 
     useEffect(() => {
         if (!member.compliance?.licenseExpiry) return;
@@ -107,13 +110,20 @@ const StaffStatusCard = ({ member, stats, services, onViewDetails, onEdit, onSta
                     </DropdownMenu>
                 </div>
             </CardHeader>
-            <CardContent className="p-4 pt-0 flex-1 flex flex-col">
+            <CardContent className="p-4 pt-0 flex-1 flex flex-col items-center">
                 <Avatar className="w-24 h-24 mx-auto mb-4">
                     <AvatarImage src={member.avatarUrl} alt={member.name} data-ai-hint="person portrait" />
                     <AvatarFallback>{member.name.substring(0, 2)}</AvatarFallback>
                 </Avatar>
                 <h3 className="text-lg font-semibold">{member.name}</h3>
                 <p className="text-sm text-muted-foreground capitalize">{member.role}</p>
+                <Separator className="my-4" />
+                <div className="w-full text-left space-y-3 text-sm">
+                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Total Sales</span><span className="font-semibold">${member.stats.totalSales.toFixed(2)}</span></div>
+                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Tips</span><span className="font-semibold">${member.stats.tips.toFixed(2)}</span></div>
+                    <div className="flex justify-between items-center"><span className="text-muted-foreground">Consumption</span><span className="font-semibold">${member.stats.consumptionValue.toFixed(2)}</span></div>
+                    <div className="flex justify-between items-center font-bold"><span className="text-primary">Est. Take-home</span><span className="text-primary">${member.stats.earnings.toFixed(2)}</span></div>
+                </div>
 
                 {licenseInfo && (licenseInfo.isExpired || licenseInfo.isExpiringSoon) && (
                     <div className="mt-4 text-left p-3 rounded-lg bg-destructive/10 text-destructive text-xs flex items-start gap-2">
@@ -145,6 +155,7 @@ export default function StaffPage() {
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false);
   const [selectedStaffMember, setSelectedStaffMember] = useState<(Staff & { stats: any }) | null>(null);
+  const [confirmation, setConfirmation] = useState<{ isOpen: boolean; title: string; description: string; onConfirm: () => void; } | null>(null);
 
   const { firestore, user } = useFirebase();
   const tenantId = 'tenant-abc';
@@ -185,12 +196,10 @@ export default function StaffPage() {
   }, [firestore, user, tenantId]);
   const { data: stockCorrections } = useCollection<StockCorrection>(stockCorrectionsQuery);
   
-  // NOTE: Inventory is still using context as a temporary measure.
   const { inventory } = useInventory();
 
 
   useEffect(() => {
-    // Set initial date range on client to avoid hydration mismatch
     setDateRange({ from: subDays(new Date(), 29), to: new Date() });
   }, []);
 
@@ -382,6 +391,34 @@ export default function StaffPage() {
     updateDocumentNonBlocking(staffDocRef, sanitizedData);
   };
 
+  const handleStatusChangeWithConfirmation = (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
+      const staffMember = staff?.find(s => s.id === staffId);
+      if (!staffMember) return;
+
+      const titles = {
+          clock_in: 'Confirm Clock In',
+          clock_out: 'Confirm Clock Out',
+          break_start: 'Confirm Start Break',
+          break_end: 'Confirm End Break',
+      };
+       const descriptions = {
+          clock_in: `Are you sure you want to clock in ${staffMember.name}?`,
+          clock_out: `Are you sure you want to clock out ${staffMember.name}?`,
+          break_start: `Are you sure you want to start a break for ${staffMember.name}?`,
+          break_end: `Are you sure you want to end the break for ${staffMember.name}?`,
+      };
+      
+      setConfirmation({
+          isOpen: true,
+          title: titles[action],
+          description: descriptions[action],
+          onConfirm: () => {
+              handleStatusChange(staffId, action);
+              setConfirmation(null);
+          }
+      });
+  }
+
   const handleStatusChange = (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
       if (!firestore || !staff) return;
 
@@ -475,7 +512,7 @@ export default function StaffPage() {
         {(staff || []).length > 0 ? (
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {staffWithStats.map((member) => (
-              <StaffStatusCard key={member.id} member={member} stats={member.stats} services={services || []} onViewDetails={handleViewDetails} onEdit={handleEditClick} onStatusChange={handleStatusChange} />
+              <StaffStatusCard key={member.id} member={member} services={services || []} onViewDetails={handleViewDetails} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithConfirmation} />
             ))}
           </div>
         ) : (
@@ -510,6 +547,21 @@ export default function StaffPage() {
         appointments={appointments || []}
         activityLogs={activityLogsForSelectedStaff}
       />
+      
+      {confirmation && (
+          <AlertDialog open={confirmation.isOpen} onOpenChange={() => setConfirmation(null)}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>{confirmation.title}</AlertDialogTitle>
+                    <AlertDialogDescription>{confirmation.description}</AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel onClick={() => setConfirmation(null)}>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={confirmation.onConfirm}>Confirm</AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+      )}
     </div>
   );
 }

@@ -72,7 +72,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                             <div className="text-2xl font-bold">${staffMember.stats.tips.toFixed(2)}</div>
                         </div>
                         <div className="p-3 bg-muted/50 rounded-lg">
-                            <div className="text-sm font-medium text-muted-foreground">Product Consumption</div>
+                            <div className="text-sm font-medium text-muted-foreground">Consumption</div>
                             <div className="text-2xl font-bold">${staffMember.stats.consumptionValue.toFixed(2)}</div>
                         </div>
                         <div className="p-3 bg-primary/10 rounded-lg">
