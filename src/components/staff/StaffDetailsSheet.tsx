@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Sheet,
   SheetContent,
@@ -16,7 +16,7 @@ import { type Staff, type Transaction, type Service, type Appointment, type Acti
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { format, differenceInMinutes, parseISO } from 'date-fns';
-import { TrendingUp, DollarSign, PackageX, Clock, Info, Briefcase, User, MessageSquare, Coffee, Hourglass, BarChart, Percent, Users, List, FileText, Shield } from 'lucide-react';
+import { TrendingUp, DollarSign, PackageX, Clock, Info, Briefcase, User, MessageSquare, Coffee, Hourglass, BarChart, Percent, Users, List, FileText, Shield, Search } from 'lucide-react';
 import { Button } from '../ui/button';
 import {
   Tooltip,
@@ -28,6 +28,8 @@ import { DateRange } from 'react-day-picker';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '../ui/accordion';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
+import { Separator } from '../ui/separator';
+import { Input } from '../ui/input';
 
 interface StaffDetailsSheetProps {
   open: boolean;
@@ -78,12 +80,32 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
   activityLogs,
 }) => {
   const isMobile = useIsMobile();
+  const [activitySearch, setActivitySearch] = useState('');
+  const [transactionSearch, setTransactionSearch] = useState('');
+
+  const filteredActivityLogs = useMemo(() => {
+    if (!activityLogs) return [];
+    if (!activitySearch.trim()) return activityLogs;
+    return activityLogs.filter(log =>
+      log.type.toLowerCase().includes(activitySearch.toLowerCase())
+    );
+  }, [activityLogs, activitySearch]);
+
+  const filteredTransactions = useMemo(() => {
+    if (!transactions) return [];
+    if (!transactionSearch.trim()) return transactions;
+    return transactions.filter(t =>
+      t.description.toLowerCase().includes(transactionSearch.toLowerCase()) ||
+      t.category.toLowerCase().includes(transactionSearch.toLowerCase())
+    );
+  }, [transactions, transactionSearch]);
+
   if (!staffMember) return null;
 
   const staffServices = services.filter(s => staffMember.services?.includes(s.id));
 
-  const dateRangeString = dateRange?.from && dateRange.to 
-    ? `${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d')}` 
+  const dateRangeString = dateRange?.from && dateRange.to
+    ? `${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d')}`
     : 'the selected period';
 
   return (
@@ -197,6 +219,15 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                     <AccordionItem value="activity" className="border rounded-lg">
                         <AccordionTrigger className="p-4 font-semibold">Activity Log</AccordionTrigger>
                         <AccordionContent className="p-4 pt-0">
+                             <div className="relative my-4">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                    placeholder="Search activities (e.g., clock in)..."
+                                    className="pl-9"
+                                    value={activitySearch}
+                                    onChange={(e) => setActivitySearch(e.target.value)}
+                                />
+                            </div>
                             <Table>
                                 <TableHeader>
                                     <TableRow>
@@ -206,8 +237,8 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {activityLogs.length > 0 ? (
-                                        activityLogs.map(log => (
+                                    {filteredActivityLogs.length > 0 ? (
+                                        filteredActivityLogs.map(log => (
                                             <TableRow key={log.id}>
                                                 <TableCell>{format(log.timestamp, 'PPP p')}</TableCell>
                                                 <TableCell className="capitalize flex items-center gap-2">
@@ -223,7 +254,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                                             </TableRow>
                                         ))
                                     ) : (
-                                        <TableRow><TableCell colSpan={3} className="text-center h-24">No activity logged in this period.</TableCell></TableRow>
+                                        <TableRow><TableCell colSpan={3} className="text-center h-24">No activity found.</TableCell></TableRow>
                                     )}
                                 </TableBody>
                             </Table>
@@ -233,10 +264,19 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                     <AccordionItem value="transactions" className="border rounded-lg">
                         <AccordionTrigger className="p-4 font-semibold">Transaction History</AccordionTrigger>
                         <AccordionContent className="p-4 pt-0">
+                            <div className="relative my-4">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                    placeholder="Search by description or category..."
+                                    className="pl-9"
+                                    value={transactionSearch}
+                                    onChange={(e) => setTransactionSearch(e.target.value)}
+                                />
+                            </div>
                             {isMobile ? (
                                 <div className="space-y-4 pt-4">
-                                    {transactions.length > 0 ? (
-                                        transactions.map(t => {
+                                    {filteredTransactions.length > 0 ? (
+                                        filteredTransactions.map(t => {
                                             const appointment = t.appointmentId ? appointments.find(a => a.id === t.appointmentId) : undefined;
                                             const service = appointment ? services.find(s => s.id === appointment.serviceId) : undefined;
                                             let timeVariance: number | null = null;
@@ -256,7 +296,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                                         })
                                     ) : (
                                         <div className="text-center h-24 flex items-center justify-center text-muted-foreground">
-                                            No transactions in this period.
+                                            No transactions found.
                                         </div>
                                     )}
                                 </div>
@@ -264,8 +304,8 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                                 <Table>
                                     <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Description</TableHead><TableHead>Type</TableHead><TableHead className="text-right">Time Variance</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader>
                                     <TableBody>
-                                        {transactions.length > 0 ? (
-                                        transactions.map(t => {
+                                        {filteredTransactions.length > 0 ? (
+                                        filteredTransactions.map(t => {
                                             const appointment = t.appointmentId ? appointments.find(a => a.id === t.appointmentId) : undefined;
                                             const service = appointment ? services.find(s => s.id === appointment.serviceId) : undefined;
                                             let timeVariance: number | null = null;
