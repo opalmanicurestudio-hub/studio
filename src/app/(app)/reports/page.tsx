@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useMemo, useRef, useState } from 'react';
@@ -87,10 +86,7 @@ export default function ReportsPage() {
 
   const activityLogs = useMemo(() => {
     if (!rawActivityLogs) return [];
-    return rawActivityLogs.map(log => ({
-      ...log,
-      timestamp: (log.timestamp as any)?.toDate ? (log.timestamp as any).toDate() : parseISO(log.timestamp),
-    }));
+    return rawActivityLogs.map(log => ({...log, timestamp: (log.timestamp as any)?.toDate ? (log.timestamp as any).toDate() : parseISO(log.timestamp)}));
   }, [rawActivityLogs]);
 
   const monthlyOverhead = useMemo(() => {
@@ -432,6 +428,11 @@ export default function ReportsPage() {
   const handlePrint = () => {
     window.print();
   };
+
+  const handleExport = () => {
+    // CSV export logic would go here
+  };
+
 
   if (isLoading) {
     return (

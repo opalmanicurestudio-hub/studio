@@ -11,7 +11,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 interface PrintableReportProps {
   dateRange: DateRange | undefined;
   kpiData: any;
-  payrollData: any;
+  payrollData: any[];
   payrollTotals: any;
   grossProfit: number;
   totalGrossRevenue: number;
@@ -65,34 +65,42 @@ export const PrintableReport = React.forwardRef<HTMLDivElement, PrintableReportP
                     <div className="border p-3 rounded-md">
                         <h3 className="text-xs text-gray-500">Avg. Ticket Size</h3>
                         <p className="text-2xl font-bold">${kpiData.avgTicket.toFixed(2)}</p>
+                        <p className="text-[10px] text-gray-400">Avg. revenue per completed appointment.</p>
                     </div>
                      <div className="border p-3 rounded-md">
                         <h3 className="text-xs text-gray-500">Utilization Rate</h3>
                         <p className="text-2xl font-bold">{kpiData.utilizationRate.toFixed(1)}%</p>
+                        <p className="text-[10px] text-gray-400">% of clocked-in time spent in-service.</p>
                     </div>
                      <div className="border p-3 rounded-md">
                         <h3 className="text-xs text-gray-500">Retail Attachment</h3>
                         <p className="text-2xl font-bold">{kpiData.retailAttachmentRate.toFixed(1)}%</p>
+                        <p className="text-[10px] text-gray-400">% of appointments with a retail sale.</p>
                     </div>
                     <div className="border p-3 rounded-md">
                         <h3 className="text-xs text-gray-500">Cancellation Rate</h3>
                         <p className="text-2xl font-bold">{kpiData.cancellationRate.toFixed(1)}%</p>
+                        <p className="text-[10px] text-gray-400">% of appointments marked as cancelled.</p>
                     </div>
                     <div className="border p-3 rounded-md">
                         <h3 className="text-xs text-gray-500">Revenue/Service Hr</h3>
                         <p className="text-2xl font-bold">${kpiData.revenuePerServiceHour.toFixed(2)}</p>
+                        <p className="text-[10px] text-gray-400">Revenue for every hour of active service.</p>
                     </div>
                     <div className="border p-3 rounded-md">
                         <h3 className="text-xs text-gray-500">Rebooking Rate</h3>
                         <p className="text-2xl font-bold">{kpiData.rebookingRate.toFixed(1)}%</p>
+                        <p className="text-[10px] text-gray-400">% of clients who booked a future appt.</p>
                     </div>
                     <div className="border p-3 rounded-md">
                         <h3 className="text-xs text-gray-500">Walk-in Conversion</h3>
                         <p className="text-2xl font-bold">{kpiData.walkInConversionRate.toFixed(1)}%</p>
+                        <p className="text-[10px] text-gray-400">% of walk-ins resulting in a service.</p>
                     </div>
                     <div className="border p-3 rounded-md">
                         <h3 className="text-xs text-gray-500">New Client Rate</h3>
                         <p className="text-2xl font-bold">{kpiData.newClientRate.toFixed(1)}%</p>
+                        <p className="text-[10px] text-gray-400">% of new clients this period.</p>
                     </div>
                 </div>
             </section>
@@ -107,7 +115,7 @@ export const PrintableReport = React.forwardRef<HTMLDivElement, PrintableReportP
                             <TableHead>Pay Structure</TableHead>
                             <TableHead className="text-right">Service Rev.</TableHead>
                             <TableHead className="text-right">Tips</TableHead>
-                            <TableHead className="text-right font-bold text-primary">Total Payout</TableHead>
+                            <TableHead className="text-right font-bold text-blue-600">Total Payout</TableHead>
                              <TableHead className="text-right font-bold">Net Contribution</TableHead>
                         </TableRow>
                     </TableHeader>
@@ -187,6 +195,34 @@ export const PrintableReport = React.forwardRef<HTMLDivElement, PrintableReportP
                             </TableRow>
                         ))}
                     </TableBody>
+                </Table>
+            </section>
+
+             <section className="break-before-page">
+                <h2 className="text-xl font-semibold border-b pb-2 mb-4">Stylist Effectiveness</h2>
+                 <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Staff Member</TableHead>
+                      <TableHead className="text-right">Utilization</TableHead>
+                      <TableHead className="text-right">Avg. Ticket</TableHead>
+                      <TableHead className="text-right">Retail Attach</TableHead>
+                      <TableHead className="text-right">Time Variance</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {payrollData.map(data => (
+                      <TableRow key={data.id}>
+                        <TableCell className="font-medium">{data.name}</TableCell>
+                        <TableCell className="text-right font-mono">{data.stats.utilizationRate.toFixed(1)}%</TableCell>
+                        <TableCell className="text-right font-mono">${data.stats.avgTicket.toFixed(2)}</TableCell>
+                        <TableCell className="text-right font-mono">{data.stats.retailAttachmentRate.toFixed(1)}%</TableCell>
+                        <TableCell className={cn('text-right font-mono text-xs', data.stats.avgVariance > 0 ? 'text-red-600' : 'text-green-600')}>
+                          {data.stats.avgVariance > 0 ? '+' : ''}{data.stats.avgVariance.toFixed(1)} min
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
                 </Table>
             </section>
         </div>
