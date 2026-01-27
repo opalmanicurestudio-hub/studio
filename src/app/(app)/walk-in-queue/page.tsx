@@ -79,9 +79,7 @@ const StaffResourceIndicator = ({ staffMember, appointments, services, resources
         return appointments.find(apt => {
             if (apt.staffId !== staffMember.id) return false;
             
-            // A staff can be busy because of a 'confirmed' appointment that is about to start.
-            // Or one that is 'servicing'. Walk-in appointments get created with 'confirmed' status.
-            if (apt.status !== 'servicing' && apt.status !== 'confirmed') return false; 
+            if (apt.status !== 'servicing' && apt.status !== 'assigned' && apt.status !== 'confirmed') return false; 
             
             const start = apt.startTime;
             const end = apt.endTime;
@@ -668,7 +666,7 @@ export default function WalkInQueuePage() {
   };
   
     const canNotifyNext = useMemo(() => {
-        if (!staff || !walkIns || !events || !services || !appointments) return false;
+        if (!staff || !walkIns || !events || !services || !appointments || !resources) return false;
 
         const waitingCustomers = walkIns.filter(w => w.status === 'waiting');
         if (waitingCustomers.length === 0) return false;
@@ -715,7 +713,7 @@ export default function WalkInQueuePage() {
         if (!isAnyStaffQualified) return false;
 
         return notifiedCustomers.length < idleStaff.length;
-    }, [staff, walkIns, events, services, appointments]);
+    }, [staff, walkIns, events, services, appointments, resources]);
 
   const assignWalkIn = useCallback(async (walkInId: string, staffId: string) => {
     if (!firestore || !walkIns || !staff || !services || !clients) return;
@@ -800,7 +798,7 @@ export default function WalkInQueuePage() {
   }, [firestore, tenantId, walkIns, staff, services, clients, toast]);
 
   const handleStartServiceFromNotified = useCallback((walkIn: WalkIn) => {
-    if (!staff || !services || !events || !appointments) return;
+    if (!staff || !services || !events || !appointments || !resources) return;
     
     const now = new Date();
     
@@ -843,7 +841,7 @@ export default function WalkInQueuePage() {
     const staffToAssign = qualifiedStaff[0];
     assignWalkIn(walkIn.id, staffToAssign.id);
 
-  }, [staff, services, events, appointments, assignWalkIn, toast]);
+  }, [staff, services, events, appointments, assignWalkIn, toast, resources]);
 
     const handleNotifyNext = () => {
         if (!canNotifyNext || !walkIns || !staff || !firestore || !services) {
@@ -964,6 +962,7 @@ export default function WalkInQueuePage() {
       status: 'servicing',
       isWalkIn: true,
       actualStartTime: walkIn.serviceStartTime,
+      actualEndTime: walkIn.serviceEndTime
     };
     
     setSelectedAppointment(tempAppointment);
@@ -1080,64 +1079,71 @@ export default function WalkInQueuePage() {
   }, [firestore, walkIns, handleWalkInStatusChange, toast]);
   
   const estimatedWaitTime = useMemo(() => {
-    if (!staff || !services || !appointments || !events || !walkIns) return null;
+    if (!staff || !services || !appointments || !events || !walkIns || !resources) return null;
     const now = new Date();
     
     const waitingCustomers = walkIns.filter(w => w.status === 'waiting').sort((a,b) => parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
     const nextInQueue = waitingCustomers[0];
     if (!nextInQueue) return null;
-    
+
     const staffToConsider = nextUpStaffId ? staff.filter(s => s.id === nextUpStaffId) : staff;
 
-    let bestStartTime: Date | null = null;
+    const walkInServices = nextInQueue.serviceIds.map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
+    const requiredResourceIds = [...new Set(walkInServices.flatMap(s => s.requiredResourceIds || []))];
+    const requiredSkills = [...new Set(walkInServices.flatMap(s => s.requiredSkills || []))];
+    
+    const availableQualifiedStaff = staffToConsider.filter(staffMember => {
+        const isAvailable = staffMember.status === 'idle' && !staffMember.onBreak;
+        const isBlocked = events.some(event => {
+            if (event.type !== 'blocked') return false;
+            return areIntervalsOverlapping({ start: event.startTime, end: event.endTime }, { start: now, end: addMinutes(now, 1) }) && (!event.staffId || event.staffId === 'all' || event.staffId === staffMember.id);
+        });
+        const isQualified = requiredSkills.every(skill => (staffMember.skillSet || []).includes(skill));
+        return isAvailable && !isBlocked && isQualified;
+    });
 
-    for (const staffMember of staffToConsider) {
-      // Check if staff is available and qualified
-      const isAvailable = staffMember.status === 'idle' && !staffMember.onBreak;
-      const isBlocked = events.some(event => {
-        if (event.type !== 'blocked') return false;
-        const eventStart = event.startTime;
-        const eventEnd = event.endTime;
-        return now >= eventStart && now < eventEnd && (!event.staffId || event.staffId === 'all' || event.staffId === staffMember.id);
-      });
-      const isQualified = (nextInQueue.requiredSkills || []).every(skill => (staffMember.skillSet || []).includes(skill));
+    if (availableQualifiedStaff.length === 0) return null;
 
-      if (!isAvailable || isBlocked || !isQualified) continue;
+    let checkTime = now;
+    const MAX_WAIT_MINUTES = 8 * 60;
+    const endCheckTime = addMinutes(checkTime, MAX_WAIT_MINUTES);
 
-      // Find earliest start time for this staff member
-      const staffAppointments = appointments
-        .filter(apt => apt.staffId === staffMember.id && apt.endTime > now)
-        .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
-      
-      let potentialStartTime = now;
+    while (checkTime < endCheckTime) {
+        const potentialStartTime = checkTime;
+        const potentialEndTime = addMinutes(potentialStartTime, nextInQueue.estimatedDuration);
+        
+        const freeStaffMember = availableQualifiedStaff.find(staffMember => {
+            const staffAppointments = appointments.filter(apt => apt.staffId === staffMember.id);
+            const staffEvents = events.filter(e => e.type === 'blocked' && (!e.staffId || e.staffId === 'all' || e.staffId === staffMember.id));
+            const staffSchedule = [...staffAppointments, ...staffEvents];
+            return !staffSchedule.some(item => areIntervalsOverlapping({ start: item.startTime, end: item.endTime }, { start: potentialStartTime, end: potentialEndTime }));
+        });
 
-      // Find next available slot
-      if (staffAppointments.length > 0) {
-        let lastAppointmentEnd = now;
-        let slotFound = false;
-        for (const apt of staffAppointments) {
-          // Check gap before this appointment
-          if (differenceInMinutes(apt.startTime, lastAppointmentEnd) >= nextInQueue.estimatedDuration) {
-            potentialStartTime = lastAppointmentEnd;
-            slotFound = true;
-            break;
-          }
-          lastAppointmentEnd = apt.endTime;
+        if (!freeStaffMember) {
+            checkTime = addMinutes(checkTime, 1);
+            continue;
         }
-        if (!slotFound) {
-          potentialStartTime = lastAppointmentEnd;
+
+        let allResourcesFree = true;
+        if (requiredResourceIds.length > 0) {
+            const conflictingAppointments = appointments.filter(apt => areIntervalsOverlapping({ start: apt.startTime, end: apt.endTime }, { start: potentialStartTime, end: potentialEndTime }));
+            for (const resourceId of requiredResourceIds) {
+                if (conflictingAppointments.some(apt => (apt.requiredResourceIds || []).includes(resourceId))) {
+                    allResourcesFree = false;
+                    break;
+                }
+            }
         }
-      }
-      
-      if (!bestStartTime || potentialStartTime < bestStartTime) {
-        bestStartTime = potentialStartTime;
-      }
+        
+        if (allResourcesFree) {
+            return Math.max(0, differenceInMinutes(potentialStartTime, now));
+        }
+
+        checkTime = addMinutes(checkTime, 1);
     }
-
-    if (!bestStartTime) return null;
-
-    return differenceInMinutes(bestStartTime, now);
-  }, [walkIns, staff, appointments, events, services, nextUpStaffId]);
+    
+    return null;
+  }, [walkIns, staff, appointments, events, services, resources, nextUpStaffId]);
 
 
   const ticketData: WalkInTicketData | null = ticketToPrint && services ? {
@@ -1511,6 +1517,7 @@ export default function WalkInQueuePage() {
     </>
   );
 }
+
 
 
 
