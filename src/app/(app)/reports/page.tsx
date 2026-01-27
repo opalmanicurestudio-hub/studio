@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -234,10 +233,26 @@ export default function ReportsPage() {
                 totalPay,
                 netProfit,
                 totalHours: totalMinutesWorked / 60,
+                costOfGoodsSold,
             }
         };
     });
   }, [staff, appointments, services, transactions, activityLogs, dateRange]);
+
+  const {
+    totalGrossRevenue,
+    totalCOGS,
+    grossProfit,
+  } = useMemo(() => {
+    if (!performanceAndPayrollData) return { totalGrossRevenue: 0, totalCOGS: 0, grossProfit: 0 };
+    const revenue = performanceAndPayrollData.reduce((acc, d) => acc + d.stats.serviceRevenue + d.stats.retailSales, 0);
+    const cogs = performanceAndPayrollData.reduce((acc, d) => acc + d.stats.costOfGoodsSold, 0);
+    return {
+      totalGrossRevenue: revenue,
+      totalCOGS: cogs,
+      grossProfit: revenue - cogs,
+    };
+  }, [performanceAndPayrollData]);
   
   const salonWideStats = useMemo(() => {
     if (!appointments || !transactions || !staff || !walkIns) return { avgTicket: 0, utilizationRate: 0, retailAttachmentRate: 0, cancellationRate: 0, rebookingRate: 0, walkInConversionRate: 0, revenuePerServiceHour: 0, newClientRate: 0 };
@@ -566,16 +581,43 @@ export default function ReportsPage() {
                         ))}
                     </TableBody>
                     <TableFooter>
-                        <TableRow>
-                            <TableCell colSpan={5} className="font-bold">Subtotals</TableCell>
-                            <TableCell className="text-right font-mono font-bold">${payrollTotals.totalWages.toFixed(2)}</TableCell>
-                            <TableCell className="text-right font-mono font-bold text-green-500">${payrollTotals.totalTips.toFixed(2)}</TableCell>
-                            <TableCell className="text-right font-mono font-bold text-primary bg-primary/5">${payrollTotals.totalPayroll.toFixed(2)}</TableCell>
-                            <TableCell className={cn("text-right font-mono font-bold", payrollTotals.totalNetProfit >= 0 ? 'text-primary' : 'text-destructive')}>${payrollTotals.totalNetProfit.toFixed(2)}</TableCell>
+                         <TableRow>
+                            <TableCell colSpan={8} className="font-semibold">Total Gross Revenue</TableCell>
+                            <TableCell className="text-right font-mono font-semibold">${totalGrossRevenue.toFixed(2)}</TableCell>
                         </TableRow>
                         <TableRow>
-                            <TableCell colSpan={8} className="font-semibold">Total Overhead (Business & Personal)</TableCell>
-                            <TableCell className="text-right font-mono font-semibold text-destructive">-${periodOverhead.toFixed(2)}</TableCell>
+                            <TableCell colSpan={8} className="text-muted-foreground pl-8">Cost of Goods Sold (COGS)</TableCell>
+                            <TableCell className="text-right font-mono text-destructive">-${totalCOGS.toFixed(2)}</TableCell>
+                        </TableRow>
+                        <TableRow className="font-bold border-t">
+                            <TableCell colSpan={8}>Gross Profit</TableCell>
+                            <TableCell className="text-right font-mono">${grossProfit.toFixed(2)}</TableCell>
+                        </TableRow>
+                        <TableRow>
+                            <TableCell colSpan={9} className="py-2"></TableCell>
+                        </TableRow>
+                        <TableRow>
+                            <TableCell colSpan={8} className="font-semibold">Operating Expenses</TableCell>
+                            <TableCell></TableCell>
+                        </TableRow>
+                        <TableRow>
+                            <TableCell colSpan={8} className="text-muted-foreground pl-8">Service Wages</TableCell>
+                            <TableCell className="text-right font-mono text-destructive">-${payrollTotals.totalWages.toFixed(2)}</TableCell>
+                        </TableRow>
+                        <TableRow>
+                            <TableCell colSpan={8} className="text-muted-foreground pl-8">Retail Commission</TableCell>
+                            <TableCell className="text-right font-mono text-destructive">-${payrollTotals.totalRetailCommission.toFixed(2)}</TableCell>
+                        </TableRow>
+                        <TableRow className="font-bold border-t">
+                            <TableCell colSpan={8}>Operating Profit</TableCell>
+                            <TableCell className={cn("text-right font-mono", payrollTotals.totalNetProfit >= 0 ? 'text-primary' : 'text-destructive')}>${payrollTotals.totalNetProfit.toFixed(2)}</TableCell>
+                        </TableRow>
+                        <TableRow>
+                            <TableCell colSpan={9} className="py-2"></TableCell>
+                        </TableRow>
+                        <TableRow>
+                            <TableCell colSpan={8} className="font-semibold">Overhead Expenses</TableCell>
+                            <TableCell className="text-right font-mono text-destructive">-${periodOverhead.toFixed(2)}</TableCell>
                         </TableRow>
                         <TableRow className="font-bold text-lg bg-muted/50">
                             <TableCell colSpan={8}>True Net Profit</TableCell>
@@ -677,3 +719,5 @@ export default function ReportsPage() {
     </div>
   );
 }
+
+    
