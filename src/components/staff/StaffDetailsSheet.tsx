@@ -17,7 +17,7 @@ import { type Staff, type Transaction, type Service, type Appointment, type Acti
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { format, differenceInMinutes, parseISO } from 'date-fns';
-import { TrendingUp, DollarSign, PackageX, Clock, Info, Briefcase, User, MessageSquare, Coffee, Hourglass } from 'lucide-react';
+import { TrendingUp, DollarSign, PackageX, Clock, Info, Briefcase, User, MessageSquare, Coffee, Hourglass, BarChart, Percent, Users } from 'lucide-react';
 import { Button } from '../ui/button';
 import {
   Tooltip,
@@ -25,11 +25,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { DateRange } from 'react-day-picker';
 
 interface StaffDetailsSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   staffMember: (Staff & { stats: any }) | null;
+  dateRange: DateRange | undefined;
   transactions: Transaction[];
   services: Service[];
   appointments: Appointment[];
@@ -40,6 +42,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
   open,
   onOpenChange,
   staffMember,
+  dateRange,
   transactions,
   services,
   appointments,
@@ -47,13 +50,17 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
 }) => {
   if (!staffMember) return null;
 
+  const dateRangeString = dateRange?.from && dateRange.to 
+    ? `${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d')}` 
+    : 'the selected period';
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-2xl p-0 flex flex-col">
         <SheetHeader className="p-6">
           <SheetTitle>Activity for {staffMember.name}</SheetTitle>
           <SheetDescription>
-            A detailed breakdown of sales, tips, and service performance for the selected period.
+            A detailed breakdown for {dateRangeString}.
           </SheetDescription>
         </SheetHeader>
         <ScrollArea className="flex-1">
@@ -81,6 +88,30 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                         </div>
                     </CardContent>
                 </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Effectiveness</CardTitle>
+                    </CardHeader>
+                    <CardContent className="grid grid-cols-2 gap-4">
+                        <div className="p-3 bg-muted/50 rounded-lg">
+                            <div className="text-sm font-medium text-muted-foreground flex items-center gap-2"><Percent className="w-4 h-4"/>Utilization Rate</div>
+                            <div className="text-2xl font-bold">{staffMember.stats.utilizationRate.toFixed(1)}%</div>
+                        </div>
+                         <div className="p-3 bg-muted/50 rounded-lg">
+                            <div className="text-sm font-medium text-muted-foreground flex items-center gap-2"><DollarSign className="w-4 h-4"/>Avg. Sale / Appt</div>
+                            <div className="text-2xl font-bold">${staffMember.stats.avgSalePerAppointment.toFixed(2)}</div>
+                        </div>
+                        <div className="p-3 bg-muted/50 rounded-lg col-span-2">
+                             <div className="text-sm font-medium text-muted-foreground mb-2">Revenue Breakdown</div>
+                             <div className="space-y-1 text-sm">
+                                <div className="flex justify-between"><span>Services:</span> <span className="font-semibold">${staffMember.stats.serviceRevenue.toFixed(2)}</span></div>
+                                <div className="flex justify-between"><span>Retail:</span> <span className="font-semibold">${staffMember.stats.retailSales.toFixed(2)}</span></div>
+                             </div>
+                        </div>
+                    </CardContent>
+                </Card>
+
                 <Card>
                     <CardHeader>
                         <CardTitle>Activity Log</CardTitle>

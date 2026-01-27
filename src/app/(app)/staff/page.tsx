@@ -205,7 +205,7 @@ export default function StaffPage() {
   }, []);
 
   const staffWithStats = useMemo(() => {
-    if (!staff || !transactions || !appointments || !stockCorrections || !activityLogs) return [];
+    if (!staff || !transactions || !appointments || !stockCorrections || !activityLogs || !services) return [];
     
     const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
     const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
@@ -213,11 +213,9 @@ export default function StaffPage() {
     return staff.map(member => {
         const staffTransactions = transactions.filter(t => {
             if (t.staffId !== member.id) return false;
-            
-            const transactionDate = new Date(t.date);
+            const transactionDate = parseISO(t.date);
             if(fromDate && transactionDate < fromDate) return false;
             if(toDate && transactionDate > toDate) return false;
-
             return true;
         });
         
@@ -230,7 +228,6 @@ export default function StaffPage() {
             .reduce((acc, t) => acc + t.amount, 0);
         
         const totalSales = serviceRevenue + retailSales;
-
         const tips = staffTransactions.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
 
         let earnings = 0;
@@ -245,9 +242,7 @@ export default function StaffPage() {
                 if (toDate && logDate > toDate) return false;
                 return true;
             });
-
             const sortedLogs = staffLogs.sort((a, b) => parseISO(a.timestamp).getTime() - parseISO(b.timestamp).getTime());
-
             let clockInTime: Date | null = null;
             let breakStartTime: Date | null = null;
             let totalBreakMinutes = 0;
@@ -273,13 +268,10 @@ export default function StaffPage() {
                     breakStartTime = null;
                 }
             }
-             // If still clocked in at the end of the range
             if(clockInTime) {
                 const endOfRange = toDate || new Date();
                 totalMinutesWorked += differenceInMinutes(endOfRange, clockInTime) - totalBreakMinutes;
             }
-
-
             const hoursWorked = totalMinutesWorked / 60;
             earnings = hoursWorked * member.hourlyRate;
         }
@@ -288,7 +280,7 @@ export default function StaffPage() {
         
         let consumptionValue = 0;
         const staffAppointmentIds = new Set(
-            (appointments || [])
+            appointments
                 .filter(a => a.staffId === member.id)
                 .map(a => a.id)
         );
@@ -311,6 +303,32 @@ export default function StaffPage() {
             }
         });
 
+        // New KPI Calculations
+        const staffAppointmentsInRange = appointments.filter(apt => {
+            if (apt.staffId !== member.id) return false;
+            const appointmentDate = parseISO(apt.startTime);
+            if(fromDate && appointmentDate < fromDate) return false;
+            if(toDate && appointmentDate > toDate) return false;
+            return true;
+        });
+
+        const completedAppointments = staffAppointmentsInRange.filter(apt => apt.status === 'completed');
+        const completedAppointmentsCount = completedAppointments.length;
+
+        let totalInServiceMinutes = 0;
+        completedAppointments.forEach(apt => {
+            if (apt.actualStartTime && apt.actualEndTime) {
+                totalInServiceMinutes += differenceInMinutes(parseISO(apt.actualEndTime), parseISO(apt.actualStartTime));
+            } else {
+                const service = services.find(s => s.id === apt.serviceId);
+                if (service) {
+                    totalInServiceMinutes += service.duration;
+                }
+            }
+        });
+
+        const utilizationRate = totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0;
+        const avgSalePerAppointment = completedAppointmentsCount > 0 ? totalSales / completedAppointmentsCount : 0;
 
         return {
             ...member,
@@ -320,43 +338,15 @@ export default function StaffPage() {
                 earnings,
                 consumptionValue,
                 totalHours: totalMinutesWorked / 60,
+                serviceRevenue,
+                retailSales,
+                utilizationRate,
+                avgSalePerAppointment,
+                completedAppointments: completedAppointmentsCount,
             }
         };
     });
-  }, [staff, transactions, dateRange, appointments, stockCorrections, inventory, activityLogs]);
-
-
-  const transactionsForSelectedStaff = useMemo(() => {
-    if (!selectedStaffMember || !transactions) return [];
-
-    const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
-    const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
-
-    return transactions.filter(t => {
-        if (t.staffId !== selectedStaffMember.id) return false;
-        
-        const transactionDate = new Date(t.date);
-        if(fromDate && transactionDate < fromDate) return false;
-        if(toDate && transactionDate > toDate) return false;
-
-        return true;
-    });
-  }, [selectedStaffMember, transactions, dateRange]);
-  
-   const activityLogsForSelectedStaff = useMemo(() => {
-    if (!selectedStaffMember || !activityLogs) return [];
-
-    const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
-    const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
-
-    return activityLogs.filter(log => {
-        if (log.staffId !== selectedStaffMember.id) return false;
-        const logDate = parseISO(log.timestamp);
-        if (fromDate && logDate < fromDate) return false;
-        if (toDate && logDate > toDate) return false;
-        return true;
-    }).sort((a, b) => parseISO(b.timestamp).getTime() - parseISO(a.timestamp).getTime());
-  }, [selectedStaffMember, activityLogs, dateRange]);
+  }, [staff, transactions, dateRange, appointments, stockCorrections, inventory, activityLogs, services]);
 
 
   const handleViewDetails = (member: Staff & { stats: any }) => {
@@ -449,7 +439,7 @@ export default function StaffPage() {
                   const duration = differenceInMinutes(parseISO(now), parseISO(staffMember.breakStartTime));
                   logEntry.durationMinutes = duration;
               }
-              staffUpdate = { onBreak: false, breakStartTime: undefined };
+              staffUpdate = { onBreak: false, breakStartTime: undefined }; 
               break;
       }
       
@@ -544,10 +534,11 @@ export default function StaffPage() {
         open={isDetailsSheetOpen}
         onOpenChange={setIsDetailsSheetOpen}
         staffMember={selectedStaffMember}
-        transactions={transactionsForSelectedStaff}
+        dateRange={dateRange}
+        transactions={transactions || []}
         services={services || []}
         appointments={appointments || []}
-        activityLogs={activityLogsForSelectedStaff}
+        activityLogs={activityLogs || []}
       />
       
       {confirmation && (
