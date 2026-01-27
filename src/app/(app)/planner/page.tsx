@@ -8,7 +8,8 @@ import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, C
 import { type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState, type Resource } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping } from 'date-fns';
-import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { CompleteAppointmentDialog, type CheckoutData } from '@/components/planner/CompleteAppointmentDialog';
 import { useInventory } from '@/context/InventoryContext';
@@ -78,7 +79,10 @@ import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 
-export default function PlannerPage() {
+function PlannerPageContent() {
+  const searchParams = useSearchParams();
+  const viewParam = searchParams.get('view');
+  
   const isMobile = useIsMobile();
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   
@@ -122,7 +126,7 @@ export default function PlannerPage() {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannedData, setScannedData] = useState<string | null>(null);
 
-  const [activeView, setActiveView] = useState('staff');
+  const [activeView, setActiveView] = useState(viewParam === 'resources' ? 'resources' : 'staff');
 
   // --- Data Fetching ---
   const billDefinitionsQuery = useMemoFirebase(() => {
@@ -197,14 +201,24 @@ export default function PlannerPage() {
   }, [staff, mobileSelectedStaffId]);
 
  const appointments = useMemo(() => {
-    const rawApts = (appointmentsFromDB && appointmentsFromDB.length > 0) ? appointmentsFromDB : mockAppointments;
-    if (!rawApts) return [];
-    return rawApts.map(apt => {
+    if (!appointmentsFromDB) return [];
+    return appointmentsFromDB.map(apt => {
+        // Ensure startTime and endTime are Date objects
         const startTime = (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime as any);
         const endTime = (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any);
-        return { ...apt, startTime, endTime };
+
+        // Dynamically add requiredResourceIds if they are missing
+        let requiredResourceIds = apt.requiredResourceIds;
+        if ((!requiredResourceIds || requiredResourceIds.length === 0) && services) {
+            const mainService = services.find(s => s.id === apt.serviceId);
+            const addOnServices = (apt.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
+            const allServices = [mainService, ...addOnServices].filter(Boolean);
+            requiredResourceIds = [...new Set(allServices.flatMap(s => s.requiredResourceIds || []))];
+        }
+
+        return { ...apt, startTime, endTime, requiredResourceIds };
     });
-}, [appointmentsFromDB]);
+}, [appointmentsFromDB, services]);
 
 const events = useMemo(() => {
     if (!fetchedEvents) return [];
@@ -1521,6 +1535,17 @@ const events = useMemo(() => {
 
 
 
-
-
-    
+export default function PlannerPageWrapper() {
+  return (
+    <Suspense fallback={
+        <div className="flex h-screen w-full flex-col">
+            <AppHeaderClient title="Planner" />
+            <div className="flex items-center justify-center flex-1">
+                <Loader className="h-8 w-8 animate-spin" />
+            </div>
+        </div>
+    }>
+        <PlannerPageContent />
+    </Suspense>
+  )
+}

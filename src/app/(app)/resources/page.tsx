@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -37,6 +38,7 @@ import { collection, doc } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import { addDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase/non-blocking-updates';
 import { useToast } from '@/hooks/use-toast';
+import Link from 'next/link';
 
 const ResourceCard = ({ resource, inventory, onDelete, onEdit }: { resource: Resource, inventory: InventoryItem[], onDelete: (id: string) => void, onEdit: (resource: Resource) => void }) => {
     const linkedItem = resource.inventoryItemId ? inventory.find(i => i.id === resource.inventoryItemId) : null;
@@ -90,7 +92,9 @@ const ResourceCard = ({ resource, inventory, onDelete, onEdit }: { resource: Res
                 </div>
             </CardContent>
             <CardFooter className="p-2 border-t">
-                <Button variant="ghost" className="w-full">View Schedule</Button>
+                <Button asChild variant="ghost" className="w-full">
+                    <Link href="/planner?view=resources">View Schedule</Link>
+                </Button>
             </CardFooter>
         </Card>
     );
