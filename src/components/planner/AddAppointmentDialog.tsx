@@ -49,7 +49,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { CalendarIcon, PlusCircle, Trash2, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Client, Service, Appointment, Staff, Event } from '@/lib/data';
-import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, getDay, parse, isToday } from 'date-fns';
+import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, getDay, parse, isToday, addDays } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Card, CardContent } from '../ui/card';
 import { nanoid } from 'nanoid';
