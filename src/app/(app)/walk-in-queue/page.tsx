@@ -83,8 +83,8 @@ const StaffResourceIndicator = ({ staffMember, appointments, services, resources
             // Or one that is 'servicing'. Walk-in appointments get created with 'confirmed' status.
             if (apt.status !== 'servicing' && apt.status !== 'confirmed') return false; 
             
-            const start = parseISO(apt.startTime);
-            const end = parseISO(apt.endTime);
+            const start = apt.startTime;
+            const end = apt.endTime;
 
             return now >= start && now < end;
         });
@@ -125,8 +125,8 @@ const StaffStatusCard = ({ staffMember, onStatusChange, isNextUp, appointments, 
         const now = new Date();
         return events.some(event => {
             if (event.type !== 'blocked') return false;
-            const eventStart = parseISO(event.startTime);
-            const eventEnd = parseISO(event.endTime);
+            const eventStart = event.startTime;
+            const eventEnd = event.endTime;
             if (now >= eventStart && now < eventEnd) {
                 if (!event.staffId || event.staffId === 'all' || event.staffId === staffMember.id) {
                     return true;
@@ -475,8 +475,8 @@ const AssignStaffDialog = ({ open, onOpenChange, walkIn, staff, services, events
     return staff.map(s => {
         const isBlocked = events.some(event => {
             if (event.type !== 'blocked') return false;
-            const eventStart = parseISO(event.startTime);
-            const eventEnd = parseISO(event.endTime);
+            const eventStart = event.startTime;
+            const eventEnd = event.endTime;
             if (now >= eventStart && now < eventEnd) {
                 if (!event.staffId || event.staffId === 'all' || event.staffId === s.id) {
                     return true;
@@ -622,7 +622,7 @@ export default function WalkInQueuePage() {
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
   const { data: clients, isLoading: clientsLoading } = useCollection<Client>(clientsQuery);
   const { data: fetchedEvents, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
-  const { data: appointments } = useCollection<Appointment>(appointmentsQuery);
+  const { data: appointmentsFromDB } = useCollection<Appointment>(appointmentsQuery);
   const { data: resources, isLoading: resourcesLoading } = useCollection<Resource>(resourcesQuery);
 
   const events = useMemo(() => {
@@ -633,6 +633,15 @@ export default function WalkInQueuePage() {
       return ({ ...evt, startTime, endTime });
     });
   }, [fetchedEvents]);
+
+  const appointments = useMemo(() => {
+    if (!appointmentsFromDB) return [];
+    return appointmentsFromDB.map(apt => ({
+        ...apt,
+        startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime as any),
+        endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any),
+    }));
+  }, [appointmentsFromDB]);
   
   useEffect(() => {
     if (staff) {
@@ -662,8 +671,8 @@ export default function WalkInQueuePage() {
 
         const busyResourceIds = new Set<string>();
         appointments.forEach(apt => {
-            const aptStart = (apt.startTime as any).toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime);
-            const aptEnd = (apt.endTime as any).toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime);
+            const aptStart = apt.startTime;
+            const aptEnd = apt.endTime;
             
             if ((apt.status === 'servicing' || apt.status === 'assigned' || apt.status === 'confirmed') && now >= aptStart && now < aptEnd) {
                 (apt.requiredResourceIds || []).forEach(id => busyResourceIds.add(id));
@@ -790,8 +799,8 @@ export default function WalkInQueuePage() {
     
     const busyResourceIds = new Set<string>();
     appointments.forEach(apt => {
-        const aptStart = (apt.startTime as any).toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime);
-        const aptEnd = (apt.endTime as any).toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime);
+        const aptStart = apt.startTime;
+        const aptEnd = apt.endTime;
         const newAptEnd = addMinutes(now, walkIn.estimatedDuration);
 
         if ((apt.status === 'servicing' || apt.status === 'assigned' || apt.status === 'confirmed') && areIntervalsOverlapping({start: now, end: newAptEnd}, {start: aptStart, end: aptEnd})) {
@@ -1434,6 +1443,7 @@ export default function WalkInQueuePage() {
     </>
   );
 }
+
 
 
 
