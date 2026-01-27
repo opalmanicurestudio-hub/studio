@@ -638,6 +638,10 @@
         "clientOrVendor": {
           "type": "string"
         },
+        "clientId": {
+          "type": "string",
+          "description": "The ID of the client this transaction is associated with."
+        },
         "type": {
           "type": "string",
           "enum": ["income", "expense", "reversal", "payment"]
@@ -891,4 +895,3 @@
     }
   }
 }
-

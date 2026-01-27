@@ -39,6 +39,7 @@ import { nanoid } from 'nanoid';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc, setDoc } from 'firebase/firestore';
+import { type Transaction } from '@/lib/financial-data';
 
 
 const ClientCard = ({ client, isSelected, onSelect, appointments }: { client: Client, isSelected: boolean, onSelect: () => void, appointments: Appointment[] }) => {
@@ -90,7 +91,7 @@ const ClientCard = ({ client, isSelected, onSelect, appointments }: { client: Cl
                 </div>
                 <div className="flex items-center justify-between text-sm">
                     <span className='text-muted-foreground'>Lifetime Value</span>
-                    <Badge variant="outline" className="font-mono text-base">${client.lifetimeValue.toFixed(2)}</Badge>
+                    <Badge variant="outline" className="font-mono text-base">${(client.lifetimeValue || 0).toFixed(2)}</Badge>
                 </div>
                 <div className="flex items-center gap-2 border-t pt-3">
                     <TooltipProvider>
@@ -148,8 +149,11 @@ export default function ClientsPage() {
   const tenantId = 'tenant-abc';
   const clientsQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/clients`) : null, [firestore, tenantId]);
   const appointmentsQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/appointments`) : null, [firestore, tenantId]);
+  const transactionsQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/transactions`) : null, [firestore, tenantId]);
+
   const { data: clients } = useCollection<Client>(clientsQuery);
   const { data: appointments } = useCollection<Appointment>(appointmentsQuery);
+  const { data: transactions } = useCollection<Transaction>(transactionsQuery);
 
   const [isAddClientOpen, setIsAddClientOpen] = useState(false);
   const [isMergeClientsOpen, setIsMergeClientsOpen] = useState(false);
@@ -310,7 +314,7 @@ export default function ClientsPage() {
       client.name,
       client.email,
       client.phone,
-      client.lifetimeValue.toString(),
+      (client.lifetimeValue || 0).toString(),
       format(new Date(client.lastAppointment), 'yyyy-MM-dd')
     ]);
 
@@ -335,7 +339,7 @@ export default function ClientsPage() {
   const ClientStatsSidebar = () => {
     const stats = useMemo(() => {
         const totalClients = filteredClients.length;
-        if (totalClients === 0 || !appointments) {
+        if (totalClients === 0 || !appointments || !transactions) {
             return {
                 totalActiveClients: 0,
                 retentionRate: 0,
@@ -346,25 +350,32 @@ export default function ClientsPage() {
             };
         }
 
+        const filteredClientIds = new Set(filteredClients.map(c => c.id));
+        const relevantTransactions = transactions.filter(t => t.clientId && filteredClientIds.has(t.clientId));
+        
         const clientsWithMultipleAppointments = filteredClients.filter(c => {
-            return appointments.filter(apt => apt.clientId === c.id && apt.status === 'completed').length > 1;
+            return (appointments || []).filter(apt => apt.clientId === c.id && apt.status === 'completed').length > 1;
         }).length;
 
         const allCompletedAppointments = filteredClients.flatMap(c => 
-            appointments.filter(apt => apt.clientId === c.id && apt.status === 'completed')
+            (appointments || []).filter(apt => apt.clientId === c.id && apt.status === 'completed')
         );
 
-        const totalRevenue = filteredClients.reduce((acc, c) => acc + c.lifetimeValue, 0);
+        const totalRevenue = filteredClients.reduce((acc, c) => acc + (c.lifetimeValue || 0), 0);
+
+        const serviceRevenue = relevantTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
+        const retailRevenue = relevantTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
+        const tipRevenue = relevantTransactions.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
 
         return {
             totalActiveClients: totalClients,
-            retentionRate: (clientsWithMultipleAppointments / totalClients) * 100,
+            retentionRate: totalClients > 0 ? (clientsWithMultipleAppointments / totalClients) * 100 : 0,
             avgSpend: allCompletedAppointments.length > 0 ? totalRevenue / allCompletedAppointments.length : 0,
-            serviceRevenue: totalRevenue * 0.8, // Mock data
-            retailRevenue: totalRevenue * 0.15, // Mock data
-            tipRevenue: totalRevenue * 0.05, // Mock data
+            serviceRevenue,
+            retailRevenue,
+            tipRevenue,
         };
-    }, [filteredClients, appointments]);
+    }, [filteredClients, appointments, transactions]);
 
     return (
         <Card className="lg:sticky top-24">

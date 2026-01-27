@@ -30,6 +30,7 @@ export type Transaction = {
   date: string; // ISO date string
   description: string;
   clientOrVendor: string;
+  clientId?: string;
   type: 'income' | 'expense' | 'reversal' | 'payment';
   context: 'Business' | 'Personal';
   category: string;
