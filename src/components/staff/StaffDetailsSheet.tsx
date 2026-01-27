@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
 import {
   Sheet,
   SheetContent,
@@ -15,9 +15,9 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { type Staff, type Transaction, type Service, type Appointment, type ActivityLog } from '@/lib/data';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { format, differenceInMinutes, parseISO } from 'date-fns';
-import { TrendingUp, DollarSign, PackageX, Clock, Info, Briefcase, User, MessageSquare, Coffee, Hourglass, BarChart, Percent, Users, List, FileText, Shield, Search } from 'lucide-react';
-import { Button } from '../ui/button';
+import { format, differenceInMinutes, parseISO, subDays, startOfDay, endOfDay } from 'date-fns';
+import { TrendingUp, DollarSign, PackageX, Clock, Info, Briefcase, User, MessageSquare, Coffee, Hourglass, BarChart, Percent, Users, List, FileText, Shield, Search, Calendar as CalendarIcon, Printer } from 'lucide-react';
+import { Button, buttonVariants } from '../ui/button';
 import {
   Tooltip,
   TooltipContent,
@@ -30,6 +30,9 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 import { Separator } from '../ui/separator';
 import { Input } from '../ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { Calendar } from '../ui/calendar';
+import { PrintableStaffReport } from './PrintableStaffReport';
 
 interface StaffDetailsSheetProps {
   open: boolean;
@@ -73,7 +76,6 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
   open,
   onOpenChange,
   staffMember,
-  dateRange,
   transactions,
   services,
   appointments,
@@ -82,23 +84,41 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
   const isMobile = useIsMobile();
   const [activitySearch, setActivitySearch] = useState('');
   const [transactionSearch, setTransactionSearch] = useState('');
+  const reportRef = useRef<HTMLDivElement>(null);
+  
+  const [dateRange, setDateRange] = useState<DateRange | undefined>({
+    from: subDays(new Date(), 29),
+    to: new Date(),
+  });
 
   const filteredActivityLogs = useMemo(() => {
     if (!activityLogs) return [];
-    if (!activitySearch.trim()) return activityLogs;
-    return activityLogs.filter(log =>
-      log.type.toLowerCase().includes(activitySearch.toLowerCase())
-    );
-  }, [activityLogs, activitySearch]);
+    const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
+    const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
 
+    return activityLogs.filter(log => {
+      const logDate = log.timestamp;
+      if (fromDate && logDate < fromDate) return false;
+      if (toDate && logDate > toDate) return false;
+      if (activitySearch.trim() && !log.type.toLowerCase().includes(activitySearch.toLowerCase())) return false;
+      return true;
+    });
+  }, [activityLogs, activitySearch, dateRange]);
+  
   const filteredTransactions = useMemo(() => {
     if (!transactions) return [];
-    if (!transactionSearch.trim()) return transactions;
-    return transactions.filter(t =>
-      t.description.toLowerCase().includes(transactionSearch.toLowerCase()) ||
-      t.category.toLowerCase().includes(transactionSearch.toLowerCase())
-    );
-  }, [transactions, transactionSearch]);
+    const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
+    const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
+    
+    return transactions.filter(t => {
+      const transactionDate = t.date;
+      if (fromDate && transactionDate < fromDate) return false;
+      if (toDate && transactionDate > toDate) return false;
+      if (transactionSearch.trim() && !(t.description.toLowerCase().includes(transactionSearch.toLowerCase()) || t.category.toLowerCase().includes(transactionSearch.toLowerCase()))) return false;
+      return true;
+    });
+  }, [transactions, transactionSearch, dateRange]);
+
 
   if (!staffMember) return null;
 
@@ -107,8 +127,13 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
   const dateRangeString = dateRange?.from && dateRange.to
     ? `${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d')}`
     : 'the selected period';
+    
+  const handlePrint = () => {
+    window.print();
+  }
 
   return (
+    <>
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-2xl p-0 flex flex-col">
         <SheetHeader className="p-6">
@@ -117,6 +142,45 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
             A detailed breakdown for {dateRangeString}.
           </SheetDescription>
         </SheetHeader>
+        <div className="flex items-center justify-between px-6 pb-4 border-b">
+            <Popover>
+                <PopoverTrigger asChild>
+                    <Button
+                        id="date"
+                        variant={"outline"}
+                        className={cn(
+                        "w-[260px] justify-start text-left font-normal",
+                        !dateRange && "text-muted-foreground"
+                        )}
+                    >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {dateRange?.from ? (
+                        dateRange.to ? (
+                            <>
+                            {format(dateRange.from, "LLL dd, y")} -{" "}
+                            {format(dateRange.to, "LLL dd, y")}
+                            </>
+                        ) : (
+                            format(dateRange.from, "LLL dd, y")
+                        )
+                        ) : (
+                        <span>Pick a date range</span>
+                        )}
+                    </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                        initialFocus
+                        mode="range"
+                        defaultMonth={dateRange?.from}
+                        selected={dateRange}
+                        onSelect={setDateRange}
+                        numberOfMonths={2}
+                    />
+                </PopoverContent>
+            </Popover>
+             <Button variant="outline" onClick={handlePrint}><Printer className="mr-2 h-4 w-4" />Print</Button>
+        </div>
         <ScrollArea className="flex-1">
             <div className="px-6 pb-6 space-y-6">
                 <Accordion type="multiple" defaultValue={['summary', 'details']} className="w-full space-y-4">
@@ -319,7 +383,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                                             <TableCell>{format(t.date, 'MMM d, yyyy h:mm a')}</TableCell>
                                             <TableCell>{t.description}</TableCell>
                                             <TableCell><Badge variant={t.category === 'Tips' ? 'secondary' : 'outline'} className={t.category === 'Tips' ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : ''}>{t.category}</Badge></TableCell>
-                                            <TableCell className="text-right font-mono">{timeVariance !== null ? (<span className={timeVariance > 0 ? 'text-destructive' : 'text-green-500'}>{timeVariance > 0 ? '+' : ''}{timeVariance} min</span>) : (<span className="text-muted-foreground">—</span>)}</TableCell>
+                                            <TableCell className="text-right font-mono">{timeVariance !== null ? (<span className={cn(timeVariance > 0 ? 'text-destructive' : 'text-green-500', 'text-xs')}>{timeVariance > 0 ? '+' : ''}{timeVariance} min</span>) : (<span className="text-muted-foreground">—</span>)}</TableCell>
                                             <TableCell className="text-right font-mono"><div className='flex items-center justify-end gap-1'>{t.type === 'income' ? (<TrendingUp className="h-4 w-4 text-green-500" />) : (<DollarSign className="h-4 w-4 text-muted-foreground" />)} ${t.amount.toFixed(2)}</div></TableCell>
                                             </TableRow>
                                         )})
@@ -334,10 +398,11 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                 </Accordion>
             </div>
         </ScrollArea>
-        <SheetFooter className="p-6 border-t">
-            <Button onClick={() => onOpenChange(false)} className="w-full">Close</Button>
-        </SheetFooter>
       </SheetContent>
     </Sheet>
+    <div className="hidden">
+      <PrintableStaffReport ref={reportRef} staffMember={staffMember} dateRange={dateRange} activityLogs={filteredActivityLogs} transactions={filteredTransactions} services={services} appointments={appointments} />
+    </div>
+    </>
   );
 };
