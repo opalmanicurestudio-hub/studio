@@ -172,6 +172,12 @@ export default function StaffPage() {
     return collection(firestore, 'tenants', tenantId, 'appointments');
   }, [firestore, user, tenantId]);
   const { data: appointments } = useCollection<Appointment>(appointmentsQuery);
+  
+  const activityLogsQuery = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    return collection(firestore, 'tenants', tenantId, 'activityLogs');
+  }, [firestore, user, tenantId]);
+  const { data: activityLogs } = useCollection<ActivityLog>(activityLogsQuery);
 
   const stockCorrectionsQuery = useMemoFirebase(() => {
     if (!firestore || !user) return null;
@@ -187,7 +193,7 @@ export default function StaffPage() {
   }, []);
 
   const staffWithStats = useMemo(() => {
-    if (!staff || !transactions || !appointments || !stockCorrections) return [];
+    if (!staff || !transactions || !appointments || !stockCorrections || !activityLogs) return [];
     
     const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
     const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
@@ -218,8 +224,56 @@ export default function StaffPage() {
         let earnings = 0;
         if (member.payStructure === 'commission') {
             earnings = serviceRevenue * ((member.commissionRate || 0) / 100);
+        } else if (member.payStructure === 'hourly' && member.hourlyRate) {
+            const staffLogs = activityLogs.filter(log => {
+                if (log.staffId !== member.id) return false;
+                const logDate = parseISO(log.timestamp);
+                if (fromDate && logDate < fromDate) return false;
+                if (toDate && logDate > toDate) return false;
+                return true;
+            });
+
+            let totalMinutesWorked = 0;
+            const sortedLogs = staffLogs.sort((a, b) => parseISO(a.timestamp).getTime() - parseISO(b.timestamp).getTime());
+
+            let clockInTime: Date | null = null;
+            let onBreak = false;
+            let breakStartTime: Date | null = null;
+            let totalBreakMinutes = 0;
+            
+            for (const log of sortedLogs) {
+                const logTime = parseISO(log.timestamp);
+                if (log.type === 'clock_in') {
+                    if (clockInTime) {
+                         // Missed clock out, calculate session until now or end of day
+                        const sessionEnd = toDate && logTime > toDate ? toDate : logTime;
+                        totalMinutesWorked += differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes;
+                    }
+                    clockInTime = logTime;
+                    totalBreakMinutes = 0;
+                } else if (log.type === 'clock_out' && clockInTime) {
+                    let sessionEnd = logTime;
+                    if (toDate && sessionEnd > toDate) sessionEnd = toDate;
+                    totalMinutesWorked += differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes;
+                    clockInTime = null;
+                } else if (log.type === 'break_start') {
+                    breakStartTime = logTime;
+                } else if (log.type === 'break_end' && breakStartTime) {
+                    totalBreakMinutes += differenceInMinutes(logTime, breakStartTime);
+                    breakStartTime = null;
+                }
+            }
+             // If still clocked in at the end of the range
+            if(clockInTime) {
+                const endOfRange = toDate || new Date();
+                totalMinutesWorked += differenceInMinutes(endOfRange, clockInTime) - totalBreakMinutes;
+            }
+
+
+            const hoursWorked = totalMinutesWorked / 60;
+            earnings = hoursWorked * member.hourlyRate;
         }
-        // Simplified for now - assuming salary/hourly is handled separately
+
         earnings += tips; 
         
         let consumptionValue = 0;
@@ -258,8 +312,9 @@ export default function StaffPage() {
             }
         };
     });
-  }, [staff, transactions, dateRange, appointments, stockCorrections, inventory]);
-  
+  }, [staff, transactions, dateRange, appointments, stockCorrections, inventory, activityLogs]);
+
+
   const transactionsForSelectedStaff = useMemo(() => {
     if (!selectedStaffMember || !transactions) return [];
 
@@ -276,6 +331,21 @@ export default function StaffPage() {
         return true;
     });
   }, [selectedStaffMember, transactions, dateRange]);
+  
+   const activityLogsForSelectedStaff = useMemo(() => {
+    if (!selectedStaffMember || !activityLogs) return [];
+
+    const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
+    const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
+
+    return activityLogs.filter(log => {
+        if (log.staffId !== selectedStaffMember.id) return false;
+        const logDate = parseISO(log.timestamp);
+        if (fromDate && logDate < fromDate) return false;
+        if (toDate && logDate > toDate) return false;
+        return true;
+    }).sort((a, b) => parseISO(b.timestamp).getTime() - parseISO(a.timestamp).getTime());
+  }, [selectedStaffMember, activityLogs, dateRange]);
 
 
   const handleViewDetails = (member: Staff & { stats: any }) => {
@@ -438,6 +508,7 @@ export default function StaffPage() {
         transactions={transactionsForSelectedStaff}
         services={services || []}
         appointments={appointments || []}
+        activityLogs={activityLogsForSelectedStaff}
       />
     </div>
   );

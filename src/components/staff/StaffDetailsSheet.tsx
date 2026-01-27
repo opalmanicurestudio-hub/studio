@@ -13,11 +13,11 @@ import {
 } from '@/components/ui/sheet';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { type Staff, type Transaction, type Service, type Appointment } from '@/lib/data';
+import { type Staff, type Transaction, type Service, type Appointment, type ActivityLog } from '@/lib/data';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { format, differenceInMinutes, parseISO } from 'date-fns';
-import { TrendingUp, DollarSign, PackageX, Clock, Info } from 'lucide-react';
+import { TrendingUp, DollarSign, PackageX, Clock, Info, Briefcase, User, MessageSquare, Coffee } from 'lucide-react';
 import { Button } from '../ui/button';
 import {
   Tooltip,
@@ -33,6 +33,7 @@ interface StaffDetailsSheetProps {
   transactions: Transaction[];
   services: Service[];
   appointments: Appointment[];
+  activityLogs: ActivityLog[];
 }
 
 export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
@@ -42,6 +43,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
   transactions,
   services,
   appointments,
+  activityLogs,
 }) => {
   if (!staffMember) return null;
 
@@ -79,6 +81,44 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                         </div>
                     </CardContent>
                 </Card>
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Activity Log</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                         <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Date & Time</TableHead>
+                                    <TableHead>Action</TableHead>
+                                    <TableHead className="text-right">Duration</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {activityLogs.length > 0 ? (
+                                    activityLogs.map(log => (
+                                        <TableRow key={log.id}>
+                                            <TableCell>{format(parseISO(log.timestamp), 'PPP p')}</TableCell>
+                                            <TableCell className="capitalize flex items-center gap-2">
+                                                {log.type === 'clock_in' && <Clock className="w-4 h-4 text-green-500" />}
+                                                {log.type === 'clock_out' && <Clock className="w-4 h-4 text-red-500" />}
+                                                {log.type === 'break_start' && <Coffee className="w-4 h-4 text-yellow-500" />}
+                                                {log.type === 'break_end' && <Coffee className="w-4 h-4 text-gray-500" />}
+                                                {log.type.replace('_', ' ')}
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                                {log.durationMinutes ? `${log.durationMinutes} min` : '—'}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                ) : (
+                                    <TableRow><TableCell colSpan={3} className="text-center h-24">No activity logged in this period.</TableCell></TableRow>
+                                )}
+                            </TableBody>
+                        </Table>
+                    </CardContent>
+                </Card>
+
                 <Card>
                     <CardHeader>
                         <CardTitle>Transaction History</CardTitle>
