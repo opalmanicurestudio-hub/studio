@@ -143,40 +143,40 @@ export const PrintableReport = React.forwardRef<HTMLDivElement, PrintableReportP
                                       )}
                                   </TableCell>
                                 <TableCell className="text-right font-mono">${data.stats.serviceRevenue.toFixed(2)}</TableCell>
-                                <TableCell className="text-right font-mono">${data.stats.tips.toFixed(2)}</TableCell>
-                                <TableCell className="text-right font-mono font-bold text-blue-600">${data.stats.totalPay.toFixed(2)}</TableCell>
+                                <TableCell className="text-right font-mono text-green-500">${data.stats.tips.toFixed(2)}</TableCell>
+                                <TableCell className="text-right font-mono font-bold text-blue-600 bg-blue-50">${data.stats.totalPay.toFixed(2)}</TableCell>
                                 <TableCell className={cn("text-right font-mono font-bold", data.stats.netProfit >= 0 ? 'text-green-600' : 'text-red-600')}>${data.stats.netProfit.toFixed(2)}</TableCell>
                             </TableRow>
                         ))}
                     </TableBody>
                      <TableFooter>
                           <TableRow><TableCell colSpan={6} className="font-semibold">Total Gross Revenue</TableCell><TableCell className="text-right font-mono font-semibold">${totalGrossRevenue.toFixed(2)}</TableCell></TableRow>
-                          <TableRow><TableCell colSpan={7} className="pt-0 pb-2 text-xs text-muted-foreground">Total revenue from all sales before any costs.</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={7} className="pt-0 pb-2 text-xs text-gray-500">Total revenue from all sales before any costs.</TableCell></TableRow>
                           
                           <TableRow><TableCell colSpan={6} className="text-gray-500 pl-8">Cost of Goods Sold (COGS)</TableCell><TableCell className="text-right font-mono text-red-600">-${totalCOGS.toFixed(2)}</TableCell></TableRow>
-                          <TableRow><TableCell colSpan={7} className="pt-0 pb-2 text-xs text-muted-foreground pl-8">Direct costs of products used in services.</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={7} className="pt-0 pb-2 text-xs text-gray-500 pl-8">Direct costs of products used in services.</TableCell></TableRow>
 
                           <TableRow className="font-bold border-t"><TableCell colSpan={6}>Gross Profit</TableCell><TableCell className="text-right font-mono">${grossProfit.toFixed(2)}</TableCell></TableRow>
-                          <TableRow><TableCell colSpan={7} className="pt-0 pb-2 text-xs text-muted-foreground">Profit after subtracting the direct cost of services.</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={7} className="pt-0 pb-2 text-xs text-gray-500">Profit after subtracting the direct cost of services.</TableCell></TableRow>
 
                           <TableRow><TableCell colSpan={7} className="py-2"></TableCell></TableRow>
                           
                           <TableRow><TableCell colSpan={6} className="font-semibold">Operating Expenses</TableCell><TableCell></TableCell></TableRow>
-                          <TableRow><TableCell colSpan={7} className="pt-0 pb-2 text-xs text-muted-foreground">Day-to-day costs of running the business.</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={7} className="pt-0 pb-2 text-xs text-gray-500">Day-to-day costs of running the business.</TableCell></TableRow>
 
                           <TableRow><TableCell colSpan={6} className="text-gray-500 pl-8">Service Wages</TableCell><TableCell className="text-right font-mono text-red-600">-${payrollTotals.totalWages.toFixed(2)}</TableCell></TableRow>
                           <TableRow><TableCell colSpan={6} className="text-gray-500 pl-8">Retail Commission</TableCell><TableCell className="text-right font-mono text-red-600">-${payrollTotals.totalRetailCommission.toFixed(2)}</TableCell></TableRow>
                           
                           <TableRow className="font-bold border-t"><TableCell colSpan={6}>Operating Profit</TableCell><TableCell className={cn("text-right font-mono", payrollTotals.totalNetProfit >= 0 ? 'text-green-600' : 'text-red-600')}>${payrollTotals.totalNetProfit.toFixed(2)}</TableCell></TableRow>
-                          <TableRow><TableCell colSpan={7} className="pt-0 pb-2 text-xs text-muted-foreground">Profit after payroll and direct service costs.</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={7} className="pt-0 pb-2 text-xs text-gray-500">Profit after payroll and direct service costs.</TableCell></TableRow>
 
                           <TableRow><TableCell colSpan={7} className="py-2"></TableCell></TableRow>
                           
                           <TableRow><TableCell colSpan={6} className="font-semibold">Overhead Expenses</TableCell><TableCell className="text-right font-mono text-red-600">-${periodOverhead.toFixed(2)}</TableCell></TableRow>
-                           <TableRow><TableCell colSpan={7} className="pt-0 pb-2 text-xs text-muted-foreground">Your fixed business and personal costs for the period.</TableCell></TableRow>
+                           <TableRow><TableCell colSpan={7} className="pt-0 pb-2 text-xs text-gray-500">Your fixed business and personal costs for the period.</TableCell></TableRow>
 
                           <TableRow className="font-bold text-lg bg-gray-100"><TableCell colSpan={6}>True Net Profit</TableCell><TableCell className={cn("text-right font-mono", (payrollTotals.totalNetProfit - periodOverhead) >= 0 ? 'text-green-600' : 'text-red-600')}>${(payrollTotals.totalNetProfit - periodOverhead).toFixed(2)}</TableCell></TableRow>
-                          <TableRow><TableCell colSpan={7} className="pt-0 pb-2 text-xs text-muted-foreground">The final profit after all costs and overhead.</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={7} className="pt-0 pb-2 text-xs text-gray-500">The final profit after all costs and overhead.</TableCell></TableRow>
                     </TableFooter>
                 </Table>
             </section>
@@ -230,3 +230,5 @@ export const PrintableReport = React.forwardRef<HTMLDivElement, PrintableReportP
 });
 
 PrintableReport.displayName = 'PrintableReport';
+
+    
