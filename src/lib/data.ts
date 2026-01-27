@@ -47,6 +47,7 @@ export type Staff = {
   avatarUrl: string;
   payStructure: 'commission' | 'hourly' | 'salary';
   commissionRate: number; // as a percentage, e.g., 40 for 40%
+  retailCommissionRate?: number; // Commission on retail sales
   hourlyRate?: number;
   services?: string[];
   bio?: string;
@@ -515,6 +516,7 @@ export const staff: Staff[] = [
     avatarUrl: 'https://picsum.photos/seed/staff1/100', 
     payStructure: 'commission', 
     commissionRate: 45,
+    retailCommissionRate: 10,
     services: ['svc-1', 'svc-7'],
     status: 'idle',
     active: false,

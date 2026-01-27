@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -28,7 +29,7 @@ import {
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { useInventory } from '@/context/InventoryContext';
 import { differenceInMinutes, format, getHours, parseISO, startOfDay, endOfDay, subDays, differenceInSeconds } from 'date-fns';
-import { Clock, BarChart as BarChartIcon, Hourglass, Users, Sigma, Wallet, Calendar as CalendarIcon } from 'lucide-react';
+import { Clock, BarChart as BarChartIcon, Hourglass, Users, Sigma, Wallet, Calendar as CalendarIcon, ShoppingCart } from 'lucide-react';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
@@ -203,6 +204,10 @@ export default function ReportsPage() {
             .filter(t => t.category === 'Service Revenue')
             .reduce((acc, t) => acc + t.amount, 0);
 
+        const retailSales = staffTransactions
+            .filter(t => t.category === 'Retail')
+            .reduce((acc, t) => acc + t.amount, 0);
+
         const tips = staffTransactions.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
         
         let wages = 0;
@@ -252,11 +257,15 @@ export default function ReportsPage() {
             wages = (totalMinutesWorked / 60) * member.hourlyRate;
         }
 
-        const totalPay = wages + tips;
+        const retailCommission = retailSales * ((member.retailCommissionRate || 0) / 100);
+
+        const totalPay = wages + tips + retailCommission;
 
         return {
             ...member,
             serviceRevenue,
+            retailSales,
+            retailCommission,
             tips,
             wages,
             totalPay,
@@ -269,9 +278,10 @@ export default function ReportsPage() {
     return payrollData.reduce((acc, staff) => {
         acc.totalWages += staff.wages;
         acc.totalTips += staff.tips;
+        acc.totalRetailCommission += staff.retailCommission;
         acc.totalPayroll += staff.totalPay;
         return acc;
-    }, { totalWages: 0, totalTips: 0, totalPayroll: 0 });
+    }, { totalWages: 0, totalTips: 0, totalRetailCommission: 0, totalPayroll: 0 });
   }, [payrollData]);
 
   return (
@@ -289,7 +299,7 @@ export default function ReportsPage() {
             <PopoverTrigger asChild>
                 <Button id="date" variant={"outline"} className={cn( "w-full sm:w-[300px] justify-start text-left font-normal", !dateRange && "text-muted-foreground" )}>
                     <CalendarIcon className="mr-2 h-4 w-4" />
-                    {dateRange?.from ? ( dateRange.to ? ( <> {format(dateRange.from, "LLL dd, y")} -{" "} {format(dateRange.to, "LLL dd, y")} </> ) : ( format(dateRange.from, "LLL dd, y") ) ) : ( <span>Pick a date range</span> )}
+                    {dateRange?.from ? ( dateRange.to ? ( <> {format(dateRange.from, "LLL dd, yyyy")} -{" "} {format(dateRange.to, "LLL dd, yyyy")} </> ) : ( format(dateRange.from, "LLL dd, yyyy") ) ) : ( <span>Pick a date range</span> )}
                 </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0" align="end">
@@ -352,9 +362,11 @@ export default function ReportsPage() {
                         <TableRow>
                             <TableHead>Staff Member</TableHead>
                             <TableHead>Pay Structure</TableHead>
-                            <TableHead className="text-right">Service Revenue</TableHead>
-                            <TableHead className="text-right">Hours Worked</TableHead>
-                            <TableHead className="text-right">Wages/Commission</TableHead>
+                            <TableHead className="text-right">Service Rev.</TableHead>
+                            <TableHead className="text-right">Retail Sales</TableHead>
+                            <TableHead className="text-right">Hours</TableHead>
+                            <TableHead className="text-right">Wages</TableHead>
+                            <TableHead className="text-right">Retail Comm.</TableHead>
                             <TableHead className="text-right">Tips</TableHead>
                             <TableHead className="text-right font-bold">Total Pay</TableHead>
                         </TableRow>
@@ -365,8 +377,10 @@ export default function ReportsPage() {
                                 <TableCell className="font-medium">{data.name}</TableCell>
                                 <TableCell><Badge variant="outline" className="capitalize">{data.payStructure}</Badge></TableCell>
                                 <TableCell className="text-right font-mono">${data.serviceRevenue.toFixed(2)}</TableCell>
+                                <TableCell className="text-right font-mono">${data.retailSales.toFixed(2)}</TableCell>
                                 <TableCell className="text-right font-mono">{data.payStructure === 'hourly' ? `${data.totalHours.toFixed(2)}h` : 'N/A'}</TableCell>
                                 <TableCell className="text-right font-mono">${data.wages.toFixed(2)}</TableCell>
+                                <TableCell className="text-right font-mono text-blue-500">${data.retailCommission.toFixed(2)}</TableCell>
                                 <TableCell className="text-right font-mono text-green-500">${data.tips.toFixed(2)}</TableCell>
                                 <TableCell className="text-right font-mono font-bold text-primary">${data.totalPay.toFixed(2)}</TableCell>
                             </TableRow>
@@ -374,8 +388,9 @@ export default function ReportsPage() {
                     </TableBody>
                     <TableFooter>
                         <TableRow className="font-bold">
-                            <TableCell colSpan={4}>Total Payroll Cost</TableCell>
+                            <TableCell colSpan={5}>Total Payroll Cost</TableCell>
                             <TableCell className="text-right font-mono">${payrollTotals.totalWages.toFixed(2)}</TableCell>
+                            <TableCell className="text-right font-mono text-blue-500">${payrollTotals.totalRetailCommission.toFixed(2)}</TableCell>
                             <TableCell className="text-right font-mono text-green-500">${payrollTotals.totalTips.toFixed(2)}</TableCell>
                             <TableCell className="text-right font-mono text-primary">${payrollTotals.totalPayroll.toFixed(2)}</TableCell>
                         </TableRow>

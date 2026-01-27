@@ -165,6 +165,7 @@
         "role": { "type": "string", "enum": ["admin", "staff"] },
         "payStructure": { "type": "string", "enum": ["commission", "hourly", "salary"] },
         "commissionRate": { "type": "number", "description": "Commission rate as a percentage (e.g., 40 for 40%)." },
+        "retailCommissionRate": { "type": "number", "description": "Commission rate on retail sales as a percentage." },
         "hourlyRate": { "type": "number", "description": "Hourly pay rate." },
         "emergencyContact": {
             "type": "object",
@@ -895,3 +896,4 @@
     }
   }
 }
+
