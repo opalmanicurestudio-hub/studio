@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -31,12 +32,14 @@ const ClientReportPage = () => {
     const [aiError, setAiError] = useState<string | null>(null);
     const [generationDate, setGenerationDate] = useState<Date | null>(null);
 
-    const clientDocRef = useMemoFirebase(() => {
-        if (!firestore || !clientId) return null;
-        return doc(firestore, `tenants/${tenantId}/clients/${clientId}`);
-    }, [firestore, tenantId, clientId]);
-    const { data: client, isLoading: clientLoading } = useDoc<Client>(clientDocRef);
+    const clientsQuery = useMemoFirebase(() => {
+        if (!firestore) return null;
+        return collection(firestore, `tenants/${tenantId}/clients`);
+    }, [firestore, tenantId]);
+    const { data: allClients, isLoading: clientLoading } = useCollection<Client>(clientsQuery);
 
+    const client = useMemo(() => allClients?.find(c => c.id === clientId), [allClients, clientId]);
+    
     const appointmentsQuery = useMemoFirebase(() => {
         if (!firestore || !clientId) return null;
         return query(collection(firestore, `tenants/${tenantId}/appointments`), where('clientId', '==', clientId));
@@ -92,7 +95,7 @@ const ClientReportPage = () => {
     
     const isPageLoading = isUserLoading || clientLoading || appointmentsLoading || servicesLoading;
 
-    if (isPageLoading) {
+    if (isPageLoading && !client) {
       return (
         <div className="flex min-h-screen w-full flex-col bg-muted/40">
           <AppHeader title="Client Report" />
@@ -350,3 +353,4 @@ const ClientReportPage = () => {
 }
 
 export default ClientReportPage;
+

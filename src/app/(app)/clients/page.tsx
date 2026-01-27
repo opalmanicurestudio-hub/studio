@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -36,7 +37,7 @@ import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
 import { ClientOnly } from '@/components/shared/ClientOnly';
-import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc, setDoc } from 'firebase/firestore';
 
 
@@ -148,9 +149,9 @@ const EmptyState = ({ onAddClient }: { onAddClient: () => void }) => (
 export default function ClientsPage() {
   const { firestore, user } = useFirebase();
   const tenantId = 'tenant-abc';
-  const clientsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/clients`), [firestore, tenantId]);
-  const appointmentsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/appointments`), [firestore, tenantId]);
-  const { data: clients, setClients } = useCollection<Client>(clientsQuery);
+  const clientsQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/clients`) : null, [firestore, tenantId]);
+  const appointmentsQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/appointments`) : null, [firestore, tenantId]);
+  const { data: clients } = useCollection<Client>(clientsQuery);
   const { data: appointments } = useCollection<Appointment>(appointmentsQuery);
 
   const [isAddClientOpen, setIsAddClientOpen] = useState(false);
@@ -166,7 +167,7 @@ export default function ClientsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 8;
   
-  const handleAddClient = async (data: ClientFormData) => {
+  const handleAddClient = (data: ClientFormData) => {
     if (!firestore) return;
 
     const { referringClientId, ...clientData } = data;
@@ -193,13 +194,8 @@ export default function ClientsPage() {
     
     // Let Firestore generate the ID
     const clientsCollection = collection(firestore, `tenants/${tenantId}/clients`);
-    const newClientRef = doc(clientsCollection);
-    
-    const newClientWithId = { ...newClient, id: newClientRef.id };
-    
-    const sanitizedData = JSON.parse(JSON.stringify(newClientWithId));
-    
-    await setDoc(newClientRef, sanitizedData);
+    const sanitizedData = JSON.parse(JSON.stringify(newClient));
+    addDocumentNonBlocking(clientsCollection, sanitizedData);
 
     if (referringClientId && clients) {
         const referrer = clients.find(c => c.id === referringClientId);
@@ -564,3 +560,4 @@ export default function ClientsPage() {
     
 
     
+

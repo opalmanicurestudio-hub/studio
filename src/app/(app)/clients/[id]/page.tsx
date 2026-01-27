@@ -42,12 +42,11 @@ import Image from 'next/image';
 import { EditClientDialog } from '@/components/clients/EditClientDialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useInventory } from '@/context/InventoryContext';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog';
 import { nanoid } from 'nanoid';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
-import { collection, doc, arrayUnion } from 'firebase/firestore';
+import { collection, doc, arrayUnion, query, where } from 'firebase/firestore';
 
 
 type ClientPhoto = {
@@ -170,16 +169,35 @@ export default function ClientDetailPage() {
   const { firestore, isUserLoading } = useFirebase();
   const tenantId = 'tenant-abc';
   
-  const clientDocRef = useMemoFirebase(() => {
+  const clientsQuery = useMemoFirebase(() => {
+    if (!firestore) return null;
+    return collection(firestore, `tenants/${tenantId}/clients`);
+  }, [firestore, tenantId]);
+  const { data: allClients, isLoading: clientLoading } = useCollection<Client>(clientsQuery);
+  
+  const client = useMemo(() => allClients?.find(c => c.id === clientId), [allClients, clientId]);
+  
+  const appointmentsQuery = useMemoFirebase(() => {
       if (!firestore || !clientId) return null;
-      return doc(firestore, `tenants/${tenantId}/clients/${clientId}`);
+      return query(collection(firestore, `tenants/${tenantId}/appointments`), where('clientId', '==', clientId));
   }, [firestore, tenantId, clientId]);
+  const { data: clientAppointmentsData, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
+  
+  const servicesQuery = useMemoFirebase(() => {
+      if (!firestore) return null;
+      return collection(firestore, `tenants/${tenantId}/services`);
+  }, [firestore, tenantId]);
+  const { data: services, isLoading: servicesLoading } = useCollection<any>(servicesQuery);
+  
+  const staffQuery = useMemoFirebase(() => {
+      if (!firestore) return null;
+      return collection(firestore, `tenants/${tenantId}/staff`);
+  }, [firestore, tenantId]);
+  const { data: staff, isLoading: staffLoading } = useCollection<any>(staffQuery);
 
-  const { data: client, isLoading: clientLoading } = useDoc<Client>(clientDocRef);
-  const clientsQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/clients`) : null, [firestore, tenantId]);
-  const { data: allClients, isLoading: allClientsLoading } = useCollection<Client>(clientsQuery);
+  // Memberships and packages are still from mock data
+  const { memberships, packages } = useInventory();
 
-  const { setClients, appointments, setAppointments, services, inventory, memberships, packages, staff } = useInventory();
 
   const { toast } = useToast();
   const [isAddFormulaOpen, setIsAddFormulaOpen] = useState(false);
@@ -193,6 +211,16 @@ export default function ClientDetailPage() {
   const [editableReferralCode, setEditableReferralCode] = useState(client?.referralCode || '');
   const [isCodeDirty, setIsCodeDirty] = useState(false);
 
+  const clientAppointments = useMemo(() => {
+    if (!clientAppointmentsData || !services) return [];
+    return clientAppointmentsData.map(apt => ({
+      ...apt,
+      startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : new Date(apt.startTime),
+      endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : new Date(apt.endTime),
+      service: services.find(s => s.id === apt.serviceId)
+    }));
+  }, [clientAppointmentsData, services]);
+
   useEffect(() => {
     if (client) {
         const collectedPhotos: ClientPhoto[] = [];
@@ -200,23 +228,23 @@ export default function ClientDetailPage() {
             collectedPhotos.push({ url: client.inspirationPhotoUrl, label: 'Client Inspiration' });
         }
         
-        appointments.forEach(apt => {
+        clientAppointments.forEach(apt => {
             if (apt.clientId === client.id && apt.inspirationPhotoUrl) {
                 collectedPhotos.push({ url: apt.inspirationPhotoUrl, label: `Inspo for ${format(new Date(apt.startTime), 'MMM d, yyyy')}`});
             }
         });
         setPhotos(collectedPhotos);
     }
-  }, [client, appointments]);
+  }, [client, clientAppointments]);
 
   useEffect(() => {
       setEditableReferralCode(client?.referralCode || '');
       setIsCodeDirty(false);
   }, [client?.referralCode]);
 
-  const isLoading = isUserLoading || clientLoading || allClientsLoading;
+  const isLoading = isUserLoading || clientLoading || appointmentsLoading || servicesLoading || staffLoading;
 
-  if (isLoading) {
+  if (isLoading && !client) {
       return (
           <div className="flex min-h-screen w-full flex-col bg-muted/40">
             <AppHeader title="Client Profile" />
@@ -233,10 +261,6 @@ export default function ClientDetailPage() {
 
   const clientDocRefReal = doc(firestore, `tenants/${tenantId}/clients`, client.id);
 
-  const clientAppointments = appointments
-    .filter(apt => apt.clientId === client.id)
-    .map(apt => ({...apt, service: services.find(s => s.id === apt.serviceId)}));
-
   const upcomingAppointments = clientAppointments.filter(apt => new Date(apt.startTime) > new Date() && apt.status !== 'cancelled');
   const pastAppointments = clientAppointments.filter(apt => new Date(apt.startTime) <= new Date()).sort((a,b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
 
@@ -247,7 +271,8 @@ export default function ClientDetailPage() {
 
   const handleAddAppointment = (newAppointment: Omit<Appointment, 'id'>) => {
     const newAptWithId: Appointment = { ...newAppointment, id: `apt-${nanoid()}`, absorbedCost: 0, status: 'confirmed' };
-    setAppointments(prev => [...prev, newAptWithId].sort((a,b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()));
+    // This part should be handled by Firestore now
+    // setAppointments(prev => [...prev, newAptWithId].sort((a,b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()));
     toast({
         title: "Appointment Booked",
         description: `Appointment for ${allClients?.find(c => c.id === newAppointment.clientId)?.name} has been added.`
@@ -482,7 +507,7 @@ export default function ClientDetailPage() {
                                                     <h4 className="font-semibold">Active Packages</h4>
                                                     {client.activePackages.map((pack, index) => {
                                                          const packageDetails = packages.find(pkg => pkg.id === pack.packageId);
-                                                         const serviceDetails = services.find(s => s.id === packageDetails?.serviceId);
+                                                         const serviceDetails = services?.find(s => s.id === packageDetails?.serviceId);
                                                          if (!packageDetails || !serviceDetails) return null;
                                                          return (
                                                             <div key={index} className="p-3 rounded-md bg-muted/50 flex justify-between items-center">
@@ -699,9 +724,9 @@ export default function ClientDetailPage() {
                 setIsAddAppointmentOpen(isOpen);
             }}
             clients={allClients || []}
-            services={services}
-            staff={staff}
-            appointments={appointments}
+            services={services || []}
+            staff={staff || []}
+            appointments={clientAppointmentsData || []}
             onConfirm={handleAddAppointment}
             initialClientId={client.id}
             appointmentToRebook={appointmentToRebook}
@@ -723,6 +748,7 @@ export default function ClientDetailPage() {
   );
 
     
+
 
 
 
