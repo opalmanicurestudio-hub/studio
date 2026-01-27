@@ -67,7 +67,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import { WalkIn, type Client, type Service } from '@/lib/data';
+import { WalkIn, type Client, type Service, appointments as mockAppointments, resources as mockResources } from '@/lib/data';
 import { DayTimeline } from '@/components/planner/DayTimeline';
 import { nanoid } from 'nanoid';
 import { WeeklyKpiSheet } from '@/components/planner/WeeklyKpiSheet';
@@ -185,7 +185,10 @@ export default function PlannerPage() {
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
   const { data: fetchedEvents, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
-  const { data: resources, isLoading: resourcesLoading } = useCollection<Resource>(resourcesQuery);
+  const { data: fetchedResources, isLoading: resourcesLoading } = useCollection<Resource>(resourcesQuery);
+
+  const resources = useMemo(() => (fetchedResources && fetchedResources.length > 0) ? fetchedResources : mockResources, [fetchedResources]);
+
 
   useEffect(() => {
     if (staff && staff.length > 0 && !mobileSelectedStaffId) {
@@ -194,8 +197,9 @@ export default function PlannerPage() {
   }, [staff, mobileSelectedStaffId]);
 
  const appointments = useMemo(() => {
-    if (!appointmentsFromDB) return [];
-    return appointmentsFromDB.map(apt => {
+    const rawApts = (appointmentsFromDB && appointmentsFromDB.length > 0) ? appointmentsFromDB : mockAppointments;
+    if (!rawApts) return [];
+    return rawApts.map(apt => {
         const startTime = (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime as any);
         const endTime = (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any);
         return { ...apt, startTime, endTime };

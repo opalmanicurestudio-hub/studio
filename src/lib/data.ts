@@ -83,10 +83,12 @@ export type Staff = {
     licenseExpiry?: string; // ISO Date
     documentUrl?: string;
   };
-  status?: 'idle' | 'busy';
+  active?: boolean;
   onBreak?: boolean;
-  lastServedTimestamp?: string;
   breakStartTime?: string; // ISO date string
+  status?: 'idle' | 'busy';
+  lastServedTimestamp?: string;
+  skillSet?: string[];
 };
 
 export type ActivityLog = {
@@ -583,7 +585,6 @@ export const services: Service[] = [
       { ...inventory.find(i => i.id === 'inv-5')!, quantityUsed: 1 },
       { ...inventory.find(i => i.id === 'inv-6')!, quantityUsed: 10 }, // 10ml
     ],
-    requiredResourceIds: ['res-1'], // Facial Room 1
     isPrivate: false,
     depositType: 'none',
     requiredSkills: ['basic_manicure'],
@@ -644,6 +645,7 @@ export const services: Service[] = [
     imageUrl: 'https://picsum.photos/seed/facial/200/200',
     isPrivate: false,
     depositType: 'none',
+    requiredResourceIds: ['res-1'],
     capacity: 1,
   },
   { 
@@ -697,6 +699,7 @@ export const services: Service[] = [
     depositType: 'none',
     requiredSkills: ['basic_manicure', 'gel'],
     compatibleAddOnIds: ['svc-addon-1', 'svc-addon-3'],
+    requiredResourceIds: ['res-3'],
     capacity: 1,
   },
   { 
@@ -839,7 +842,7 @@ export const appointments: Appointment[] = [
   // Today's appointments
   { id: 'apt-0', clientId: 'cli-4', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 8), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 8), 50).toISOString(), status: 'completed', absorbedCost: 0, staffId: 'staff-1', isWalkIn: false, actualStartTime: setMinutes(setHours(startOfDay(today), 8), 2).toISOString(), actualEndTime: setMinutes(setHours(startOfDay(today), 8), 55).toISOString(), checkInToken: 'abc' },
   { id: 'apt-1', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today,1)), 9), 30).toISOString(), endTime: setMinutes(setHours(startOfDay(subDays(today,1)), 10), 20).toISOString(), status: 'confirmed', inspirationPhotoUrl: 'https://images.unsplash.com/photo-1596796242339-3c368369b139?w=400', absorbedCost: 0, checkInToken: 'def' },
-  { id: 'apt-2', clientId: 'cli-2', serviceId: 'svc-7', startTime: setMinutes(setHours(startOfDay(today), 11), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 12), 30).toISOString(), status: 'completed', addOnIds: ['svc-addon-1'], absorbedCost: 0, staffId: 'staff-2', checkInToken: 'ghi' },
+  { id: 'apt-2', clientId: 'cli-2', serviceId: 'svc-7', startTime: setMinutes(setHours(startOfDay(today), 11), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 12), 30).toISOString(), status: 'completed', addOnIds: ['svc-addon-1'], absorbedCost: 0, staffId: 'staff-2', checkInToken: 'ghi', requiredResourceIds: ['res-3'] },
   { 
     id: 'apt-walkin-test', 
     clientId: 'cli-2', // Marcus Holloway
@@ -851,9 +854,9 @@ export const appointments: Appointment[] = [
     staffId: 'staff-1',
     checkInToken: 'jkl' 
   },
-  { id: 'apt-6', clientId: 'cli-2', serviceId: 'svc-7', startTime: setMinutes(setHours(startOfDay(today), 14), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 15), 30).toISOString(), status: 'confirmed', absorbedCost: 0, staffId: 'staff-1', checkInToken: 'mno' },
+  { id: 'apt-6', clientId: 'cli-2', serviceId: 'svc-7', startTime: setMinutes(setHours(startOfDay(today), 14), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 15), 30).toISOString(), status: 'confirmed', absorbedCost: 0, staffId: 'staff-1', checkInToken: 'mno', requiredResourceIds: ['res-3'] },
   { id: 'apt-3', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 15), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 15), 50).toISOString(), status: 'confirmed', absorbedCost: 0, checkInToken: 'pqr' },
-  { id: 'apt-5', clientId: 'cli-5', serviceId: 'svc-4', startTime: setMinutes(setHours(startOfDay(today), 16), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 17), 15).toISOString(), status: 'confirmed', absorbedCost: 0, staffId: 'staff-2', checkInToken: 'stu' },
+  { id: 'apt-5', clientId: 'cli-5', serviceId: 'svc-4', startTime: setMinutes(setHours(startOfDay(today), 16), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 17), 15).toISOString(), status: 'confirmed', absorbedCost: 0, staffId: 'staff-2', checkInToken: 'stu', requiredResourceIds: ['res-1'] },
 
   // Past appointments
   { id: 'apt-4', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today, 2)), 10), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(subDays(today,2)), 10), 50).toISOString(), status: 'completed', absorbedCost: 0, staffId: 'staff-1', actualStartTime: setMinutes(setHours(startOfDay(subDays(today, 2)), 10), 5).toISOString(), actualEndTime: setMinutes(setHours(startOfDay(subDays(today,2)), 11), 0).toISOString(), checkInToken: 'vwx' },
@@ -1009,6 +1012,13 @@ export const walkIns: WalkIn[] = [
         assignedStaffId: 'staff-1', // Assigned to Brenda
         serviceStartTime: new Date(new Date().getTime() - 5 * 60 * 1000).toISOString(),
     }
+];
+
+export const resources: Resource[] = [
+  { id: 'res-1', name: 'Facial Room 1', type: 'room', capacity: 1 },
+  { id: 'res-2', name: 'Styling Station A', type: 'room', capacity: 1 },
+  { id: 'res-3', name: 'UV Gel Lamp', type: 'equipment', capacity: 1, inventoryItemId: 'inv-7' },
+  { id: 'res-4', name: 'Pedicure Chair', type: 'room', capacity: 1 },
 ];
 
 
