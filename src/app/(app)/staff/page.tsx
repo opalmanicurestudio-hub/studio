@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Users, Calendar as CalendarIcon, FlaskConical, AlertTriangle, List, TrendingUp, DollarSign, BarChart, Clock, Play, Square, Coffee } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Users, Calendar as CalendarIcon, FlaskConical, AlertTriangle, List, TrendingUp, DollarSign, BarChart, Clock, Play, Square, Coffee, ShieldAlert } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -49,8 +49,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import Link from 'next/link';
 
-const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewDetails }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewDetails: (member: Staff & { stats: any }) => void }) => {
+const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewActivity: (member: Staff & { stats: any }) => void }) => {
     const [licenseInfo, setLicenseInfo] = useState<{
         isExpired: boolean;
         isExpiringSoon: boolean;
@@ -105,7 +106,11 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewDetails }: { me
                             <Button variant="ghost" size="icon" className="h-7 w-7 -mt-2 -mr-2"><MoreHorizontal className="h-4 w-4" /></Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent>
-                             <DropdownMenuItem onClick={() => onViewDetails(member)}>View Details</DropdownMenuItem>
+                             <DropdownMenuItem asChild>
+                                <Link href={`/staff/${member.id}`}>View Public Profile</Link>
+                             </DropdownMenuItem>
+                             <DropdownMenuItem onClick={() => onViewActivity(member)}>View Activity</DropdownMenuItem>
+                             <DropdownMenuSeparator />
                              <DropdownMenuItem onClick={() => onEdit(member)}>Edit Profile</DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
@@ -128,7 +133,7 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewDetails }: { me
 
                 {licenseInfo && (licenseInfo.isExpired || licenseInfo.isExpiringSoon) && (
                     <div className="mt-4 text-left p-3 rounded-lg bg-destructive/10 text-destructive text-xs flex items-start gap-2">
-                        <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                        <ShieldAlert className="h-4 w-4 mt-0.5 flex-shrink-0" />
                         <div>
                             <p className="font-semibold">{licenseInfo.isExpired ? 'License Expired' : 'License Expiring Soon'}</p>
                             <p>
@@ -371,7 +376,7 @@ export default function StaffPage() {
   }, [staff, transactions, dateRange, appointments, stockCorrections, inventory, activityLogs, services]);
 
 
-  const handleViewDetails = (member: Staff & { stats: any }) => {
+  const handleViewActivity = (member: Staff & { stats: any }) => {
     setSelectedStaffMember(member);
     setIsDetailsSheetOpen(true);
   };
@@ -498,11 +503,11 @@ export default function StaffPage() {
                         {dateRange?.from ? (
                         dateRange.to ? (
                             <>
-                            {format(dateRange.from, "LLL dd, y")} -{" "}
-                            {format(dateRange.to, "LLL dd, y")}
+                            {format(dateRange.from, "LLL dd, yyyy")} -{" "}
+                            {format(dateRange.to, "LLL dd, yyyy")}
                             </>
                         ) : (
-                            format(dateRange.from, "LLL dd, y")
+                            format(dateRange.from, "LLL dd, yyyy")
                         )
                         ) : (
                         <span>Pick a date range</span>
@@ -526,7 +531,7 @@ export default function StaffPage() {
         {(staff || []).length > 0 ? (
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {staffWithStats.map((member) => (
-              <StaffStatusCard key={member.id} member={member} onViewDetails={handleViewDetails} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithConfirmation} />
+              <StaffStatusCard key={member.id} member={member} onViewActivity={handleViewActivity} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithConfirmation} />
             ))}
           </div>
         ) : (
@@ -580,5 +585,6 @@ export default function StaffPage() {
     </div>
   );
 }
+
 
 

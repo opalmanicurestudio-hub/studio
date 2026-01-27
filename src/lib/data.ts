@@ -59,6 +59,7 @@ export type Staff = {
   pinterestUrl?: string;
   youtubeUrl?: string;
   portfolioUrl?: string;
+  portfolioImageUrls?: string[];
   yearsOfExperience?: number;
   clientCount?: number;
   emergencyContact?: {
@@ -527,8 +528,12 @@ export const staff: Staff[] = [
       licenseNumber: 'C-12345',
       licenseExpiry: addDays(new Date(), 15).toISOString(),
     },
+    bio: 'Brenda is a master nail technician with over 10 years of experience, specializing in intricate nail art and long-lasting gel applications.',
+    specialties: ['Nail Art', 'Gel-X', 'Manicures'],
     instagramUrl: 'https://instagram.com',
-    portfolioUrl: 'https://behance.net'
+    portfolioUrl: 'https://behance.net',
+    yearsOfExperience: 10,
+    clientCount: 500
   },
   { 
     id: 'staff-2', 
@@ -537,7 +542,8 @@ export const staff: Staff[] = [
     role: 'admin', 
     avatarUrl: 'https://picsum.photos/seed/staff2/100', 
     payStructure: 'salary', 
-    commissionRate: 0, 
+    commissionRate: 0,
+    retailCommissionRate: 15,
     hourlyRate: 0,
     services: ['svc-2', 'svc-3', 'svc-5', 'svc-6', 'svc-9', 'svc-10', 'svc-11', 'svc-12'],
     status: 'busy',
@@ -549,6 +555,8 @@ export const staff: Staff[] = [
       licenseNumber: 'C-67890',
       licenseExpiry: subDays(new Date(), 10).toISOString(),
     },
+    bio: 'As the salon owner and lead stylist, Carlos brings a passion for creative color and precision cutting to every client he serves.',
+    specialties: ['Balayage', 'Vivid Colors', 'Precision Cuts'],
     instagramUrl: 'https://instagram.com'
   },
 ];
@@ -964,7 +972,7 @@ export const activityLogs: ActivityLog[] = [
     { id: 'log-2', staffId: 'staff-1', type: 'break_end', timestamp: new Date(new Date().getTime() - 1.5 * 60 * 60 * 1000).toISOString(), durationMinutes: 30 },
 ];
 
-export const initialLocationTypes: LocationType[] = [
+export const initialLocationTypes: LocType[] = [
   { id: 'lt-1', name: 'General Storage', icon: 'Box' },
   { id: 'lt-2', name: 'Retail Display', icon: 'Store' },
   { id: 'lt-3', name: 'Workstation', icon: 'ClipboardList' },
