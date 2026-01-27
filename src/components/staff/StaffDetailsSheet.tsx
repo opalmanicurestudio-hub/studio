@@ -17,7 +17,7 @@ import { type Staff, type Transaction, type Service, type Appointment, type Acti
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { format, differenceInMinutes, parseISO } from 'date-fns';
-import { TrendingUp, DollarSign, PackageX, Clock, Info, Briefcase, User, MessageSquare, Coffee } from 'lucide-react';
+import { TrendingUp, DollarSign, PackageX, Clock, Info, Briefcase, User, MessageSquare, Coffee, Hourglass } from 'lucide-react';
 import { Button } from '../ui/button';
 import {
   Tooltip,
@@ -62,7 +62,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                     <CardHeader>
                         <CardTitle>Performance Summary</CardTitle>
                     </CardHeader>
-                    <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <CardContent className="grid grid-cols-2 md:grid-cols-2 gap-4">
                         <div className="p-3 bg-muted/50 rounded-lg">
                             <div className="text-sm font-medium text-muted-foreground">Total Sales</div>
                             <div className="text-2xl font-bold">${staffMember.stats.totalSales.toFixed(2)}</div>
@@ -72,8 +72,8 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                             <div className="text-2xl font-bold">${staffMember.stats.tips.toFixed(2)}</div>
                         </div>
                         <div className="p-3 bg-muted/50 rounded-lg">
-                            <div className="text-sm font-medium text-muted-foreground">Consumption</div>
-                            <div className="text-2xl font-bold">${staffMember.stats.consumptionValue.toFixed(2)}</div>
+                            <div className="text-sm font-medium text-muted-foreground">Hours Worked</div>
+                            <div className="text-2xl font-bold">{staffMember.stats.totalHours?.toFixed(1) ?? 'N/A'}</div>
                         </div>
                         <div className="p-3 bg-primary/10 rounded-lg">
                             <div className="text-sm font-medium text-primary">Est. Take-home</div>

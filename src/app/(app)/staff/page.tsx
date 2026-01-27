@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -233,6 +234,7 @@ export default function StaffPage() {
         const tips = staffTransactions.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
 
         let earnings = 0;
+        let totalMinutesWorked = 0;
         if (member.payStructure === 'commission') {
             earnings = serviceRevenue * ((member.commissionRate || 0) / 100);
         } else if (member.payStructure === 'hourly' && member.hourlyRate) {
@@ -244,7 +246,6 @@ export default function StaffPage() {
                 return true;
             });
 
-            let totalMinutesWorked = 0;
             const sortedLogs = staffLogs.sort((a, b) => parseISO(a.timestamp).getTime() - parseISO(b.timestamp).getTime());
 
             let clockInTime: Date | null = null;
@@ -318,6 +319,7 @@ export default function StaffPage() {
                 tips,
                 earnings,
                 consumptionValue,
+                totalHours: totalMinutesWorked / 60,
             }
         };
     });
@@ -512,7 +514,7 @@ export default function StaffPage() {
         {(staff || []).length > 0 ? (
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {staffWithStats.map((member) => (
-              <StaffStatusCard key={member.id} member={member} services={services || []} onViewDetails={handleViewDetails} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithConfirmation} />
+              <StaffStatusCard key={member.id} member={member} onViewDetails={handleViewDetails} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithConfirmation} />
             ))}
           </div>
         ) : (
