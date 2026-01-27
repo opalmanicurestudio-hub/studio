@@ -355,29 +355,40 @@ const events = useMemo(() => {
     return map;
   }, [currentDate, appointments, events, staff]);
   
-    const itemsByResource = useMemo(() => {
-        const map = new Map<string, (Appointment | Event)[]>();
-        if (!resources) return map;
-        resources.forEach(res => map.set(res.id, []));
+  const itemsByResource = useMemo(() => {
+    const map = new Map<string, (Appointment | Event)[]>();
+    if (!resources || !services) return map;
+    resources.forEach(res => map.set(res.id, []));
 
-        (appointments || [])
-        .filter(apt => apt.requiredResourceIds && isSameDay(apt.startTime, currentDate))
-        .forEach(apt => {
-            apt.requiredResourceIds!.forEach(resourceId => {
-                if (map.has(resourceId)) {
-                    map.get(resourceId)!.push({ ...apt, itemType: 'appointment' });
-                }
-            });
-        });
+    (appointments || [])
+      .filter(apt => isSameDay(apt.startTime, currentDate))
+      .forEach(apt => {
+        // If the appointment is missing resource IDs, dynamically look them up from the service.
+        // This patches data for older appointments that were created before the save logic was fixed.
+        const resourceIds = apt.requiredResourceIds && apt.requiredResourceIds.length > 0
+          ? apt.requiredResourceIds
+          : [...new Set([
+              ...(services.find(s => s.id === apt.serviceId)?.requiredResourceIds || []),
+              ...(apt.addOnIds || []).flatMap(id => services.find(s => s.id === id)?.requiredResourceIds || [])
+            ])];
 
-        // Events don't currently have resources, so we only handle appointments.
+        if (resourceIds && resourceIds.length > 0) {
+          resourceIds.forEach(resourceId => {
+            if (map.has(resourceId)) {
+              map.get(resourceId)!.push({ ...apt, itemType: 'appointment' });
+            }
+          });
+        }
+      });
 
-        map.forEach(items => {
-            items.sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
-        });
+    // Events don't currently have resources, so we only handle appointments.
 
-        return map;
-    }, [currentDate, appointments, resources]);
+    map.forEach(items => {
+      items.sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+    });
+
+    return map;
+  }, [currentDate, appointments, resources, services]); // Add services to dependency array
 
   const staffToDisplay = useMemo(() => {
     if (isMobile) {
