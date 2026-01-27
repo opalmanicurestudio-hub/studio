@@ -94,7 +94,7 @@ export type Staff = {
 export type ActivityLog = {
     id: string;
     staffId: string;
-    type: 'break_start' | 'break_end';
+    type: 'clock_in' | 'clock_out' | 'break_start' | 'break_end';
     timestamp: string; // ISO date string
     durationMinutes?: number;
 };
@@ -517,6 +517,7 @@ export const staff: Staff[] = [
     commissionRate: 45,
     services: ['svc-1', 'svc-7'],
     status: 'idle',
+    active: false,
     onBreak: false,
     skillSet: ['basic_manicure', 'gel_nails', 'nail_art'],
     lastServedTimestamp: subDays(new Date(), 1).toISOString(),
@@ -538,6 +539,7 @@ export const staff: Staff[] = [
     hourlyRate: 0,
     services: ['svc-2', 'svc-3', 'svc-5', 'svc-6', 'svc-9', 'svc-10', 'svc-11', 'svc-12'],
     status: 'busy',
+    active: true,
     onBreak: false,
     skillSet: ['haircut', 'color', 'balayage', 'styling'],
     lastServedTimestamp: new Date().toISOString(),

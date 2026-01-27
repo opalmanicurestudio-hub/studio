@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -13,7 +14,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Users, Calendar as CalendarIcon, FlaskConical, AlertTriangle, List, TrendingUp, DollarSign, BarChart } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Users, Calendar as CalendarIcon, FlaskConical, AlertTriangle, List, TrendingUp, DollarSign, BarChart, Clock, Play, Square, Coffee } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,7 +24,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import { useInventory } from '@/context/InventoryContext';
-import { type Staff, type Appointment, type Service, type Transaction } from '@/lib/data';
+import { type Staff, type Appointment, type Service, type Transaction, ActivityLog } from '@/lib/data';
 import { AddStaffDialog } from '@/components/staff/AddStaffDialog';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { nanoid } from 'nanoid';
@@ -31,16 +32,16 @@ import { Separator } from '@/components/ui/separator';
 import { DateRange } from 'react-day-picker';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { format, subDays, startOfDay, endOfDay, parseISO, isPast, differenceInDays } from 'date-fns';
+import { format, subDays, startOfDay, endOfDay, parseISO, isPast, differenceInDays, differenceInMinutes } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { StaffDetailsSheet } from '@/components/staff/StaffDetailsSheet';
-import { useCollection, useFirebase, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
+import { useCollection, useFirebase, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
 import { EditStaffDialog } from '@/components/staff/EditStaffDialog';
 
 
-const StaffCard = ({ member, stats, services, onViewDetails, onEdit }: { member: Staff, stats: any, services: Service[], onViewDetails: (member: Staff & { stats: any }) => void, onEdit: (member: Staff) => void }) => {
+const StaffStatusCard = ({ member, stats, services, onViewDetails, onEdit, onStatusChange }: { member: Staff, stats: any, services: Service[], onViewDetails: (member: Staff & { stats: any }) => void, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void }) => {
     const [licenseInfo, setLicenseInfo] = useState<{
         isExpired: boolean;
         isExpiringSoon: boolean;
@@ -70,83 +71,67 @@ const StaffCard = ({ member, stats, services, onViewDetails, onEdit }: { member:
         }
     }, [member.compliance?.licenseExpiry]);
     
+    const renderActionButtons = () => {
+        if (!member.active) {
+            return <Button className="w-full" onClick={() => onStatusChange(member.id, 'clock_in')}><Clock className="mr-2 h-4 w-4"/>Clock In</Button>
+        }
+        if (member.onBreak) {
+            return <Button className="w-full" variant="outline" onClick={() => onStatusChange(member.id, 'break_end')}><Coffee className="mr-2 h-4 w-4"/>End Break</Button>
+        }
+        return (
+            <div className="grid grid-cols-2 gap-2">
+                <Button variant="outline" onClick={() => onStatusChange(member.id, 'break_start')}><Coffee className="mr-2 h-4 w-4"/>Start Break</Button>
+                <Button variant="destructive" onClick={() => onStatusChange(member.id, 'clock_out')}><Clock className="mr-2 h-4 w-4"/>Clock Out</Button>
+            </div>
+        )
+    }
+
     return (
         <Card className="text-center flex flex-col">
-            <CardContent className="p-6 pb-4">
-            <Avatar className="w-24 h-24 mx-auto mb-4">
-                <AvatarImage src={member.avatarUrl} alt={member.name} data-ai-hint="person portrait" />
-                <AvatarFallback>{member.name.substring(0, 2)}</AvatarFallback>
-            </Avatar>
-            <h3 className="text-lg font-semibold">{member.name}</h3>
-            <p className="text-sm text-muted-foreground">{member.email}</p>
-            <Badge variant={member.role === 'admin' ? 'default' : 'secondary'} className="mt-4 capitalize">
-                {member.role}
-            </Badge>
+            <CardHeader className="p-4">
+                 <div className="flex justify-between items-start">
+                    <Badge variant={member.active ? (member.onBreak ? 'secondary' : 'default') : 'outline'} className={cn("capitalize", {
+                        'bg-green-100 text-green-800 dark:bg-green-900/50': member.active && !member.onBreak,
+                        'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50': member.active && member.onBreak,
+                    })}>
+                        {member.active ? (member.onBreak ? 'On Break' : 'Clocked In') : 'Clocked Out'}
+                    </Badge>
+                     <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 -mt-2 -mr-2"><MoreHorizontal className="h-4 w-4" /></Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent>
+                             <DropdownMenuItem onClick={() => onViewDetails(member)}>View Details</DropdownMenuItem>
+                             <DropdownMenuItem onClick={() => onEdit(member)}>Edit Profile</DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
+            </CardHeader>
+            <CardContent className="p-4 pt-0 flex-1 flex flex-col">
+                <Avatar className="w-24 h-24 mx-auto mb-4">
+                    <AvatarImage src={member.avatarUrl} alt={member.name} data-ai-hint="person portrait" />
+                    <AvatarFallback>{member.name.substring(0, 2)}</AvatarFallback>
+                </Avatar>
+                <h3 className="text-lg font-semibold">{member.name}</h3>
+                <p className="text-sm text-muted-foreground capitalize">{member.role}</p>
 
-            {licenseInfo && (licenseInfo.isExpired || licenseInfo.isExpiringSoon) && (
-                <div className="mt-4 text-left p-3 rounded-lg bg-destructive/10 text-destructive text-xs flex items-start gap-2">
-                    <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                    <div>
-                        <p className="font-semibold">{licenseInfo.isExpired ? 'License Expired' : 'License Expiring Soon'}</p>
-                        <p>
-                            {licenseInfo.isExpired 
-                            ? `Expired on ${format(licenseInfo.expiryDate!, 'MMM d, yyyy')}.`
-                            : `Expires in ${licenseInfo.daysUntilExpiry} days on ${format(licenseInfo.expiryDate!, 'MMM d, yyyy')}.`
-                            }
-                        </p>
-                    </div>
-                </div>
-            )}
-            </CardContent>
-            <Separator />
-            <CardContent className="p-4 space-y-4">
-                <div className="grid grid-cols-2 gap-4 text-center">
-                     <div>
-                        <p className="text-xs text-muted-foreground flex items-center justify-center gap-1"><TrendingUp className="w-3 h-3"/>Total Sales</p>
-                        <p className="text-xl font-bold">${stats.totalSales.toFixed(2)}</p>
-                    </div>
-                     <div>
-                        <p className="text-xs text-muted-foreground flex items-center justify-center gap-1"><DollarSign className="w-3 h-3"/>Total Tips</p>
-                        <p className="text-xl font-bold">${stats.tips.toFixed(2)}</p>
-                    </div>
-                    <div className="col-span-2 border-t pt-4">
-                        <p className="text-xs text-muted-foreground">Est. Take-home Pay</p>
-                        <p className="text-lg font-semibold text-primary">${stats.earnings.toFixed(2)}</p>
-                    </div>
-                    <div className="col-span-2 border-t pt-4">
-                        <p className="text-xs text-muted-foreground flex items-center justify-center gap-1"><FlaskConical className="w-3 h-3"/>Product Consumption</p>
-                        <p className="text-lg font-semibold">${stats.consumptionValue.toFixed(2)}</p>
-                    </div>
-                </div>
-                {staffServices.length > 0 && (
-                    <div className="text-left border-t pt-4">
-                        <h4 className="font-semibold text-xs text-muted-foreground mb-2 flex items-center gap-2"><List className="w-4 h-4"/>Services Offered</h4>
-                        <div className="flex flex-wrap gap-1">
-                            {staffServices.map(s => <Badge key={s.id} variant="secondary">{s.name}</Badge>)}
+                {licenseInfo && (licenseInfo.isExpired || licenseInfo.isExpiringSoon) && (
+                    <div className="mt-4 text-left p-3 rounded-lg bg-destructive/10 text-destructive text-xs flex items-start gap-2">
+                        <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                        <div>
+                            <p className="font-semibold">{licenseInfo.isExpired ? 'License Expired' : 'License Expiring Soon'}</p>
+                            <p>
+                                {licenseInfo.isExpired 
+                                ? `Expired on ${format(licenseInfo.expiryDate!, 'MMM d, yyyy')}.`
+                                : `Expires in ${licenseInfo.daysUntilExpiry} days on ${format(licenseInfo.expiryDate!, 'MMM d, yyyy')}.`
+                                }
+                            </p>
                         </div>
                     </div>
                 )}
             </CardContent>
-            <CardFooter className="p-2 border-t mt-auto">
-            <ClientOnly>
-                <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" className="w-full">
-                    <MoreHorizontal className="w-4 h-4 mr-2" />
-                    Manage
-                    </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => onViewDetails(member)}>
-                       <BarChart className="mr-2 h-4 w-4" /> View Activity
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onEdit(member)}>Edit Profile</DropdownMenuItem>
-                    <DropdownMenuItem>Change Role</DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem className="text-destructive">Remove from Team</DropdownMenuItem>
-                </DropdownMenuContent>
-                </DropdownMenu>
-            </ClientOnly>
+            <CardFooter className="p-4 border-t mt-auto">
+                {renderActionButtons()}
             </CardFooter>
         </Card>
     )
@@ -154,7 +139,6 @@ const StaffCard = ({ member, stats, services, onViewDetails, onEdit }: { member:
 
 
 export default function StaffPage() {
-  const { setStaff: setStaffInContext, inventory } = useInventory();
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
   const [isEditStaffOpen, setIsEditStaffOpen] = useState(false);
   const [editingStaff, setEditingStaff] = useState<Staff | null>(null);
@@ -194,13 +178,8 @@ export default function StaffPage() {
     return collection(firestore, 'tenants', tenantId, 'stockCorrections');
   }, [firestore, user, tenantId]);
   const { data: stockCorrections } = useCollection<StockCorrection>(stockCorrectionsQuery);
+  const { inventory } = useInventory();
 
-
-  useEffect(() => {
-    if (staff) {
-      setStaffInContext(staff);
-    }
-  }, [staff, setStaffInContext]);
 
   useEffect(() => {
     // Set initial date range on client to avoid hydration mismatch
@@ -312,24 +291,15 @@ export default function StaffPage() {
   const handleAddStaff = (newStaffData: Omit<Staff, 'id' | 'avatarUrl'>) => {
     if (!firestore) return;
 
-    const fullStaffObject = {
+    const fullStaffObject: Staff = {
       ...newStaffData,
       id: `staff-${nanoid()}`,
       avatarUrl: `https://picsum.photos/seed/${nanoid()}/100`,
+      active: false,
+      onBreak: false,
     };
-
-    // Firestore doesn't allow `undefined` values.
-    // We create a sanitized object by removing keys with undefined values.
-    const sanitizedData = Object.fromEntries(
-        Object.entries(fullStaffObject).filter(([, value]) => {
-            if (typeof value === 'object' && value !== null) {
-                // For nested objects, ensure they are not empty after filtering
-                const nested = Object.fromEntries(Object.entries(value).filter(([_, v]) => v !== undefined && v !== ''));
-                return Object.keys(nested).length > 0;
-            }
-            return value !== undefined && value !== '';
-        })
-    );
+    
+    const sanitizedData = JSON.parse(JSON.stringify(fullStaffObject));
 
     const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', fullStaffObject.id);
     setDocumentNonBlocking(staffDocRef, sanitizedData, {});
@@ -337,22 +307,46 @@ export default function StaffPage() {
 
   const handleUpdateStaff = (updatedStaffData: Staff) => {
     if (!firestore) return;
-
     const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', updatedStaffData.id);
-    
-    const sanitizedData = Object.fromEntries(
-        Object.entries(updatedStaffData).filter(([, value]) => {
-            if (typeof value === 'object' && value !== null) {
-                // For nested objects, ensure they are not empty after filtering
-                const nested = Object.fromEntries(Object.entries(value).filter(([_, v]) => v !== undefined));
-                return Object.keys(nested).length > 0;
-            }
-            return value !== undefined;
-        })
-    );
-
+    const sanitizedData = JSON.parse(JSON.stringify(updatedStaffData));
     updateDocumentNonBlocking(staffDocRef, sanitizedData);
   };
+
+  const handleStatusChange = (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
+      if (!firestore || !staff) return;
+
+      const staffMember = staff.find(s => s.id === staffId);
+      if (!staffMember) return;
+      
+      const activityLogsRef = collection(firestore, 'tenants', tenantId, 'activityLogs');
+      const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
+      const now = new Date().toISOString();
+
+      let staffUpdate: Partial<Staff> = {};
+      let logEntry: Omit<ActivityLog, 'id'> = { staffId, type: action, timestamp: now };
+
+      switch (action) {
+          case 'clock_in':
+              staffUpdate = { active: true };
+              break;
+          case 'clock_out':
+              staffUpdate = { active: false, onBreak: false, status: 'idle' };
+              break;
+          case 'break_start':
+              staffUpdate = { onBreak: true, breakStartTime: now };
+              break;
+          case 'break_end':
+              if(staffMember.breakStartTime) {
+                  const duration = differenceInMinutes(parseISO(now), parseISO(staffMember.breakStartTime));
+                  logEntry.durationMinutes = duration;
+              }
+              staffUpdate = { onBreak: false, breakStartTime: undefined };
+              break;
+      }
+      
+      addDocumentNonBlocking(activityLogsRef, logEntry);
+      updateDocumentNonBlocking(staffDocRef, staffUpdate);
+  }
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -411,7 +405,7 @@ export default function StaffPage() {
         {(staff || []).length > 0 ? (
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {staffWithStats.map((member) => (
-              <StaffCard key={member.id} member={member} stats={member.stats} services={services || []} onViewDetails={handleViewDetails} onEdit={handleEditClick} />
+              <StaffStatusCard key={member.id} member={member} stats={member.stats} services={services || []} onViewDetails={handleViewDetails} onEdit={handleEditClick} onStatusChange={handleStatusChange} />
             ))}
           </div>
         ) : (
@@ -448,5 +442,3 @@ export default function StaffPage() {
     </div>
   );
 }
-
-    
