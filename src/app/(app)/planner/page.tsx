@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
@@ -12,7 +10,6 @@ import React, { useState, useMemo, useEffect, useRef, useCallback, Suspense } fr
 import { useSearchParams } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { CompleteAppointmentDialog, type CheckoutData } from '@/components/planner/CompleteAppointmentDialog';
-import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
@@ -68,7 +65,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import { WalkIn, type Client, type Service, appointments as mockAppointments, resources as mockResources } from '@/lib/data';
+import { WalkIn, type Client, type Service, resources as mockResources, memberships as initialMemberships, packages as initialPackages } from '@/lib/data';
 import { DayTimeline } from '@/components/planner/DayTimeline';
 import { nanoid } from 'nanoid';
 import { WeeklyKpiSheet } from '@/components/planner/WeeklyKpiSheet';
@@ -85,14 +82,6 @@ function PlannerPageContent() {
   
   const isMobile = useIsMobile();
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
-  
-  const { 
-    setAppointments: setAppointmentsInContext,
-    setActivityLogs,
-    addStockCorrection,
-    setTransactions,
-    setClients,
-  } = useInventory();
   
   const { firestore, user, isUserLoading } = useFirebase();
   const tenantId = 'tenant-abc';
@@ -129,58 +118,19 @@ function PlannerPageContent() {
   const [activeView, setActiveView] = useState(viewParam === 'resources' ? 'resources' : 'staff');
 
   // --- Data Fetching ---
-  const billDefinitionsQuery = useMemoFirebase(() => {
-    if (isUserLoading || !user || !firestore) return null;
-    return collection(firestore, 'tenants', tenantId, 'bills');
-  }, [firestore, user, isUserLoading, tenantId]);
-
-  const billInstancesQuery = useMemoFirebase(() => {
-    if (isUserLoading || !user || !firestore) return null;
-    return collection(firestore, 'tenants', tenantId, 'billInstances');
-  }, [firestore, user, isUserLoading, tenantId]);
-  
-  const appointmentsQuery = useMemoFirebase(() => {
-    if (isUserLoading || !user || !firestore) return null;
-    return collection(firestore, 'tenants', tenantId, 'appointments');
-  }, [firestore, user, isUserLoading, tenantId]);
-  
-  const clientsQuery = useMemoFirebase(() => {
-    if (isUserLoading || !user || !firestore) return null;
-    return collection(firestore, 'tenants', tenantId, 'clients');
-  }, [firestore, user, isUserLoading, tenantId]);
-  
-  const walkInsQuery = useMemoFirebase(() => {
-    if (isUserLoading || !user || !firestore) return null;
-    return collection(firestore, 'tenants', tenantId, 'walkIns');
-  }, [firestore, user, isUserLoading, tenantId]);
-
-  const servicesQuery = useMemoFirebase(() => {
-    if (!firestore || !user) return null;
-    return collection(firestore, `tenants/${tenantId}/services`);
-  }, [firestore, user, tenantId]);
-
-  const staffQuery = useMemoFirebase(() => {
-    if (!firestore || !user) return null;
-    return collection(firestore, `tenants/${tenantId}/staff`);
-  }, [firestore, user, tenantId]);
-
-  const eventsQuery = useMemoFirebase(() => {
-    if (!firestore || !user) return null;
-    return collection(firestore, `tenants/${tenantId}/events`);
-  }, [firestore, user, tenantId]);
-
-  const scheduleProfilesQuery = useMemoFirebase(() => {
-    if (!firestore || !user) return null;
-    return collection(firestore, `tenants/${tenantId}/scheduleProfiles`);
-  }, [firestore, user, tenantId]);
-
-  const resourcesQuery = useMemoFirebase(() => {
-    if (!firestore || !user) return null;
-    return collection(firestore, `tenants/${tenantId}/resources`);
-  }, [firestore, user, tenantId]);
+  const billDefinitionsQuery = useMemoFirebase(() => collection(firestore, 'tenants', tenantId, 'bills'), [firestore, tenantId]);
+  const billInstancesQuery = useMemoFirebase(() => collection(firestore, 'tenants', tenantId, 'billInstances'), [firestore, tenantId]);
+  const appointmentsQuery = useMemoFirebase(() => collection(firestore, 'tenants', tenantId, 'appointments'), [firestore, tenantId]);
+  const clientsQuery = useMemoFirebase(() => collection(firestore, 'tenants', tenantId, 'clients'), [firestore, tenantId]);
+  const walkInsQuery = useMemoFirebase(() => collection(firestore, 'tenants', tenantId, 'walkIns'), [firestore, tenantId]);
+  const servicesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/services`), [firestore, tenantId]);
+  const staffQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
+  const eventsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/events`), [firestore, tenantId]);
+  const scheduleProfilesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/scheduleProfiles`), [firestore, tenantId]);
+  const resourcesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/resources`), [firestore, tenantId]);
+  const inventoryQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/inventory`), [firestore, tenantId]);
 
   const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
-
   const { data: fetchedBillDefinitions, isLoading: billDefinitionsLoading } = useCollection<BillDefinition>(billDefinitionsQuery);
   const { data: fetchedBillInstances, isLoading: billInstancesLoading } = useCollection<BillInstance>(billInstancesQuery);
   const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
@@ -190,6 +140,7 @@ function PlannerPageContent() {
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
   const { data: fetchedEvents, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
   const { data: fetchedResources, isLoading: resourcesLoading } = useCollection<Resource>(resourcesQuery);
+  const { data: inventory } = useCollection<InventoryItem>(inventoryQuery);
 
   const resources = useMemo(() => (fetchedResources && fetchedResources.length > 0) ? fetchedResources : mockResources, [fetchedResources]);
 
@@ -554,7 +505,7 @@ const events = useMemo(() => {
     });
 
     // 3. Retail Transactions
-    if (retailItems.length > 0) {
+    if (retailItems.length > 0 && inventory) {
         const retailTotal = retailItems.reduce((acc, item) => {
             const product = inventory.find(p => p.id === item.id);
             const price = product?.costPerUnit ? product.costPerUnit * 1.75 : 0;
@@ -579,7 +530,9 @@ const events = useMemo(() => {
     }
     
     // 4. Update stock corrections
-    newCorrections.forEach(addStockCorrection);
+    newCorrections.forEach((correction) => {
+        addDocumentNonBlocking(collection(firestore, 'tenants', tenantId, 'stockCorrections'), correction);
+    });
     
     // 5. Update appointment
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id);

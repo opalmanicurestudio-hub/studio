@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
@@ -17,8 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle, UserPlus, Coins, Printer, Wallet, Award, Repeat, CheckCircle, Percent } from 'lucide-react';
-import { useInventory } from '@/context/InventoryContext';
-import { type InventoryItem, type StockCorrection, type Transaction, type Client, type Appointment, type Service, type AppointmentCheckoutState, Membership, Package, type ClientFormData, type WalkIn } from '@/lib/data';
+import { type InventoryItem, type StockCorrection, type Transaction, type Client, type Appointment, type Service, type AppointmentCheckoutState, type Membership, type Package, type ClientFormData, type WalkIn } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -493,7 +490,6 @@ const CartContent = ({
 };
 
 export default function RetailPage() {
-  const { inventory, services, addStockCorrection, setTransactions, memberships, packages } = useInventory();
   const [activeTab, setActiveTab] = useState('products');
   const [searchTerm, setSearchTerm] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -527,16 +523,20 @@ export default function RetailPage() {
   const clientsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/clients`), [firestore, tenantId]);
   const appointmentsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/appointments`), [firestore, tenantId]);
   const walkInQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/walkIns`), [firestore, tenantId]);
-  const staffQuery = useMemoFirebase(() => {
-    if (!firestore || !user) return null;
-    return collection(firestore, `tenants/${tenantId}/staff`);
-  }, [firestore, user, tenantId]);
-  
+  const servicesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/services`), [firestore, tenantId]);
+  const inventoryQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/inventory`), [firestore, tenantId]);
+  const staffQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
+
   const { data: staff } = useCollection<Staff>(staffQuery);
-  const { data: clients, setClients } = useCollection<Client>(clientsQuery);
-  const { data: appointmentsFromDB, setAppointments } = useCollection<Appointment>(appointmentsQuery);
+  const { data: clients } = useCollection<Client>(clientsQuery);
+  const { data: appointmentsFromDB } = useCollection<Appointment>(appointmentsQuery);
   const { data: walkIns } = useCollection<WalkIn>(walkInQuery);
+  const { data: services } = useCollection<Service>(servicesQuery);
+  const { data: inventory } = useCollection<InventoryItem>(inventoryQuery);
   
+  const memberships: Membership[] = initialMemberships; // Using mock for now
+  const packages: Package[] = initialPackages; // Using mock for now
+
   // Memoized conversion to Date objects
   const liveAppointments = useMemo(() => {
     if (!appointmentsFromDB) return [];
@@ -549,6 +549,7 @@ export default function RetailPage() {
 
 
   const retailProducts = useMemo(() => {
+    if (!inventory) return [];
     return inventory.filter(
       item => item.type === 'retail' && item.name.toLowerCase().includes(searchTerm.toLowerCase())
     );
@@ -660,7 +661,7 @@ export default function RetailPage() {
 
   const handleApplyPromo = () => {
     const selectedClient = clients?.find(c => c.id === selectedClientId);
-    const service = services.find(s => s.id === liveAppointments[0]?.serviceId);
+    const service = (services || []).find(s => s.id === liveAppointments[0]?.serviceId);
     if (promoCode === 'NEWCLIENT15' && selectedClient && service && selectedClient.lifetimeValue < (service?.price || 0)) {
         setDiscount(15);
         toast({
@@ -677,6 +678,7 @@ export default function RetailPage() {
   }
   
   const handleScan = useCallback((data: string) => {
+    if (!inventory) return;
     if (data.startsWith('clarityflow://product/')) {
         const productId = data.split('/').pop();
         if (productId) {
@@ -776,15 +778,14 @@ export default function RetailPage() {
     // Handle product stock corrections
     const productItems = cart.filter(item => item.type === 'product');
     productItems.forEach(item => {
-        const newCorrection: StockCorrection = {
-            id: `sc-${Date.now()}-${item.id}`,
+        const correction: Omit<StockCorrection, 'id'> = {
             productId: item.id,
             date: new Date().toISOString(),
             change: -item.quantity,
             unit: 'unit',
             reason: `Retail Sale #${Date.now().toString().slice(-4)}`
         };
-        addStockCorrection(newCorrection);
+        addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), correction);
     });
     
     // Create transaction
@@ -804,9 +805,7 @@ export default function RetailPage() {
     
     // Update Client State
     if (selectedClient && firestore) {
-        const membershipItem = cart.find(item => item.type === 'membership');
-        const packageItems = cart.filter(item => item.type === 'package');
-
+        const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id);
         const clientUpdate: Partial<Client> = {
             lifetimeValue: (selectedClient.lifetimeValue || 0) + grandTotal,
             lastAppointment: new Date().toISOString(),
@@ -816,10 +815,12 @@ export default function RetailPage() {
             clientUpdate.walletCredit = (selectedClient.walletCredit || 0) - appliedStoreCredit;
         }
 
+        const membershipItem = cart.find(item => item.type === 'membership');
         if (membershipItem) {
             clientUpdate.activeMembershipId = membershipItem.id;
         }
 
+        const packageItems = cart.filter(item => item.type === 'package');
         if (packageItems.length > 0) {
             const newPackages = packageItems.map(p => {
                 const pack = packages.find(pkg => pkg.id === p.id);
@@ -831,7 +832,6 @@ export default function RetailPage() {
             clientUpdate.activePackages = [...(selectedClient.activePackages || []), ...newPackages];
         }
 
-        const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id);
         updateDocumentNonBlocking(clientDocRef, clientUpdate);
     }
 
@@ -892,7 +892,7 @@ export default function RetailPage() {
   };
     
   const handleAppointmentCheckout = async (data: CheckoutData) => {
-    if (!checkoutAppointment || !firestore || !clients) return;
+    if (!checkoutAppointment || !firestore || !clients || !inventory) return;
 
     const {
         newCorrections,
@@ -905,7 +905,7 @@ export default function RetailPage() {
         redeemedOffer
     } = data;
         
-    const allPerformedServices = [services.find(s => s.id === checkoutAppointment.serviceId), ...addOns].filter((s): s is Service => !!s);
+    const allPerformedServices = [services?.find(s => s.id === checkoutAppointment.serviceId), ...addOns].filter((s): s is Service => !!s);
         
     const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
 
@@ -950,7 +950,9 @@ export default function RetailPage() {
     });
         
     // 3. Update stock corrections
-    newCorrections.forEach(addStockCorrection);
+    newCorrections.forEach((correction) => {
+        addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), correction);
+    });
     
     // 4. Update appointment
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', checkoutAppointment.id);
@@ -1117,7 +1119,7 @@ export default function RetailPage() {
                 <ScrollArea className="flex-1">
                   <TabsContent value="products" className="m-0">
                       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
-                          {retailProducts.map(product => (
+                          {(retailProducts || []).map(product => (
                               <Card key={product.id} onClick={() => addToCart(product, 'product')} className="cursor-pointer hover:shadow-lg transition-shadow">
                                   <CardContent className="p-2 space-y-2">
                                       <div className="aspect-square bg-muted rounded-md overflow-hidden">
@@ -1140,7 +1142,7 @@ export default function RetailPage() {
                   <TabsContent value="packages" className="m-0">
                       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
                           {packages.map(pack => (
-                              <PackageProductCard key={pack.id} pack={pack} onClick={() => addToCart(pack, 'package')} services={services} />
+                              <PackageProductCard key={pack.id} pack={pack} onClick={() => addToCart(pack, 'package')} services={services || []} />
                           ))}
                       </div>
                   </TabsContent>
@@ -1307,4 +1309,3 @@ export default function RetailPage() {
     </>
   );
 }
-
