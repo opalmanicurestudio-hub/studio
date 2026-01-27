@@ -15,7 +15,6 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy, Save, Award, Repeat, CheckCircle, Percent, Loader } from 'lucide-react';
-import { appointments as initialAppointments, services as initialServices, inventory, type CustomFormula, Client, type Incident, type Appointment, memberships, packages } from '@/lib/data';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -47,6 +46,7 @@ import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog'
 import { nanoid } from 'nanoid';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { collection, doc, arrayUnion, query, where } from 'firebase/firestore';
+import type { Client, Appointment, Service, CustomFormula, Incident, Membership, Package } from '@/lib/data';
 
 
 type ClientPhoto = {
@@ -79,7 +79,7 @@ const ClientIntelBanner = ({ client }: { client: Client }) => {
                         <span>Allergy Alert</span>
                     </div>
                 )}
-                {client.sensoryNeeds && (
+                 {client.sensoryNeeds && (
                     <div className="flex items-center gap-2 text-sm font-medium text-blue-600 dark:text-blue-400">
                         <Ear className="w-4 h-4" />
                         <span>Sensory Needs</span>
@@ -173,13 +173,14 @@ export default function ClientDetailPage() {
     if (!firestore || !clientId) return null;
     return doc(firestore, `tenants/${tenantId}/clients`, clientId);
   }, [firestore, tenantId, clientId]);
-  const { data: client, isLoading: clientLoading } = useDoc<Client>(clientDocRef);
+
+  const { data: client, isLoading: clientLoading, error: clientError } = useDoc<Client>(clientDocRef);
   
   const allClientsQuery = useMemoFirebase(() => {
       if (!firestore) return null;
       return collection(firestore, `tenants/${tenantId}/clients`);
   }, [firestore, tenantId]);
-  const { data: allClients } = useCollection<Client>(allClientsQuery);
+  const { data: allClients, isLoading: allClientsLoading } = useCollection<Client>(allClientsQuery);
   
   const appointmentsQuery = useMemoFirebase(() => {
       if (!firestore || !clientId) return null;
@@ -191,13 +192,26 @@ export default function ClientDetailPage() {
       if (!firestore) return null;
       return collection(firestore, `tenants/${tenantId}/services`);
   }, [firestore, tenantId]);
-  const { data: services, isLoading: servicesLoading } = useCollection<any>(servicesQuery);
+  const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
   
   const staffQuery = useMemoFirebase(() => {
       if (!firestore) return null;
       return collection(firestore, `tenants/${tenantId}/staff`);
   }, [firestore, tenantId]);
   const { data: staff, isLoading: staffLoading } = useCollection<any>(staffQuery);
+
+  const membershipsQuery = useMemoFirebase(() => {
+    if (!firestore) return null;
+    return collection(firestore, `tenants/${tenantId}/memberships`);
+  }, [firestore, tenantId]);
+  const { data: memberships } = useCollection<Membership>(membershipsQuery);
+
+  const packagesQuery = useMemoFirebase(() => {
+    if (!firestore) return null;
+    return collection(firestore, `tenants/${tenantId}/packages`);
+  }, [firestore, tenantId]);
+  const { data: packages } = useCollection<Package>(packagesQuery);
+
 
   const { toast } = useToast();
   const [isAddFormulaOpen, setIsAddFormulaOpen] = useState(false);
@@ -242,7 +256,7 @@ export default function ClientDetailPage() {
       setIsCodeDirty(false);
   }, [client?.referralCode]);
 
-  const isLoading = isUserLoading || clientLoading || appointmentsLoading || servicesLoading || staffLoading;
+  const isLoading = isUserLoading || clientLoading || appointmentsLoading || servicesLoading || allClientsLoading || staffLoading;
 
   if (isLoading) {
       return (
@@ -255,6 +269,25 @@ export default function ClientDetailPage() {
       )
   }
 
+    if (clientError) {
+        return (
+            <div className="flex min-h-screen w-full flex-col">
+                <AppHeader title="Error" />
+                <main className="flex-1 p-4 md:p-6 flex items-center justify-center">
+                    <Card className="w-full max-w-lg">
+                        <CardHeader>
+                            <CardTitle className="text-destructive">Access Denied</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <p>You do not have permission to view this client&apos;s data.</p>
+                            <p className="text-xs text-muted-foreground mt-4">{clientError.message}</p>
+                        </CardContent>
+                    </Card>
+                </main>
+            </div>
+        );
+    }
+  
   if (!client) {
     notFound();
   }
@@ -382,12 +415,6 @@ export default function ClientDetailPage() {
                     </Link>
                 </Button>
                 <div className="grid grid-cols-2 w-full gap-2 sm:flex sm:w-auto">
-                    <Button variant="outline" size="sm" asChild>
-                        <Link href={`/clients/${client.id}/report`}>
-                            <FileText className="h-4 w-4 mr-2" />
-                            Generate Report
-                        </Link>
-                    </Button>
                     <Button variant="outline" size="sm" onClick={() => setIsEditClientOpen(true)}>
                         <Edit className="h-4 w-4 mr-2" />
                         Edit Profile
@@ -459,7 +486,7 @@ export default function ClientDetailPage() {
                                         <p className="text-sm text-center text-muted-foreground py-8">No active memberships or packages.</p>
                                     ) : (
                                         <div className="space-y-4">
-                                            {client.activeMembershipId && (() => {
+                                            {client.activeMembershipId && memberships && (() => {
                                                 const membership = memberships.find(m => m.id === client.activeMembershipId);
                                                 if (!membership) return null;
                                                 const hasRedeemedThisMonth = true; // Mock data
@@ -506,7 +533,7 @@ export default function ClientDetailPage() {
                                                 <div className="space-y-2">
                                                     <h4 className="font-semibold">Active Packages</h4>
                                                     {client.activePackages.map((pack, index) => {
-                                                         const packageDetails = packages.find(pkg => pkg.id === pack.packageId);
+                                                         const packageDetails = packages?.find(pkg => pkg.id === pack.packageId);
                                                          const serviceDetails = services?.find(s => s.id === packageDetails?.serviceId);
                                                          if (!packageDetails || !serviceDetails) return null;
                                                          return (
