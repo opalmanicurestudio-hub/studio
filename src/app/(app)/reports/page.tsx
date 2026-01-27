@@ -459,14 +459,62 @@ export default function ReportsPage() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Avg. Ticket Size</CardTitle><DollarSign className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">${salonWideStats.avgTicket.toFixed(2)}</div></CardContent></Card>
-            <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Stylist Utilization</CardTitle><Target className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{salonWideStats.utilizationRate.toFixed(1)}%</div></CardContent></Card>
-            <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Retail Attachment</CardTitle><ShoppingCart className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{salonWideStats.retailAttachmentRate.toFixed(1)}%</div></CardContent></Card>
-            <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Cancellation Rate</CardTitle><Ban className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{salonWideStats.cancellationRate.toFixed(1)}%</div></CardContent></Card>
-            <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Revenue / Service Hr</CardTitle><TrendingUp className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">${salonWideStats.revenuePerServiceHour.toFixed(2)}</div></CardContent></Card>
-            <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Rebooking Rate</CardTitle><Repeat className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{salonWideStats.rebookingRate.toFixed(1)}%</div></CardContent></Card>
-            <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Walk-in Conversion</CardTitle><Users className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{salonWideStats.walkInConversionRate.toFixed(1)}%</div></CardContent></Card>
-            <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">New Client Rate</CardTitle><UserPlus className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{salonWideStats.newClientRate.toFixed(1)}%</div></CardContent></Card>
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Avg. Ticket Size</CardTitle><DollarSign className="h-4 w-4 text-muted-foreground" /></CardHeader>
+                <CardContent>
+                    <div className="text-2xl font-bold">${salonWideStats.avgTicket.toFixed(2)}</div>
+                    <p className="text-xs text-muted-foreground">Avg. revenue per completed appointment.</p>
+                </CardContent>
+            </Card>
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Stylist Utilization</CardTitle><Target className="h-4 w-4 text-muted-foreground" /></CardHeader>
+                <CardContent>
+                    <div className="text-2xl font-bold">{salonWideStats.utilizationRate.toFixed(1)}%</div>
+                    <p className="text-xs text-muted-foreground">% of clocked-in time spent in-service.</p>
+                </CardContent>
+            </Card>
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Retail Attachment</CardTitle><ShoppingCart className="h-4 w-4 text-muted-foreground" /></CardHeader>
+                <CardContent>
+                    <div className="text-2xl font-bold">{salonWideStats.retailAttachmentRate.toFixed(1)}%</div>
+                    <p className="text-xs text-muted-foreground">% of appointments with a retail sale.</p>
+                </CardContent>
+            </Card>
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Cancellation Rate</CardTitle><Ban className="h-4 w-4 text-muted-foreground" /></CardHeader>
+                <CardContent>
+                    <div className="text-2xl font-bold">{salonWideStats.cancellationRate.toFixed(1)}%</div>
+                    <p className="text-xs text-muted-foreground">% of appointments marked as cancelled.</p>
+                </CardContent>
+            </Card>
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Revenue / Service Hr</CardTitle><TrendingUp className="h-4 w-4 text-muted-foreground" /></CardHeader>
+                <CardContent>
+                    <div className="text-2xl font-bold">${salonWideStats.revenuePerServiceHour.toFixed(2)}</div>
+                    <p className="text-xs text-muted-foreground">Revenue for every hour of active service.</p>
+                </CardContent>
+            </Card>
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Rebooking Rate</CardTitle><Repeat className="h-4 w-4 text-muted-foreground" /></CardHeader>
+                <CardContent>
+                    <div className="text-2xl font-bold">{salonWideStats.rebookingRate.toFixed(1)}%</div>
+                    <p className="text-xs text-muted-foreground">% of clients who booked a future appt.</p>
+                </CardContent>
+            </Card>
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Walk-in Conversion</CardTitle><Users className="h-4 w-4 text-muted-foreground" /></CardHeader>
+                <CardContent>
+                    <div className="text-2xl font-bold">{salonWideStats.walkInConversionRate.toFixed(1)}%</div>
+                    <p className="text-xs text-muted-foreground">% of walk-ins resulting in a service.</p>
+                </CardContent>
+            </Card>
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">New Client Rate</CardTitle><UserPlus className="h-4 w-4 text-muted-foreground" /></CardHeader>
+                <CardContent>
+                    <div className="text-2xl font-bold">{salonWideStats.newClientRate.toFixed(1)}%</div>
+                    <p className="text-xs text-muted-foreground">% of new clients this period.</p>
+                </CardContent>
+            </Card>
         </div>
         
         <Card>
