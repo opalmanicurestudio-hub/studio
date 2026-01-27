@@ -1266,6 +1266,7 @@ const events = useMemo(() => {
                 walkIns={walkIns}
                 clients={clients}
                 services={services}
+                resources={resources || []}
             />
           )}
 
@@ -1295,6 +1296,7 @@ const events = useMemo(() => {
                 walkIns={walkIns}
                 clients={clients}
                 services={services}
+                resources={resources || []}
             />
           )}
       </main>
@@ -1428,7 +1430,7 @@ const events = useMemo(() => {
 
       <Dialog open={!!receiptToPrint} onOpenChange={(open) => !open && setReceiptToPrint(null)}>
         <DialogContent className="max-w-sm print-content">
-          <DialogHeader>
+          <DialogHeader className="print:hidden">
             <DialogTitle>Receipt</DialogTitle>
           </DialogHeader>
           <div id="receipt-area">
@@ -1500,3 +1502,4 @@ const events = useMemo(() => {
     </div>
   );
 }
+

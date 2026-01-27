@@ -89,6 +89,7 @@ export const DayTimeline = ({
     walkIns,
     clients,
     services,
+    resources,
 }: { 
     date: Date; 
     columns: (Staff | Resource)[];
@@ -114,6 +115,7 @@ export const DayTimeline = ({
     walkIns: WalkIn[] | null;
     clients: Client[] | null;
     services: Service[] | null;
+    resources: Resource[];
 }) => {
     const START_HOUR = 0; // Start at midnight
     const hours = Array.from({ length: 24 - START_HOUR }, (_, i) => i + START_HOUR);
@@ -254,6 +256,7 @@ export const DayTimeline = ({
                     onStartService={onStartService}
                     onFinishService={onFinishService}
                     onBookNewForClient={onBookNewForClient}
+                    resources={resources}
                 />
             </div>
         );
@@ -391,3 +394,4 @@ export const DayTimeline = ({
         </div>
     );
 };
+

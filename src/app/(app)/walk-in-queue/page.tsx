@@ -6,11 +6,11 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { User, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal, Printer, UserPlus, ArrowUp, ArrowDown, DollarSign, Bell, Lock } from 'lucide-react';
+import { User, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal, Printer, UserPlus, ArrowUp, ArrowDown, DollarSign, Bell, Lock, Building, HardHat } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { useCollection, useFirebase, updateDocumentNonBlocking, useMemoFirebase, setDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc, getDocs, query, where } from 'firebase/firestore';
-import type { WalkIn, Staff, Appointment, Service, ActivityLog, Client, Event } from '@/lib/data';
+import type { WalkIn, Staff, Appointment, Service, ActivityLog, Client, Event, Resource } from '@/lib/data';
 import { formatDistanceToNowStrict, parseISO, addMinutes, differenceInMinutes, differenceInSeconds, format, areIntervalsOverlapping } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -32,6 +32,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
+import { Tooltip, TooltipProvider, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 const Timer = ({ startTime }: { startTime: string }) => {
     const [elapsed, setElapsed] = useState('');
@@ -142,8 +143,15 @@ const StaffStatusCard = ({ staffMember, onStatusChange, isNextUp }: { staffMembe
   );
 }
 
-const WaitingCustomerCard = ({ walkIn, services, onPrintTicket, onOpenAssignDialog, queuePosition }: { walkIn: WalkIn, services: any[], onPrintTicket: (data: WalkIn) => void, onOpenAssignDialog: (walkIn: WalkIn) => void, queuePosition: number }) => {
+const WaitingCustomerCard = ({ walkIn, services, resources, onPrintTicket, onOpenAssignDialog, queuePosition }: { walkIn: WalkIn, services: any[], resources: Resource[], onPrintTicket: (data: WalkIn) => void, onOpenAssignDialog: (walkIn: WalkIn) => void, queuePosition: number }) => {
     const walkInServices = services.filter(s => walkIn.serviceIds.includes(s.id));
+    const requiredResourceIds = useMemo(() => {
+        return [...new Set(walkInServices.flatMap(s => s.requiredResourceIds || []))];
+    }, [walkInServices]);
+    const requiredResources = useMemo(() => {
+        return resources.filter(r => requiredResourceIds.includes(r.id));
+    }, [resources, requiredResourceIds]);
+
     return (
         <Card>
             <CardContent className="p-4">
@@ -180,6 +188,25 @@ const WaitingCustomerCard = ({ walkIn, services, onPrintTicket, onOpenAssignDial
                     <ul className="list-disc list-inside text-sm text-muted-foreground">
                         {walkInServices.map(s => <li key={s.id}>{s.name}</li>)}
                     </ul>
+                     {requiredResources.length > 0 && (
+                        <div className="mt-2 flex items-center gap-2">
+                            <p className="text-xs font-semibold text-muted-foreground">Needs:</p>
+                            <div className="flex items-center gap-1.5">
+                                {requiredResources.map(resource => (
+                                    <TooltipProvider key={resource.id} delayDuration={0}>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <div className="p-1 bg-muted/50 rounded-full">
+                                                    {resource.type === 'room' ? <Building className="w-3 h-3 text-muted-foreground" /> : <HardHat className="w-3 h-3 text-muted-foreground" />}
+                                                </div>
+                                            </TooltipTrigger>
+                                            <TooltipContent><p>{resource.name}</p></TooltipContent>
+                                        </Tooltip>
+                                    </TooltipProvider>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
             </CardContent>
         </Card>
@@ -216,9 +243,15 @@ const NotifiedCustomerCard = ({ walkIn, onStartService, onSkip, skipTimeMinutes 
 };
 
 
-const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange, onPrintTicket, onFinishService }: { walkIn: WalkIn, services: any[], staff: Staff[], onStatusChange: (walkInId: string, staffId: string, status: WalkIn['status']) => void, onPrintTicket: (data: WalkIn) => void, onFinishService: (walkIn: WalkIn) => void }) => {
+const ServicingCustomerCard = ({ walkIn, services, resources, staff, onStatusChange, onPrintTicket, onFinishService }: { walkIn: WalkIn, services: any[], resources: Resource[], staff: Staff[], onStatusChange: (walkInId: string, staffId: string, status: WalkIn['status']) => void, onPrintTicket: (data: WalkIn) => void, onFinishService: (walkIn: WalkIn) => void }) => {
     const walkInServices = services.filter(s => walkIn.serviceIds.includes(s.id));
     const assignedStaff = staff.find(s => s.id === walkIn.assignedStaffId);
+    const requiredResourceIds = useMemo(() => {
+        return [...new Set(walkInServices.flatMap(s => s.requiredResourceIds || []))];
+    }, [walkInServices]);
+    const requiredResources = useMemo(() => {
+        return resources.filter(r => requiredResourceIds.includes(r.id));
+    }, [resources, requiredResourceIds]);
     
     const waitTime = walkIn.serviceStartTime ? differenceInMinutes(parseISO(walkIn.serviceStartTime), parseISO(walkIn.checkInTime)) : null;
 
@@ -298,6 +331,25 @@ const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange, onPrin
                     <ul className="list-disc list-inside text-sm text-muted-foreground">
                         {walkInServices.map(s => <li key={s.id}>{s.name}</li>)}
                     </ul>
+                    {requiredResources.length > 0 && (
+                        <div className="mt-2 flex items-center gap-2">
+                            <p className="text-xs font-semibold text-muted-foreground">Using:</p>
+                            <div className="flex items-center gap-1.5">
+                                {requiredResources.map(resource => (
+                                    <TooltipProvider key={resource.id} delayDuration={0}>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <div className="p-1 bg-muted/50 rounded-full">
+                                                    {resource.type === 'room' ? <Building className="w-3 h-3 text-muted-foreground" /> : <HardHat className="w-3 h-3 text-muted-foreground" />}
+                                                </div>
+                                            </TooltipTrigger>
+                                            <TooltipContent><p>{resource.name}</p></TooltipContent>
+                                        </Tooltip>
+                                    </TooltipProvider>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
                  <div className="mt-4 border-t pt-4 flex justify-end gap-2">
                     <Button variant="outline" size="sm" onClick={() => onStatusChange(walkIn.id, assignedStaff?.id || '', 'skipped')}>Mark as Skipped</Button>
@@ -308,9 +360,15 @@ const ServicingCustomerCard = ({ walkIn, services, staff, onStatusChange, onPrin
     )
 };
 
-const ReadyForCheckoutCard = ({ walkIn, services, staff, onCheckoutClick }: { walkIn: WalkIn, services: Service[], staff: Staff[], onCheckoutClick: (walkIn: WalkIn) => void }) => {
+const ReadyForCheckoutCard = ({ walkIn, services, resources, staff, onCheckoutClick }: { walkIn: WalkIn, services: Service[], resources: Resource[], staff: Staff[], onCheckoutClick: (walkIn: WalkIn) => void }) => {
     const walkInServices = services.filter(s => walkIn.serviceIds.includes(s.id));
     const assignedStaff = staff.find(s => s.id === walkIn.assignedStaffId);
+     const requiredResourceIds = useMemo(() => {
+        return [...new Set(walkInServices.flatMap(s => s.requiredResourceIds || []))];
+    }, [walkInServices]);
+    const requiredResources = useMemo(() => {
+        return resources.filter(r => requiredResourceIds.includes(r.id));
+    }, [resources, requiredResourceIds]);
     
     return (
         <Card className="bg-orange-500/5 border-orange-500/20">
@@ -332,6 +390,25 @@ const ReadyForCheckoutCard = ({ walkIn, services, staff, onCheckoutClick }: { wa
                     <ul className="list-disc list-inside text-sm text-muted-foreground">
                         {walkInServices.map(s => <li key={s.id}>{s.name}</li>)}
                     </ul>
+                     {requiredResources.length > 0 && (
+                        <div className="mt-2 flex items-center gap-2">
+                            <p className="text-xs font-semibold text-muted-foreground">Used:</p>
+                            <div className="flex items-center gap-1.5">
+                                {requiredResources.map(resource => (
+                                    <TooltipProvider key={resource.id} delayDuration={0}>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <div className="p-1 bg-muted/50 rounded-full">
+                                                    {resource.type === 'room' ? <Building className="w-3 h-3 text-muted-foreground" /> : <HardHat className="w-3 h-3 text-muted-foreground" />}
+                                                </div>
+                                            </TooltipTrigger>
+                                            <TooltipContent><p>{resource.name}</p></TooltipContent>
+                                        </Tooltip>
+                                    </TooltipProvider>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
                  <div className="mt-4 border-t pt-4 flex justify-end gap-2">
                     <Button size="sm" onClick={() => onCheckoutClick(walkIn)}>Checkout Client</Button>
@@ -490,12 +567,18 @@ export default function WalkInQueuePage() {
     return collection(firestore, `tenants/${tenantId}/appointments`);
   }, [firestore, user, tenantId]);
 
+  const resourcesQuery = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    return collection(firestore, `tenants/${tenantId}/resources`);
+  }, [firestore, user, tenantId]);
+
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
   const { data: walkIns, isLoading: walkInsLoading } = useCollection<WalkIn>(walkInQuery);
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
   const { data: clients, isLoading: clientsLoading } = useCollection<Client>(clientsQuery);
   const { data: fetchedEvents, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
   const { data: appointments } = useCollection<Appointment>(appointmentsQuery);
+  const { data: resources, isLoading: resourcesLoading } = useCollection<Resource>(resourcesQuery);
 
   const events = useMemo(() => {
     if (!fetchedEvents) return [];
@@ -1121,7 +1204,7 @@ export default function WalkInQueuePage() {
                     </Button>
                     {waitingQueue.length > 0 ? (
                         waitingQueue.map((walkIn, index) => (
-                            <WaitingCustomerCard key={walkIn.id} walkIn={walkIn} services={services || []} onPrintTicket={setTicketToPrint} onOpenAssignDialog={setWalkInToAssign} queuePosition={index + 1} />
+                            <WaitingCustomerCard key={walkIn.id} walkIn={walkIn} services={services || []} resources={resources || []} onPrintTicket={setTicketToPrint} onOpenAssignDialog={setWalkInToAssign} queuePosition={index + 1} />
                         ))
                     ) : (
                         <div className="text-center py-16 px-6 text-muted-foreground">
@@ -1167,6 +1250,7 @@ export default function WalkInQueuePage() {
                                 key={walkIn.id} 
                                 walkIn={walkIn} 
                                 services={services || []} 
+                                resources={resources || []}
                                 staff={staff || []}
                                 onStatusChange={handleWalkInStatusChange}
                                 onPrintTicket={setTicketToPrint}
@@ -1194,6 +1278,7 @@ export default function WalkInQueuePage() {
                                 key={walkIn.id} 
                                 walkIn={walkIn} 
                                 services={services || []} 
+                                resources={resources || []}
                                 staff={staff || []}
                                 onCheckoutClick={handleCompleteClick}
                             />
@@ -1298,4 +1383,5 @@ export default function WalkInQueuePage() {
     </>
   );
 }
+
 

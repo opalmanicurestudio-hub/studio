@@ -40,7 +40,9 @@ import {
   Square,
   Repeat,
   Link as LinkIcon,
-  Car
+  Car,
+  Building,
+  HardHat
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -72,18 +74,20 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { type Appointment, type Client, type Service, inventory, CustomFormula, services } from '@/lib/data';
+import { type Appointment, type Client, type Service, inventory, CustomFormula, services, Resource } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast';
 import { type ReceiptData } from './PrintReceipt';
 import { type TicketData } from './PrintTicket';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 
 interface AppointmentCardProps {
   appointment: Appointment;
   client: Client;
   service: Service;
+  resources: Resource[];
   style: React.CSSProperties;
   tmhr: number;
   onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void;
@@ -111,6 +115,7 @@ const AppointmentDetails = ({
     productCost,
     equipmentCost,
     addOnServices,
+    requiredResources,
     onEdit,
     onUpdateStatus,
     onDelete,
@@ -128,6 +133,7 @@ const AppointmentDetails = ({
     productCost: number;
     equipmentCost: number;
     addOnServices: Service[];
+    requiredResources: Resource[];
     onEdit: (appointment: Appointment) => void;
     onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void;
     onDelete: (appointmentId: string) => void;
@@ -165,6 +171,16 @@ const AppointmentDetails = ({
                       <span className='font-medium'>{format(appointment.startTime, 'EEEE, LLL d, yyyy')}</span>
                       <span>{format(appointment.startTime, 'h:mm a')} - {format(appointment.endTime, 'h:mm a')}</span>
                     </div>
+                    {requiredResources.length > 0 && (
+                        <div className="flex items-center gap-2">
+                            {requiredResources.map(resource => (
+                                <Badge key={resource.id} variant="outline" className="gap-1.5">
+                                    {resource.type === 'room' ? <Building className="w-3 h-3"/> : <HardHat className="w-3 h-3"/>}
+                                    {resource.name}
+                                </Badge>
+                            ))}
+                        </div>
+                    )}
                     <div className="pt-2">
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -279,6 +295,7 @@ export function AppointmentCard({
   appointment,
   client,
   service,
+  resources,
   style,
   tmhr,
   onUpdateStatus,
@@ -394,6 +411,11 @@ export function AppointmentCard({
     return { revenue: totalRevenue, breakEvenCost: totalBreakEvenCost, netProfit: totalNetProfit, timeCost: totalTimeCost, productCost: totalProductCost, equipmentCost: totalEquipmentCost };
   }, [service, appointment, tmhr, client, addOnServices]);
 
+  const requiredResources = useMemo(() => {
+    if (!service.requiredResourceIds || !resources) return [];
+    return resources.filter(r => service.requiredResourceIds!.includes(r.id));
+  }, [service, resources]);
+
 
   const statusDisplay: { [key in Appointment['status']]: { text: string; className: string; bgClassName: string } } = {
     confirmed: { text: 'Confirmed', className: 'border-blue-500/30 text-blue-800 dark:text-blue-300', bgClassName: 'bg-blue-500/10' },
@@ -456,6 +478,22 @@ export function AppointmentCard({
                   {client.name}
                 </p>
                 <p className="text-[11px] text-muted-foreground truncate">{serviceNameDisplay}</p>
+                 {requiredResources.length > 0 && (
+                    <div className="flex items-center gap-1.5 mt-1">
+                        {requiredResources.map(resource => (
+                            <TooltipProvider key={resource.id} delayDuration={0}>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <div className="p-1 bg-muted/50 rounded-full">
+                                            {resource.type === 'room' ? <Building className="w-3 h-3 text-muted-foreground" /> : <HardHat className="w-3 h-3 text-muted-foreground" />}
+                                        </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent><p>{resource.name}</p></TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        ))}
+                    </div>
+                )}
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -621,6 +659,7 @@ export function AppointmentCard({
             productCost={productCost}
             equipmentCost={equipmentCost}
             addOnServices={addOnServices}
+            requiredResources={requiredResources}
             onEdit={onEdit}
             onUpdateStatus={onUpdateStatus}
             onDelete={onDelete}
