@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -17,6 +17,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  TableFooter,
 } from '@/components/ui/table';
 import {
   ChartContainer,
@@ -26,9 +27,15 @@ import {
 } from '@/components/ui/chart';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { useInventory } from '@/context/InventoryContext';
-import { differenceInMinutes, format, getHours, parseISO } from 'date-fns';
-import { Clock, BarChart as BarChartIcon, Hourglass, Users, Sigma } from 'lucide-react';
+import { differenceInMinutes, format, getHours, parseISO, startOfDay, endOfDay, subDays, differenceInSeconds } from 'date-fns';
+import { Clock, BarChart as BarChartIcon, Hourglass, Users, Sigma, Wallet, Calendar as CalendarIcon } from 'lucide-react';
 import { ClientOnly } from '@/components/shared/ClientOnly';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Button } from '@/components/ui/button';
+import { Calendar } from '@/components/ui/calendar';
+import { DateRange } from 'react-day-picker';
+import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
 
 const chartConfig = {
   waitTime: {
@@ -38,12 +45,24 @@ const chartConfig = {
 } satisfies ChartConfig;
 
 export default function ReportsPage() {
-  const { appointments, services, staff, walkIns } = useInventory();
+  const { appointments, services, staff, walkIns, transactions, activityLogs, stockCorrections, inventory } = useInventory();
+  const [dateRange, setDateRange] = useState<DateRange | undefined>({ from: subDays(new Date(), 29), to: new Date() });
 
   const performanceData = useMemo(() => {
+    if (!staff || !appointments || !services) return [];
+    
+    const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
+    const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
+
     return staff.map(staffMember => {
       const staffAppointments = appointments.filter(
-        apt => apt.staffId === staffMember.id && apt.status === 'completed'
+        apt => {
+            if (apt.staffId !== staffMember.id || apt.status !== 'completed') return false;
+            const appointmentDate = parseISO(apt.startTime);
+            if(fromDate && appointmentDate < fromDate) return false;
+            if(toDate && appointmentDate > toDate) return false;
+            return true;
+        }
       );
 
       let totalMinutesVariance = 0;
@@ -83,11 +102,22 @@ export default function ReportsPage() {
         totalInServiceHours: totalInServiceMinutes / 60,
       };
     });
-  }, [staff, appointments, services]);
+  }, [staff, appointments, services, dateRange]);
 
   const waitTimeData = useMemo(() => {
+    if (!walkIns) return { chartData: [], avgWaitTime: 0 };
+    
+    const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
+    const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
+
     const completedWalkIns = walkIns.filter(
-      w => w.status === 'completed' && w.serviceStartTime
+      w => {
+          if (w.status !== 'completed' || !w.serviceStartTime) return false;
+          const checkInDate = parseISO(w.checkInTime);
+          if(fromDate && checkInDate < fromDate) return false;
+          if(toDate && checkInDate > toDate) return false;
+          return true;
+      }
     );
 
     const hourlyWaitTimes: { [hour: number]: { totalWait: number; count: number } } = {};
@@ -113,14 +143,26 @@ export default function ReportsPage() {
       waitTime: data.count > 0 ? data.totalWait / data.count : 0,
     }));
     
-    const avgWaitTime = completedWalkIns.length > 0 ? (chartData.reduce((acc, d) => acc + d.waitTime * (hourlyWaitTimes[parseInt(d.hour)].count), 0) / completedWalkIns.length) : 0;
+    const totalWaitMinutes = chartData.reduce((acc, d) => acc + d.waitTime * (hourlyWaitTimes[parseInt(d.hour)]?.count || 0), 0);
+    const avgWaitTime = completedWalkIns.length > 0 ? totalWaitMinutes / completedWalkIns.length : 0;
     
     return { chartData, avgWaitTime };
 
-  }, [walkIns]);
+  }, [walkIns, dateRange]);
 
   const salonWideStats = useMemo(() => {
-    const completedAppointments = appointments.filter(apt => apt.status === 'completed');
+     if (!appointments) return { avgActualServiceTime: 0 };
+    const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
+    const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
+    
+    const completedAppointments = appointments.filter(apt => {
+        if (apt.status !== 'completed') return false;
+        const aptDate = parseISO(apt.startTime);
+        if (fromDate && aptDate < fromDate) return false;
+        if (toDate && aptDate > toDate) return false;
+        return true;
+    });
+
     let totalInServiceMinutes = 0;
     let appointmentsWithTimeTracking = 0;
 
@@ -140,17 +182,120 @@ export default function ReportsPage() {
         : 0;
 
     return { avgActualServiceTime };
-  }, [appointments]);
+  }, [appointments, dateRange]);
+
+  const payrollData = useMemo(() => {
+    if (!staff || !transactions || !appointments || !activityLogs || !services) return [];
+
+    const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
+    const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
+
+    return staff.map(member => {
+        const staffTransactions = transactions.filter(t => {
+            if (t.staffId !== member.id) return false;
+            const transactionDate = parseISO(t.date);
+            if (fromDate && transactionDate < fromDate) return false;
+            if (toDate && transactionDate > toDate) return false;
+            return true;
+        });
+
+        const serviceRevenue = staffTransactions
+            .filter(t => t.category === 'Service Revenue')
+            .reduce((acc, t) => acc + t.amount, 0);
+
+        const tips = staffTransactions.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
+        
+        let wages = 0;
+        let totalMinutesWorked = 0;
+
+        if (member.payStructure === 'commission') {
+            wages = serviceRevenue * ((member.commissionRate || 0) / 100);
+        } else if (member.payStructure === 'hourly' && member.hourlyRate) {
+            const staffLogs = activityLogs.filter(log => {
+                if (log.staffId !== member.id) return false;
+                const logDate = parseISO(log.timestamp);
+                if (fromDate && logDate < fromDate) return false;
+                if (toDate && logDate > toDate) return false;
+                return true;
+            });
+
+            const sortedLogs = staffLogs.sort((a,b) => parseISO(a.timestamp).getTime() - parseISO(b.timestamp).getTime());
+
+            let clockInTime: Date | null = null;
+            let totalBreakMinutes = 0;
+            
+            for (const log of sortedLogs) {
+                const logTime = parseISO(log.timestamp);
+                if (log.type === 'clock_in') {
+                    if (clockInTime) { // If there's an open session, close it first (should not happen in clean data)
+                       totalMinutesWorked += Math.max(0, differenceInMinutes(logTime, clockInTime) - totalBreakMinutes);
+                    }
+                    clockInTime = logTime;
+                    totalBreakMinutes = 0;
+                } else if (log.type === 'clock_out' && clockInTime) {
+                    let sessionEnd = logTime;
+                    if (toDate && sessionEnd > toDate) sessionEnd = toDate;
+                    totalMinutesWorked += Math.max(0, differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes);
+                    clockInTime = null;
+                } else if (log.type === 'break_start') {
+                    // Handled by duration on break_end
+                } else if (log.type === 'break_end' && log.durationMinutes) {
+                    totalBreakMinutes += log.durationMinutes;
+                }
+            }
+             if(clockInTime && (!toDate || clockInTime < toDate)) { // If still clocked in at the end of the range
+                const endOfRange = toDate && toDate < new Date() ? toDate : new Date();
+                const sessionEnd = endOfRange > clockInTime ? endOfRange : clockInTime;
+                totalMinutesWorked += Math.max(0, differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes);
+             }
+
+            wages = (totalMinutesWorked / 60) * member.hourlyRate;
+        }
+
+        const totalPay = wages + tips;
+
+        return {
+            ...member,
+            serviceRevenue,
+            tips,
+            wages,
+            totalPay,
+            totalHours: totalMinutesWorked / 60,
+        };
+    });
+  }, [staff, transactions, dateRange, appointments, activityLogs, services]);
+  
+  const payrollTotals = useMemo(() => {
+    return payrollData.reduce((acc, staff) => {
+        acc.totalWages += staff.wages;
+        acc.totalTips += staff.tips;
+        acc.totalPayroll += staff.totalPay;
+        return acc;
+    }, { totalWages: 0, totalTips: 0, totalPayroll: 0 });
+  }, [payrollData]);
 
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Reports & Analytics" />
       <main className="flex-1 p-4 md:p-8 space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold">Reports</h1>
-          <p className="text-muted-foreground">
-            Insights into your salon's performance and efficiency.
-          </p>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold">Reports</h1>
+            <p className="text-muted-foreground">
+              Insights into your salon's performance and efficiency.
+            </p>
+          </div>
+           <Popover>
+            <PopoverTrigger asChild>
+                <Button id="date" variant={"outline"} className={cn( "w-full sm:w-[300px] justify-start text-left font-normal", !dateRange && "text-muted-foreground" )}>
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {dateRange?.from ? ( dateRange.to ? ( <> {format(dateRange.from, "LLL dd, y")} -{" "} {format(dateRange.to, "LLL dd, y")} </> ) : ( format(dateRange.from, "LLL dd, y") ) ) : ( <span>Pick a date range</span> )}
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="end">
+                <Calendar initialFocus mode="range" defaultMonth={dateRange?.from} selected={dateRange} onSelect={setDateRange} numberOfMonths={2} />
+            </PopoverContent>
+          </Popover>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -195,6 +340,49 @@ export default function ReportsPage() {
                 </CardContent>
             </Card>
         </div>
+
+        <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Wallet /> Payroll Report</CardTitle>
+                <CardDescription>A summary of staff earnings for the selected period.</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Staff Member</TableHead>
+                            <TableHead>Pay Structure</TableHead>
+                            <TableHead className="text-right">Service Revenue</TableHead>
+                            <TableHead className="text-right">Hours Worked</TableHead>
+                            <TableHead className="text-right">Wages/Commission</TableHead>
+                            <TableHead className="text-right">Tips</TableHead>
+                            <TableHead className="text-right font-bold">Total Pay</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {payrollData.map(data => (
+                            <TableRow key={data.id}>
+                                <TableCell className="font-medium">{data.name}</TableCell>
+                                <TableCell><Badge variant="outline" className="capitalize">{data.payStructure}</Badge></TableCell>
+                                <TableCell className="text-right font-mono">${data.serviceRevenue.toFixed(2)}</TableCell>
+                                <TableCell className="text-right font-mono">{data.payStructure === 'hourly' ? `${data.totalHours.toFixed(2)}h` : 'N/A'}</TableCell>
+                                <TableCell className="text-right font-mono">${data.wages.toFixed(2)}</TableCell>
+                                <TableCell className="text-right font-mono text-green-500">${data.tips.toFixed(2)}</TableCell>
+                                <TableCell className="text-right font-mono font-bold text-primary">${data.totalPay.toFixed(2)}</TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                    <TableFooter>
+                        <TableRow className="font-bold">
+                            <TableCell colSpan={4}>Total Payroll Cost</TableCell>
+                            <TableCell className="text-right font-mono">${payrollTotals.totalWages.toFixed(2)}</TableCell>
+                            <TableCell className="text-right font-mono text-green-500">${payrollTotals.totalTips.toFixed(2)}</TableCell>
+                            <TableCell className="text-right font-mono text-primary">${payrollTotals.totalPayroll.toFixed(2)}</TableCell>
+                        </TableRow>
+                    </TableFooter>
+                </Table>
+            </CardContent>
+        </Card>
 
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-7">
           <Card className="lg:col-span-4">
