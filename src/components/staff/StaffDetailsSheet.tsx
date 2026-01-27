@@ -16,7 +16,7 @@ import { type Staff, type Transaction, type Service, type Appointment, type Acti
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { format, differenceInMinutes, parseISO } from 'date-fns';
-import { TrendingUp, DollarSign, PackageX, Clock, Info, Briefcase, User, MessageSquare, Coffee, Hourglass, BarChart, Percent, Users } from 'lucide-react';
+import { TrendingUp, DollarSign, PackageX, Clock, Info, Briefcase, User, MessageSquare, Coffee, Hourglass, BarChart, Percent, Users, List, FileText, Shield } from 'lucide-react';
 import { Button } from '../ui/button';
 import {
   Tooltip,
@@ -25,6 +25,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { DateRange } from 'react-day-picker';
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '../ui/accordion';
 
 interface StaffDetailsSheetProps {
   open: boolean;
@@ -49,6 +50,8 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
 }) => {
   if (!staffMember) return null;
 
+  const staffServices = services.filter(s => staffMember.services?.includes(s.id));
+
   const dateRangeString = dateRange?.from && dateRange.to 
     ? `${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d')}` 
     : 'the selected period';
@@ -63,179 +66,145 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
           </SheetDescription>
         </SheetHeader>
         <ScrollArea className="flex-1">
-            <div className="p-6 pt-0 space-y-6">
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Performance Summary</CardTitle>
-                    </CardHeader>
-                    <CardContent className="grid grid-cols-2 md:grid-cols-2 gap-4">
-                        <div className="p-3 bg-muted/50 rounded-lg">
-                            <div className="text-sm font-medium text-muted-foreground">Total Sales</div>
-                            <div className="text-2xl font-bold">${staffMember.stats.totalSales.toFixed(2)}</div>
-                        </div>
-                        <div className="p-3 bg-muted/50 rounded-lg">
-                            <div className="text-sm font-medium text-muted-foreground">Tips Earned</div>
-                            <div className="text-2xl font-bold">${staffMember.stats.tips.toFixed(2)}</div>
-                        </div>
-                        <div className="p-3 bg-muted/50 rounded-lg">
-                            <div className="text-sm font-medium text-muted-foreground">Hours Worked</div>
-                            <div className="text-2xl font-bold">{staffMember.stats.totalHours?.toFixed(1) ?? 'N/A'}</div>
-                        </div>
-                        <div className="p-3 bg-primary/10 rounded-lg">
-                            <div className="text-sm font-medium text-primary">Est. Take-home</div>
-                            <div className="text-2xl font-bold text-primary">${staffMember.stats.earnings.toFixed(2)}</div>
-                        </div>
-                    </CardContent>
-                </Card>
+            <div className="px-6 pb-6 space-y-6">
+                <Accordion type="multiple" defaultValue={['summary', 'details']} className="w-full space-y-4">
+                    <AccordionItem value="summary" className="border rounded-lg">
+                        <AccordionTrigger className="p-4 font-semibold">Performance Summary</AccordionTrigger>
+                        <AccordionContent className="p-4 pt-0">
+                            <div className="grid grid-cols-2 md:grid-cols-2 gap-4">
+                                <div className="p-3 bg-muted/50 rounded-lg">
+                                    <div className="text-sm font-medium text-muted-foreground">Total Sales</div>
+                                    <div className="text-2xl font-bold">${staffMember.stats.totalSales.toFixed(2)}</div>
+                                </div>
+                                <div className="p-3 bg-muted/50 rounded-lg">
+                                    <div className="text-sm font-medium text-muted-foreground">Tips Earned</div>
+                                    <div className="text-2xl font-bold">${staffMember.stats.tips.toFixed(2)}</div>
+                                </div>
+                                <div className="p-3 bg-muted/50 rounded-lg">
+                                    <div className="text-sm font-medium text-muted-foreground">Hours Worked</div>
+                                    <div className="text-2xl font-bold">{staffMember.stats.totalHours?.toFixed(1) ?? 'N/A'}</div>
+                                </div>
+                                <div className="p-3 bg-primary/10 rounded-lg">
+                                    <div className="text-sm font-medium text-primary">Est. Take-home</div>
+                                    <div className="text-2xl font-bold text-primary">${staffMember.stats.earnings.toFixed(2)}</div>
+                                </div>
+                            </div>
+                        </AccordionContent>
+                    </AccordionItem>
+                    
+                    <AccordionItem value="effectiveness" className="border rounded-lg">
+                        <AccordionTrigger className="p-4 font-semibold">Effectiveness</AccordionTrigger>
+                        <AccordionContent className="p-4 pt-0">
+                             <div className="grid grid-cols-2 gap-4">
+                                <div className="p-3 bg-muted/50 rounded-lg">
+                                    <div className="text-sm font-medium text-muted-foreground flex items-center gap-2"><Percent className="w-4 h-4"/>Utilization Rate</div>
+                                    <div className="text-2xl font-bold">{staffMember.stats.utilizationRate.toFixed(1)}%</div>
+                                </div>
+                                <div className="p-3 bg-muted/50 rounded-lg">
+                                    <div className="text-sm font-medium text-muted-foreground flex items-center gap-2"><DollarSign className="w-4 h-4"/>Avg. Sale / Appt</div>
+                                    <div className="text-2xl font-bold">${staffMember.stats.avgSalePerAppointment.toFixed(2)}</div>
+                                </div>
+                                <div className="p-3 bg-muted/50 rounded-lg col-span-2">
+                                    <div className="text-sm font-medium text-muted-foreground mb-2">Revenue Breakdown</div>
+                                    <div className="space-y-1 text-sm">
+                                        <div className="flex justify-between"><span>Services:</span> <span className="font-semibold">${staffMember.stats.serviceRevenue.toFixed(2)}</span></div>
+                                        <div className="flex justify-between"><span>Retail:</span> <span className="font-semibold">${staffMember.stats.retailSales.toFixed(2)}</span></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </AccordionContent>
+                    </AccordionItem>
 
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Effectiveness</CardTitle>
-                    </CardHeader>
-                    <CardContent className="grid grid-cols-2 gap-4">
-                        <div className="p-3 bg-muted/50 rounded-lg">
-                            <div className="text-sm font-medium text-muted-foreground flex items-center gap-2"><Percent className="w-4 h-4"/>Utilization Rate</div>
-                            <div className="text-2xl font-bold">{staffMember.stats.utilizationRate.toFixed(1)}%</div>
-                        </div>
-                         <div className="p-3 bg-muted/50 rounded-lg">
-                            <div className="text-sm font-medium text-muted-foreground flex items-center gap-2"><DollarSign className="w-4 h-4"/>Avg. Sale / Appt</div>
-                            <div className="text-2xl font-bold">${staffMember.stats.avgSalePerAppointment.toFixed(2)}</div>
-                        </div>
-                        <div className="p-3 bg-muted/50 rounded-lg col-span-2">
-                             <div className="text-sm font-medium text-muted-foreground mb-2">Revenue Breakdown</div>
-                             <div className="space-y-1 text-sm">
-                                <div className="flex justify-between"><span>Services:</span> <span className="font-semibold">${staffMember.stats.serviceRevenue.toFixed(2)}</span></div>
-                                <div className="flex justify-between"><span>Retail:</span> <span className="font-semibold">${staffMember.stats.retailSales.toFixed(2)}</span></div>
-                             </div>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Activity Log</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                         <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Date & Time</TableHead>
-                                    <TableHead>Action</TableHead>
-                                    <TableHead className="text-right">Duration</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {activityLogs.length > 0 ? (
-                                    activityLogs.map(log => (
-                                        <TableRow key={log.id}>
-                                            <TableCell>{format(log.timestamp, 'PPP p')}</TableCell>
-                                            <TableCell className="capitalize flex items-center gap-2">
-                                                {log.type === 'clock_in' && <Clock className="w-4 h-4 text-green-500" />}
-                                                {log.type === 'clock_out' && <Clock className="w-4 h-4 text-red-500" />}
-                                                {log.type === 'break_start' && <Coffee className="w-4 h-4 text-yellow-500" />}
-                                                {log.type === 'break_end' && <Coffee className="w-4 h-4 text-gray-500" />}
-                                                {log.type.replace('_', ' ')}
-                                            </TableCell>
-                                            <TableCell className="text-right">
-                                                {log.durationMinutes ? `${log.durationMinutes} min` : '—'}
-                                            </TableCell>
-                                        </TableRow>
-                                    ))
-                                ) : (
-                                    <TableRow><TableCell colSpan={3} className="text-center h-24">No activity logged in this period.</TableCell></TableRow>
-                                )}
-                            </TableBody>
-                        </Table>
-                    </CardContent>
-                </Card>
-
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Transaction History</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        {/* Mobile view */}
-                        <div className="space-y-3 md:hidden">
-                            {transactions.length > 0 ? (
-                                transactions.map(t => {
-                                    const appointment = t.appointmentId ? appointments.find(a => a.id === t.appointmentId) : undefined;
-                                    const service = appointment ? services.find(s => s.id === appointment.serviceId) : undefined;
-                                    let timeVariance: number | null = null;
-                                    if (appointment && service && appointment.actualStartTime && appointment.actualEndTime) {
-                                        const actualDuration = differenceInMinutes(appointment.actualEndTime, appointment.actualStartTime);
-                                        timeVariance = actualDuration - service.duration;
-                                    }
-
-                                    return (
-                                    <Card key={t.id}>
-                                        <CardContent className="p-3">
-                                            <div className="flex justify-between items-start">
-                                                <div className="space-y-1">
-                                                    <p className="font-medium">{t.description}</p>
-                                                    <p className="text-xs text-muted-foreground">{format(t.date, 'MMM d, yyyy h:mm a')}</p>
-                                                     {timeVariance !== null && (
-                                                        <div>
-                                                            <p className={`text-sm font-semibold ${timeVariance > 0 ? 'text-destructive' : 'text-green-500'}`}>
-                                                                Time Variance: {timeVariance > 0 ? '+' : ''}{timeVariance} min
-                                                            </p>
-                                                            <p className="text-xs text-muted-foreground">(Actual vs. Scheduled)</p>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                                <div className="text-right">
-                                                    <p className="font-mono font-semibold flex items-center justify-end gap-1">
-                                                        {t.type === 'income' ? (
-                                                            <TrendingUp className="h-4 w-4 text-green-500" />
-                                                        ) : (
-                                                            <DollarSign className="h-4 w-4 text-muted-foreground" />
-                                                        )}
-                                                        ${t.amount.toFixed(2)}
-                                                    </p>
-                                                    <Badge
-                                                        variant={t.category === 'Tips' ? 'secondary' : 'outline'}
-                                                        className={`mt-1 text-xs ${t.category === 'Tips' ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : ''}`}
-                                                    >
-                                                        {t.category}
-                                                    </Badge>
-                                                </div>
-                                            </div>
-                                        </CardContent>
-                                    </Card>
-                                )})
-                            ) : (
-                                <p className="text-center text-muted-foreground py-10">No transactions in this period.</p>
+                     <AccordionItem value="details" className="border rounded-lg">
+                        <AccordionTrigger className="p-4 font-semibold">Internal Details</AccordionTrigger>
+                        <AccordionContent className="p-4 pt-0 text-sm space-y-4">
+                           <div className="space-y-1">
+                             <h4 className="font-medium text-xs text-muted-foreground">Contact</h4>
+                             <p>{staffMember.email}</p>
+                             <p>{staffMember.phone}</p>
+                           </div>
+                           <div className="space-y-1">
+                             <h4 className="font-medium text-xs text-muted-foreground">Pay Structure</h4>
+                             <p className="capitalize">{staffMember.payStructure}</p>
+                             {staffMember.payStructure === 'commission' && (
+                               <p className="text-xs">Service: {staffMember.commissionRate}% | Retail: {staffMember.retailCommissionRate}%</p>
+                             )}
+                             {staffMember.payStructure === 'hourly' && (
+                               <p className="text-xs">${staffMember.hourlyRate}/hr</p>
+                             )}
+                           </div>
+                            {staffMember.emergencyContact?.name && (
+                                <div className="space-y-1">
+                                    <h4 className="font-medium text-xs text-muted-foreground">Emergency Contact</h4>
+                                    <p>{staffMember.emergencyContact.name} ({staffMember.emergencyContact.relationship})</p>
+                                    <p>{staffMember.emergencyContact.phone}</p>
+                                </div>
                             )}
-                        </div>
+                        </AccordionContent>
+                    </AccordionItem>
+                    
+                     <AccordionItem value="services" className="border rounded-lg">
+                        <AccordionTrigger className="p-4 font-semibold">Services Offered ({staffServices.length})</AccordionTrigger>
+                        <AccordionContent className="p-4 pt-0">
+                           <div className="space-y-2 mt-2">
+                               {staffServices.map(s => (
+                                   <div key={s.id} className="p-2 bg-muted/50 rounded-md text-sm">{s.name}</div>
+                               ))}
+                           </div>
+                        </AccordionContent>
+                    </AccordionItem>
 
-                        {/* Desktop view */}
-                        <div className="hidden md:block">
+                     <AccordionItem value="compliance" className="border rounded-lg">
+                        <AccordionTrigger className="p-4 font-semibold">Compliance</AccordionTrigger>
+                        <AccordionContent className="p-4 pt-0">
+                           <div className="space-y-2 mt-2 text-sm">
+                               <div className="flex justify-between"><span>License #:</span> <span className="font-mono">{staffMember.compliance?.licenseNumber || 'N/A'}</span></div>
+                               <div className="flex justify-between"><span>Expires:</span> <span>{staffMember.compliance?.licenseExpiry ? format(parseISO(staffMember.compliance.licenseExpiry), 'PPP') : 'N/A'}</span></div>
+                           </div>
+                        </AccordionContent>
+                    </AccordionItem>
+
+                    <AccordionItem value="activity" className="border rounded-lg">
+                        <AccordionTrigger className="p-4 font-semibold">Activity Log</AccordionTrigger>
+                        <AccordionContent className="p-4 pt-0">
                             <Table>
                                 <TableHeader>
                                     <TableRow>
-                                    <TableHead>Date</TableHead>
-                                    <TableHead>Description</TableHead>
-                                    <TableHead>Type</TableHead>
-                                    <TableHead className="text-right">
-                                        <div className="flex items-center justify-end gap-1">
-                                            Time Variance
-                                            <TooltipProvider>
-                                            <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                <Button variant="ghost" size="icon" className="h-4 w-4 rounded-full cursor-help"><Info className="h-3 w-3 text-muted-foreground" /></Button>
-                                                </TooltipTrigger>
-                                                <TooltipContent>
-                                                <p>Actual time vs. scheduled duration.</p>
-                                                <p>Captured from 'Start' to 'Finish' in the Planner.</p>
-                                                </TooltipContent>
-                                            </Tooltip>
-                                            </TooltipProvider>
-                                        </div>
-                                    </TableHead>
-                                    <TableHead className="text-right">Amount</TableHead>
+                                        <TableHead>Date & Time</TableHead>
+                                        <TableHead>Action</TableHead>
+                                        <TableHead className="text-right">Duration</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {transactions.length > 0 ? (
+                                    {activityLogs.length > 0 ? (
+                                        activityLogs.map(log => (
+                                            <TableRow key={log.id}>
+                                                <TableCell>{format(log.timestamp, 'PPP p')}</TableCell>
+                                                <TableCell className="capitalize flex items-center gap-2">
+                                                    {log.type === 'clock_in' && <Clock className="w-4 h-4 text-green-500" />}
+                                                    {log.type === 'clock_out' && <Clock className="w-4 h-4 text-red-500" />}
+                                                    {log.type === 'break_start' && <Coffee className="w-4 h-4 text-yellow-500" />}
+                                                    {log.type === 'break_end' && <Coffee className="w-4 h-4 text-gray-500" />}
+                                                    {log.type.replace('_', ' ')}
+                                                </TableCell>
+                                                <TableCell className="text-right">
+                                                    {log.durationMinutes ? `${log.durationMinutes} min` : '—'}
+                                                </TableCell>
+                                            </TableRow>
+                                        ))
+                                    ) : (
+                                        <TableRow><TableCell colSpan={3} className="text-center h-24">No activity logged in this period.</TableCell></TableRow>
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </AccordionContent>
+                    </AccordionItem>
+
+                    <AccordionItem value="transactions" className="border rounded-lg">
+                        <AccordionTrigger className="p-4 font-semibold">Transaction History</AccordionTrigger>
+                        <AccordionContent className="p-4 pt-0">
+                            <div className="md:hidden space-y-3">
+                                {transactions.length > 0 ? (
                                     transactions.map(t => {
                                         const appointment = t.appointmentId ? appointments.find(a => a.id === t.appointmentId) : undefined;
                                         const service = appointment ? services.find(s => s.id === appointment.serviceId) : undefined;
@@ -246,56 +215,82 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                                         }
 
                                         return (
-                                        <TableRow key={t.id}>
-                                        <TableCell>{format(t.date, 'MMM d, yyyy h:mm a')}</TableCell>
-                                        <TableCell>{t.description}</TableCell>
-                                        <TableCell>
-                                            <Badge
-                                            variant={t.category === 'Tips' ? 'secondary' : 'outline'}
-                                            className={
-                                                t.category === 'Tips' ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : ''
-                                            }
-                                            >
-                                            {t.category}
-                                            </Badge>
-                                        </TableCell>
-                                        <TableCell className="text-right font-mono">
-                                            {timeVariance !== null ? (
-                                                <span className={timeVariance > 0 ? 'text-destructive' : 'text-green-500'}>
-                                                    {timeVariance > 0 ? '+' : ''}{timeVariance} min
-                                                </span>
-                                            ) : (
-                                                <span className="text-muted-foreground">—</span>
-                                            )}
-                                        </TableCell>
-                                        <TableCell className="text-right font-mono">
-                                            <div className='flex items-center justify-end gap-1'>
-                                                {t.type === 'income' ? (
-                                                <TrendingUp className="h-4 w-4 text-green-500" />
-                                                ) : (
-                                                <DollarSign className="h-4 w-4 text-muted-foreground" />
-                                                )}
-                                                ${t.amount.toFixed(2)}
-                                            </div>
-                                        </TableCell>
-                                        </TableRow>
+                                        <Card key={t.id}>
+                                            <CardContent className="p-3">
+                                                <div className="flex justify-between items-start">
+                                                    <div className="space-y-1">
+                                                        <p className="font-medium">{t.description}</p>
+                                                        <p className="text-xs text-muted-foreground">{format(t.date, 'MMM d, yyyy h:mm a')}</p>
+                                                        {timeVariance !== null && (
+                                                            <div>
+                                                                <p className={`text-sm font-semibold ${timeVariance > 0 ? 'text-destructive' : 'text-green-500'}`}>
+                                                                    Time Variance: {timeVariance > 0 ? '+' : ''}{timeVariance} min
+                                                                </p>
+                                                                <p className="text-xs text-muted-foreground">(Actual vs. Scheduled)</p>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <p className="font-mono font-semibold flex items-center justify-end gap-1">
+                                                            {t.type === 'income' ? (
+                                                                <TrendingUp className="h-4 w-4 text-green-500" />
+                                                            ) : (
+                                                                <DollarSign className="h-4 w-4 text-muted-foreground" />
+                                                            )}
+                                                            ${t.amount.toFixed(2)}
+                                                        </p>
+                                                        <Badge
+                                                            variant={t.category === 'Tips' ? 'secondary' : 'outline'}
+                                                            className={`mt-1 text-xs ${t.category === 'Tips' ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : ''}`}
+                                                        >
+                                                            {t.category}
+                                                        </Badge>
+                                                    </div>
+                                                </div>
+                                            </CardContent>
+                                        </Card>
                                     )})
-                                    ) : (
-                                    <TableRow>
-                                        <TableCell colSpan={5} className="text-center h-24">
-                                        No transactions in this period.
-                                        </TableCell>
-                                    </TableRow>
-                                    )}
-                                </TableBody>
-                            </Table>
-                        </div>
-                    </CardContent>
-                </Card>
+                                ) : (
+                                    <p className="text-center text-muted-foreground py-10">No transactions in this period.</p>
+                                )}
+                            </div>
+
+                            <div className="hidden md:block">
+                                <Table>
+                                    <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Description</TableHead><TableHead>Type</TableHead><TableHead className="text-right">Time Variance</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader>
+                                    <TableBody>
+                                        {transactions.length > 0 ? (
+                                        transactions.map(t => {
+                                            const appointment = t.appointmentId ? appointments.find(a => a.id === t.appointmentId) : undefined;
+                                            const service = appointment ? services.find(s => s.id === appointment.serviceId) : undefined;
+                                            let timeVariance: number | null = null;
+                                            if (appointment && service && appointment.actualStartTime && appointment.actualEndTime) {
+                                                const actualDuration = differenceInMinutes(appointment.actualEndTime, appointment.actualStartTime);
+                                                timeVariance = actualDuration - service.duration;
+                                            }
+
+                                            return (
+                                            <TableRow key={t.id}>
+                                            <TableCell>{format(t.date, 'MMM d, yyyy h:mm a')}</TableCell>
+                                            <TableCell>{t.description}</TableCell>
+                                            <TableCell><Badge variant={t.category === 'Tips' ? 'secondary' : 'outline'} className={t.category === 'Tips' ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : ''}>{t.category}</Badge></TableCell>
+                                            <TableCell className="text-right font-mono">{timeVariance !== null ? (<span className={timeVariance > 0 ? 'text-destructive' : 'text-green-500'}>{timeVariance > 0 ? '+' : ''}{timeVariance} min</span>) : (<span className="text-muted-foreground">—</span>)}</TableCell>
+                                            <TableCell className="text-right font-mono"><div className='flex items-center justify-end gap-1'>{t.type === 'income' ? (<TrendingUp className="h-4 w-4 text-green-500" />) : (<DollarSign className="h-4 w-4 text-muted-foreground" />)} ${t.amount.toFixed(2)}</div></TableCell>
+                                            </TableRow>
+                                        )})
+                                        ) : (
+                                        <TableRow><TableCell colSpan={5} className="text-center h-24">No transactions in this period.</TableCell></TableRow>
+                                        )}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        </AccordionContent>
+                    </AccordionItem>
+                </Accordion>
             </div>
         </ScrollArea>
         <SheetFooter className="p-6 border-t">
-            <Button onClick={() => onOpenChange(false)}>Close</Button>
+            <Button onClick={() => onOpenChange(false)} className="w-full">Close</Button>
         </SheetFooter>
       </SheetContent>
     </Sheet>
