@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -29,7 +28,7 @@ import {
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { useInventory } from '@/context/InventoryContext';
 import { differenceInMinutes, format, getHours, parseISO, startOfDay, endOfDay, subDays, differenceInSeconds } from 'date-fns';
-import { Clock, BarChart as BarChartIcon, Hourglass, Users, Sigma, Wallet, Calendar as CalendarIcon, ShoppingCart } from 'lucide-react';
+import { Clock, BarChart as BarChartIcon, Hourglass, Users, Sigma, Wallet, Calendar as CalendarIcon, ShoppingCart, Percent, Target, TrendingUp, DollarSign, Ban } from 'lucide-react';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
@@ -49,61 +48,158 @@ export default function ReportsPage() {
   const { appointments, services, staff, walkIns, transactions, activityLogs, stockCorrections, inventory } = useInventory();
   const [dateRange, setDateRange] = useState<DateRange | undefined>({ from: subDays(new Date(), 29), to: new Date() });
 
-  const performanceData = useMemo(() => {
-    if (!staff || !appointments || !services) return [];
+  const performanceAndPayrollData = useMemo(() => {
+    if (!staff || !appointments || !services || !transactions || !activityLogs) return [];
     
     const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
     const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
 
     return staff.map(staffMember => {
-      const staffAppointments = appointments.filter(
-        apt => {
-            if (apt.staffId !== staffMember.id || apt.status !== 'completed') return false;
-            const appointmentDate = parseISO(apt.startTime);
-            if(fromDate && appointmentDate < fromDate) return false;
-            if(toDate && appointmentDate > toDate) return false;
+        const filterByDate = (date: string) => {
+            const d = parseISO(date);
+            if (fromDate && d < fromDate) return false;
+            if (toDate && d > toDate) return false;
             return true;
         }
-      );
 
-      let totalMinutesVariance = 0;
-      let totalInServiceMinutes = 0;
-      let appointmentsWithTimeTracking = 0;
+        const staffAppointments = appointments.filter(apt => apt.staffId === staffMember.id && filterByDate(apt.startTime));
+        const completedAppointments = staffAppointments.filter(apt => apt.status === 'completed');
+        const completedAppointmentsCount = completedAppointments.length;
+      
+        const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && filterByDate(t.date));
 
-      staffAppointments.forEach(apt => {
-        const service = services.find(s => s.id === apt.serviceId);
-        if (apt.actualStartTime && apt.actualEndTime && service) {
-          appointmentsWithTimeTracking++;
-          const actualDuration = differenceInMinutes(
-            parseISO(apt.actualEndTime),
-            parseISO(apt.actualStartTime)
-          );
-          const scheduledDuration = service.duration;
-          totalMinutesVariance += actualDuration - scheduledDuration;
-          totalInServiceMinutes += actualDuration;
+        // KPI Calculations
+        let totalMinutesVariance = 0;
+        let totalInServiceMinutes = 0;
+        completedAppointments.forEach(apt => {
+            const service = services.find(s => s.id === apt.serviceId);
+            if (apt.actualStartTime && apt.actualEndTime && service) {
+                const actualDuration = differenceInMinutes(parseISO(apt.actualEndTime), parseISO(apt.actualStartTime));
+                const scheduledDuration = service.duration;
+                totalMinutesVariance += actualDuration - scheduledDuration;
+                totalInServiceMinutes += actualDuration;
+            }
+        });
+      
+        const avgVariance = completedAppointmentsCount > 0 ? totalMinutesVariance / completedAppointmentsCount : 0;
+        const avgActualServiceTime = completedAppointmentsCount > 0 ? totalInServiceMinutes / completedAppointmentsCount : 0;
+      
+        const serviceRevenue = staffTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
+        const retailSales = staffTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
+        const totalSales = serviceRevenue + retailSales;
+        const tips = staffTransactions.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
+        
+        const retailTransactionsWithAppointment = staffTransactions.filter(t => t.category === 'Retail' && t.appointmentId);
+        const retailAttachmentRate = completedAppointmentsCount > 0 ? (new Set(retailTransactionsWithAppointment.map(t => t.appointmentId)).size / completedAppointmentsCount) * 100 : 0;
+        const avgTicket = completedAppointmentsCount > 0 ? totalSales / completedAppointmentsCount : 0;
+
+        // Payroll and Utilization
+        let totalMinutesWorked = 0;
+        const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(log.timestamp));
+        const sortedLogs = staffLogs.sort((a, b) => parseISO(a.timestamp).getTime() - parseISO(b.timestamp).getTime());
+        
+        let clockInTime: Date | null = null;
+        let totalBreakMinutes = 0;
+        for (const log of sortedLogs) {
+            const logTime = parseISO(log.timestamp);
+            if (log.type === 'clock_in') {
+                if (clockInTime) totalMinutesWorked += Math.max(0, differenceInMinutes(logTime, clockInTime) - totalBreakMinutes);
+                clockInTime = logTime;
+                totalBreakMinutes = 0;
+            } else if (log.type === 'clock_out' && clockInTime) {
+                let sessionEnd = logTime;
+                if (toDate && sessionEnd > toDate) sessionEnd = toDate;
+                totalMinutesWorked += Math.max(0, differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes);
+                clockInTime = null;
+            } else if (log.type === 'break_end' && log.durationMinutes) {
+                totalBreakMinutes += log.durationMinutes;
+            }
         }
-      });
+        if(clockInTime && (!toDate || clockInTime < toDate)) {
+            const endOfRange = toDate && toDate < new Date() ? toDate : new Date();
+            totalMinutesWorked += Math.max(0, differenceInMinutes(endOfRange, clockInTime) - totalBreakMinutes);
+        }
 
-      const avgVariance =
-        appointmentsWithTimeTracking > 0
-          ? totalMinutesVariance / appointmentsWithTimeTracking
-          : 0;
-          
-      const avgActualServiceTime =
-        appointmentsWithTimeTracking > 0
-          ? totalInServiceMinutes / appointmentsWithTimeTracking
-          : 0;
+        const utilizationRate = totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0;
+        
+        let wages = 0;
+        if (staffMember.payStructure === 'commission') {
+            wages = serviceRevenue * ((staffMember.commissionRate || 0) / 100);
+        } else if (staffMember.payStructure === 'hourly' && staffMember.hourlyRate) {
+            wages = (totalMinutesWorked / 60) * staffMember.hourlyRate;
+        }
 
-      return {
-        staffId: staffMember.id,
-        staffName: staffMember.name,
-        totalServices: staffAppointments.length,
-        avgVariance: avgVariance,
-        avgActualServiceTime: avgActualServiceTime,
-        totalInServiceHours: totalInServiceMinutes / 60,
-      };
+        const retailCommission = retailSales * ((staffMember.retailCommissionRate || 0) / 100);
+        const totalPay = wages + tips + retailCommission;
+        
+        const costOfGoodsSold = completedAppointments.reduce((acc, apt) => {
+            const service = services.find(s => s.id === apt.serviceId);
+            return acc + (service?.cost || 0);
+        }, 0);
+        const netProfit = totalSales - costOfGoodsSold - (wages + retailCommission);
+        
+        return {
+            ...staffMember,
+            stats: {
+                totalServices: completedAppointmentsCount,
+                avgActualServiceTime,
+                avgVariance,
+                totalInServiceHours: totalInServiceMinutes / 60,
+                utilizationRate,
+                avgTicket,
+                retailAttachmentRate,
+                serviceRevenue,
+                retailSales,
+                retailCommission,
+                tips,
+                wages,
+                totalPay,
+                netProfit,
+                totalHours: totalMinutesWorked / 60,
+            }
+        };
     });
-  }, [staff, appointments, services, dateRange]);
+  }, [staff, appointments, services, transactions, activityLogs, dateRange]);
+
+  const salonWideStats = useMemo(() => {
+    if (!appointments || !transactions || !staff) return { avgTicket: 0, utilizationRate: 0, retailAttachmentRate: 0, cancellationRate: 0 };
+    
+    const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
+    const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
+
+    const appointmentsInRange = appointments.filter(apt => {
+        const aptDate = parseISO(apt.startTime);
+        if (fromDate && aptDate < fromDate) return false;
+        if (toDate && aptDate > toDate) return false;
+        return true;
+    });
+
+    const completedAppointments = appointmentsInRange.filter(apt => apt.status === 'completed');
+    const cancelledAppointments = appointmentsInRange.filter(apt => apt.status === 'cancelled');
+
+    const totalRevenue = transactions
+        .filter(t => {
+            const tDate = parseISO(t.date);
+            if (fromDate && tDate < fromDate) return false;
+            if (toDate && tDate > toDate) return false;
+            return t.type === 'income' && (t.category === 'Service Revenue' || t.category === 'Retail');
+        })
+        .reduce((acc, t) => acc + t.amount, 0);
+        
+    const retailTransactions = transactions.filter(t => t.category === 'Retail' && t.appointmentId);
+    const appointmentsWithRetail = new Set(retailTransactions.map(t => t.appointmentId));
+
+    const totalInServiceMinutes = performanceAndPayrollData.reduce((acc, d) => acc + (d.stats.totalInServiceHours * 60), 0);
+    const totalMinutesWorked = performanceAndPayrollData.reduce((acc, d) => acc + (d.stats.totalHours * 60), 0);
+    
+    return {
+      avgTicket: completedAppointments.length > 0 ? totalRevenue / completedAppointments.length : 0,
+      utilizationRate: totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0,
+      retailAttachmentRate: completedAppointments.length > 0 ? (appointmentsWithRetail.size / completedAppointments.length) * 100 : 0,
+      cancellationRate: appointmentsInRange.length > 0 ? (cancelledAppointments.length / appointmentsInRange.length) * 100 : 0,
+    }
+  }, [performanceAndPayrollData, appointments, transactions, staff, dateRange]);
+
 
   const waitTimeData = useMemo(() => {
     if (!walkIns) return { chartData: [], avgWaitTime: 0 };
@@ -150,139 +246,17 @@ export default function ReportsPage() {
     return { chartData, avgWaitTime };
 
   }, [walkIns, dateRange]);
-
-  const salonWideStats = useMemo(() => {
-     if (!appointments) return { avgActualServiceTime: 0 };
-    const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
-    const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
-    
-    const completedAppointments = appointments.filter(apt => {
-        if (apt.status !== 'completed') return false;
-        const aptDate = parseISO(apt.startTime);
-        if (fromDate && aptDate < fromDate) return false;
-        if (toDate && aptDate > toDate) return false;
-        return true;
-    });
-
-    let totalInServiceMinutes = 0;
-    let appointmentsWithTimeTracking = 0;
-
-    completedAppointments.forEach(apt => {
-        if (apt.actualStartTime && apt.actualEndTime) {
-            appointmentsWithTimeTracking++;
-            const actualDuration = differenceInMinutes(
-                parseISO(apt.actualEndTime),
-                parseISO(apt.actualStartTime)
-            );
-            totalInServiceMinutes += actualDuration;
-        }
-    });
-
-    const avgActualServiceTime = appointmentsWithTimeTracking > 0
-        ? totalInServiceMinutes / appointmentsWithTimeTracking
-        : 0;
-
-    return { avgActualServiceTime };
-  }, [appointments, dateRange]);
-
-  const payrollData = useMemo(() => {
-    if (!staff || !transactions || !appointments || !activityLogs || !services) return [];
-
-    const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
-    const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
-
-    return staff.map(member => {
-        const staffTransactions = transactions.filter(t => {
-            if (t.staffId !== member.id) return false;
-            const transactionDate = parseISO(t.date);
-            if (fromDate && transactionDate < fromDate) return false;
-            if (toDate && transactionDate > toDate) return false;
-            return true;
-        });
-
-        const serviceRevenue = staffTransactions
-            .filter(t => t.category === 'Service Revenue')
-            .reduce((acc, t) => acc + t.amount, 0);
-
-        const retailSales = staffTransactions
-            .filter(t => t.category === 'Retail')
-            .reduce((acc, t) => acc + t.amount, 0);
-
-        const tips = staffTransactions.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
-        
-        let wages = 0;
-        let totalMinutesWorked = 0;
-
-        if (member.payStructure === 'commission') {
-            wages = serviceRevenue * ((member.commissionRate || 0) / 100);
-        } else if (member.payStructure === 'hourly' && member.hourlyRate) {
-            const staffLogs = activityLogs.filter(log => {
-                if (log.staffId !== member.id) return false;
-                const logDate = parseISO(log.timestamp);
-                if (fromDate && logDate < fromDate) return false;
-                if (toDate && logDate > toDate) return false;
-                return true;
-            });
-
-            const sortedLogs = staffLogs.sort((a,b) => parseISO(a.timestamp).getTime() - parseISO(b.timestamp).getTime());
-
-            let clockInTime: Date | null = null;
-            let totalBreakMinutes = 0;
-            
-            for (const log of sortedLogs) {
-                const logTime = parseISO(log.timestamp);
-                if (log.type === 'clock_in') {
-                    if (clockInTime) { // If there's an open session, close it first (should not happen in clean data)
-                       totalMinutesWorked += Math.max(0, differenceInMinutes(logTime, clockInTime) - totalBreakMinutes);
-                    }
-                    clockInTime = logTime;
-                    totalBreakMinutes = 0;
-                } else if (log.type === 'clock_out' && clockInTime) {
-                    let sessionEnd = logTime;
-                    if (toDate && sessionEnd > toDate) sessionEnd = toDate;
-                    totalMinutesWorked += Math.max(0, differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes);
-                    clockInTime = null;
-                } else if (log.type === 'break_start') {
-                    // Handled by duration on break_end
-                } else if (log.type === 'break_end' && log.durationMinutes) {
-                    totalBreakMinutes += log.durationMinutes;
-                }
-            }
-             if(clockInTime && (!toDate || clockInTime < toDate)) { // If still clocked in at the end of the range
-                const endOfRange = toDate && toDate < new Date() ? toDate : new Date();
-                const sessionEnd = endOfRange > clockInTime ? endOfRange : clockInTime;
-                totalMinutesWorked += Math.max(0, differenceInMinutes(sessionEnd, clockInTime) - totalBreakMinutes);
-             }
-
-            wages = (totalMinutesWorked / 60) * member.hourlyRate;
-        }
-
-        const retailCommission = retailSales * ((member.retailCommissionRate || 0) / 100);
-
-        const totalPay = wages + tips + retailCommission;
-
-        return {
-            ...member,
-            serviceRevenue,
-            retailSales,
-            retailCommission,
-            tips,
-            wages,
-            totalPay,
-            totalHours: totalMinutesWorked / 60,
-        };
-    });
-  }, [staff, transactions, dateRange, appointments, activityLogs, services]);
   
   const payrollTotals = useMemo(() => {
-    return payrollData.reduce((acc, staff) => {
-        acc.totalWages += staff.wages;
-        acc.totalTips += staff.tips;
-        acc.totalRetailCommission += staff.retailCommission;
-        acc.totalPayroll += staff.totalPay;
+    return performanceAndPayrollData.reduce((acc, staff) => {
+        acc.totalWages += staff.stats.wages;
+        acc.totalTips += staff.stats.tips;
+        acc.totalRetailCommission += staff.stats.retailCommission;
+        acc.totalPayroll += staff.stats.totalPay;
+        acc.totalNetProfit += staff.stats.netProfit;
         return acc;
-    }, { totalWages: 0, totalTips: 0, totalRetailCommission: 0, totalPayroll: 0 });
-  }, [payrollData]);
+    }, { totalWages: 0, totalTips: 0, totalRetailCommission: 0, totalPayroll: 0, totalNetProfit: 0 });
+  }, [performanceAndPayrollData]);
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -309,90 +283,65 @@ export default function ReportsPage() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Avg. Wait Time</CardTitle>
-                <Hourglass className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                <div className="text-2xl font-bold">{waitTimeData.avgWaitTime.toFixed(1)} min</div>
-                <p className="text-xs text-muted-foreground">Average for all walk-ins</p>
-                </CardContent>
-            </Card>
-            <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Avg. Service Time</CardTitle>
-                <Clock className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                <div className="text-2xl font-bold">{salonWideStats.avgActualServiceTime.toFixed(1)} min</div>
-                <p className="text-xs text-muted-foreground">For all completed services</p>
-                </CardContent>
-            </Card>
              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Services Today</CardTitle>
-                <Sigma className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                <div className="text-2xl font-bold">{appointments.filter(a => a.status === 'completed').length}</div>
-                <p className="text-xs text-muted-foreground">Completed appointments</p>
-                </CardContent>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Avg. Ticket Size</CardTitle><DollarSign className="h-4 w-4 text-muted-foreground" /></CardHeader>
+                <CardContent><div className="text-2xl font-bold">${salonWideStats.avgTicket.toFixed(2)}</div><p className="text-xs text-muted-foreground">Average revenue per appointment</p></CardContent>
             </Card>
             <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Walk-ins Today</CardTitle>
-                <Users className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                <div className="text-2xl font-bold">{walkIns.length}</div>
-                <p className="text-xs text-muted-foreground">Customers in queue today</p>
-                </CardContent>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Stylist Utilization</CardTitle><Target className="h-4 w-4 text-muted-foreground" /></CardHeader>
+                <CardContent><div className="text-2xl font-bold">{salonWideStats.utilizationRate.toFixed(1)}%</div><p className="text-xs text-muted-foreground">Of clocked-in time is spent on services</p></CardContent>
+            </Card>
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Retail Attachment</CardTitle><ShoppingCart className="h-4 w-4 text-muted-foreground" /></CardHeader>
+                <CardContent><div className="text-2xl font-bold">{salonWideStats.retailAttachmentRate.toFixed(1)}%</div><p className="text-xs text-muted-foreground">Of appointments include a retail sale</p></CardContent>
+            </Card>
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Cancellation Rate</CardTitle><Ban className="h-4 w-4 text-muted-foreground" /></CardHeader>
+                <CardContent><div className="text-2xl font-bold">{salonWideStats.cancellationRate.toFixed(1)}%</div><p className="text-xs text-muted-foreground">Of all booked appointments</p></CardContent>
             </Card>
         </div>
 
         <Card>
             <CardHeader>
                 <CardTitle className="flex items-center gap-2"><Wallet /> Payroll Report</CardTitle>
-                <CardDescription>A summary of staff earnings for the selected period.</CardDescription>
+                <CardDescription>A summary of staff earnings and business profitability for the selected period.</CardDescription>
             </CardHeader>
             <CardContent>
                 <Table>
                     <TableHeader>
                         <TableRow>
                             <TableHead>Staff Member</TableHead>
-                            <TableHead>Pay Structure</TableHead>
                             <TableHead className="text-right">Service Rev.</TableHead>
                             <TableHead className="text-right">Retail Sales</TableHead>
-                            <TableHead className="text-right">Hours</TableHead>
                             <TableHead className="text-right">Wages</TableHead>
                             <TableHead className="text-right">Retail Comm.</TableHead>
                             <TableHead className="text-right">Tips</TableHead>
                             <TableHead className="text-right font-bold">Total Pay</TableHead>
+                             <TableHead className="text-right font-bold">Net Profit</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {payrollData.map(data => (
+                        {performanceAndPayrollData.map(data => (
                             <TableRow key={data.id}>
                                 <TableCell className="font-medium">{data.name}</TableCell>
-                                <TableCell><Badge variant="outline" className="capitalize">{data.payStructure}</Badge></TableCell>
-                                <TableCell className="text-right font-mono">${data.serviceRevenue.toFixed(2)}</TableCell>
-                                <TableCell className="text-right font-mono">${data.retailSales.toFixed(2)}</TableCell>
-                                <TableCell className="text-right font-mono">{data.payStructure === 'hourly' ? `${data.totalHours.toFixed(2)}h` : 'N/A'}</TableCell>
-                                <TableCell className="text-right font-mono">${data.wages.toFixed(2)}</TableCell>
-                                <TableCell className="text-right font-mono text-blue-500">${data.retailCommission.toFixed(2)}</TableCell>
-                                <TableCell className="text-right font-mono text-green-500">${data.tips.toFixed(2)}</TableCell>
-                                <TableCell className="text-right font-mono font-bold text-primary">${data.totalPay.toFixed(2)}</TableCell>
+                                <TableCell className="text-right font-mono">${data.stats.serviceRevenue.toFixed(2)}</TableCell>
+                                <TableCell className="text-right font-mono">${data.stats.retailSales.toFixed(2)}</TableCell>
+                                <TableCell className="text-right font-mono">${data.stats.wages.toFixed(2)}</TableCell>
+                                <TableCell className="text-right font-mono text-blue-500">${data.stats.retailCommission.toFixed(2)}</TableCell>
+                                <TableCell className="text-right font-mono text-green-500">${data.stats.tips.toFixed(2)}</TableCell>
+                                <TableCell className="text-right font-mono font-bold">${data.stats.totalPay.toFixed(2)}</TableCell>
+                                <TableCell className={cn("text-right font-mono font-bold", data.stats.netProfit >= 0 ? 'text-primary' : 'text-destructive')}>${data.stats.netProfit.toFixed(2)}</TableCell>
                             </TableRow>
                         ))}
                     </TableBody>
                     <TableFooter>
                         <TableRow className="font-bold">
-                            <TableCell colSpan={5}>Total Payroll Cost</TableCell>
+                            <TableCell colSpan={3}>Total Payroll Cost</TableCell>
                             <TableCell className="text-right font-mono">${payrollTotals.totalWages.toFixed(2)}</TableCell>
                             <TableCell className="text-right font-mono text-blue-500">${payrollTotals.totalRetailCommission.toFixed(2)}</TableCell>
                             <TableCell className="text-right font-mono text-green-500">${payrollTotals.totalTips.toFixed(2)}</TableCell>
-                            <TableCell className="text-right font-mono text-primary">${payrollTotals.totalPayroll.toFixed(2)}</TableCell>
+                            <TableCell className="text-right font-mono">${payrollTotals.totalPayroll.toFixed(2)}</TableCell>
+                            <TableCell className={cn("text-right font-mono", payrollTotals.totalNetProfit >= 0 ? 'text-primary' : 'text-destructive')}>${payrollTotals.totalNetProfit.toFixed(2)}</TableCell>
                         </TableRow>
                     </TableFooter>
                 </Table>
@@ -402,9 +351,9 @@ export default function ReportsPage() {
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-7">
           <Card className="lg:col-span-4">
             <CardHeader>
-              <CardTitle>Staff Performance</CardTitle>
+              <CardTitle>Stylist Effectiveness</CardTitle>
               <CardDescription>
-                Analysis of service duration vs. scheduled time.
+                Analysis of key performance indicators by staff member.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -412,22 +361,22 @@ export default function ReportsPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Staff Member</TableHead>
-                    <TableHead className="text-right">Total Services</TableHead>
-                    <TableHead className="text-right">Avg. Actual Time</TableHead>
-                    <TableHead className="text-right">Avg. Time Variance</TableHead>
-                    <TableHead className="text-right">Total In-Service</TableHead>
+                    <TableHead className="text-right">Utilization</TableHead>
+                    <TableHead className="text-right">Avg. Ticket</TableHead>
+                    <TableHead className="text-right">Retail Attach</TableHead>
+                    <TableHead className="text-right">Time Variance</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {performanceData.map(data => (
-                    <TableRow key={data.staffId}>
+                  {performanceAndPayrollData.map(data => (
+                    <TableRow key={data.id}>
                       <TableCell className="font-medium">{data.staffName}</TableCell>
-                      <TableCell className="text-right">{data.totalServices}</TableCell>
-                      <TableCell className="text-right">{data.avgActualServiceTime.toFixed(1)} min</TableCell>
-                      <TableCell className={`text-right font-medium ${data.avgVariance > 0 ? 'text-destructive' : 'text-green-500'}`}>
-                        {data.avgVariance > 0 ? '+' : ''}{data.avgVariance.toFixed(1)} min
+                      <TableCell className="text-right font-mono">{data.stats.utilizationRate.toFixed(1)}%</TableCell>
+                      <TableCell className="text-right font-mono">${data.stats.avgTicket.toFixed(2)}</TableCell>
+                      <TableCell className="text-right font-mono">{data.stats.retailAttachmentRate.toFixed(1)}%</TableCell>
+                      <TableCell className={`text-right font-mono ${data.stats.avgVariance > 0 ? 'text-destructive' : 'text-green-500'}`}>
+                        {data.stats.avgVariance > 0 ? '+' : ''}{data.stats.avgVariance.toFixed(1)} min
                       </TableCell>
-                       <TableCell className="text-right">{data.totalInServiceHours.toFixed(1)} hrs</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -471,3 +420,4 @@ export default function ReportsPage() {
     </div>
   );
 }
+
