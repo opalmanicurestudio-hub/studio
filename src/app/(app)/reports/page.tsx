@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -28,7 +27,7 @@ import {
 } from '@/components/ui/chart';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { format, parseISO, startOfDay, endOfDay, subDays, differenceInMinutes, differenceInDays, getHours } from 'date-fns';
-import { Clock, BarChart as BarChartIcon, Hourglass, Users, Wallet, Calendar as CalendarIcon, ShoppingCart, Percent, Target, TrendingUp, DollarSign, Ban, Loader } from 'lucide-react';
+import { Clock, BarChart as BarChartIcon, Hourglass, Users, Wallet, Calendar as CalendarIcon, ShoppingCart, Percent, Target, TrendingUp, DollarSign, Ban, Loader, Repeat, UserPlus } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
@@ -238,9 +237,9 @@ export default function ReportsPage() {
         };
     });
   }, [staff, appointments, services, transactions, activityLogs, dateRange]);
-
+  
   const salonWideStats = useMemo(() => {
-    if (!appointments || !transactions || !staff) return { avgTicket: 0, utilizationRate: 0, retailAttachmentRate: 0, cancellationRate: 0 };
+    if (!appointments || !transactions || !staff || !walkIns) return { avgTicket: 0, utilizationRate: 0, retailAttachmentRate: 0, cancellationRate: 0, rebookingRate: 0, walkInConversionRate: 0, revenuePerServiceHour: 0, newClientRate: 0 };
     
     const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
     const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
@@ -270,13 +269,60 @@ export default function ReportsPage() {
     const totalInServiceMinutes = performanceAndPayrollData.reduce((acc, d) => acc + (d.stats.totalInServiceHours * 60), 0);
     const totalMinutesWorked = performanceAndPayrollData.reduce((acc, d) => acc + (d.stats.totalHours * 60), 0);
     
+    // New KPI Calculations
+    const clientsInPeriod = new Set(completedAppointments.map(apt => apt.clientId));
+    let rebookedClients = 0;
+    if (toDate) {
+      clientsInPeriod.forEach(clientId => {
+        const hasFutureBooking = appointments.some(apt => apt.clientId === clientId && apt.startTime > toDate);
+        if (hasFutureBooking) {
+          rebookedClients++;
+        }
+      });
+    }
+    const rebookingRate = clientsInPeriod.size > 0 ? (rebookedClients / clientsInPeriod.size) * 100 : 0;
+    
+    const walkInsInRange = walkIns.filter(w => {
+        const checkInDate = parseISO(w.checkInTime);
+        if (fromDate && checkInDate < fromDate) return false;
+        if (toDate && checkInDate > toDate) return false;
+        return true;
+    });
+    const completedWalkInsCount = walkInsInRange.filter(w => w.status === 'completed').length;
+    const terminalWalkInsCount = walkInsInRange.filter(w => ['completed', 'skipped', 'cancelled'].includes(w.status)).length;
+    const walkInConversionRate = terminalWalkInsCount > 0 ? (completedWalkInsCount / terminalWalkInsCount) * 100 : 0;
+
+    const totalServiceRevenue = performanceAndPayrollData.reduce((acc, d) => acc + d.stats.serviceRevenue, 0);
+    const totalServiceHours = performanceAndPayrollData.reduce((acc, d) => acc + d.stats.totalInServiceHours, 0);
+    const revenuePerServiceHour = totalServiceHours > 0 ? totalServiceRevenue / totalServiceHours : 0;
+
+    let newClientsInPeriod = 0;
+    if(fromDate) {
+        clientsInPeriod.forEach(clientId => {
+            const clientAppointments = appointments.filter(apt => apt.clientId === clientId);
+            if (clientAppointments.length > 0) {
+                const firstAppointmentDate = clientAppointments.reduce((earliest, current) => {
+                    return current.startTime < earliest ? current.startTime : earliest;
+                }, clientAppointments[0].startTime);
+                if (firstAppointmentDate >= fromDate) {
+                    newClientsInPeriod++;
+                }
+            }
+        });
+    }
+    const newClientRate = clientsInPeriod.size > 0 ? (newClientsInPeriod / clientsInPeriod.size) * 100 : 0;
+    
     return {
       avgTicket: completedAppointments.length > 0 ? totalRevenue / completedAppointments.length : 0,
       utilizationRate: totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0,
       retailAttachmentRate: completedAppointments.length > 0 ? (appointmentsWithRetail.size / completedAppointments.length) * 100 : 0,
       cancellationRate: appointmentsInRange.length > 0 ? (cancelledAppointments.length / appointmentsInRange.length) * 100 : 0,
+      rebookingRate,
+      walkInConversionRate,
+      revenuePerServiceHour,
+      newClientRate,
     }
-  }, [performanceAndPayrollData, appointments, transactions, staff, dateRange]);
+  }, [performanceAndPayrollData, appointments, transactions, staff, dateRange, walkIns]);
 
 
   const waitTimeData = useMemo(() => {
@@ -335,6 +381,47 @@ export default function ReportsPage() {
         return acc;
     }, { totalWages: 0, totalTips: 0, totalRetailCommission: 0, totalPayroll: 0, totalNetProfit: 0 });
   }, [performanceAndPayrollData]);
+  
+  const servicePerformanceData = useMemo(() => {
+    if (!services || !appointments) return [];
+
+    const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
+    const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
+
+    return services
+        .map(service => {
+            const serviceAppointments = appointments.filter(apt => {
+                if (apt.serviceId !== service.id || apt.status !== 'completed') return false;
+                const aptDate = apt.startTime;
+                if(fromDate && aptDate < fromDate) return false;
+                if(toDate && aptDate > toDate) return false;
+                return true;
+            });
+            
+            if (serviceAppointments.length === 0) return null;
+
+            const totalRevenue = serviceAppointments.reduce((acc, apt) => acc + service.price, 0); // Simplified for this table
+            
+            const totalActualDuration = serviceAppointments.reduce((acc, apt) => {
+                if (apt.actualStartTime && apt.actualEndTime) {
+                    return acc + differenceInMinutes(apt.actualEndTime, apt.actualStartTime);
+                }
+                return acc + service.duration; // Fallback to scheduled duration
+            }, 0);
+            
+            const avgTime = totalActualDuration / serviceAppointments.length;
+            
+            return {
+                ...service,
+                totalBookings: serviceAppointments.length,
+                totalRevenue,
+                avgTime,
+            };
+        })
+        .filter((s): s is NonNullable<typeof s> => s !== null)
+        .sort((a,b) => b.totalRevenue - a.totalRevenue);
+  }, [services, appointments, dateRange]);
+
 
   if (isLoading) {
     return (
@@ -372,24 +459,16 @@ export default function ReportsPage() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-             <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Avg. Ticket Size</CardTitle><DollarSign className="h-4 w-4 text-muted-foreground" /></CardHeader>
-                <CardContent><div className="text-2xl font-bold">${salonWideStats.avgTicket.toFixed(2)}</div><p className="text-xs text-muted-foreground">Average revenue per appointment</p></CardContent>
-            </Card>
-            <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Stylist Utilization</CardTitle><Target className="h-4 w-4 text-muted-foreground" /></CardHeader>
-                <CardContent><div className="text-2xl font-bold">{salonWideStats.utilizationRate.toFixed(1)}%</div><p className="text-xs text-muted-foreground">Of clocked-in time is spent on services</p></CardContent>
-            </Card>
-            <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Retail Attachment</CardTitle><ShoppingCart className="h-4 w-4 text-muted-foreground" /></CardHeader>
-                <CardContent><div className="text-2xl font-bold">{salonWideStats.retailAttachmentRate.toFixed(1)}%</div><p className="text-xs text-muted-foreground">Of appointments include a retail sale</p></CardContent>
-            </Card>
-            <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Cancellation Rate</CardTitle><Ban className="h-4 w-4 text-muted-foreground" /></CardHeader>
-                <CardContent><div className="text-2xl font-bold">{salonWideStats.cancellationRate.toFixed(1)}%</div><p className="text-xs text-muted-foreground">Of all booked appointments</p></CardContent>
-            </Card>
+            <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Avg. Ticket Size</CardTitle><DollarSign className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">${salonWideStats.avgTicket.toFixed(2)}</div></CardContent></Card>
+            <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Stylist Utilization</CardTitle><Target className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{salonWideStats.utilizationRate.toFixed(1)}%</div></CardContent></Card>
+            <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Retail Attachment</CardTitle><ShoppingCart className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{salonWideStats.retailAttachmentRate.toFixed(1)}%</div></CardContent></Card>
+            <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Cancellation Rate</CardTitle><Ban className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{salonWideStats.cancellationRate.toFixed(1)}%</div></CardContent></Card>
+            <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Revenue / Service Hr</CardTitle><TrendingUp className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">${salonWideStats.revenuePerServiceHour.toFixed(2)}</div></CardContent></Card>
+            <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Rebooking Rate</CardTitle><Repeat className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{salonWideStats.rebookingRate.toFixed(1)}%</div></CardContent></Card>
+            <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Walk-in Conversion</CardTitle><Users className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{salonWideStats.walkInConversionRate.toFixed(1)}%</div></CardContent></Card>
+            <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">New Client Rate</CardTitle><UserPlus className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{salonWideStats.newClientRate.toFixed(1)}%</div></CardContent></Card>
         </div>
-
+        
         <Card>
             <CardHeader>
                 <CardTitle className="flex items-center gap-2"><Wallet /> Payroll Report</CardTitle>
@@ -403,8 +482,8 @@ export default function ReportsPage() {
                             <TableHead>Pay Structure</TableHead>
                             <TableHead className="text-right">Service Rev.</TableHead>
                             <TableHead className="text-right">Retail Sales</TableHead>
-                            <TableHead className="text-right">Wages</TableHead>
                             <TableHead className="text-right">Retail Comm.</TableHead>
+                            <TableHead className="text-right">Wages</TableHead>
                             <TableHead className="text-right">Tips</TableHead>
                             <TableHead className="text-right font-bold text-primary">Total Payout</TableHead>
                              <TableHead className="text-right font-bold">Net Contribution</TableHead>
@@ -429,21 +508,20 @@ export default function ReportsPage() {
                                 </TableCell>
                                 <TableCell className="text-right font-mono">${data.stats.serviceRevenue.toFixed(2)}</TableCell>
                                 <TableCell className="text-right font-mono">${data.stats.retailSales.toFixed(2)}</TableCell>
-                                <TableCell className="text-right font-mono">${data.stats.wages.toFixed(2)}</TableCell>
                                 <TableCell className="text-right font-mono text-blue-500">${data.stats.retailCommission.toFixed(2)}</TableCell>
+                                <TableCell className="text-right font-mono">${data.stats.wages.toFixed(2)}</TableCell>
                                 <TableCell className="text-right font-mono text-green-500">${data.stats.tips.toFixed(2)}</TableCell>
-                                <TableCell className="text-right font-mono font-bold text-primary">${data.stats.totalPay.toFixed(2)}</TableCell>
+                                <TableCell className="text-right font-mono font-bold text-primary bg-primary/5">${data.stats.totalPay.toFixed(2)}</TableCell>
                                 <TableCell className={cn("text-right font-mono font-bold", data.stats.netProfit >= 0 ? 'text-primary' : 'text-destructive')}>${data.stats.netProfit.toFixed(2)}</TableCell>
                             </TableRow>
                         ))}
                     </TableBody>
                     <TableFooter>
                         <TableRow>
-                            <TableCell colSpan={4} className="font-bold">Subtotals</TableCell>
+                            <TableCell colSpan={5} className="font-bold">Subtotals</TableCell>
                             <TableCell className="text-right font-mono font-bold">${payrollTotals.totalWages.toFixed(2)}</TableCell>
-                            <TableCell className="text-right font-mono font-bold text-blue-500">${payrollTotals.totalRetailCommission.toFixed(2)}</TableCell>
                             <TableCell className="text-right font-mono font-bold text-green-500">${payrollTotals.totalTips.toFixed(2)}</TableCell>
-                            <TableCell className="text-right font-mono font-bold text-primary">${payrollTotals.totalPayroll.toFixed(2)}</TableCell>
+                            <TableCell className="text-right font-mono font-bold text-primary bg-primary/5">${payrollTotals.totalPayroll.toFixed(2)}</TableCell>
                             <TableCell className={cn("text-right font-mono font-bold", payrollTotals.totalNetProfit >= 0 ? 'text-primary' : 'text-destructive')}>${payrollTotals.totalNetProfit.toFixed(2)}</TableCell>
                         </TableRow>
                         <TableRow>
@@ -457,6 +535,25 @@ export default function ReportsPage() {
                             </TableCell>
                         </TableRow>
                     </TableFooter>
+                </Table>
+            </CardContent>
+        </Card>
+        
+        <Card>
+            <CardHeader><CardTitle>Service Performance</CardTitle><CardDescription>Breakdown of performance by individual service.</CardDescription></CardHeader>
+            <CardContent>
+                <Table>
+                    <TableHeader><TableRow><TableHead>Service</TableHead><TableHead className="text-right"># Bookings</TableHead><TableHead className="text-right">Avg. Time</TableHead><TableHead className="text-right">Total Revenue</TableHead></TableRow></TableHeader>
+                    <TableBody>
+                        {servicePerformanceData.map(service => (
+                            <TableRow key={service.id}>
+                                <TableCell className="font-medium">{service.name}</TableCell>
+                                <TableCell className="text-right font-mono">{service.totalBookings}</TableCell>
+                                <TableCell className="text-right font-mono">{service.avgTime.toFixed(0)} min</TableCell>
+                                <TableCell className="text-right font-mono">${service.totalRevenue.toFixed(2)}</TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
                 </Table>
             </CardContent>
         </Card>
