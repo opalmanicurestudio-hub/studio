@@ -129,7 +129,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                                 {activityLogs.length > 0 ? (
                                     activityLogs.map(log => (
                                         <TableRow key={log.id}>
-                                            <TableCell>{format(parseISO(log.timestamp), 'PPP p')}</TableCell>
+                                            <TableCell>{format((log.timestamp as any).toDate(), 'PPP p')}</TableCell>
                                             <TableCell className="capitalize flex items-center gap-2">
                                                 {log.type === 'clock_in' && <Clock className="w-4 h-4 text-green-500" />}
                                                 {log.type === 'clock_out' && <Clock className="w-4 h-4 text-red-500" />}
@@ -163,7 +163,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                                     const service = appointment ? services.find(s => s.id === appointment.serviceId) : undefined;
                                     let timeVariance: number | null = null;
                                     if (appointment && service && appointment.actualStartTime && appointment.actualEndTime) {
-                                        const actualDuration = differenceInMinutes(parseISO(appointment.actualEndTime), parseISO(appointment.actualStartTime));
+                                        const actualDuration = differenceInMinutes((appointment.actualEndTime as any).toDate(), (appointment.actualStartTime as any).toDate());
                                         timeVariance = actualDuration - service.duration;
                                     }
 
@@ -242,7 +242,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                                         const service = appointment ? services.find(s => s.id === appointment.serviceId) : undefined;
                                         let timeVariance: number | null = null;
                                         if (appointment && service && appointment.actualStartTime && appointment.actualEndTime) {
-                                            const actualDuration = differenceInMinutes(parseISO(appointment.actualEndTime), parseISO(appointment.actualStartTime));
+                                            const actualDuration = differenceInMinutes((appointment.actualEndTime as any).toDate(), (appointment.actualStartTime as any).toDate());
                                             timeVariance = actualDuration - service.duration;
                                         }
 

@@ -213,7 +213,7 @@ export default function StaffPage() {
     return staff.map(member => {
         const staffTransactions = transactions.filter(t => {
             if (t.staffId !== member.id) return false;
-            const transactionDate = parseISO(t.date);
+            const transactionDate = (t.date as any).toDate();
             if(fromDate && transactionDate < fromDate) return false;
             if(toDate && transactionDate > toDate) return false;
             return true;
@@ -237,18 +237,18 @@ export default function StaffPage() {
         } else if (member.payStructure === 'hourly' && member.hourlyRate) {
             const staffLogs = activityLogs.filter(log => {
                 if (log.staffId !== member.id) return false;
-                const logDate = parseISO(log.timestamp);
+                const logDate = (log.timestamp as any).toDate();
                 if (fromDate && logDate < fromDate) return false;
                 if (toDate && logDate > toDate) return false;
                 return true;
             });
-            const sortedLogs = staffLogs.sort((a, b) => parseISO(a.timestamp).getTime() - parseISO(b.timestamp).getTime());
+            const sortedLogs = staffLogs.sort((a, b) => (a.timestamp as any).toDate().getTime() - (b.timestamp as any).toDate().getTime());
             let clockInTime: Date | null = null;
             let breakStartTime: Date | null = null;
             let totalBreakMinutes = 0;
             
             for (const log of sortedLogs) {
-                const logTime = parseISO(log.timestamp);
+                const logTime = (log.timestamp as any).toDate();
                 if (log.type === 'clock_in') {
                     if (clockInTime) {
                         const sessionEnd = toDate && logTime > toDate ? toDate : logTime;
@@ -306,7 +306,7 @@ export default function StaffPage() {
         // New KPI Calculations
         const staffAppointmentsInRange = appointments.filter(apt => {
             if (apt.staffId !== member.id) return false;
-            const appointmentDate = parseISO(apt.startTime);
+            const appointmentDate = (apt.startTime as any).toDate();
             if(fromDate && appointmentDate < fromDate) return false;
             if(toDate && appointmentDate > toDate) return false;
             return true;
@@ -318,7 +318,10 @@ export default function StaffPage() {
         let totalInServiceMinutes = 0;
         completedAppointments.forEach(apt => {
             if (apt.actualStartTime && apt.actualEndTime) {
-                totalInServiceMinutes += differenceInMinutes(parseISO(apt.actualEndTime), parseISO(apt.actualStartTime));
+                totalInServiceMinutes += differenceInMinutes(
+                    (apt.actualEndTime as any).toDate(),
+                    (apt.actualStartTime as any).toDate()
+                );
             } else {
                 const service = services.find(s => s.id === apt.serviceId);
                 if (service) {
@@ -436,7 +439,7 @@ export default function StaffPage() {
               break;
           case 'break_end':
               if(staffMember.breakStartTime) {
-                  const duration = differenceInMinutes(parseISO(now), parseISO(staffMember.breakStartTime));
+                  const duration = differenceInMinutes((new Date(now) as any).toDate(), (staffMember.breakStartTime as any).toDate());
                   logEntry.durationMinutes = duration;
               }
               staffUpdate = { onBreak: false, breakStartTime: undefined }; 
@@ -558,3 +561,4 @@ export default function StaffPage() {
     </div>
   );
 }
+
