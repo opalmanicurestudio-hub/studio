@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo, useRef, useState } from 'react';
@@ -23,6 +24,7 @@ import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, where } from 'firebase/firestore';
 import { PrintableReport } from '@/components/reports/PrintableReport';
 import { Loader } from 'lucide-react';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 
 const chartConfig = {
@@ -538,6 +540,7 @@ export default function ReportsPage() {
                   <Table>
                       <TableHeader>
                           <TableRow>
+                              <TableHead className="w-12"></TableHead>
                               <TableHead>Staff Member</TableHead>
                               <TableHead>Pay Structure</TableHead>
                               <TableHead className="text-right">Service Rev.</TableHead>
@@ -552,6 +555,12 @@ export default function ReportsPage() {
                       <TableBody>
                           {performanceAndPayrollData.map(data => (
                               <TableRow key={data.id}>
+                                   <TableCell>
+                                      <Avatar className="h-9 w-9">
+                                          <AvatarImage src={data.avatarUrl} alt={data.name} />
+                                          <AvatarFallback>{data.name.substring(0, 2)}</AvatarFallback>
+                                      </Avatar>
+                                  </TableCell>
                                   <TableCell className="font-medium">{data.name}</TableCell>
                                   <TableCell>
                                       <div className="font-medium capitalize">{data.payStructure}</div>
@@ -577,33 +586,33 @@ export default function ReportsPage() {
                           ))}
                       </TableBody>
                       <TableFooter>
-                          <TableRow><TableCell colSpan={8} className="font-semibold">Total Gross Revenue</TableCell><TableCell className="text-right font-mono font-semibold">${totalGrossRevenue.toFixed(2)}</TableCell></TableRow>
-                          <TableRow><TableCell colSpan={9} className="pt-0 pb-2 text-xs text-muted-foreground">Total revenue from all sales before any costs.</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={9} className="font-semibold">Total Gross Revenue</TableCell><TableCell className="text-right font-mono font-semibold">${totalGrossRevenue.toFixed(2)}</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={10} className="pt-0 pb-2 text-xs text-muted-foreground">Total revenue from all sales before any costs.</TableCell></TableRow>
                           
-                          <TableRow><TableCell colSpan={8} className="text-muted-foreground pl-8">Cost of Goods Sold (COGS)</TableCell><TableCell className="text-right font-mono text-destructive">-${totalCOGS.toFixed(2)}</TableCell></TableRow>
-                          <TableRow><TableCell colSpan={9} className="pt-0 pb-2 text-xs text-muted-foreground pl-8">Direct costs of products used in services.</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={9} className="text-muted-foreground pl-8">Cost of Goods Sold (COGS)</TableCell><TableCell className="text-right font-mono text-destructive">-${totalCOGS.toFixed(2)}</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={10} className="pt-0 pb-2 text-xs text-muted-foreground pl-8">Direct costs of products used in services.</TableCell></TableRow>
 
-                          <TableRow className="font-bold border-t"><TableCell colSpan={8}>Gross Profit</TableCell><TableCell className="text-right font-mono">${grossProfit.toFixed(2)}</TableCell></TableRow>
-                          <TableRow><TableCell colSpan={9} className="pt-0 pb-2 text-xs text-muted-foreground">Profit after subtracting the direct cost of services.</TableCell></TableRow>
+                          <TableRow className="font-bold border-t"><TableCell colSpan={9}>Gross Profit</TableCell><TableCell className="text-right font-mono">${grossProfit.toFixed(2)}</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={10} className="pt-0 pb-2 text-xs text-muted-foreground">Profit after subtracting the direct cost of services.</TableCell></TableRow>
 
-                          <TableRow><TableCell colSpan={9} className="py-2"></TableCell></TableRow>
+                          <TableRow><TableCell colSpan={10} className="py-2"></TableCell></TableRow>
                           
-                          <TableRow><TableCell colSpan={8} className="font-semibold">Operating Expenses</TableCell><TableCell></TableCell></TableRow>
-                          <TableRow><TableCell colSpan={9} className="pt-0 pb-2 text-xs text-muted-foreground">Day-to-day costs of running the business.</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={9} className="font-semibold">Operating Expenses</TableCell><TableCell></TableCell></TableRow>
+                          <TableRow><TableCell colSpan={10} className="pt-0 pb-2 text-xs text-muted-foreground">Day-to-day costs of running the business.</TableCell></TableRow>
 
-                          <TableRow><TableCell colSpan={8} className="text-muted-foreground pl-8">Service Wages</TableCell><TableCell className="text-right font-mono text-destructive">-${payrollTotals.totalWages.toFixed(2)}</TableCell></TableRow>
-                          <TableRow><TableCell colSpan={8} className="text-muted-foreground pl-8">Retail Commission</TableCell><TableCell className="text-right font-mono text-destructive">-${payrollTotals.totalRetailCommission.toFixed(2)}</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={9} className="text-muted-foreground pl-8">Service Wages</TableCell><TableCell className="text-right font-mono text-destructive">-${payrollTotals.totalWages.toFixed(2)}</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={9} className="text-muted-foreground pl-8">Retail Commission</TableCell><TableCell className="text-right font-mono text-destructive">-${payrollTotals.totalRetailCommission.toFixed(2)}</TableCell></TableRow>
                           
-                          <TableRow className="font-bold border-t"><TableCell colSpan={8}>Operating Profit</TableCell><TableCell className={cn("text-right font-mono", payrollTotals.totalNetProfit >= 0 ? 'text-primary' : 'text-destructive')}>${payrollTotals.totalNetProfit.toFixed(2)}</TableCell></TableRow>
-                          <TableRow><TableCell colSpan={9} className="pt-0 pb-2 text-xs text-muted-foreground">Profit after payroll and direct service costs.</TableCell></TableRow>
+                          <TableRow className="font-bold border-t"><TableCell colSpan={9}>Operating Profit</TableCell><TableCell className={cn("text-right font-mono", payrollTotals.totalNetProfit >= 0 ? 'text-primary' : 'text-destructive')}>${payrollTotals.totalNetProfit.toFixed(2)}</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={10} className="pt-0 pb-2 text-xs text-muted-foreground">Profit after payroll and direct service costs.</TableCell></TableRow>
 
-                          <TableRow><TableCell colSpan={9} className="py-2"></TableCell></TableRow>
+                          <TableRow><TableCell colSpan={10} className="py-2"></TableCell></TableRow>
                           
-                          <TableRow><TableCell colSpan={8} className="font-semibold">Overhead Expenses</TableCell><TableCell className="text-right font-mono text-destructive">-${periodOverhead.toFixed(2)}</TableCell></TableRow>
-                           <TableRow><TableCell colSpan={9} className="pt-0 pb-2 text-xs text-muted-foreground">Your fixed business and personal costs for the period.</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={9} className="font-semibold">Overhead Expenses</TableCell><TableCell className="text-right font-mono text-destructive">-${periodOverhead.toFixed(2)}</TableCell></TableRow>
+                           <TableRow><TableCell colSpan={10} className="pt-0 pb-2 text-xs text-muted-foreground">Your fixed business and personal costs for the period.</TableCell></TableRow>
 
-                          <TableRow className="font-bold text-lg bg-muted/50"><TableCell colSpan={8}>True Net Profit</TableCell><TableCell className={cn("text-right font-mono", (payrollTotals.totalNetProfit - periodOverhead) >= 0 ? 'text-primary' : 'text-destructive')}>${(payrollTotals.totalNetProfit - periodOverhead).toFixed(2)}</TableCell></TableRow>
-                          <TableRow><TableCell colSpan={9} className="pt-0 pb-2 text-xs text-muted-foreground">The final profit after all costs and overhead.</TableCell></TableRow>
+                          <TableRow className="font-bold text-lg bg-muted/50"><TableCell colSpan={9}>True Net Profit</TableCell><TableCell className={cn("text-right font-mono", (payrollTotals.totalNetProfit - periodOverhead) >= 0 ? 'text-primary' : 'text-destructive')}>${(payrollTotals.totalNetProfit - periodOverhead).toFixed(2)}</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={10} className="pt-0 pb-2 text-xs text-muted-foreground">The final profit after all costs and overhead.</TableCell></TableRow>
                       </TableFooter>
                   </Table>
               </CardContent>

@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React from 'react';
@@ -6,6 +7,7 @@ import { type DateRange } from 'react-day-picker';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from '@/components/ui/table';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 interface PrintableReportProps {
   dateRange: DateRange | undefined;
@@ -101,6 +103,7 @@ export const PrintableReport = React.forwardRef<HTMLDivElement, PrintableReportP
                 <Table>
                     <TableHeader>
                         <TableRow>
+                            <TableHead className="w-12"></TableHead>
                             <TableHead>Staff Member</TableHead>
                             <TableHead>Pay Structure</TableHead>
                             <TableHead className="text-right">Service Rev.</TableHead>
@@ -112,6 +115,12 @@ export const PrintableReport = React.forwardRef<HTMLDivElement, PrintableReportP
                     <TableBody>
                         {payrollData.map((data: any) => (
                             <TableRow key={data.id}>
+                                <TableCell>
+                                    <Avatar className="h-9 w-9">
+                                        <AvatarImage src={data.avatarUrl} alt={data.name} />
+                                        <AvatarFallback>{data.name.substring(0, 2)}</AvatarFallback>
+                                    </Avatar>
+                                </TableCell>
                                 <TableCell className="font-medium">{data.name}</TableCell>
                                 <TableCell>
                                       <div className="font-medium capitalize">{data.payStructure}</div>
@@ -134,17 +143,17 @@ export const PrintableReport = React.forwardRef<HTMLDivElement, PrintableReportP
                         ))}
                     </TableBody>
                      <TableFooter>
-                          <TableRow><TableCell colSpan={5} className="font-semibold">Total Gross Revenue</TableCell><TableCell className="text-right font-mono font-semibold">${totalGrossRevenue.toFixed(2)}</TableCell></TableRow>
-                          <TableRow><TableCell colSpan={5} className="text-gray-500 pl-8">Cost of Goods Sold (COGS)</TableCell><TableCell className="text-right font-mono text-red-600">-${totalCOGS.toFixed(2)}</TableCell></TableRow>
-                          <TableRow className="font-bold border-t"><TableCell colSpan={5}>Gross Profit</TableCell><TableCell className="text-right font-mono">${grossProfit.toFixed(2)}</TableCell></TableRow>
-                          <TableRow><TableCell colSpan={6} className="py-2"></TableCell></TableRow>
-                          <TableRow><TableCell colSpan={5} className="font-semibold">Operating Expenses</TableCell><TableCell></TableCell></TableRow>
-                          <TableRow><TableCell colSpan={5} className="text-gray-500 pl-8">Service Wages</TableCell><TableCell className="text-right font-mono text-red-600">-${payrollTotals.totalWages.toFixed(2)}</TableCell></TableRow>
-                          <TableRow><TableCell colSpan={5} className="text-gray-500 pl-8">Retail Commission</TableCell><TableCell className="text-right font-mono text-red-600">-${payrollTotals.totalRetailCommission.toFixed(2)}</TableCell></TableRow>
-                          <TableRow className="font-bold border-t"><TableCell colSpan={5}>Operating Profit</TableCell><TableCell className={cn("text-right font-mono", payrollTotals.totalNetProfit >= 0 ? 'text-green-600' : 'text-red-600')}>${payrollTotals.totalNetProfit.toFixed(2)}</TableCell></TableRow>
-                          <TableRow><TableCell colSpan={6} className="py-2"></TableCell></TableRow>
-                          <TableRow><TableCell colSpan={5} className="font-semibold">Overhead Expenses</TableCell><TableCell className="text-right font-mono text-red-600">-${periodOverhead.toFixed(2)}</TableCell></TableRow>
-                          <TableRow className="font-bold text-lg bg-gray-100"><TableCell colSpan={5}>True Net Profit</TableCell><TableCell className={cn("text-right font-mono", (payrollTotals.totalNetProfit - periodOverhead) >= 0 ? 'text-green-600' : 'text-red-600')}>${(payrollTotals.totalNetProfit - periodOverhead).toFixed(2)}</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={6} className="font-semibold">Total Gross Revenue</TableCell><TableCell className="text-right font-mono font-semibold">${totalGrossRevenue.toFixed(2)}</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={6} className="text-gray-500 pl-8">Cost of Goods Sold (COGS)</TableCell><TableCell className="text-right font-mono text-red-600">-${totalCOGS.toFixed(2)}</TableCell></TableRow>
+                          <TableRow className="font-bold border-t"><TableCell colSpan={6}>Gross Profit</TableCell><TableCell className="text-right font-mono">${grossProfit.toFixed(2)}</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={7} className="py-2"></TableCell></TableRow>
+                          <TableRow><TableCell colSpan={6} className="font-semibold">Operating Expenses</TableCell><TableCell></TableCell></TableRow>
+                          <TableRow><TableCell colSpan={6} className="text-gray-500 pl-8">Service Wages</TableCell><TableCell className="text-right font-mono text-red-600">-${payrollTotals.totalWages.toFixed(2)}</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={6} className="text-gray-500 pl-8">Retail Commission</TableCell><TableCell className="text-right font-mono text-red-600">-${payrollTotals.totalRetailCommission.toFixed(2)}</TableCell></TableRow>
+                          <TableRow className="font-bold border-t"><TableCell colSpan={6}>Operating Profit</TableCell><TableCell className={cn("text-right font-mono", payrollTotals.totalNetProfit >= 0 ? 'text-green-600' : 'text-red-600')}>${payrollTotals.totalNetProfit.toFixed(2)}</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={7} className="py-2"></TableCell></TableRow>
+                          <TableRow><TableCell colSpan={6} className="font-semibold">Overhead Expenses</TableCell><TableCell className="text-right font-mono text-red-600">-${periodOverhead.toFixed(2)}</TableCell></TableRow>
+                          <TableRow className="font-bold text-lg bg-gray-100"><TableCell colSpan={6}>True Net Profit</TableCell><TableCell className={cn("text-right font-mono", (payrollTotals.totalNetProfit - periodOverhead) >= 0 ? 'text-green-600' : 'text-red-600')}>${(payrollTotals.totalNetProfit - periodOverhead).toFixed(2)}</TableCell></TableRow>
                     </TableFooter>
                 </Table>
             </section>
@@ -169,4 +178,4 @@ export const PrintableReport = React.forwardRef<HTMLDivElement, PrintableReportP
     );
 });
 
-PrintableReport.displayName = 'PrintableReport';
+PrintableStaffReport.displayName = 'PrintableStaffReport';
