@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React from 'react';
@@ -129,7 +128,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                                 {activityLogs.length > 0 ? (
                                     activityLogs.map(log => (
                                         <TableRow key={log.id}>
-                                            <TableCell>{format((log.timestamp as any).toDate(), 'PPP p')}</TableCell>
+                                            <TableCell>{format(log.timestamp, 'PPP p')}</TableCell>
                                             <TableCell className="capitalize flex items-center gap-2">
                                                 {log.type === 'clock_in' && <Clock className="w-4 h-4 text-green-500" />}
                                                 {log.type === 'clock_out' && <Clock className="w-4 h-4 text-red-500" />}
@@ -163,7 +162,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                                     const service = appointment ? services.find(s => s.id === appointment.serviceId) : undefined;
                                     let timeVariance: number | null = null;
                                     if (appointment && service && appointment.actualStartTime && appointment.actualEndTime) {
-                                        const actualDuration = differenceInMinutes((appointment.actualEndTime as any).toDate(), (appointment.actualStartTime as any).toDate());
+                                        const actualDuration = differenceInMinutes(appointment.actualEndTime, appointment.actualStartTime);
                                         timeVariance = actualDuration - service.duration;
                                     }
 
@@ -173,7 +172,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                                             <div className="flex justify-between items-start">
                                                 <div className="space-y-1">
                                                     <p className="font-medium">{t.description}</p>
-                                                    <p className="text-xs text-muted-foreground">{format(new Date(t.date), 'MMM d, yyyy h:mm a')}</p>
+                                                    <p className="text-xs text-muted-foreground">{format(t.date, 'MMM d, yyyy h:mm a')}</p>
                                                      {timeVariance !== null && (
                                                         <div>
                                                             <p className={`text-sm font-semibold ${timeVariance > 0 ? 'text-destructive' : 'text-green-500'}`}>
@@ -242,13 +241,13 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                                         const service = appointment ? services.find(s => s.id === appointment.serviceId) : undefined;
                                         let timeVariance: number | null = null;
                                         if (appointment && service && appointment.actualStartTime && appointment.actualEndTime) {
-                                            const actualDuration = differenceInMinutes((appointment.actualEndTime as any).toDate(), (appointment.actualStartTime as any).toDate());
+                                            const actualDuration = differenceInMinutes(appointment.actualEndTime, appointment.actualStartTime);
                                             timeVariance = actualDuration - service.duration;
                                         }
 
                                         return (
                                         <TableRow key={t.id}>
-                                        <TableCell>{format(new Date(t.date), 'MMM d, yyyy h:mm a')}</TableCell>
+                                        <TableCell>{format(t.date, 'MMM d, yyyy h:mm a')}</TableCell>
                                         <TableCell>{t.description}</TableCell>
                                         <TableCell>
                                             <Badge
