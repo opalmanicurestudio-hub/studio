@@ -44,7 +44,7 @@ export function useDoc<T = any>(
   type StateDataType = WithId<T> | null;
 
   const [data, setData] = useState<StateDataType>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true); // Start as loading
   const [error, setError] = useState<FirestoreError | Error | null>(null);
 
   useEffect(() => {
@@ -57,29 +57,38 @@ export function useDoc<T = any>(
 
     setIsLoading(true);
     setError(null);
-    // Optional: setData(null); // Clear previous data instantly
 
     const unsubscribe = onSnapshot(
       memoizedDocRef,
+      { includeMetadataChanges: true }, // Listen for metadata to check for pending writes
       (snapshot: DocumentSnapshot<DocumentData>) => {
         if (snapshot.exists()) {
+          // Document exists, update data and stop loading.
           setData({ ...(snapshot.data() as T), id: snapshot.id });
+          setIsLoading(false);
+          setError(null);
         } else {
-          // Document does not exist
-          setData(null);
+          // Document does not exist in cache. Check for pending writes.
+          if (snapshot.metadata.hasPendingWrites) {
+            // The document is being created locally. It's not a 404 yet.
+            // We stay in the loading state and wait for the server to confirm.
+          } else {
+            // The server has confirmed the document does not exist.
+            setData(null);
+            setIsLoading(false);
+            setError(null); // This is a confirmed "not found" state, not an error.
+          }
         }
-        setError(null); // Clear any previous error on successful snapshot (even if doc doesn't exist)
-        setIsLoading(false);
       },
       (error: FirestoreError) => {
         const contextualError = new FirestorePermissionError({
           operation: 'get',
           path: memoizedDocRef.path,
-        })
+        });
 
-        setError(contextualError)
-        setData(null)
-        setIsLoading(false)
+        setError(contextualError);
+        setData(null);
+        setIsLoading(false);
 
         // trigger global error propagation
         errorEmitter.emit('permission-error', contextualError);
