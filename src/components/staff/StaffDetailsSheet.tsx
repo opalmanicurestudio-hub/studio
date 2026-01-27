@@ -203,8 +203,10 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                     <AccordionItem value="transactions" className="border rounded-lg">
                         <AccordionTrigger className="p-4 font-semibold">Transaction History</AccordionTrigger>
                         <AccordionContent className="p-4 pt-0">
-                            <div className="md:hidden space-y-3">
-                                {transactions.length > 0 ? (
+                            <Table>
+                                <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Description</TableHead><TableHead>Type</TableHead><TableHead className="text-right">Time Variance</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader>
+                                <TableBody>
+                                    {transactions.length > 0 ? (
                                     transactions.map(t => {
                                         const appointment = t.appointmentId ? appointments.find(a => a.id === t.appointmentId) : undefined;
                                         const service = appointment ? services.find(s => s.id === appointment.serviceId) : undefined;
@@ -215,75 +217,19 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                                         }
 
                                         return (
-                                        <Card key={t.id}>
-                                            <CardContent className="p-3">
-                                                <div className="flex justify-between items-start">
-                                                    <div className="space-y-1">
-                                                        <p className="font-medium">{t.description}</p>
-                                                        <p className="text-xs text-muted-foreground">{format(t.date, 'MMM d, yyyy h:mm a')}</p>
-                                                        {timeVariance !== null && (
-                                                            <div>
-                                                                <p className={`text-sm font-semibold ${timeVariance > 0 ? 'text-destructive' : 'text-green-500'}`}>
-                                                                    Time Variance: {timeVariance > 0 ? '+' : ''}{timeVariance} min
-                                                                </p>
-                                                                <p className="text-xs text-muted-foreground">(Actual vs. Scheduled)</p>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                    <div className="text-right">
-                                                        <p className="font-mono font-semibold flex items-center justify-end gap-1">
-                                                            {t.type === 'income' ? (
-                                                                <TrendingUp className="h-4 w-4 text-green-500" />
-                                                            ) : (
-                                                                <DollarSign className="h-4 w-4 text-muted-foreground" />
-                                                            )}
-                                                            ${t.amount.toFixed(2)}
-                                                        </p>
-                                                        <Badge
-                                                            variant={t.category === 'Tips' ? 'secondary' : 'outline'}
-                                                            className={`mt-1 text-xs ${t.category === 'Tips' ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : ''}`}
-                                                        >
-                                                            {t.category}
-                                                        </Badge>
-                                                    </div>
-                                                </div>
-                                            </CardContent>
-                                        </Card>
+                                        <TableRow key={t.id}>
+                                        <TableCell>{format(t.date, 'MMM d, yyyy h:mm a')}</TableCell>
+                                        <TableCell>{t.description}</TableCell>
+                                        <TableCell><Badge variant={t.category === 'Tips' ? 'secondary' : 'outline'} className={t.category === 'Tips' ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : ''}>{t.category}</Badge></TableCell>
+                                        <TableCell className="text-right font-mono">{timeVariance !== null ? (<span className={timeVariance > 0 ? 'text-destructive' : 'text-green-500'}>{timeVariance > 0 ? '+' : ''}{timeVariance} min</span>) : (<span className="text-muted-foreground">—</span>)}</TableCell>
+                                        <TableCell className="text-right font-mono"><div className='flex items-center justify-end gap-1'>{t.type === 'income' ? (<TrendingUp className="h-4 w-4 text-green-500" />) : (<DollarSign className="h-4 w-4 text-muted-foreground" />)} ${t.amount.toFixed(2)}</div></TableCell>
+                                        </TableRow>
                                     )})
-                                ) : (
-                                    <p className="text-center text-muted-foreground py-10">No transactions in this period.</p>
-                                )}
-                            </div>
-
-                            <div className="hidden md:block">
-                                <Table>
-                                    <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Description</TableHead><TableHead>Type</TableHead><TableHead className="text-right">Time Variance</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader>
-                                    <TableBody>
-                                        {transactions.length > 0 ? (
-                                        transactions.map(t => {
-                                            const appointment = t.appointmentId ? appointments.find(a => a.id === t.appointmentId) : undefined;
-                                            const service = appointment ? services.find(s => s.id === appointment.serviceId) : undefined;
-                                            let timeVariance: number | null = null;
-                                            if (appointment && service && appointment.actualStartTime && appointment.actualEndTime) {
-                                                const actualDuration = differenceInMinutes(appointment.actualEndTime, appointment.actualStartTime);
-                                                timeVariance = actualDuration - service.duration;
-                                            }
-
-                                            return (
-                                            <TableRow key={t.id}>
-                                            <TableCell>{format(t.date, 'MMM d, yyyy h:mm a')}</TableCell>
-                                            <TableCell>{t.description}</TableCell>
-                                            <TableCell><Badge variant={t.category === 'Tips' ? 'secondary' : 'outline'} className={t.category === 'Tips' ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : ''}>{t.category}</Badge></TableCell>
-                                            <TableCell className="text-right font-mono">{timeVariance !== null ? (<span className={timeVariance > 0 ? 'text-destructive' : 'text-green-500'}>{timeVariance > 0 ? '+' : ''}{timeVariance} min</span>) : (<span className="text-muted-foreground">—</span>)}</TableCell>
-                                            <TableCell className="text-right font-mono"><div className='flex items-center justify-end gap-1'>{t.type === 'income' ? (<TrendingUp className="h-4 w-4 text-green-500" />) : (<DollarSign className="h-4 w-4 text-muted-foreground" />)} ${t.amount.toFixed(2)}</div></TableCell>
-                                            </TableRow>
-                                        )})
-                                        ) : (
-                                        <TableRow><TableCell colSpan={5} className="text-center h-24">No transactions in this period.</TableCell></TableRow>
-                                        )}
-                                    </TableBody>
-                                </Table>
-                            </div>
+                                    ) : (
+                                    <TableRow><TableCell colSpan={5} className="text-center h-24">No transactions in this period.</TableCell></TableRow>
+                                    )}
+                                </TableBody>
+                            </Table>
                         </AccordionContent>
                     </AccordionItem>
                 </Accordion>
