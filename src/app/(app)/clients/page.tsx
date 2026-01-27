@@ -197,7 +197,9 @@ export default function ClientsPage() {
     
     const newClientWithId = { ...newClient, id: newClientRef.id };
     
-    await setDoc(newClientRef, newClientWithId);
+    const sanitizedData = JSON.parse(JSON.stringify(newClientWithId));
+    
+    await setDoc(newClientRef, sanitizedData);
 
     if (referringClientId && clients) {
         const referrer = clients.find(c => c.id === referringClientId);
