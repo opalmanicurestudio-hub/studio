@@ -1,5 +1,6 @@
 
 
+
 'use client';
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
@@ -644,7 +645,9 @@ const events = useMemo(() => {
         if (existingClient) {
             finalClientId = existingClient.id;
         } else {
-            const newId = `cli-${nanoid()}`;
+            const clientsCollection = collection(firestore, 'tenants', tenantId, 'clients');
+            const newClientRef = doc(clientsCollection);
+            const newId = newClientRef.id;
             const newClient: Client = {
               id: newId,
               name: newAppointment.clientName || 'Walk-in Customer',
@@ -655,8 +658,7 @@ const events = useMemo(() => {
               lastAppointment: new Date().toISOString(),
               status: 'active',
             };
-            const clientDocRef = doc(firestore, 'tenants', tenantId, 'clients', newId);
-            await setDoc(clientDocRef, newClient);
+            await setDoc(newClientRef, newClient);
             finalClientId = newId;
             finalClientName = newClient.name;
         }
@@ -1549,3 +1551,5 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
+
+    

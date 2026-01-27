@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -35,8 +36,8 @@ import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
 import { ClientOnly } from '@/components/shared/ClientOnly';
-import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
-import { collection, doc } from 'firebase/firestore';
+import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
+import { collection, doc, setDoc } from 'firebase/firestore';
 
 
 const ClientCard = ({ client, isSelected, onSelect, appointments }: { client: Client, isSelected: boolean, onSelect: () => void, appointments: Appointment[] }) => {
@@ -165,8 +166,52 @@ export default function ClientsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 8;
   
-  const handleAddClient = (data: ClientFormData) => {
-    // This function will be updated to write to Firestore in a subsequent step
+  const handleAddClient = async (data: ClientFormData) => {
+    if (!firestore) return;
+
+    const { referringClientId, ...clientData } = data;
+    const firstName = data.name.split(' ')[0].toUpperCase();
+    const referralCode = `${firstName}${nanoid(4)}`;
+
+    const newClient: Omit<Client, 'id'> = {
+      name: data.name,
+      email: data.email || '',
+      phone: data.phone || '',
+      avatarUrl: data.avatarUrl || `https://picsum.photos/seed/${nanoid()}/100`,
+      lifetimeValue: 0,
+      lastAppointment: new Date().toISOString(),
+      status: 'active',
+      notes: data.notes,
+      referralCode: referralCode,
+      birthday: data.birthday ? data.birthday.toISOString() : undefined,
+      address: data.address,
+      emergencyContact: data.emergencyContact,
+      intel: {
+        referralSource: data.intel?.referralSource
+      }
+    };
+    
+    // Let Firestore generate the ID
+    const clientsCollection = collection(firestore, `tenants/${tenantId}/clients`);
+    const newClientRef = doc(clientsCollection);
+    
+    const newClientWithId = { ...newClient, id: newClientRef.id };
+    
+    await setDoc(newClientRef, newClientWithId);
+
+    if (referringClientId && clients) {
+        const referrer = clients.find(c => c.id === referringClientId);
+        if (referrer) {
+            const referrerDocRef = doc(firestore, `tenants/${tenantId}/clients/${referringClientId}`);
+            const updatedReferrals = [...(referrer.successfulReferrals || []), newClient.name];
+            updateDocumentNonBlocking(referrerDocRef, { successfulReferrals: updatedReferrals });
+        }
+    }
+
+    toast({
+      title: "Client Added",
+      description: `${data.name} has been added to your client list.`,
+    });
   }
 
   const handleItemSelect = useCallback((itemId: string) => {
@@ -513,5 +558,7 @@ export default function ClientsPage() {
     </div>
   );
 }
+
+    
 
     

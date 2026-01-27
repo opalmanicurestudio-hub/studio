@@ -41,7 +41,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { CompleteAppointmentDialog, type CheckoutData } from '@/components/planner/CompleteAppointmentDialog';
 import { nanoid } from 'nanoid';
 import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
-import { collection, doc } from 'firebase/firestore';
+import { collection, doc, setDoc } from 'firebase/firestore';
 import { parseISO } from 'date-fns';
 import { Html5Qrcode } from 'html5-qrcode';
 import {
@@ -97,7 +97,7 @@ const MembershipProductCard = ({ membership, onClick }: { membership: Membership
                             ))}
                             {(membership.includedProducts || []).map(p => (
                                 <li key={p.id} className="flex items-center gap-1.5">
-                                    <CheckCircle className="w-3 h-3 text-green-500 flex-shrink-0" />
+                                    <CheckCircle className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
                                     <span className="truncate">1x {p.name}</span>
                                 </li>
                             ))}
@@ -654,8 +654,9 @@ export default function RetailPage() {
   const totalDiscount = discount + membershipDiscount;
   const subtotalAfterDiscounts = subtotal > totalDiscount ? subtotal - totalDiscount : 0;
   const mockTax = subtotalAfterDiscounts * 0.07; // 7% tax for demo
-  const total = subtotalAfterDiscounts + mockTax + tipAmount;
-  const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - total : 0;
+  const grandTotal = subtotalAfterDiscounts + mockTax + tipAmount;
+  
+  const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - grandTotal : 0;
 
   const handleApplyPromo = () => {
     const selectedClient = clients?.find(c => c.id === selectedClientId);
@@ -1008,10 +1009,10 @@ export default function RetailPage() {
     });
   };
 
-  const handleAddClient = (data: ClientFormData) => {
+  const handleAddClient = async (data: ClientFormData) => {
     if (!firestore) return;
-    const { referringClientId } = data;
-        
+
+    const { referringClientId, ...clientData } = data;
     const firstName = data.name.split(' ')[0].toUpperCase();
     const referralCode = `${firstName}${nanoid(4)}`;
 
@@ -1019,7 +1020,7 @@ export default function RetailPage() {
       name: data.name,
       email: data.email || '',
       phone: data.phone || '',
-      avatarUrl: data.avatarUrl || '',
+      avatarUrl: data.avatarUrl || `https://picsum.photos/seed/${nanoid()}/100`,
       lifetimeValue: 0,
       lastAppointment: new Date().toISOString(),
       status: 'active',
@@ -1032,13 +1033,17 @@ export default function RetailPage() {
         referralSource: data.intel?.referralSource
       }
     };
-        
-    const newClientId = `cli-${nanoid()}`;
-    const clientDocRef = doc(firestore, `tenants/${tenantId}/clients/${newClientId}`);
-    setDocumentNonBlocking(clientDocRef, { ...newClient, id: newClientId }, {});
-        
-    if (referringClientId) {
-        const referrer = clients?.find(c => c.id === referringClientId);
+    
+    // Let Firestore generate the ID
+    const clientsCollection = collection(firestore, `tenants/${tenantId}/clients`);
+    const newClientRef = doc(clientsCollection);
+    
+    const newClientWithId = { ...newClient, id: newClientRef.id };
+    
+    await setDoc(newClientRef, newClientWithId);
+
+    if (referringClientId && clients) {
+        const referrer = clients.find(c => c.id === referringClientId);
         if (referrer) {
             const referrerDocRef = doc(firestore, `tenants/${tenantId}/clients/${referringClientId}`);
             const updatedReferrals = [...(referrer.successfulReferrals || []), newClient.name];
@@ -1046,17 +1051,17 @@ export default function RetailPage() {
         }
     }
         
-    setSelectedClientId(newClientId);
+    setSelectedClientId(newClientWithId.id);
 
     toast({
       title: "Client Added",
-      description: `${data.name} has been added to your client list and selected.`,
+      description: `${data.name} has been added and selected for this sale.`,
     });
     setIsAddClientOpen(false);
   }
     
   const checkoutAppointmentData = useMemo(() => {
-    if (!checkoutAppointment || !clients || !services) return null;
+    if (!checkoutAppointment || !services || !clients) return null;
     const clientData = clients?.find(c => c.id === checkoutAppointment.clientId);
     const serviceData = services.find(s => s.id === checkoutAppointment.serviceId);
 
@@ -1149,7 +1154,7 @@ export default function RetailPage() {
                     tax={mockTax}
                     tipAmount={tipAmount}
                     setTipAmount={setTipAmount}
-                    total={total}
+                    total={grandTotal}
                     paymentTab={paymentTab}
                     setPaymentTab={setPaymentTab}
                     amountTendered={amountTendered}
@@ -1182,7 +1187,7 @@ export default function RetailPage() {
                         <Button className="w-full h-14 text-lg" size="lg">
                             <div className="flex justify-between items-center w-full">
                                 <span>{cart.length} item(s)</span>
-                                <span>${total.toFixed(2)}</span>
+                                <span>${grandTotal.toFixed(2)}</span>
                             </div>
                         </Button>
                     </SheetTrigger>
@@ -1198,7 +1203,7 @@ export default function RetailPage() {
                             tax={mockTax}
                             tipAmount={tipAmount}
                             setTipAmount={setTipAmount}
-                            total={total}
+                            total={grandTotal}
                             paymentTab={paymentTab}
                             setPaymentTab={setPaymentTab}
                             amountTendered={amountTendered}
@@ -1295,3 +1300,5 @@ export default function RetailPage() {
     </>
   );
 }
+
+    
