@@ -1171,14 +1171,15 @@ const events = useMemo(() => {
                     <Button size="sm" onClick={() => setIsAddAppointmentOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Appointment</Button>
                 </div>
             </div>
-             <Tabs value={activeView} onValueChange={setActiveView} className="pt-2">
-                <TabsList>
-                    <TabsTrigger value="staff">Staff View</TabsTrigger>
-                    <TabsTrigger value="resources">Resource View</TabsTrigger>
-                </TabsList>
-            </Tabs>
         </div>
       </div>
+      
+      <Tabs value={activeView} onValueChange={setActiveView} className="px-4 pt-2 border-b">
+        <TabsList className="grid w-full grid-cols-2 md:inline-flex md:w-auto">
+          <TabsTrigger value="staff">Staff View</TabsTrigger>
+          <TabsTrigger value="resources">Resource View</TabsTrigger>
+        </TabsList>
+      </Tabs>
 
        <div className="border-b">
         <ScrollArea className="w-full md:whitespace-normal">
@@ -1502,5 +1503,6 @@ const events = useMemo(() => {
     </div>
   );
 }
+
 
 
