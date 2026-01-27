@@ -177,19 +177,19 @@ export default function StaffPage() {
     if (!firestore || !user) return null;
     return collection(firestore, 'tenants', tenantId, 'transactions');
   }, [firestore, user, tenantId]);
-  const { data: transactions } = useCollection<Transaction>(transactionsQuery);
+  const { data: rawTransactions } = useCollection<Transaction>(transactionsQuery);
 
   const appointmentsQuery = useMemoFirebase(() => {
     if (!firestore || !user) return null;
     return collection(firestore, 'tenants', tenantId, 'appointments');
   }, [firestore, user, tenantId]);
-  const { data: appointments } = useCollection<Appointment>(appointmentsQuery);
+  const { data: rawAppointments } = useCollection<Appointment>(appointmentsQuery);
   
   const activityLogsQuery = useMemoFirebase(() => {
     if (!firestore || !user) return null;
     return collection(firestore, 'tenants', tenantId, 'activityLogs');
   }, [firestore, user, tenantId]);
-  const { data: activityLogs } = useCollection<ActivityLog>(activityLogsQuery);
+  const { data: rawActivityLogs } = useCollection<ActivityLog>(activityLogsQuery);
 
   const stockCorrectionsQuery = useMemoFirebase(() => {
     if (!firestore || !user) return null;
@@ -198,6 +198,28 @@ export default function StaffPage() {
   const { data: stockCorrections } = useCollection<StockCorrection>(stockCorrectionsQuery);
   
   const { inventory } = useInventory();
+
+  // Normalize all date-like fields into Date objects
+  const transactions = useMemo(() => {
+    if (!rawTransactions) return [];
+    return rawTransactions.map(t => ({...t, date: (t.date as any)?.toDate ? (t.date as any).toDate() : parseISO(t.date) }));
+  }, [rawTransactions]);
+
+  const appointments = useMemo(() => {
+    if (!rawAppointments) return [];
+    return rawAppointments.map(apt => ({
+      ...apt,
+      startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime),
+      endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime),
+      actualStartTime: apt.actualStartTime ? ((apt.actualStartTime as any)?.toDate ? (apt.actualStartTime as any).toDate() : parseISO(apt.actualStartTime)) : undefined,
+      actualEndTime: apt.actualEndTime ? ((apt.actualEndTime as any)?.toDate ? (apt.actualEndTime as any).toDate() : parseISO(apt.actualEndTime)) : undefined,
+    }));
+  }, [rawAppointments]);
+
+  const activityLogs = useMemo(() => {
+    if (!rawActivityLogs) return [];
+    return rawActivityLogs.map(log => ({...log, timestamp: (log.timestamp as any)?.toDate ? (log.timestamp as any).toDate() : parseISO(log.timestamp)}));
+  }, [rawActivityLogs]);
 
 
   useEffect(() => {
@@ -213,7 +235,7 @@ export default function StaffPage() {
     return staff.map(member => {
         const staffTransactions = transactions.filter(t => {
             if (t.staffId !== member.id) return false;
-            const transactionDate = (t.date as any).toDate();
+            const transactionDate = t.date;
             if(fromDate && transactionDate < fromDate) return false;
             if(toDate && transactionDate > toDate) return false;
             return true;
@@ -237,18 +259,18 @@ export default function StaffPage() {
         } else if (member.payStructure === 'hourly' && member.hourlyRate) {
             const staffLogs = activityLogs.filter(log => {
                 if (log.staffId !== member.id) return false;
-                const logDate = (log.timestamp as any).toDate();
+                const logDate = log.timestamp;
                 if (fromDate && logDate < fromDate) return false;
                 if (toDate && logDate > toDate) return false;
                 return true;
             });
-            const sortedLogs = staffLogs.sort((a, b) => (a.timestamp as any).toDate().getTime() - (b.timestamp as any).toDate().getTime());
+            const sortedLogs = staffLogs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
             let clockInTime: Date | null = null;
             let breakStartTime: Date | null = null;
             let totalBreakMinutes = 0;
             
             for (const log of sortedLogs) {
-                const logTime = (log.timestamp as any).toDate();
+                const logTime = log.timestamp;
                 if (log.type === 'clock_in') {
                     if (clockInTime) {
                         const sessionEnd = toDate && logTime > toDate ? toDate : logTime;
@@ -306,7 +328,7 @@ export default function StaffPage() {
         // New KPI Calculations
         const staffAppointmentsInRange = appointments.filter(apt => {
             if (apt.staffId !== member.id) return false;
-            const appointmentDate = (apt.startTime as any).toDate();
+            const appointmentDate = apt.startTime;
             if(fromDate && appointmentDate < fromDate) return false;
             if(toDate && appointmentDate > toDate) return false;
             return true;
@@ -318,10 +340,7 @@ export default function StaffPage() {
         let totalInServiceMinutes = 0;
         completedAppointments.forEach(apt => {
             if (apt.actualStartTime && apt.actualEndTime) {
-                totalInServiceMinutes += differenceInMinutes(
-                    (apt.actualEndTime as any).toDate(),
-                    (apt.actualStartTime as any).toDate()
-                );
+                totalInServiceMinutes += differenceInMinutes(apt.actualEndTime, apt.actualStartTime);
             } else {
                 const service = services.find(s => s.id === apt.serviceId);
                 if (service) {
@@ -439,7 +458,7 @@ export default function StaffPage() {
               break;
           case 'break_end':
               if(staffMember.breakStartTime) {
-                  const duration = differenceInMinutes((new Date(now) as any).toDate(), (staffMember.breakStartTime as any).toDate());
+                  const duration = differenceInMinutes(new Date(now), parseISO(staffMember.breakStartTime));
                   logEntry.durationMinutes = duration;
               }
               staffUpdate = { onBreak: false, breakStartTime: undefined }; 
@@ -561,4 +580,5 @@ export default function StaffPage() {
     </div>
   );
 }
+
 
