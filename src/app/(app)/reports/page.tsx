@@ -404,7 +404,7 @@ export default function ReportsPage() {
                             <TableHead className="text-right">Wages</TableHead>
                             <TableHead className="text-right">Retail Comm.</TableHead>
                             <TableHead className="text-right">Tips</TableHead>
-                            <TableHead className="text-right font-bold">Total Pay</TableHead>
+                            <TableHead className="text-right font-bold text-primary">Total Payout</TableHead>
                              <TableHead className="text-right font-bold">Net Contribution</TableHead>
                         </TableRow>
                     </TableHeader>
@@ -417,7 +417,7 @@ export default function ReportsPage() {
                                 <TableCell className="text-right font-mono">${data.stats.wages.toFixed(2)}</TableCell>
                                 <TableCell className="text-right font-mono text-blue-500">${data.stats.retailCommission.toFixed(2)}</TableCell>
                                 <TableCell className="text-right font-mono text-green-500">${data.stats.tips.toFixed(2)}</TableCell>
-                                <TableCell className="text-right font-mono font-bold">${data.stats.totalPay.toFixed(2)}</TableCell>
+                                <TableCell className="text-right font-mono font-bold text-primary">${data.stats.totalPay.toFixed(2)}</TableCell>
                                 <TableCell className={cn("text-right font-mono font-bold", data.stats.netProfit >= 0 ? 'text-primary' : 'text-destructive')}>${data.stats.netProfit.toFixed(2)}</TableCell>
                             </TableRow>
                         ))}
@@ -428,7 +428,7 @@ export default function ReportsPage() {
                             <TableCell className="text-right font-mono font-bold">${payrollTotals.totalWages.toFixed(2)}</TableCell>
                             <TableCell className="text-right font-mono font-bold text-blue-500">${payrollTotals.totalRetailCommission.toFixed(2)}</TableCell>
                             <TableCell className="text-right font-mono font-bold text-green-500">${payrollTotals.totalTips.toFixed(2)}</TableCell>
-                            <TableCell className="text-right font-mono font-bold">${payrollTotals.totalPayroll.toFixed(2)}</TableCell>
+                            <TableCell className="text-right font-mono font-bold text-primary">${payrollTotals.totalPayroll.toFixed(2)}</TableCell>
                             <TableCell className={cn("text-right font-mono font-bold", payrollTotals.totalNetProfit >= 0 ? 'text-primary' : 'text-destructive')}>${payrollTotals.totalNetProfit.toFixed(2)}</TableCell>
                         </TableRow>
                         <TableRow>
