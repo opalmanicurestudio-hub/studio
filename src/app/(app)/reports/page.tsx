@@ -1,42 +1,29 @@
 
 'use client';
 
-import React, { useMemo, useState, useEffect, useRef } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-  TableFooter,
-} from '@/components/ui/table';
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-  ChartConfig,
-} from '@/components/ui/chart';
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
-import { format, parseISO, startOfDay, endOfDay, subDays, differenceInMinutes, differenceInDays, getHours, setHours } from 'date-fns';
-import { Clock, BarChart as BarChartIcon, Hourglass, Users, Wallet, Calendar as CalendarIcon, ShoppingCart, Percent, Target, TrendingUp, DollarSign, Ban, Loader, Repeat, UserPlus, Printer } from 'lucide-react';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import Link from 'next/link';
+import { ArrowLeft, Printer, BarChart, DollarSign, Package, Store, Hammer, Recycle, TrendingUp, AlertTriangle, Download, Target, Ban, Repeat, UserPlus, Users, Wallet } from 'lucide-react';
+import { useInventory } from '@/context/InventoryContext';
+import { format, isPast, parseISO, subDays, startOfDay, endOfDay, differenceInMinutes, differenceInDays, getHours, setHours } from 'date-fns';
+import { cn } from '@/lib/utils';
+import { type InventoryItem, type Appointment, type Service, type Staff, type WalkIn, type Transaction, type ActivityLog } from '@/lib/data';
+import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartConfig } from '@/components/ui/chart';
+import { Bar, BarChart as RechartsBarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { DateRange } from 'react-day-picker';
-import { cn } from '@/lib/utils';
+import { Calendar as CalendarIcon } from 'lucide-react';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, where } from 'firebase/firestore';
-import type { Appointment, Service, Staff, WalkIn, Transaction, ActivityLog, StockCorrection, InventoryItem } from '@/lib/data';
 import { PrintableReport } from '@/components/reports/PrintableReport';
+import { Loader } from 'lucide-react';
+
 
 const chartConfig = {
   waitTime: {
@@ -389,6 +376,7 @@ export default function ReportsPage() {
   }, [walkIns, dateRange]);
   
   const payrollTotals = useMemo(() => {
+    if (!performanceAndPayrollData) return { totalWages: 0, totalTips: 0, totalRetailCommission: 0, totalPayroll: 0, totalNetProfit: 0 };
     return performanceAndPayrollData.reduce((acc, staff) => {
         acc.totalWages += staff.stats.wages;
         acc.totalTips += staff.stats.tips;
@@ -682,7 +670,7 @@ export default function ReportsPage() {
               </CardHeader>
               <CardContent className="pl-2">
                   <ChartContainer config={chartConfig} className="h-[300px] w-full">
-                      <BarChart accessibilityLayer data={waitTimeData.chartData}>
+                      <RechartsBarChart accessibilityLayer data={waitTimeData.chartData}>
                       <CartesianGrid vertical={false} />
                       <XAxis
                           dataKey="hour"
@@ -701,7 +689,7 @@ export default function ReportsPage() {
                           content={<ChartTooltipContent />}
                       />
                       <Bar dataKey="waitTime" fill="var(--color-waitTime)" radius={8} />
-                      </BarChart>
+                      </RechartsBarChart>
                   </ChartContainer>
               </CardContent>
             </Card>
@@ -740,3 +728,5 @@ export default function ReportsPage() {
     </>
   );
 }
+
+    
