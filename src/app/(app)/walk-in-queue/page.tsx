@@ -72,7 +72,52 @@ const Countdown = ({ expiryTimestamp }: { expiryTimestamp: Date }) => {
     return <span className="font-mono text-lg font-bold text-primary">{remaining}</span>;
 };
 
-const StaffStatusCard = ({ staffMember, onStatusChange, isNextUp }: { staffMember: Staff, onStatusChange: (staffId: string, status: Partial<Staff>) => void, isNextUp: boolean }) => {
+const StaffResourceIndicator = ({ staffMember, appointments, services, resources }: { staffMember: Staff, appointments: Appointment[], services: Service[], resources: Resource[] }) => {
+    const currentAppointment = useMemo(() => {
+        if (staffMember.status !== 'busy' || !appointments) return null;
+        const now = new Date();
+        return appointments.find(apt => {
+            if (apt.staffId !== staffMember.id) return false;
+            
+            // A staff can be busy because of a 'confirmed' appointment that is about to start.
+            // Or one that is 'servicing'. Walk-in appointments get created with 'confirmed' status.
+            if (apt.status !== 'servicing' && apt.status !== 'confirmed') return false; 
+            
+            const start = parseISO(apt.startTime);
+            const end = parseISO(apt.endTime);
+
+            return now >= start && now < end;
+        });
+    }, [staffMember.status, staffMember.id, appointments]);
+
+    const usedResources = useMemo(() => {
+        if (!currentAppointment || !services || !resources) return [];
+        const service = services.find(s => s.id === currentAppointment.serviceId);
+        if (!service || !service.requiredResourceIds) return [];
+        return resources.filter(r => service.requiredResourceIds!.includes(r.id));
+    }, [currentAppointment, services, resources]);
+
+    if (usedResources.length === 0) return null;
+
+    return (
+        <div className="flex items-center justify-center gap-1.5 mt-1">
+            {usedResources.map(resource => (
+                <TooltipProvider key={resource.id} delayDuration={0}>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <div className="p-1 bg-muted/50 rounded-full">
+                                {resource.type === 'room' ? <Building className="w-3 h-3 text-muted-foreground" /> : <HardHat className="w-3 h-3 text-muted-foreground" />}
+                            </div>
+                        </TooltipTrigger>
+                        <TooltipContent><p>{resource.name}</p></TooltipContent>
+                    </Tooltip>
+                </TooltipProvider>
+            ))}
+        </div>
+    );
+};
+
+const StaffStatusCard = ({ staffMember, onStatusChange, isNextUp, appointments, services, resources }: { staffMember: Staff, onStatusChange: (staffId: string, status: Partial<Staff>) => void, isNextUp: boolean, appointments: Appointment[], services: Service[], resources: Resource[] }) => {
     const { events } = useInventory();
     
     const isBlocked = useMemo(() => {
@@ -121,6 +166,7 @@ const StaffStatusCard = ({ staffMember, onStatusChange, isNextUp }: { staffMembe
         <div>
           <p className="font-semibold">{staffMember.name}</p>
           <p className="text-sm text-muted-foreground capitalize">{label}</p>
+          <StaffResourceIndicator staffMember={staffMember} appointments={appointments} services={services} resources={resources} />
         </div>
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -563,7 +609,7 @@ export default function WalkInQueuePage() {
   
   const appointmentsQuery = useMemoFirebase(() => {
     if (!firestore || !user) return null;
-    return collection(firestore, `tenants/${tenantId}/appointments`);
+    return collection(firestore, 'tenants', tenantId, 'appointments');
   }, [firestore, user, tenantId]);
 
   const resourcesQuery = useMemoFirebase(() => {
@@ -1156,6 +1202,9 @@ export default function WalkInQueuePage() {
                                     staffMember={member} 
                                     onStatusChange={handleStaffStatusChange} 
                                     isNextUp={member.id === nextUpStaffId}
+                                    appointments={appointments || []}
+                                    services={services || []}
+                                    resources={resources || []}
                                 />
                             ))}
                         </div>
@@ -1173,7 +1222,10 @@ export default function WalkInQueuePage() {
                                     </Avatar>
                                     <div className="flex-1">
                                         <p className="font-semibold">{member.name}</p>
-                                        <p className="text-sm text-muted-foreground capitalize">{member.onBreak ? 'On Break' : member.status || 'Idle'}</p>
+                                        <div className="flex items-center gap-1">
+                                            <p className="text-sm text-muted-foreground capitalize">{member.onBreak ? 'On Break' : member.status || 'Idle'}</p>
+                                            <StaffResourceIndicator staffMember={member} appointments={appointments || []} services={services || []} resources={resources || []} />
+                                        </div>
                                     </div>
                                     <div className="flex flex-col gap-1">
                                         <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => handleReorder(index, 'up')} disabled={index === 0}>
@@ -1382,6 +1434,7 @@ export default function WalkInQueuePage() {
     </>
   );
 }
+
 
 
 
