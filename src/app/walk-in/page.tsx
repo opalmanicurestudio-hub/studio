@@ -290,6 +290,7 @@ export default function WalkInPage() {
   }
   
   if (!businessIsOpen) {
+      const orderedDays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
       return (
           <div className="flex min-h-screen w-full flex-col items-center justify-center bg-muted/40 p-4">
                <div className="w-full max-w-md mx-auto text-center">
@@ -312,14 +313,18 @@ export default function WalkInPage() {
                                 <Card className="text-left bg-background">
                                     <CardHeader><CardTitle className="text-base">Our Hours</CardTitle></CardHeader>
                                     <CardContent className="text-sm space-y-1">
-                                        {Object.entries(scheduleProfile.week).map(([day, hours]: [string, any]) => (
-                                            <div key={day} className="flex justify-between">
-                                                <span className="capitalize font-medium">{day}</span>
-                                                <span className="text-muted-foreground">
-                                                    {hours.enabled ? `${hours.start} - ${hours.end}` : 'Closed'}
-                                                </span>
-                                            </div>
-                                        ))}
+                                        {orderedDays.map((day) => {
+                                            const hours = scheduleProfile.week[day as keyof typeof scheduleProfile.week];
+                                            if (!hours) return null;
+                                            return (
+                                                <div key={day} className="flex justify-between">
+                                                    <span className="capitalize font-medium">{day}</span>
+                                                    <span className="text-muted-foreground">
+                                                        {hours.enabled ? `${formatTime(hours.start)} - ${formatTime(hours.end)}` : 'Closed'}
+                                                    </span>
+                                                </div>
+                                            )
+                                        })}
                                     </CardContent>
                                 </Card>
                             )}
@@ -537,4 +542,3 @@ export default function WalkInPage() {
     </div>
   );
 }
-
