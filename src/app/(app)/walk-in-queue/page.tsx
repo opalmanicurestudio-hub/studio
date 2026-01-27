@@ -300,7 +300,25 @@ const ServicingCustomerCard = ({ walkIn, services, resources, staff, onStatusCha
                 <div className="flex justify-between items-start">
                     <div className="space-y-1">
                         <p className="font-bold text-xl">{walkIn.customerName}</p>
-                        <p className="text-sm text-primary">Assigned to: {assignedStaff?.name || 'N/A'}</p>
+                        <div className="flex items-center gap-2">
+                             <p className="text-sm text-primary">Assigned to: {assignedStaff?.name || 'N/A'}</p>
+                             {requiredResources.length > 0 && (
+                                <div className="flex items-center gap-1.5">
+                                    {requiredResources.map(resource => (
+                                        <TooltipProvider key={resource.id} delayDuration={0}>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <div className="p-1 bg-muted rounded-full">
+                                                        {resource.type === 'room' ? <Building className="w-3 h-3 text-primary/80" /> : <HardHat className="w-3 h-3 text-primary/80" />}
+                                                    </div>
+                                                </TooltipTrigger>
+                                                <TooltipContent><p>{resource.name}</p></TooltipContent>
+                                            </Tooltip>
+                                        </TooltipProvider>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
                         {assignedSlot && <p className="text-sm font-semibold">{format(parseISO(walkIn.serviceStartTime!), 'MMM d, yyyy')} &middot; {assignedSlot}</p>}
                         {waitTime !== null && <p className="text-xs text-muted-foreground">Waited {waitTime} minutes</p>}
                     </div>
@@ -331,25 +349,6 @@ const ServicingCustomerCard = ({ walkIn, services, resources, staff, onStatusCha
                     <ul className="list-disc list-inside text-sm text-muted-foreground">
                         {walkInServices.map(s => <li key={s.id}>{s.name}</li>)}
                     </ul>
-                    {requiredResources.length > 0 && (
-                        <div className="mt-2 flex items-center gap-2">
-                            <p className="text-xs font-semibold text-muted-foreground">Using:</p>
-                            <div className="flex items-center gap-1.5">
-                                {requiredResources.map(resource => (
-                                    <TooltipProvider key={resource.id} delayDuration={0}>
-                                        <Tooltip>
-                                            <TooltipTrigger asChild>
-                                                <div className="p-1 bg-muted/50 rounded-full">
-                                                    {resource.type === 'room' ? <Building className="w-3 h-3 text-muted-foreground" /> : <HardHat className="w-3 h-3 text-muted-foreground" />}
-                                                </div>
-                                            </TooltipTrigger>
-                                            <TooltipContent><p>{resource.name}</p></TooltipContent>
-                                        </Tooltip>
-                                    </TooltipProvider>
-                                ))}
-                            </div>
-                        </div>
-                    )}
                 </div>
                  <div className="mt-4 border-t pt-4 flex justify-end gap-2">
                     <Button variant="outline" size="sm" onClick={() => onStatusChange(walkIn.id, assignedStaff?.id || '', 'skipped')}>Mark as Skipped</Button>
@@ -361,7 +360,7 @@ const ServicingCustomerCard = ({ walkIn, services, resources, staff, onStatusCha
 };
 
 const ReadyForCheckoutCard = ({ walkIn, services, resources, staff, onCheckoutClick }: { walkIn: WalkIn, services: Service[], resources: Resource[], staff: Staff[], onCheckoutClick: (walkIn: WalkIn) => void }) => {
-    const walkInServices = services.filter(s => walkIn.serviceIds.includes(s.id));
+    const walkInServices = services.filter(s => s.serviceIds.includes(s.id));
     const assignedStaff = staff.find(s => s.id === walkIn.assignedStaffId);
      const requiredResourceIds = useMemo(() => {
         return [...new Set(walkInServices.flatMap(s => s.requiredResourceIds || []))];
@@ -1383,5 +1382,6 @@ export default function WalkInQueuePage() {
     </>
   );
 }
+
 
 
