@@ -26,16 +26,16 @@ import {
   ChartConfig,
 } from '@/components/ui/chart';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
-import { useInventory } from '@/context/InventoryContext';
-import { differenceInMinutes, format, getHours, parseISO, startOfDay, endOfDay, subDays, differenceInSeconds } from 'date-fns';
-import { Clock, BarChart as BarChartIcon, Hourglass, Users, Sigma, Wallet, Calendar as CalendarIcon, ShoppingCart, Percent, Target, TrendingUp, DollarSign, Ban } from 'lucide-react';
-import { ClientOnly } from '@/components/shared/ClientOnly';
+import { format, parseISO, startOfDay, endOfDay, subDays, differenceInMinutes, differenceInDays, getHours } from 'date-fns';
+import { Clock, BarChart as BarChartIcon, Hourglass, Users, Wallet, Calendar as CalendarIcon, ShoppingCart, Percent, Target, TrendingUp, DollarSign, Ban, Loader } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { DateRange } from 'react-day-picker';
 import { cn } from '@/lib/utils';
-import { Badge } from '@/components/ui/badge';
+import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
+import { collection, query, where } from 'firebase/firestore';
+import type { Appointment, Service, Staff, WalkIn, Transaction, ActivityLog, StockCorrection, InventoryItem } from '@/lib/data';
 
 const chartConfig = {
   waitTime: {
@@ -45,8 +45,87 @@ const chartConfig = {
 } satisfies ChartConfig;
 
 export default function ReportsPage() {
-  const { appointments, services, staff, walkIns, transactions, activityLogs, stockCorrections, inventory } = useInventory();
+  const { firestore, user } = useFirebase();
+  const tenantId = 'tenant-abc';
   const [dateRange, setDateRange] = useState<DateRange | undefined>({ from: subDays(new Date(), 29), to: new Date() });
+  
+  // --- Data Fetching ---
+  const appointmentsQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/appointments`) : null, [firestore, tenantId]);
+  const servicesQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/services`) : null, [firestore, tenantId]);
+  const staffQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/staff`) : null, [firestore, tenantId]);
+  const walkInsQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/walkIns`) : null, [firestore, tenantId]);
+  const transactionsQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/transactions`) : null, [firestore, tenantId]);
+  const activityLogsQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/activityLogs`) : null, [firestore, tenantId]);
+  const stockCorrectionsQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/stockCorrections`) : null, [firestore, tenantId]);
+  const inventoryQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/inventory`) : null, [firestore, tenantId]);
+  
+  const businessProfilesQuery = useMemoFirebase(() => firestore ? query(collection(firestore, `tenants/${tenantId}/businessProfiles`), where("isActive", "==", true)) : null, [firestore, tenantId]);
+  const lifestyleProfilesQuery = useMemoFirebase(() => firestore ? query(collection(firestore, `tenants/${tenantId}/lifestyleProfiles`), where("isActive", "==", true)) : null, [firestore, tenantId]);
+
+  const { data: rawAppointments, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
+  const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
+  const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
+  const { data: walkIns, isLoading: walkInsLoading } = useCollection<WalkIn>(walkInsQuery);
+  const { data: rawTransactions, isLoading: transactionsLoading } = useCollection<Transaction>(transactionsQuery);
+  const { data: rawActivityLogs, isLoading: activityLogsLoading } = useCollection<ActivityLog>(activityLogsQuery);
+  const { data: stockCorrections, isLoading: stockCorrectionsLoading } = useCollection<StockCorrection>(stockCorrectionsQuery);
+  const { data: inventory, isLoading: inventoryLoading } = useCollection<InventoryItem>(inventoryQuery);
+  const { data: businessProfiles, isLoading: businessProfilesLoading } = useCollection(businessProfilesQuery);
+  const { data: lifestyleProfiles, isLoading: lifestyleProfilesLoading } = useCollection(lifestyleProfilesQuery);
+
+  const isLoading = appointmentsLoading || servicesLoading || staffLoading || walkInsLoading || transactionsLoading || activityLogsLoading || stockCorrectionsLoading || inventoryLoading || businessProfilesLoading || lifestyleProfilesLoading;
+
+  const appointments = useMemo(() => {
+    if (!rawAppointments) return [];
+    return rawAppointments.map(apt => ({
+      ...apt,
+      startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime),
+      endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime),
+      actualStartTime: apt.actualStartTime ? ((apt.actualStartTime as any)?.toDate ? (apt.actualStartTime as any).toDate() : parseISO(apt.actualStartTime)) : undefined,
+      actualEndTime: apt.actualEndTime ? ((apt.actualEndTime as any)?.toDate ? (apt.actualEndTime as any).toDate() : parseISO(apt.actualEndTime)) : undefined,
+    }));
+  }, [rawAppointments]);
+
+  const transactions = useMemo(() => {
+    if (!rawTransactions) return [];
+    return rawTransactions.map(t => ({
+      ...t,
+      date: (t.date as any)?.toDate ? (t.date as any).toDate() : parseISO(t.date),
+    }));
+  }, [rawTransactions]);
+
+  const activityLogs = useMemo(() => {
+    if (!rawActivityLogs) return [];
+    return rawActivityLogs.map(log => ({
+      ...log,
+      timestamp: (log.timestamp as any)?.toDate ? (log.timestamp as any).toDate() : parseISO(log.timestamp),
+    }));
+  }, [rawActivityLogs]);
+
+  const monthlyOverhead = useMemo(() => {
+      let totalOverhead = 0;
+      const activeBusinessProfile = businessProfiles?.[0];
+      if (activeBusinessProfile?.categories) {
+          totalOverhead += activeBusinessProfile.categories.reduce((total: number, category: any) => {
+              return total + category.bills.reduce((catTotal: number, bill: any) => catTotal + (bill.amount || 0), 0);
+          }, 0);
+      }
+      const activeLifestyleProfile = lifestyleProfiles?.[0];
+      if (activeLifestyleProfile?.categories) {
+          totalOverhead += activeLifestyleProfile.categories.reduce((total: number, category: any) => {
+              return total + category.bills.reduce((catTotal: number, bill: any) => catTotal + (bill.amount || 0), 0);
+          }, 0);
+      }
+      return totalOverhead;
+  }, [businessProfiles, lifestyleProfiles]);
+
+  const periodOverhead = useMemo(() => {
+    const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
+    const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
+    const daysInRange = fromDate && toDate ? differenceInDays(toDate, fromDate) + 1 : 30;
+
+    return (monthlyOverhead / 30.44) * daysInRange;
+  }, [dateRange, monthlyOverhead]);
 
   const performanceAndPayrollData = useMemo(() => {
     if (!staff || !appointments || !services || !transactions || !activityLogs) return [];
@@ -55,8 +134,8 @@ export default function ReportsPage() {
     const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
 
     return staff.map(staffMember => {
-        const filterByDate = (date: string) => {
-            const d = parseISO(date);
+        const filterByDate = (date: Date) => {
+            const d = date;
             if (fromDate && d < fromDate) return false;
             if (toDate && d > toDate) return false;
             return true;
@@ -68,13 +147,12 @@ export default function ReportsPage() {
       
         const staffTransactions = transactions.filter(t => t.staffId === staffMember.id && filterByDate(t.date));
 
-        // KPI Calculations
         let totalMinutesVariance = 0;
         let totalInServiceMinutes = 0;
         completedAppointments.forEach(apt => {
             const service = services.find(s => s.id === apt.serviceId);
             if (apt.actualStartTime && apt.actualEndTime && service) {
-                const actualDuration = differenceInMinutes(parseISO(apt.actualEndTime), parseISO(apt.actualStartTime));
+                const actualDuration = differenceInMinutes(apt.actualEndTime, apt.actualStartTime);
                 const scheduledDuration = service.duration;
                 totalMinutesVariance += actualDuration - scheduledDuration;
                 totalInServiceMinutes += actualDuration;
@@ -93,15 +171,14 @@ export default function ReportsPage() {
         const retailAttachmentRate = completedAppointmentsCount > 0 ? (new Set(retailTransactionsWithAppointment.map(t => t.appointmentId)).size / completedAppointmentsCount) * 100 : 0;
         const avgTicket = completedAppointmentsCount > 0 ? totalSales / completedAppointmentsCount : 0;
 
-        // Payroll and Utilization
         let totalMinutesWorked = 0;
         const staffLogs = activityLogs.filter(log => log.staffId === staffMember.id && filterByDate(log.timestamp));
-        const sortedLogs = staffLogs.sort((a, b) => parseISO(a.timestamp).getTime() - parseISO(b.timestamp).getTime());
+        const sortedLogs = staffLogs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
         
         let clockInTime: Date | null = null;
         let totalBreakMinutes = 0;
         for (const log of sortedLogs) {
-            const logTime = parseISO(log.timestamp);
+            const logTime = log.timestamp;
             if (log.type === 'clock_in') {
                 if (clockInTime) totalMinutesWorked += Math.max(0, differenceInMinutes(logTime, clockInTime) - totalBreakMinutes);
                 clockInTime = logTime;
@@ -168,7 +245,7 @@ export default function ReportsPage() {
     const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
 
     const appointmentsInRange = appointments.filter(apt => {
-        const aptDate = parseISO(apt.startTime);
+        const aptDate = apt.startTime;
         if (fromDate && aptDate < fromDate) return false;
         if (toDate && aptDate > toDate) return false;
         return true;
@@ -179,7 +256,7 @@ export default function ReportsPage() {
 
     const totalRevenue = transactions
         .filter(t => {
-            const tDate = parseISO(t.date);
+            const tDate = t.date;
             if (fromDate && tDate < fromDate) return false;
             if (toDate && tDate > toDate) return false;
             return t.type === 'income' && (t.category === 'Service Revenue' || t.category === 'Retail');
@@ -258,6 +335,17 @@ export default function ReportsPage() {
     }, { totalWages: 0, totalTips: 0, totalRetailCommission: 0, totalPayroll: 0, totalNetProfit: 0 });
   }, [performanceAndPayrollData]);
 
+  if (isLoading) {
+    return (
+      <div className="flex h-screen w-full flex-col">
+        <AppHeader title="Reports & Analytics" />
+        <main className="flex flex-1 items-center justify-center">
+            <Loader className="h-8 w-8 animate-spin" />
+        </main>
+      </div>
+    )
+  }
+
   return (
     <div className="flex min-h-screen w-full flex-col">
       <AppHeader title="Reports & Analytics" />
@@ -317,7 +405,7 @@ export default function ReportsPage() {
                             <TableHead className="text-right">Retail Comm.</TableHead>
                             <TableHead className="text-right">Tips</TableHead>
                             <TableHead className="text-right font-bold">Total Pay</TableHead>
-                             <TableHead className="text-right font-bold">Net Profit</TableHead>
+                             <TableHead className="text-right font-bold">Net Contribution</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -335,13 +423,23 @@ export default function ReportsPage() {
                         ))}
                     </TableBody>
                     <TableFooter>
-                        <TableRow className="font-bold">
-                            <TableCell colSpan={3}>Total Payroll Cost</TableCell>
-                            <TableCell className="text-right font-mono">${payrollTotals.totalWages.toFixed(2)}</TableCell>
-                            <TableCell className="text-right font-mono text-blue-500">${payrollTotals.totalRetailCommission.toFixed(2)}</TableCell>
-                            <TableCell className="text-right font-mono text-green-500">${payrollTotals.totalTips.toFixed(2)}</TableCell>
-                            <TableCell className="text-right font-mono">${payrollTotals.totalPayroll.toFixed(2)}</TableCell>
-                            <TableCell className={cn("text-right font-mono", payrollTotals.totalNetProfit >= 0 ? 'text-primary' : 'text-destructive')}>${payrollTotals.totalNetProfit.toFixed(2)}</TableCell>
+                        <TableRow>
+                            <TableCell colSpan={3} className="font-bold">Subtotals</TableCell>
+                            <TableCell className="text-right font-mono font-bold">${payrollTotals.totalWages.toFixed(2)}</TableCell>
+                            <TableCell className="text-right font-mono font-bold text-blue-500">${payrollTotals.totalRetailCommission.toFixed(2)}</TableCell>
+                            <TableCell className="text-right font-mono font-bold text-green-500">${payrollTotals.totalTips.toFixed(2)}</TableCell>
+                            <TableCell className="text-right font-mono font-bold">${payrollTotals.totalPayroll.toFixed(2)}</TableCell>
+                            <TableCell className={cn("text-right font-mono font-bold", payrollTotals.totalNetProfit >= 0 ? 'text-primary' : 'text-destructive')}>${payrollTotals.totalNetProfit.toFixed(2)}</TableCell>
+                        </TableRow>
+                        <TableRow>
+                            <TableCell colSpan={7} className="font-semibold">Total Overhead (Business & Personal)</TableCell>
+                            <TableCell className="text-right font-mono font-semibold text-destructive">-${periodOverhead.toFixed(2)}</TableCell>
+                        </TableRow>
+                        <TableRow className="font-bold text-lg bg-muted/50">
+                            <TableCell colSpan={7}>True Net Profit</TableCell>
+                            <TableCell className={cn("text-right font-mono", (payrollTotals.totalNetProfit - periodOverhead) >= 0 ? 'text-primary' : 'text-destructive')}>
+                                ${(payrollTotals.totalNetProfit - periodOverhead).toFixed(2)}
+                            </TableCell>
                         </TableRow>
                     </TableFooter>
                 </Table>
@@ -370,7 +468,7 @@ export default function ReportsPage() {
                 <TableBody>
                   {performanceAndPayrollData.map(data => (
                     <TableRow key={data.id}>
-                      <TableCell className="font-medium">{data.staffName}</TableCell>
+                      <TableCell className="font-medium">{data.name}</TableCell>
                       <TableCell className="text-right font-mono">{data.stats.utilizationRate.toFixed(1)}%</TableCell>
                       <TableCell className="text-right font-mono">${data.stats.avgTicket.toFixed(2)}</TableCell>
                       <TableCell className="text-right font-mono">{data.stats.retailAttachmentRate.toFixed(1)}%</TableCell>
@@ -389,30 +487,28 @@ export default function ReportsPage() {
               <CardDescription>Average wait time for walk-in customers throughout the day.</CardDescription>
             </CardHeader>
             <CardContent className="pl-2">
-                <ClientOnly>
-                    <ChartContainer config={chartConfig} className="h-[300px] w-full">
-                        <BarChart accessibilityLayer data={waitTimeData.chartData}>
-                        <CartesianGrid vertical={false} />
-                        <XAxis
-                            dataKey="hour"
-                            tickLine={false}
-                            tickMargin={10}
-                            axisLine={false}
-                        />
-                        <YAxis
-                            tickLine={false}
-                            axisLine={false}
-                            tickMargin={10}
-                            tickFormatter={(value) => `${value}m`}
-                        />
-                        <ChartTooltip
-                            cursor={false}
-                            content={<ChartTooltipContent />}
-                        />
-                        <Bar dataKey="waitTime" fill="var(--color-waitTime)" radius={8} />
-                        </BarChart>
-                    </ChartContainer>
-              </ClientOnly>
+                <ChartContainer config={chartConfig} className="h-[300px] w-full">
+                    <BarChart accessibilityLayer data={waitTimeData.chartData}>
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                        dataKey="hour"
+                        tickLine={false}
+                        tickMargin={10}
+                        axisLine={false}
+                    />
+                    <YAxis
+                        tickLine={false}
+                        axisLine={false}
+                        tickMargin={10}
+                        tickFormatter={(value) => `${value}m`}
+                    />
+                    <ChartTooltip
+                        cursor={false}
+                        content={<ChartTooltipContent />}
+                    />
+                    <Bar dataKey="waitTime" fill="var(--color-waitTime)" radius={8} />
+                    </BarChart>
+                </ChartContainer>
             </CardContent>
           </Card>
         </div>
@@ -420,4 +516,3 @@ export default function ReportsPage() {
     </div>
   );
 }
-
