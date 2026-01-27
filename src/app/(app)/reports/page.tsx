@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -399,6 +400,7 @@ export default function ReportsPage() {
                     <TableHeader>
                         <TableRow>
                             <TableHead>Staff Member</TableHead>
+                            <TableHead>Pay Structure</TableHead>
                             <TableHead className="text-right">Service Rev.</TableHead>
                             <TableHead className="text-right">Retail Sales</TableHead>
                             <TableHead className="text-right">Wages</TableHead>
@@ -412,6 +414,7 @@ export default function ReportsPage() {
                         {performanceAndPayrollData.map(data => (
                             <TableRow key={data.id}>
                                 <TableCell className="font-medium">{data.name}</TableCell>
+                                <TableCell className="capitalize">{data.payStructure}</TableCell>
                                 <TableCell className="text-right font-mono">${data.stats.serviceRevenue.toFixed(2)}</TableCell>
                                 <TableCell className="text-right font-mono">${data.stats.retailSales.toFixed(2)}</TableCell>
                                 <TableCell className="text-right font-mono">${data.stats.wages.toFixed(2)}</TableCell>
@@ -424,7 +427,7 @@ export default function ReportsPage() {
                     </TableBody>
                     <TableFooter>
                         <TableRow>
-                            <TableCell colSpan={3} className="font-bold">Subtotals</TableCell>
+                            <TableCell colSpan={4} className="font-bold">Subtotals</TableCell>
                             <TableCell className="text-right font-mono font-bold">${payrollTotals.totalWages.toFixed(2)}</TableCell>
                             <TableCell className="text-right font-mono font-bold text-blue-500">${payrollTotals.totalRetailCommission.toFixed(2)}</TableCell>
                             <TableCell className="text-right font-mono font-bold text-green-500">${payrollTotals.totalTips.toFixed(2)}</TableCell>
@@ -432,11 +435,11 @@ export default function ReportsPage() {
                             <TableCell className={cn("text-right font-mono font-bold", payrollTotals.totalNetProfit >= 0 ? 'text-primary' : 'text-destructive')}>${payrollTotals.totalNetProfit.toFixed(2)}</TableCell>
                         </TableRow>
                         <TableRow>
-                            <TableCell colSpan={7} className="font-semibold">Total Overhead (Business & Personal)</TableCell>
+                            <TableCell colSpan={8} className="font-semibold">Total Overhead (Business & Personal)</TableCell>
                             <TableCell className="text-right font-mono font-semibold text-destructive">-${periodOverhead.toFixed(2)}</TableCell>
                         </TableRow>
                         <TableRow className="font-bold text-lg bg-muted/50">
-                            <TableCell colSpan={7}>True Net Profit</TableCell>
+                            <TableCell colSpan={8}>True Net Profit</TableCell>
                             <TableCell className={cn("text-right font-mono", (payrollTotals.totalNetProfit - periodOverhead) >= 0 ? 'text-primary' : 'text-destructive')}>
                                 ${(payrollTotals.totalNetProfit - periodOverhead).toFixed(2)}
                             </TableCell>
