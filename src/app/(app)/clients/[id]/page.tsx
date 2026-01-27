@@ -15,7 +15,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy, Save, Award, Repeat, CheckCircle, Percent, Loader } from 'lucide-react';
-import { appointments as initialAppointments, services as initialServices, inventory, type CustomFormula, Client, type Incident, type Appointment } from '@/lib/data';
+import { appointments as initialAppointments, services as initialServices, inventory, type CustomFormula, Client, type Incident, type Appointment, memberships, packages } from '@/lib/data';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -169,13 +169,17 @@ export default function ClientDetailPage() {
   const { firestore, isUserLoading } = useFirebase();
   const tenantId = 'tenant-abc';
   
-  const clientsQuery = useMemoFirebase(() => {
-    if (!firestore) return null;
-    return collection(firestore, `tenants/${tenantId}/clients`);
-  }, [firestore, tenantId]);
-  const { data: allClients, isLoading: clientLoading } = useCollection<Client>(clientsQuery);
+  const clientDocRef = useMemoFirebase(() => {
+    if (!firestore || !clientId) return null;
+    return doc(firestore, `tenants/${tenantId}/clients`, clientId);
+  }, [firestore, tenantId, clientId]);
+  const { data: client, isLoading: clientLoading } = useDoc<Client>(clientDocRef);
   
-  const client = useMemo(() => allClients?.find(c => c.id === clientId), [allClients, clientId]);
+  const allClientsQuery = useMemoFirebase(() => {
+      if (!firestore) return null;
+      return collection(firestore, `tenants/${tenantId}/clients`);
+  }, [firestore, tenantId]);
+  const { data: allClients, isLoading: allClientsLoading } = useCollection<Client>(allClientsQuery);
   
   const appointmentsQuery = useMemoFirebase(() => {
       if (!firestore || !clientId) return null;
@@ -194,10 +198,6 @@ export default function ClientDetailPage() {
       return collection(firestore, `tenants/${tenantId}/staff`);
   }, [firestore, tenantId]);
   const { data: staff, isLoading: staffLoading } = useCollection<any>(staffQuery);
-
-  // Memberships and packages are still from mock data
-  const { memberships, packages } = useInventory();
-
 
   const { toast } = useToast();
   const [isAddFormulaOpen, setIsAddFormulaOpen] = useState(false);
@@ -242,9 +242,9 @@ export default function ClientDetailPage() {
       setIsCodeDirty(false);
   }, [client?.referralCode]);
 
-  const isLoading = isUserLoading || clientLoading || appointmentsLoading || servicesLoading || staffLoading;
+  const isLoading = isUserLoading || clientLoading || appointmentsLoading || servicesLoading || allClientsLoading || staffLoading;
 
-  if (isLoading && !client) {
+  if (isLoading) {
       return (
           <div className="flex min-h-screen w-full flex-col bg-muted/40">
             <AppHeader title="Client Profile" />
@@ -760,3 +760,6 @@ export default function ClientDetailPage() {
 
 
 
+
+
+    
