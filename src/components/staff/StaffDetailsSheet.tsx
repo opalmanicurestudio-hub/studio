@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useMemo, useState, useRef } from 'react';
@@ -34,6 +32,7 @@ import { Input } from '../ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Calendar } from '../ui/calendar';
 import { PrintableStaffReport } from './PrintableStaffReport';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 interface StaffDetailsSheetProps {
   open: boolean;
@@ -90,6 +89,25 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
   
   const [dateRange, setDateRange] = useState<DateRange | undefined>(initialDateRange);
 
+  const staffServices = useMemo(() => {
+    if (!staffMember?.services || !services) return [];
+    const staffSkillLevel = staffMember.skillLevel || 'senior';
+    return services
+      .filter(s => staffMember.services?.includes(s.id))
+      .map(service => {
+        const tierPrice = service.pricingTiers?.find(t => t.level === staffSkillLevel)?.price;
+        const finalPrice = tierPrice ?? service.pricingTiers?.find(t => t.level === 'senior')?.price ?? service.price;
+        return {
+          ...service,
+          price: finalPrice,
+        };
+      });
+  }, [staffMember, services]);
+
+  useEffect(() => {
+    setDateRange(initialDateRange);
+  }, [initialDateRange]);
+
   const filteredActivityLogs = useMemo(() => {
     if (!activityLogs || !staffMember) return [];
     const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
@@ -119,22 +137,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
       return true;
     });
   }, [transactions, staffMember, transactionSearch, dateRange]);
-
-  const staffServices = useMemo(() => {
-    if (!staffMember?.services || !services) return [];
-    const staffSkillLevel = staffMember.skillLevel || 'senior';
-    return services
-      .filter(s => staffMember.services?.includes(s.id))
-      .map(service => {
-        const tierPrice = service.pricingTiers?.find(t => t.level === staffSkillLevel)?.price;
-        const finalPrice = tierPrice ?? service.pricingTiers?.find(t => t.level === 'senior')?.price ?? service.price;
-        return {
-          ...service,
-          price: finalPrice,
-        };
-      });
-  }, [staffMember, services]);
-
+  
   const dateRangeString = dateRange?.from && dateRange.to
     ? `${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d')}`
     : 'the selected period';
