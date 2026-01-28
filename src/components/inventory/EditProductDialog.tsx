@@ -117,6 +117,7 @@ const Step1_BasicDetails = ({
       <Input id="product-name-edit" {...register('name')} />
        {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
     </div>
+    <Controller name="type" control={control} render={({ field }) => ( <input type="hidden" {...field} /> )}/>
     <div className="space-y-2">
       <Label htmlFor="category-edit">Category</Label>
       {isAddingCategory ? (
@@ -229,7 +230,7 @@ const Step2_CostingPricing = () => {
 };
 
 const Step3_InventorySupplier = ({ onAddLocationClick, locations }: { onAddLocationClick: () => void; locations: Location[] }) => {
-     const { control, register, formState: { errors } } = useFormContext<ProductFormData>();
+    const { control, register } = useFormContext<ProductFormData>();
     return (
         <div className="space-y-6">
             <Card>
@@ -282,7 +283,7 @@ const Step3_InventorySupplier = ({ onAddLocationClick, locations }: { onAddLocat
                 </CardContent>
             </Card>
         </div>
-    );
+    )
 };
 
 
@@ -379,6 +380,9 @@ export const EditProductDialog: React.FC<EditProductDialogProps> = ({
     const fieldsToValidate: (keyof ProductFormData)[] = [];
     if (step === 1) {
       fieldsToValidate.push('name', 'category');
+    }
+     if (step === 3) {
+      // No validation needed for step 3
     }
     
     const isValid = fieldsToValidate.length > 0 ? await methods.trigger(fieldsToValidate) : true;
