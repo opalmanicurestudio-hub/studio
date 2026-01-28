@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
@@ -128,7 +127,7 @@ const OrderCard = ({ order, onSelect, onTrack }: { order: Order, onSelect: (orde
                     {order.trackingUrl && (
                         <div className="flex items-center gap-2">
                             <Truck className="w-4 h-4 text-muted-foreground"/>
-                            <Button
+                             <Button
                                 variant="link"
                                 size="xs"
                                 className="p-0 h-auto"
@@ -205,7 +204,7 @@ const AddOrderDialog = ({
             notes,
             items: items.map(({ stock, reorderPoint, ...item }) => item), // Remove client-side fields
             invoiceUrl,
-            expectedArrivalDate: expectedDate ? expectedDate.toISOString() : undefined
+            expectedArrivalDate: expectedDate ? expectedDate.toISOString() : undefined,
         };
 
         onSave(newOrder);
@@ -292,25 +291,32 @@ const AddOrderDialog = ({
 
 const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrder, onTrack }: { order: Order | null, open: boolean, onOpenChange: (open: boolean) => void, onSave: (order: Order) => void, onCancelOrder: (orderId: string) => void, onTrack: (e: React.MouseEvent, url?: string) => void }) => {
     const [editableOrder, setEditableOrder] = useState<Order | null>(order);
-    const [isEditing, setIsEditing] = useState(false);
-
+    
     useEffect(() => {
-        if (order) {
-            setEditableOrder(order);
-        }
+        setEditableOrder(order);
     }, [order]);
     
+    const [isEditing, setIsEditing] = useState(false);
+
     useEffect(() => {
         if (!open) {
             setIsEditing(false);
         }
     }, [open]);
 
-    if (!editableOrder) {
-        return null;
+    const handleSave = () => {
+        if (editableOrder) {
+            onSave(editableOrder);
+        }
+        setIsEditing(false);
     }
-
-    const totalCost = editableOrder.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
+    
+    const handleCancel = () => {
+        if (editableOrder) {
+            onCancelOrder(editableOrder.id);
+            onOpenChange(false);
+        }
+    }
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
@@ -328,17 +334,9 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
         }) : null);
     }
 
-    const handleSave = () => {
-        if (editableOrder) {
-            onSave(editableOrder);
-        }
-        setIsEditing(false);
-    }
-    
-    const handleCancel = () => {
-        onCancelOrder(editableOrder.id);
-        onOpenChange(false);
-    }
+    if (!editableOrder) return null;
+
+    const totalCost = editableOrder.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -403,7 +401,7 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                                                 className="p-0 h-auto"
                                                 onClick={(e) => onTrack(e, editableOrder.trackingUrl)}
                                             >
-                                                Track Shipment
+                                                Track
                                             </Button>
                                         </div>
                                     )}
@@ -1569,5 +1567,3 @@ export default function InventoryPage() {
     </ClientOnly>
   );
 }
-
-```
