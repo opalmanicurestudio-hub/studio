@@ -33,16 +33,17 @@ import { EditProductDialog } from '@/components/inventory/EditProductDialog';
 import { useToast } from '@/hooks/use-toast';
 
 const CorrectionIcon = ({ reason }: { reason: string }) => {
-    if (reason.startsWith('Appointment')) return <TrendingDown className="h-4 w-4 text-red-500" />;
-    if (reason.startsWith('Shipment')) return <TrendingUp className="h-4 w-4 text-green-500" />;
-    if (reason.startsWith('Manual Use')) return <TrendingDown className="h-4 w-4 text-red-500" />;
+    if (reason.toLowerCase().includes('appointment')) return <TrendingDown className="h-4 w-4 text-red-500" />;
+    if (reason.toLowerCase().includes('shipment')) return <TrendingUp className="h-4 w-4 text-green-500" />;
+    if (reason.toLowerCase().includes('manual use')) return <TrendingDown className="h-4 w-4 text-red-500" />;
+    if (reason.toLowerCase().includes('retail sale')) return <TrendingDown className="h-4 w-4 text-red-500" />;
     return <RefreshCw className="h-4 w-4 text-gray-500" />;
 }
 
 
 export default function ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { inventory, stockCorrections, setInventory, locations, services } = useInventory();
+  const { inventory, stockCorrections, setInventory, locations, services, transactions } = useInventory();
   const { toast } = useToast();
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   
@@ -52,7 +53,6 @@ export default function ProductDetailPage() {
     // This is a placeholder. In a real app, you'd call a function from context or a server action.
     const updatedInventory = inventory.map(p => p.id === updatedProduct.id ? updatedProduct : p);
     // In a real app, you'd likely call a function passed down via context to update the state
-    // For now, we'll just log it.
     console.log("Updated Inventory (simulation):", updatedInventory);
 
     toast({
@@ -150,31 +150,6 @@ export default function ProductDetailPage() {
   }, [product, stockCorrections]);
 
 
-  // Mock retail data for demonstration
-  const retailPerformance = useMemo(() => {
-    if (product.type !== 'retail') return null;
-
-    const landedCost = product.costPerUnit || 0;
-    const retailPrice = landedCost * 1.75; // Mock 75% markup
-    const profitPerUnit = retailPrice - landedCost;
-    
-    // Mock sales data
-    const unitsSold = 53;
-    const totalPurchased = unitsSold + product.totalStock;
-    const sellThroughRate = totalPurchased > 0 ? (unitsSold / totalPurchased) * 100 : 0;
-    const totalProfit = unitsSold * profitPerUnit;
-
-    return {
-        landedCost,
-        retailPrice,
-        profitPerUnit,
-        profitMargin: retailPrice > 0 ? (profitPerUnit / retailPrice) * 100 : 0,
-        unitsSold,
-        sellThroughRate,
-        totalProfit,
-    };
-  }, [product]);
-
   const professionalPerformance = useMemo(() => {
     if (!product || product.type !== 'professional' || !stockCorrections) {
       return { consumptionYTD: 0, totalCostOfUse: 0, unit: '' };
@@ -205,6 +180,65 @@ export default function ProductDetailPage() {
     const unit = product.costingMethod === 'uses' ? (product.useUnit || 'uses') : (product.unit || 'units');
 
     return { consumptionYTD: totalConsumption, totalCostOfUse: totalCost, unit };
+  }, [product, stockCorrections]);
+
+  const costAnalysis = useMemo(() => {
+    if (!product || product.type !== 'professional') {
+      return {
+        landedCost: product?.costPerUnit || 0,
+        restockingMarkup: 0,
+        rawCostPerUse: 0,
+        finalCostPerUse: 0,
+      };
+    }
+    
+    const landedCost = product.costPerUnit || 0;
+    let rawCostPerUse = 0;
+
+    if (product.costingMethod === 'size' && product.size && product.size > 0) {
+      rawCostPerUse = landedCost / product.size;
+    } else if (product.costingMethod === 'uses' && product.estimatedUses && product.estimatedUses > 0) {
+      rawCostPerUse = landedCost / product.estimatedUses;
+    } else {
+      rawCostPerUse = landedCost;
+    }
+    
+    const restockingMarkup = product.restockingMarkup || 0;
+    const finalCostPerUse = rawCostPerUse * (1 + (restockingMarkup / 100));
+
+    return {
+      landedCost,
+      restockingMarkup,
+      rawCostPerUse,
+      finalCostPerUse,
+    };
+  }, [product]);
+
+  const retailPerformance = useMemo(() => {
+    if (product.type !== 'retail' || !stockCorrections) return null;
+
+    const landedCost = product.costPerUnit || 0;
+    const retailPrice = product.msrp || landedCost; // Fallback to landed cost if no MSRP
+    const profitPerUnit = retailPrice - landedCost;
+
+    const retailSaleCorrections = stockCorrections.filter(
+        sc => sc.productId === product.id && sc.reason.toLowerCase().startsWith('retail sale')
+    );
+    const unitsSold = retailSaleCorrections.reduce((acc, sc) => acc + Math.abs(sc.change), 0);
+
+    const totalPurchased = unitsSold + product.totalStock;
+    const sellThroughRate = totalPurchased > 0 ? (unitsSold / totalPurchased) * 100 : 0;
+    const totalProfit = unitsSold * profitPerUnit;
+
+    return {
+        landedCost,
+        retailPrice,
+        profitPerUnit,
+        profitMargin: retailPrice > 0 ? (profitPerUnit / retailPrice) * 100 : 0,
+        unitsSold,
+        sellThroughRate,
+        totalProfit,
+    };
   }, [product, stockCorrections]);
 
 
@@ -338,15 +372,15 @@ export default function ProductDetailPage() {
                     <CardTitle>Cost & Price Analysis</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                    <div className="flex justify-between p-2 bg-muted/50 rounded-md"><span>Landed Cost / Item:</span><span className="font-mono">${(product.costPerUnit || 0).toFixed(2)}</span></div>
+                    <div className="flex justify-between p-2 bg-muted/50 rounded-md"><span>Landed Cost / Item:</span><span className="font-mono">${costAnalysis.landedCost.toFixed(2)}</span></div>
                     
                     {product.type === 'professional' ? (
                         <>
-                            <div className="flex justify-between p-2 bg-muted/50 rounded-md"><span>Restocking Markup:</span><span className="font-mono">5%</span></div>
-                            <div className="flex justify-between p-2 bg-muted/50 rounded-md"><span>Raw Cost/Use:</span><span className="font-mono">$0.23</span></div>
-                            <div className="flex justify-between p-3 bg-primary/10 rounded-md font-bold"><span>Final Cost/Use:</span><span className="font-mono text-primary">$0.25</span></div>
+                            <div className="flex justify-between p-2 bg-muted/50 rounded-md"><span>Restocking Markup:</span><span className="font-mono">{costAnalysis.restockingMarkup}%</span></div>
+                            <div className="flex justify-between p-2 bg-muted/50 rounded-md"><span>Raw Cost/Use:</span><span className="font-mono">${costAnalysis.rawCostPerUse.toFixed(3)}</span></div>
+                            <div className="flex justify-between p-3 bg-primary/10 rounded-md font-bold"><span>Final Cost/Use:</span><span className="font-mono text-primary">${costAnalysis.finalCostPerUse.toFixed(3)}</span></div>
                         </>
-                    ): (
+                    ) : (
                          <>
                             <div className="flex justify-between p-2 bg-muted/50 rounded-md"><span>Retail Price (MSRP):</span><span className="font-mono">${(retailPerformance?.retailPrice || 0).toFixed(2)}</span></div>
                             <div className="flex justify-between p-3 bg-primary/10 rounded-md font-bold"><span>Profit per Unit:</span><span className="font-mono text-primary">${(retailPerformance?.profitPerUnit || 0).toFixed(2)}</span></div>
@@ -516,3 +550,5 @@ export default function ProductDetailPage() {
 
     
 }
+
+    
