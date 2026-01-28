@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -41,7 +40,7 @@ import { PhoneInput } from '@/components/ui/phone-input';
 import { type Staff, type Service, type DayHours, type ConsentForm } from '@/lib/data';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '../ui/scroll-area';
-import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2, BookText, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pin, Youtube } from 'lucide-react';
+import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2, BookText, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pin, Youtube, Clock } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { buttonVariants } from '../ui/button';
@@ -417,7 +416,12 @@ const EditStaffForm = ({ services, consentForms }: { services: Service[], consen
                              <div>
                                 <h4 className="font-semibold text-sm mb-2">Assigned Forms</h4>
                                 <div className="space-y-2">
-                                     <Button variant="outline" className="w-full" type="button" onClick={() => setIsConsentFormDialogOpen(true)}>
+                                    {assignedForms.map(form => (
+                                        <div key={form.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+                                            <p className="text-sm font-medium">{form.title}</p>
+                                        </div>
+                                    ))}
+                                    <Button variant="outline" className="w-full" type="button" onClick={() => setIsConsentFormDialogOpen(true)}>
                                         <PlusCircle className="mr-2 h-4 w-4" />
                                         Assign Forms
                                     </Button>
