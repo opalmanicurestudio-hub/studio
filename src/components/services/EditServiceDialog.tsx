@@ -261,8 +261,7 @@ const Step2_Formula = ({ onScanClick, resources }: { onScanClick: () => void, re
                         </div>
                       )
                     })}</CardContent></Card>) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No products added yet.</CardContent></Card>)}
-                    <div className='flex gap-2'><Button variant="outline" onClick={() => setIsProductBrowserOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Browse Library</Button><Button variant="outline" onClick={onScanClick} type="button"><QrCode className="mr-2 h-4 w-4" /> Scan to Add</Button></div>
-                    </div>
+                    <div className='flex gap-2'><Button variant="outline" onClick={() => setIsProductBrowserOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Browse Library</Button><Button variant="outline" onClick={onScanClick} type="button"><QrCode className="mr-2 h-4 w-4" /> Scan to Add</Button></div></div>
                     <div className="space-y-2"><div className='flex items-center gap-2'><Hammer className="w-5 h-5 text-primary" /><Label className="text-base font-semibold">Required Resources</Label></div>
                     {selectedResources.length > 0 ? (<Card><CardContent className="p-2 space-y-2">{selectedResources.map((item: any) => (<div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50"><span className="text-sm font-medium">{item.name}</span><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeResource(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}</CardContent></Card>) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No resources required.</CardContent></Card>)}
                     <Button variant="outline" onClick={() => setIsResourceSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Resources</Button></div>
@@ -282,13 +281,13 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
     const { control, watch, register, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
     const isAddon = watch('isAddon');
     const depositType = watch('depositType');
-    const pricingTiers = watch('pricingTiers');
+    const [juniorPrice, seniorPrice, masterPrice] = watch(['pricingTiers.junior', 'pricingTiers.senior', 'pricingTiers.master']);
 
     const tiers = useMemo(() => [
-        { level: 'junior', price: pricingTiers?.junior || 0 },
-        { level: 'senior', price: pricingTiers?.senior || 0 },
-        { level: 'master', price: pricingTiers?.master || 0 },
-    ], [pricingTiers]);
+        { level: 'junior', price: juniorPrice || 0 },
+        { level: 'senior', price: seniorPrice || 0 },
+        { level: 'master', price: masterPrice || 0 },
+    ], [juniorPrice, seniorPrice, masterPrice]);
 
     useEffect(() => {
         if (depositType === 'breakeven') {
@@ -365,7 +364,7 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
                                         <SelectTrigger><SelectValue placeholder="Select deposit type" /></SelectTrigger>
                                         <SelectContent><SelectItem value="flat">Flat Rate</SelectItem><SelectItem value="percentage">Percentage</SelectItem></SelectContent>
                                     </Select>
-                                    )} />
+                                    )}/>
                                 </div>
                                 )}
                                 <div className="space-y-2">
@@ -414,6 +413,16 @@ const Step4_VisibilityConfirmation = ({ consentForms }: { consentForms: ConsentF
         </>
     );
 };
+
+interface EditServiceDialogProps { 
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  service: Service;
+  onServiceUpdated: (service: Service) => void;
+  categories: string[];
+  onNewCategory: (category: string) => void;
+  resources: Resource[];
+}
 
 export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({ 
     open, 

@@ -288,13 +288,13 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
     const { control, watch, register, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
     const isAddon = watch('isAddon');
     const depositType = watch('depositType');
-    const pricingTiers = watch('pricingTiers');
+    const [juniorPrice, seniorPrice, masterPrice] = watch(['pricingTiers.junior', 'pricingTiers.senior', 'pricingTiers.master']);
 
     const tiers = useMemo(() => [
-        { level: 'junior', price: pricingTiers?.junior || 0 },
-        { level: 'senior', price: pricingTiers?.senior || 0 },
-        { level: 'master', price: pricingTiers?.master || 0 },
-    ], [pricingTiers]);
+        { level: 'junior', price: juniorPrice || 0 },
+        { level: 'senior', price: seniorPrice || 0 },
+        { level: 'master', price: masterPrice || 0 },
+    ], [juniorPrice, seniorPrice, masterPrice]);
 
     useEffect(() => {
         if (depositType === 'breakeven') {
@@ -379,7 +379,7 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
                                     <Controller name="depositAmount" control={control} render={({ field }) => (
                                     <div className="relative">
                                         <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                        <Input type="number" placeholder="25.00" {...field} className="pl-8" disabled={depositType === 'breakeven'}/>
+                                        <Input type="number" placeholder="25.00" {...field} value={field.value ?? ''} className="pl-8" disabled={depositType === 'breakeven'}/>
                                     </div>
                                     )} />
                                 </div>
