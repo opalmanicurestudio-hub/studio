@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -11,7 +12,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Edit, PlusCircle, Trash2, User, Wrench, DollarSign, FlaskConical, Calendar as CalendarIcon, Rocket, CheckCircle, Percent, TrendingUp, Hammer } from 'lucide-react';
+import { ArrowLeft, Edit, PlusCircle, Trash2, User, Wrench, DollarSign, FlaskConical, Calendar as CalendarIcon, Rocket, CheckCircle, Percent, TrendingUp, Hammer, Tag, Truck, QrCode } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -287,6 +288,43 @@ export default function EquipmentDetailPage() {
                 </div>
             </div>
         </div>
+
+        <Card>
+            <CardContent className="p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className='space-y-1'>
+                    <div className='text-sm text-muted-foreground flex items-center gap-2'><Tag className='w-4 h-4' /> ID</div>
+                    <div className='font-mono text-sm'>{equipment.id.slice(-8).toUpperCase()}</div>
+                </div>
+                <div className='space-y-1'>
+                    <div className='text-sm text-muted-foreground flex items-center gap-2'><Truck className='w-4 h-4' /> Vendor</div>
+                    <div className='font-medium text-sm'>{equipment.supplier}</div>
+                </div>
+                <div className='space-y-1'>
+                    <div className='text-sm text-muted-foreground flex items-center gap-2'><QrCode className='w-4 h-4' /> Reorder QR</div>
+                    <div className='w-12 h-12 bg-muted flex items-center justify-center rounded-md'>
+                        <Image
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=48x48&data=${encodeURIComponent(equipment.supplierUrl || `clarityflow://product/${equipment.id}`)}`}
+                            alt={`Reorder QR for ${equipment.name}`}
+                            width={48}
+                            height={48}
+                            className="object-contain"
+                        />
+                    </div>
+                </div>
+                <div className='space-y-1'>
+                    <div className='text-sm text-muted-foreground flex items-center gap-2'><QrCode className='w-4 h-4' /> Internal QR</div>
+                    <div className='w-12 h-12 bg-muted flex items-center justify-center rounded-md'>
+                        <Image
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=48x48&data=${encodeURIComponent(`clarityflow://product/${equipment.id}`)}`}
+                            alt={`Internal QR for ${equipment.name}`}
+                            width={48}
+                            height={48}
+                            className="object-contain"
+                        />
+                    </div>
+                </div>
+            </CardContent>
+        </Card>
         
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
              <Card className="lg:col-span-2">

@@ -1,3 +1,4 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -174,6 +175,38 @@ export default function ProductDetailPage() {
     };
   }, [product]);
 
+  const professionalPerformance = useMemo(() => {
+    if (!product || product.type !== 'professional' || !stockCorrections) {
+      return { consumptionYTD: 0, totalCostOfUse: 0, unit: '' };
+    }
+
+    const yearStart = new Date(new Date().getFullYear(), 0, 1);
+
+    const relevantCorrections = stockCorrections.filter(sc => 
+      sc.productId === product.id &&
+      sc.change < 0 &&
+      parseISO(sc.date) >= yearStart
+    );
+
+    const totalConsumption = relevantCorrections.reduce((acc, sc) => acc + Math.abs(sc.change), 0);
+    
+    const costPerUnit = product.costPerUnit || 0;
+    let costPerBaseUnit = 0;
+    if (product.costingMethod === 'size' && product.size && product.size > 0) {
+        costPerBaseUnit = costPerUnit / product.size;
+    } else if (product.costingMethod === 'uses' && product.estimatedUses && product.estimatedUses > 0) {
+        costPerBaseUnit = costPerUnit / product.estimatedUses;
+    } else { // if no costing method, or it's 'unit'
+        costPerBaseUnit = costPerUnit;
+    }
+
+    const totalCost = totalConsumption * costPerBaseUnit;
+
+    const unit = product.costingMethod === 'uses' ? (product.useUnit || 'uses') : (product.unit || 'units');
+
+    return { consumptionYTD: totalConsumption, totalCostOfUse: totalCost, unit };
+  }, [product, stockCorrections]);
+
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -283,7 +316,7 @@ export default function ProductDetailPage() {
                 <ShoppingCart className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                <div className="text-2xl font-bold">$125.50</div>
+                <div className="text-2xl font-bold">${professionalPerformance.totalCostOfUse.toFixed(2)}</div>
                 </CardContent>
             </Card>
           ) : (
@@ -360,11 +393,11 @@ export default function ProductDetailPage() {
                                      <div className="grid grid-cols-2 gap-4">
                                         <div className="p-3 bg-muted/50 rounded-md">
                                             <p className="text-sm text-muted-foreground">Consumption (YTD)</p>
-                                            <p className="text-xl font-bold">502ml</p>
+                                            <p className="text-xl font-bold">{professionalPerformance.consumptionYTD.toFixed(1)}{professionalPerformance.unit}</p>
                                         </div>
                                          <div className="p-3 bg-muted/50 rounded-md">
                                             <p className="text-sm text-muted-foreground">Total Cost of Use</p>
-                                            <p className="text-xl font-bold">$125.50</p>
+                                            <p className="text-xl font-bold">${professionalPerformance.totalCostOfUse.toFixed(2)}</p>
                                         </div>
                                     </div>
                                     <div>
