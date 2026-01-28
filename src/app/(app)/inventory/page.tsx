@@ -77,6 +77,7 @@ import { ImageUpload } from '@/components/shared/ImageUpload';
 import { AddOrderDialog } from '@/components/inventory/AddOrderDialog';
 import { ReceiveStockDialog, type ReceivedItem } from '@/components/inventory/ReceiveStockDialog';
 import { useTenant } from '@/context/TenantContext';
+import { Html5Qrcode } from 'html5-qrcode';
 
 
 const OrderCard = ({ order, onSelect, onTrack, onReceive }: { order: Order, onSelect: (order: Order) => void, onTrack: (e: React.MouseEvent, url?: string) => void, onReceive: (order: Order) => void }) => {
@@ -613,8 +614,6 @@ export default function InventoryPage() {
   const [logUseDialogType, setLogUseDialogType] = useState<'product' | 'overhead'>('product');
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
-  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
-  const videoRef = useRef<HTMLVideoElement>(null);
   
   const [selectedItems, setSelectedItems] = useState(new Set<string>());
   const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
@@ -739,7 +738,8 @@ export default function InventoryPage() {
   const handleProductAdded = (newProduct: InventoryItem) => {
     if (!firestore || !tenantId) return;
     const newProductRef = doc(firestore, 'tenants', tenantId, 'inventory', newProduct.id);
-    setDocumentNonBlocking(newProductRef, newProduct, {});
+    const sanitizedData = JSON.parse(JSON.stringify(newProduct));
+    setDocumentNonBlocking(newProductRef, sanitizedData, {});
     toast({
       title: `New ${newProduct.type} product created`,
       description: `${newProduct.name} has been added to your inventory.`
@@ -749,13 +749,15 @@ export default function InventoryPage() {
   const handleEquipmentAdded = (newEquipment: InventoryItem) => {
     if (!firestore || !tenantId) return;
     const newEquipmentRef = doc(firestore, 'tenants', tenantId, 'inventory', newEquipment.id);
-    setDocumentNonBlocking(newEquipmentRef, newEquipment, {});
+    const sanitizedData = JSON.parse(JSON.stringify(newEquipment));
+    setDocumentNonBlocking(newEquipmentRef, sanitizedData, {});
   };
   
   const handleOverheadAdded = (newOverhead: InventoryItem) => {
     if (!firestore || !tenantId) return;
     const newOverheadRef = doc(firestore, 'tenants', tenantId, 'inventory', newOverhead.id);
-    setDocumentNonBlocking(newOverheadRef, newOverhead, {});
+    const sanitizedData = JSON.parse(JSON.stringify(newOverhead));
+    setDocumentNonBlocking(newOverheadRef, sanitizedData, {});
   };
   
   const handleAddOrder = (newOrderData: Omit<Order, 'id'>) => {
@@ -869,21 +871,24 @@ export default function InventoryPage() {
     if (!firestore || !tenantId) return {} as Location;
     const newLocWithId = { ...newLocation, id: `loc-${nanoid()}`};
     const locationRef = doc(firestore, 'tenants', tenantId, 'locations', newLocWithId.id);
-    setDocumentNonBlocking(locationRef, newLocWithId, {});
+    const sanitizedData = JSON.parse(JSON.stringify(newLocWithId));
+    setDocumentNonBlocking(locationRef, sanitizedData, {});
     return newLocWithId;
   };
 
   const handleUpdateLocation = (updatedLocation: Location) => {
     if (!firestore || !tenantId) return;
     const locationRef = doc(firestore, 'tenants', tenantId, 'locations', updatedLocation.id);
-    updateDocumentNonBlocking(locationRef, updatedLocation);
+    const sanitizedData = JSON.parse(JSON.stringify(updatedLocation));
+    updateDocumentNonBlocking(locationRef, sanitizedData);
   };
 
   const handleAddNewLocationType = (name: string, icon: string): LocationType => {
     if (!firestore || !tenantId) return { id: '', name: '', icon: '' };
     const newType = { id: `lt-${nanoid()}`, name, icon };
     const locTypeRef = doc(firestore, 'tenants', tenantId, 'locationTypes', newType.id);
-    setDocumentNonBlocking(locTypeRef, newType, {});
+    const sanitizedData = JSON.parse(JSON.stringify(newType));
+    setDocumentNonBlocking(locTypeRef, sanitizedData, {});
     return newType;
   };
 
@@ -964,7 +969,10 @@ export default function InventoryPage() {
     
     if (searchTerm) {
         const lowercasedSearchTerm = searchTerm.toLowerCase();
-        items = items.filter(item => item.name.toLowerCase().includes(lowercasedSearchTerm));
+        items = items.filter(item => 
+            item.name.toLowerCase().includes(lowercasedSearchTerm) ||
+            item.id.toLowerCase().includes(lowercasedSearchTerm)
+        );
     }
 
     return items;
@@ -986,34 +994,55 @@ export default function InventoryPage() {
   };
 
 
-  useEffect(() => {
-    if (isScannerOpen) {
-      const getCameraPermission = async () => {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-          setHasCameraPermission(true);
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-          }
-        } catch (error) {
-          console.error('Error accessing camera:', error);
-          setHasCameraPermission(false);
-          toast({
-            variant: 'destructive',
-            title: 'Camera Access Denied',
-            description: 'Please enable camera permissions in your browser settings to use this app.',
-          });
+  const handleScan = useCallback((data: string) => {
+    if (data.startsWith('clarityflow://product/')) {
+        const productId = data.split('/').pop();
+        if (productId) {
+            setSearchTerm(productId);
+            toast({
+                title: "Product Found",
+                description: `Displaying results for scanned product.`,
+            });
         }
-      };
-      getCameraPermission();
     } else {
-        if (videoRef.current && videoRef.current.srcObject) {
-            const stream = videoRef.current.srcObject as MediaStream;
-            stream.getTracks().forEach(track => track.stop());
-            videoRef.current.srcObject = null;
-        }
+        toast({
+            variant: 'destructive',
+            title: 'Invalid QR Code',
+            description: 'Please scan a valid ClarityFlow product QR code.',
+        });
     }
-  }, [isScannerOpen, toast]);
+  }, [toast]);
+  
+  useEffect(() => {
+    let html5QrCode: Html5Qrcode | undefined;
+    if (isScannerOpen) {
+      const timer = setTimeout(() => {
+        const element = document.getElementById('qr-reader-inventory');
+        if (element) {
+          html5QrCode = new Html5Qrcode('qr-reader-inventory');
+          const onScanSuccess = (decodedText: string) => {
+            if (html5QrCode?.isScanning) {
+              html5QrCode.stop().catch(console.error);
+            }
+            handleScan(decodedText);
+            setIsScannerOpen(false);
+          };
+          const onScanFailure = () => { /* ignore */ };
+          html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } }, onScanSuccess, onScanFailure)
+            .catch(err => {
+              toast({ variant: 'destructive', title: 'Camera Error', description: 'Could not start the camera. Please check permissions and try again.' });
+              setIsScannerOpen(false);
+            });
+        }
+      }, 300);
+      return () => {
+          clearTimeout(timer);
+          if (html5QrCode && html5QrCode.isScanning) {
+            html5QrCode.stop().catch(err => console.error("Failed to stop QR Code scanner.", err));
+          }
+      };
+    }
+  }, [isScannerOpen, handleScan, toast]);
   
   const hasInventory = inventory.length > 0;
   const hasFilteredInventory = filteredInventory.length > 0;
@@ -1328,19 +1357,10 @@ export default function InventoryPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="p-4 relative">
-             <video ref={videoRef} className="w-full aspect-video rounded-md bg-muted" autoPlay muted playsInline />
+             <div id="qr-reader-inventory" className="w-full rounded-md bg-muted" />
              <div className="absolute inset-4 flex items-center justify-center pointer-events-none">
-                <div className="w-2/3 h-2/3 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
+                <div className="w-2/3 h-1/2 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
             </div>
-            {hasCameraPermission === false && (
-                <Alert variant="destructive" className="mt-4">
-                    <AlertTriangle className="h-4 w-4" />
-                    <AlertTitle>Camera Access Required</AlertTitle>
-                    <AlertDescription>
-                        Please enable camera permissions in your browser settings to use this app.
-                    </AlertDescription>
-                </Alert>
-            )}
           </div>
            <DialogFooter className="p-4 pt-0">
                 <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button>
