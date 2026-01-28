@@ -40,9 +40,10 @@ import { ClientOnly } from '@/components/shared/ClientOnly';
 import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc, setDoc } from 'firebase/firestore';
 import { type Transaction } from '@/lib/financial-data';
+import { useTenant } from '@/context/TenantContext';
 
 
-const ClientCard = ({ client, isSelected, onSelect, appointments }: { client: Client, isSelected: boolean, onSelect: () => void, appointments: Appointment[] }) => {
+const ClientCard = ({ client, isSelected, onSelect }: { client: Client, isSelected: boolean, onSelect: () => void }) => {
     const lastAppointment = useMemo(() => {
         if (!client.lastAppointment) return null;
         return new Date(client.lastAppointment);
@@ -146,10 +147,12 @@ const EmptyState = ({ onAddClient }: { onAddClient: () => void }) => (
 
 export default function ClientsPage() {
   const { firestore, user } = useFirebase();
-  const tenantId = 'tenant-abc';
-  const clientsQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/clients`) : null, [firestore, tenantId]);
-  const appointmentsQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/appointments`) : null, [firestore, tenantId]);
-  const transactionsQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/transactions`) : null, [firestore, tenantId]);
+  const { selectedTenant } = useTenant();
+  const tenantId = selectedTenant?.id;
+
+  const clientsQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/clients`) : null, [firestore, tenantId]);
+  const appointmentsQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/appointments`) : null, [firestore, tenantId]);
+  const transactionsQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/transactions`) : null, [firestore, tenantId]);
 
   const { data: clients } = useCollection<Client>(clientsQuery);
   const { data: appointments } = useCollection<Appointment>(appointmentsQuery);
@@ -169,7 +172,7 @@ export default function ClientsPage() {
   const ITEMS_PER_PAGE = 8;
   
   const handleAddClient = (data: ClientFormData) => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
 
     const { referringClientId, ...clientData } = data;
     const firstName = data.name.split(' ')[0].toUpperCase();
@@ -193,7 +196,6 @@ export default function ClientsPage() {
       }
     };
     
-    // Let Firestore generate the ID
     const clientsCollection = collection(firestore, `tenants/${tenantId}/clients`);
     const sanitizedData = JSON.parse(JSON.stringify(newClient));
     addDocumentNonBlocking(clientsCollection, sanitizedData);
@@ -230,7 +232,7 @@ export default function ClientsPage() {
   };
   
   const handleBulkArchive = useCallback(() => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
     selectedItems.forEach(id => {
       const clientDoc = doc(firestore, `tenants/${tenantId}/clients`, id);
       updateDocumentNonBlocking(clientDoc, { status: 'archived' });
@@ -240,7 +242,7 @@ export default function ClientsPage() {
   }, [selectedItems, toast, firestore, tenantId]);
 
   const handleBulkUnarchive = useCallback(() => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
     selectedItems.forEach(id => {
       const clientDoc = doc(firestore, `tenants/${tenantId}/clients`, id);
       updateDocumentNonBlocking(clientDoc, { status: 'active' });
@@ -250,7 +252,7 @@ export default function ClientsPage() {
   }, [selectedItems, toast, firestore, tenantId]);
 
   const handleBulkDeleteConfirm = useCallback(() => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
     const itemCount = selectedItems.size;
     selectedItems.forEach(id => {
       const clientDoc = doc(firestore, `tenants/${tenantId}/clients`, id);
@@ -501,7 +503,6 @@ export default function ClientsPage() {
                                           client={client}
                                           isSelected={selectedItems.has(client.id)}
                                           onSelect={() => handleItemSelect(client.id)}
-                                          appointments={appointments || []}
                                       />
                                   ))}
                               </div>
@@ -577,3 +578,6 @@ export default function ClientsPage() {
 
     
 
+
+
+    
