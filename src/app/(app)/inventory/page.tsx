@@ -205,7 +205,7 @@ const AddOrderDialog = ({
             notes,
             items,
             invoiceUrl,
-            ...(expectedDate && { expectedArrivalDate: expectedDate.toISOString() }),
+            expectedArrivalDate: expectedDate ? expectedDate.toISOString() : undefined
         };
 
         onSave(newOrder);
@@ -285,6 +285,7 @@ const AddOrderDialog = ({
 
 const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrder }: { order: Order | null, open: boolean, onOpenChange: (open: boolean) => void, onSave: (order: Order) => void, onCancelOrder: (orderId: string) => void }) => {
     const [editableOrder, setEditableOrder] = useState<Order | null>(order);
+    const [isEditing, setIsEditing] = useState(false);
 
     useEffect(() => {
         if (order) {
@@ -292,6 +293,12 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
         }
     }, [order]);
     
+    useEffect(() => {
+        if (!open) {
+            setIsEditing(false);
+        }
+    }, [open]);
+
     if (!editableOrder) {
         return null;
     }
@@ -314,8 +321,6 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
         }) : null);
     }
 
-    const [isEditing, setIsEditing] = useState(false);
-    
     const handleSave = () => {
         if (editableOrder) {
             onSave(editableOrder);
@@ -382,32 +387,26 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                                 </div>
                                 </div>
                                 <div className="text-sm space-y-2">
-                                    {editableOrder.trackingNumber && (
+                                    {editableOrder.trackingUrl && (
                                         <div className="flex items-center gap-2">
                                             <Truck className="w-4 h-4 text-muted-foreground"/>
-                                            <span className="font-medium">Tracking:</span>
-                                            {editableOrder.trackingUrl ? (
-                                                 <Button
-                                                    variant="link"
-                                                    size="xs"
-                                                    className="p-0 h-auto"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        window.open(editableOrder.trackingUrl, '_blank', 'noopener,noreferrer');
-                                                    }}
-                                                >
-                                                    {editableOrder.trackingNumber}
-                                                </Button>
-                                            ) : (
-                                                <span className="font-semibold">{editableOrder.trackingNumber}</span>
-                                            )}
+                                            <Button
+                                                variant="link"
+                                                size="xs"
+                                                className="p-0 h-auto"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    window.open(editableOrder.trackingUrl, '_blank', 'noopener,noreferrer');
+                                                }}
+                                            >
+                                                Track Shipment
+                                            </Button>
                                         </div>
                                     )}
                                     {editableOrder.expectedArrivalDate && <p><strong>Expected Arrival:</strong> {format(parseISO(editableOrder.expectedArrivalDate), 'MMM d, yyyy')}</p>}
                                     {editableOrder.invoiceUrl && (
                                         <div className="flex items-center gap-2">
                                             <FileImage className="w-4 h-4 text-muted-foreground" />
-                                            <span className="font-medium">Invoice:</span>
                                             <a href={editableOrder.invoiceUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-primary hover:underline">View Attached File</a>
                                         </div>
                                     )}
