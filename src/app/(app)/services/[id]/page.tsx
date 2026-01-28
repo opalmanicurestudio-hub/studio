@@ -26,16 +26,10 @@ import { useToast } from '@/hooks/use-toast';
 import { Input } from '@/components/ui/input';
 import { useInventory } from '@/context/InventoryContext';
 
-const ProfitAnalysisCard = ({ service, tmhr, onPriceUpdate }: { service: Service; tmhr: number; onPriceUpdate: (newPrice: number) => void; }) => {
+const ProfitAnalysisCard = ({ service, tmhr }: { service: Service; tmhr: number; }) => {
     const { inventory } = useInventory();
-    const [testPrice, setTestPrice] = useState(service.price);
-    const { toast } = useToast();
 
-    useEffect(() => {
-        setTestPrice(service.price);
-    }, [service.price]);
-
-    const { profit, margin, breakEvenPoint } = useMemo(() => {
+    const { cost } = useMemo(() => {
         const totalDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
         const timeCost = (totalDuration / 60) * tmhr;
         
@@ -66,75 +60,57 @@ const ProfitAnalysisCard = ({ service, tmhr, onPriceUpdate }: { service: Service
             return acc + (hourlyDepreciation * serviceDurationHours);
         }, 0);
         
-        const breakEven = timeCost + productCost + equipmentDepreciation;
+        const totalCost = timeCost + productCost + equipmentDepreciation;
 
-        const profitValue = testPrice - breakEven;
-        const marginValue = testPrice > 0 ? (profitValue / testPrice) * 100 : 0;
+        return { cost: totalCost };
+    }, [service, tmhr, inventory]);
 
-        return { profit: profitValue, margin: marginValue, breakEvenPoint: breakEven };
-    }, [service, testPrice, tmhr, inventory]);
-    
-    const handleUpdateClick = () => {
-        onPriceUpdate(testPrice);
-        toast({
-            title: "Price Updated",
-            description: `${service.name} price is now $${testPrice.toFixed(2)}.`,
-        });
-    };
+    const tiers = useMemo(() => {
+        const defaultTiers = [
+            { level: 'junior', price: service.price * 0.8 },
+            { level: 'senior', price: service.price },
+            { level: 'master', price: service.price * 1.2 },
+        ];
+        const serviceTiers = service.pricingTiers && service.pricingTiers.length > 0 ? service.pricingTiers : defaultTiers;
 
-  return (
-    <Card className="lg:sticky top-24">
-      <CardHeader>
-        <CardTitle>Profit & Pricing Tester</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-2">
-            <div className="flex justify-between items-baseline">
-                <Label htmlFor={`price-slider-${service.id}`}>Test Price</Label>
-                <div className="relative">
-                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                    <Input
-                        type="number"
-                        value={testPrice}
-                        onChange={(e) => setTestPrice(Number(e.target.value) || 0)}
-                        className="w-32 h-auto bg-transparent border-0 p-0 pl-9 text-2xl font-bold text-primary text-right focus-visible:ring-0 focus-visible:ring-offset-0"
-                    />
-                </div>
+        return serviceTiers.map(tier => {
+            const profit = tier.price - cost;
+            const margin = tier.price > 0 ? (profit / tier.price) * 100 : 0;
+            return { ...tier, profit, margin };
+        }).sort((a,b) => a.price - b.price);
+    }, [service.pricingTiers, service.price, cost]);
+
+    return (
+        <Card className="lg:sticky top-24">
+        <CardHeader>
+            <CardTitle>Profitability Analysis</CardTitle>
+            <CardDescription>
+                Real-time financial breakdown for each skill tier.
+            </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+            <div className="flex justify-between items-center bg-muted/50 p-3 rounded-lg">
+                <span className="font-medium">Total Cost</span>
+                <span className="font-bold text-destructive">${cost.toFixed(2)}</span>
             </div>
-            <Slider
-                id={`price-slider-${service.id}`}
-                min={0}
-                max={Math.max(service.price * 2 + 50, testPrice + 50)}
-                step={1}
-                value={[testPrice]}
-                onValueChange={(value) => setTestPrice(value[0])}
-            />
-        </div>
-        <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/50 p-2">
-            <div className="text-center">
-                <p className="text-xs text-muted-foreground">Potential Profit</p>
-                <p className={`text-lg font-bold ${profit >= 0 ? 'text-green-500' : 'text-destructive'}`}>
-                    ${profit.toFixed(2)}
-                </p>
+
+            <div className="space-y-3">
+            {tiers.map(tier => (
+                <Card key={tier.level} className="bg-background">
+                    <CardHeader className="p-3">
+                        <CardTitle className="text-base capitalize">{tier.level}</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-3 pt-0 space-y-1 text-sm">
+                        <div className="flex justify-between"><span>Price:</span> <span className="font-mono">${tier.price.toFixed(2)}</span></div>
+                        <div className="flex justify-between"><span>Profit:</span> <span className={`font-mono ${tier.profit >= 0 ? 'text-green-500' : 'text-destructive'}`}>${tier.profit.toFixed(2)}</span></div>
+                        <div className="flex justify-between"><span>Margin:</span> <span className={`font-mono ${tier.margin >= 0 ? 'text-green-500' : 'text-destructive'}`}>{tier.margin.toFixed(1)}%</span></div>
+                    </CardContent>
+                </Card>
+            ))}
             </div>
-            <div className="text-center">
-                <p className="text-xs text-muted-foreground">Profit Margin</p>
-                <p className={`text-lg font-bold ${margin >= 0 ? 'text-green-500' : 'text-destructive'}`}>
-                    {margin.toFixed(1)}%
-                </p>
-            </div>
-        </div>
-        <div className='text-xs text-muted-foreground space-y-0.5 text-center'>
-            <p>Break-Even Point: ${breakEvenPoint?.toFixed(2)}</p>
-        </div>
-      </CardContent>
-       <CardFooter>
-            <Button className="w-full" onClick={handleUpdateClick} disabled={testPrice === service.price}>
-                Update Service Price
-            </Button>
-        </CardFooter>
-    </Card>
-  );
+        </CardContent>
+        </Card>
+    );
 };
 
 const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) => {
@@ -272,28 +248,6 @@ export default function ServiceDetailPage() {
         };
     }, [service]);
     
-    const handlePriceUpdate = (newPrice: number) => {
-        if (!service) return;
-
-        const totalDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
-        const timeCost = (totalDuration / 60) * tmhr;
-        const productCost = (service.products || []).reduce((acc, p) => acc + ((p.costPerUnit || 0) * p.quantityUsed), 0);
-        const equipmentDepreciation = (service.equipment || []).reduce((acc, eq) => {
-            const lifespanInMinutes = (eq.lifespanYears || 5) * 365 * 8 * 60;
-            const costPerMinute = (eq.costPerUnit || 0) / lifespanInMinutes;
-            return acc + (costPerMinute * totalDuration);
-        }, 0);
-        const breakEvenCost = timeCost + productCost + equipmentDepreciation;
-        const newProfit = newPrice - breakEvenCost;
-        const newMargin = newPrice > 0 ? (newProfit / newPrice) * 100 : 0;
-
-        setService(prevService => prevService ? {
-            ...prevService,
-            price: newPrice,
-            profit: newProfit,
-            margin: newMargin,
-        } : undefined);
-    };
     
      const handleCopyLink = () => {
         if (!service) return;
@@ -309,8 +263,9 @@ export default function ServiceDetailPage() {
     if (!service) {
         return notFound();
     }
-    const profitPercentage = service.price > 0 ? (service.profit / service.price) * 100 : 0;
     const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
+
+    const sortedTiers = [...(service.pricingTiers || [])].sort((a,b) => a.price - b.price);
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -351,27 +306,20 @@ export default function ServiceDetailPage() {
                                 <h1 className="text-3xl font-bold">{service.name}</h1>
                                 <div className="flex items-center gap-4 text-muted-foreground">
                                     <div className="flex items-center gap-2"><Clock className="w-4 h-4" /> {service.duration} min {totalPadding > 0 && `(+${totalPadding} pad)`}</div>
-                                    <div className="flex items-center gap-2"><DollarSign className="w-4 h-4" /> ${service.price.toFixed(2)}</div>
                                 </div>
                                 <p className="text-sm pt-2">{service.description || 'No description provided.'}</p>
                             </div>
                         </div>
                          <Separator className="my-6" />
-                         <div className="space-y-2">
-                            <Progress value={profitPercentage} className={`h-2 ${service.profit >= 0 ? 'text-green-500' : 'text-destructive'}`} />
-                            <div className="grid grid-cols-3 gap-4 text-sm">
-                                <div>
-                                    <p className="text-muted-foreground">Price</p>
-                                    <p className="font-semibold text-lg">${service.price.toFixed(2)}</p>
-                                </div>
-                                <div className='text-center'>
-                                    <p className="text-muted-foreground">Cost</p>
-                                    <p className="font-semibold text-lg text-destructive">${service.cost.toFixed(2)}</p>
-                                </div>
-                                <div className='text-right'>
-                                    <p className="text-muted-foreground">Profit</p>
-                                    <p className={`font-semibold text-lg ${service.profit >= 0 ? 'text-primary' : 'text-destructive'}`}>${service.profit.toFixed(2)}</p>
-                                </div>
+                         <div className="space-y-4">
+                             <h4 className="font-medium">Pricing Tiers</h4>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                {sortedTiers.map(tier => (
+                                    <div key={tier.level} className="p-3 rounded-lg bg-muted/50 text-center">
+                                        <p className="text-sm capitalize text-muted-foreground">{tier.level}</p>
+                                        <p className="text-2xl font-bold">${tier.price.toFixed(2)}</p>
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     </CardContent>
@@ -414,7 +362,7 @@ export default function ServiceDetailPage() {
 
             </div>
             <div className="lg:col-span-1">
-                <ProfitAnalysisCard service={service} tmhr={tmhr} onPriceUpdate={handlePriceUpdate} />
+                <ProfitAnalysisCard service={service} tmhr={tmhr} />
             </div>
         </div>
       </main>

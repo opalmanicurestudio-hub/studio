@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -129,7 +128,16 @@ export default function StaffDetailPage() {
   // Filter services offered by this staff member
   const staffServices = useMemo(() => {
     if (!staffMember || !allServices) return [];
-    return allServices.filter(service => staffMember.services?.includes(service.id) && !service.isPrivate);
+    const staffSkillLevel = staffMember.skillLevel || 'senior';
+    return allServices
+        .filter(service => staffMember.services?.includes(service.id) && !service.isPrivate)
+        .map(service => {
+            const tierPrice = service.pricingTiers?.find(t => t.level === staffSkillLevel)?.price;
+            return {
+                ...service,
+                price: tierPrice || service.price 
+            };
+        });
   }, [staffMember, allServices]);
 
   const weekOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
@@ -363,6 +371,14 @@ export default function StaffDetailPage() {
             </div>
       </main>
       
+        <footer className="sticky bottom-0 z-30 p-4 border-t bg-background/80 backdrop-blur-sm print:hidden">
+            <div className="max-w-lg mx-auto">
+                <Button asChild className="w-full h-12 text-lg">
+                    <a href="#services">Book Appointment</a>
+                </Button>
+            </div>
+        </footer>
+
         {selectedService && staff && (
             <BookingSheet 
                 open={isSheetOpen}

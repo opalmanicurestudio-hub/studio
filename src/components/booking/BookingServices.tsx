@@ -1,3 +1,4 @@
+
 'use client';
 
 import {
@@ -22,6 +23,15 @@ import { useMemo, useState, useEffect } from 'react';
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 
 const ServiceCard = ({ service, onSelect }: { service: Service, onSelect: () => void }) => {
+
+  const lowestPrice = useMemo(() => {
+    if (!service.pricingTiers || service.pricingTiers.length === 0) {
+      return service.price;
+    }
+    return Math.min(...service.pricingTiers.map(t => t.price));
+  }, [service]);
+
+
   if (service.imageUrl) {
     return (
       <div className="cursor-pointer group h-full" onClick={onSelect}>
@@ -51,7 +61,7 @@ const ServiceCard = ({ service, onSelect }: { service: Service, onSelect: () => 
                 </div>
                 <div className="flex items-center gap-2 font-medium text-foreground">
                   <DollarSign className="w-4 h-4" />
-                  <span>{service.price.toFixed(2)}</span>
+                  <span>From ${lowestPrice.toFixed(2)}</span>
                 </div>
               </div>
             </div>
@@ -80,8 +90,8 @@ const ServiceCard = ({ service, onSelect }: { service: Service, onSelect: () => 
               <span>{service.duration} min</span>
             </div>
             <div className="flex items-center gap-2 font-medium text-foreground">
-              <DollarSign className="w-4 h-4" />
-              <span>{service.price.toFixed(2)}</span>
+                <DollarSign className="w-4 h-4" />
+                <span>From ${lowestPrice.toFixed(2)}</span>
             </div>
           </div>
         </CardContent>
