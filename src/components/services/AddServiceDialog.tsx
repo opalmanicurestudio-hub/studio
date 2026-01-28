@@ -280,7 +280,7 @@ const Step2_Formula = ({ onScanClick, resources }: { onScanClick: () => void, re
 };
 
 const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
-    const { control, watch, register, setValue } = useFormContext<ServiceFormData>();
+    const { control, watch, register, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
     const isAddon = watch('isAddon');
     const depositType = watch('depositType');
     const pricingTiers = watch('pricingTiers');
@@ -356,7 +356,7 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
                                 <div><RadioGroupItem value="full" id="full" className="peer sr-only" /><Label htmlFor="full" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Pay in Full</Label></div>
                             </RadioGroup>
                         )}/>
-                        {['deposit', 'breakeven'].includes(depositType) && (
+                        {['deposit', 'breakeven'].includes(depositType!) && (
                             <Card className="bg-background"><CardContent className="p-4 space-y-4">
                                 {depositType === 'deposit' && (
                                 <div className="space-y-2">
