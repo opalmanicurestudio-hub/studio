@@ -51,6 +51,7 @@ import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { collection } from 'firebase/firestore';
 import { SelectResourcesDialog } from './SelectResourcesDialog';
+import { cn } from '@/lib/utils';
 
 const serviceSchema = z.object({
   id: z.string(),
@@ -319,7 +320,6 @@ const EditServiceForm = ({
                                             <SelectContent><SelectItem value="flat">Flat Rate</SelectItem><SelectItem value="percentage">Percentage</SelectItem></SelectContent>
                                         </Select>
                                         )}/>
-                                    </div>
                                     )}
                                     <div className="space-y-2">
                                         <Label>Deposit Amount</Label>
@@ -374,6 +374,8 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
     onNewCategory,
     resources,
 }) => {
+  const [step, setStep] = useState(1);
+  const totalSteps = 4;
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const isMobile = useIsMobile();
   
@@ -422,7 +424,6 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
                 senior: service.pricingTiers?.find(t => t.level === 'senior')?.price || service.price || 0,
                 master: service.pricingTiers?.find(t => t.level === 'master')?.price || 0,
             },
-            price: service.price, // Keep for compatibility if needed elsewhere
             products: service.products || [],
             requiredResourceIds: service.requiredResourceIds || [],
             compatibleAddOnIds: service.compatibleAddOnIds || [],
@@ -562,3 +563,5 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
     </Dialog>
   );
 };
+
+    
