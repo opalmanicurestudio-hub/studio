@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
@@ -30,6 +31,7 @@ import { collection, doc, writeBatch, query, where, updateDoc } from 'firebase/f
 import { type Tenant } from '@/lib/data';
 import { nanoid } from 'nanoid';
 import { useTenant } from '@/context/TenantContext';
+import { Badge } from '@/components/ui/badge';
 
 const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
   const timeOptions = Array.from({ length: (22 - 8) * 2 + 1 }, (_, i) => {
@@ -704,7 +706,7 @@ export default function SettingsPage() {
                   disabled={!isSmsEditing}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Use placeholders like &quot;{'{clientName}'}&quot; and &quot;{'{businessName}'}&quot;.
+                  Use placeholders like "{'{clientName}'}" and "{'{businessName}'}".
                 </p>
               </div>
             </CardContent>
@@ -714,3 +716,5 @@ export default function SettingsPage() {
     </div>
   );
 }
+
+    
