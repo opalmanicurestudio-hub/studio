@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState } from 'react';
@@ -10,10 +9,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { type Order, type InventoryItem } from '@/lib/data';
-import { CalendarIcon, PlusCircle, Trash2 } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2, DollarSign } from 'lucide-react';
 import { format } from 'date-fns';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { useInventory } from '@/context/InventoryContext';
+import { nanoid } from 'nanoid';
+import { ImageUpload } from '../shared/ImageUpload';
+
 
 interface AddOrderDialogProps {
   open: boolean;
@@ -38,8 +40,11 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({
     const [orderDate, setOrderDate] = useState<Date | undefined>(new Date());
     const [expectedDate, setExpectedDate] = useState<Date | undefined>();
     const [trackingNumber, setTrackingNumber] = useState('');
+    const [trackingUrl, setTrackingUrl] = useState('');
     const [notes, setNotes] = useState('');
+    const [invoiceUrl, setInvoiceUrl] = useState('');
     const [items, setItems] = useState<OrderItem[]>([]);
+    const [customItemName, setCustomItemName] = useState('');
 
     const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
     
@@ -53,6 +58,18 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({
         setItems(prev => [...prev, ...newItems.filter(newItem => !prev.find(item => item.productId === newItem.productId))]);
     };
 
+    const handleAddCustomItem = () => {
+        if (!customItemName.trim()) return;
+        const newItem: OrderItem = {
+            productId: `custom-${nanoid()}`, // Temporary unique ID for a new product
+            productName: customItemName,
+            quantity: 1,
+            costPerUnit: 0,
+        };
+        setItems(prev => [...prev, newItem]);
+        setCustomItemName('');
+    }
+
     const handleItemChange = (productId: string, field: 'quantity' | 'costPerUnit', value: number) => {
         setItems(prev => prev.map(item => item.productId === productId ? { ...item, [field]: value } : item));
     }
@@ -62,15 +79,18 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({
     }
 
     const handleSave = () => {
-        const newOrder: Omit<Order, 'id' | 'status'> = {
+        const newOrder: Omit<Order, 'id'> = {
             supplier,
             orderDate: (orderDate || new Date()).toISOString(),
-            expectedArrivalDate: expectedDate?.toISOString(),
-            status: 'Draft',
+            status: 'Placed',
             trackingNumber,
+            trackingUrl,
             notes,
-            items,
+            items: items,
+            invoiceUrl,
+            expectedArrivalDate: expectedDate ? expectedDate.toISOString() : undefined,
         };
+
         onSave(newOrder);
         onOpenChange(false);
     };
@@ -101,19 +121,41 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({
                         <Label htmlFor="tracking">Tracking Number</Label>
                         <Input id="tracking" value={trackingNumber} onChange={e => setTrackingNumber(e.target.value)} />
                     </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="trackingUrl">Tracking URL</Label>
+                        <Input id="trackingUrl" value={trackingUrl} onChange={e => setTrackingUrl(e.target.value)} placeholder="https://carrier.com/track/..."/>
+                    </div>
                     <div>
                         <Label>Items</Label>
                         <div className="space-y-2 mt-2">
                              {items.map(item => (
                                 <div key={item.productId} className="flex items-center gap-2 p-2 border rounded-md">
-                                    <span className="flex-1 text-sm font-medium">{item.productName}</span>
+                                    <div className="flex-1">
+                                        <p className="text-sm font-medium">{item.productName}</p>
+                                    </div>
                                     <Input type="number" value={item.quantity} onChange={e => handleItemChange(item.productId, 'quantity', Number(e.target.value))} className="w-16 h-8" />
-                                    <Input type="number" value={item.costPerUnit} onChange={e => handleItemChange(item.productId, 'costPerUnit', Number(e.target.value))} className="w-20 h-8" />
-                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleRemoveItem(item.productId)}><Trash2 className="w-4 h-4" /></Button>
+                                    <div className="relative w-24">
+                                        <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input type="number" value={item.costPerUnit} onChange={e => handleItemChange(item.productId, 'costPerUnit', Number(e.target.value))} className="w-24 h-8 pl-7" />
+                                    </div>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleRemoveItem(item.productId)}><Trash2 className="h-4 w-4" /></Button>
                                 </div>
                             ))}
                         </div>
-                        <Button variant="outline" className="mt-2 w-full" type="button" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2"/>Add Items</Button>
+                        <div className="flex items-center gap-2 mt-2">
+                            <Input
+                                placeholder="Add a new product by name..."
+                                value={customItemName}
+                                onChange={(e) => setCustomItemName(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && handleAddCustomItem()}
+                            />
+                            <Button variant="outline" size="sm" type="button" onClick={handleAddCustomItem}>Add New</Button>
+                        </div>
+                        <Button variant="outline" className="mt-2 w-full" type="button" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2"/>Add from Inventory</Button>
+                    </div>
+                     <div className="space-y-2">
+                        <Label htmlFor="invoice">Invoice/Receipt</Label>
+                        <ImageUpload onImageUploaded={setInvoiceUrl} />
                     </div>
                      <div className="space-y-2">
                         <Label htmlFor="notes">Notes</Label>

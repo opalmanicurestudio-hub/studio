@@ -31,6 +31,7 @@ import {
     initialLocations as initialLocationsData,
     initialLocationTypes as initialLocationTypesData,
     type Order,
+    type Batch,
 } from '@/lib/data';
 import {
   DropdownMenu,
@@ -59,7 +60,6 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ManageSpoilageDialog, type SpoilageItem } from '@/components/inventory/ManageSpoilageDialog';
 import { InventorySidebar } from '@/components/inventory/InventorySidebar';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from '@/components/ui/sheet';
-import { type Batch } from '@/lib/data';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { transactions as initialTransactionsData, type Transaction } from '@/lib/financial-data';
 import { ClientOnly } from '@/components/shared/ClientOnly';
@@ -71,8 +71,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { EditProductDialog } from '@/components/inventory/EditProductDialog';
-import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
-import { collection, doc, setDoc } from 'firebase/firestore';
+import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
+import { collection, doc, writeBatch } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import { BrowseProductsDialog } from '@/components/services/BrowseProductsDialog';
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
@@ -82,9 +82,11 @@ import { CalendarIcon } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { ImageUpload } from '@/components/shared/ImageUpload';
+import { AddOrderDialog } from '@/components/inventory/AddOrderDialog';
+import { ReceiveStockDialog, type ReceivedItem } from '@/components/inventory/ReceiveStockDialog';
 
 
-const OrderCard = ({ order, onSelect, onTrack }: { order: Order, onSelect: (order: Order) => void, onTrack: (e: React.MouseEvent, url?: string) => void }) => {
+const OrderCard = ({ order, onSelect, onTrack, onReceive }: { order: Order, onSelect: (order: Order) => void, onTrack: (e: React.MouseEvent, url?: string) => void, onReceive: (order: Order) => void }) => {
     const getStatusVariant = (status: Order['status']) => {
         switch (status) {
             case 'Placed': return { icon: <Clock className="h-3 w-3" />, className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300' };
@@ -113,9 +115,9 @@ const OrderCard = ({ order, onSelect, onTrack }: { order: Order, onSelect: (orde
                         <Badge className={statusInfo.className}>{statusInfo.icon} <span className="ml-1.5">{order.status}</span></Badge>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => e.stopPropagation()}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                            <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
+                            <DropdownMenuContent onClick={(e) => e.stopPropagation()} align="end">
                                 <DropdownMenuItem onClick={() => onSelect(order)}>View/Edit Order</DropdownMenuItem>
-                                <DropdownMenuItem>Receive Stock</DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => onReceive(order)}>Receive Stock</DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>
                     </div>
@@ -125,15 +127,15 @@ const OrderCard = ({ order, onSelect, onTrack }: { order: Order, onSelect: (orde
                 <div className="text-sm space-y-2">
                     <p><strong>{totalItems}</strong> items ordered</p>
                     <p>Total Cost: <strong>${totalCost.toFixed(2)}</strong></p>
-                    {order.trackingUrl && (
+                    {order.trackingNumber && (
                         <div className="flex items-center gap-2">
-                            <Truck className="w-4 h-4 text-muted-foreground"/>
                              <Button
                                 variant="link"
                                 size="xs"
                                 className="p-0 h-auto"
                                 onClick={(e) => onTrack(e, order.trackingUrl)}
                             >
+                                <Truck className="w-4 h-4 text-muted-foreground mr-2"/>
                                 Track
                             </Button>
                         </div>
@@ -144,151 +146,6 @@ const OrderCard = ({ order, onSelect, onTrack }: { order: Order, onSelect: (orde
         </Card>
     );
 }
-
-const AddOrderDialog = ({
-  open,
-  onOpenChange,
-  onSave,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSave: (orderData: Omit<Order, 'id'>) => void;
-}) => {
-    const { inventory: products } = useInventory();
-    const [supplier, setSupplier] = useState('');
-    const [orderDate, setOrderDate] = useState<Date | undefined>(new Date());
-    const [expectedDate, setExpectedDate] = useState<Date | undefined>();
-    const [trackingNumber, setTrackingNumber] = useState('');
-    const [trackingUrl, setTrackingUrl] = useState('');
-    const [notes, setNotes] = useState('');
-    const [invoiceUrl, setInvoiceUrl] = useState('');
-    const [items, setItems] = useState<OrderItem[]>([]);
-
-    const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
-    
-    type OrderItem = {
-        productId: string;
-        productName: string;
-        quantity: number;
-        costPerUnit: number;
-        stock: number;
-        reorderPoint?: number;
-    };
-
-    const handleAddProducts = (selectedProducts: InventoryItem[]) => {
-        const newItems = selectedProducts.map(p => ({
-            productId: p.id,
-            productName: p.name,
-            quantity: 1,
-            costPerUnit: p.costPerUnit || 0,
-            stock: p.totalStock,
-            reorderPoint: p.reorderPoint,
-        }));
-        setItems(prev => [...prev, ...newItems.filter(newItem => !prev.find(item => item.productId === newItem.productId))]);
-    };
-
-    const handleItemChange = (productId: string, field: 'quantity' | 'costPerUnit', value: number) => {
-        setItems(prev => prev.map(item => item.productId === productId ? { ...item, [field]: value } : item));
-    }
-    
-    const handleRemoveItem = (productId: string) => {
-        setItems(prev => prev.filter(item => item.productId !== productId));
-    }
-
-    const handleSave = () => {
-        const newOrder: Omit<Order, 'id'> = {
-            supplier,
-            orderDate: (orderDate || new Date()).toISOString(),
-            status: 'Placed',
-            trackingNumber,
-            trackingUrl,
-            notes,
-            items: items.map(({ stock, reorderPoint, ...item }) => item), // Remove client-side fields
-            invoiceUrl,
-            expectedArrivalDate: expectedDate ? expectedDate.toISOString() : undefined,
-        };
-
-        onSave(newOrder);
-        onOpenChange(false);
-    };
-
-    return (
-        <>
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-lg">
-                <DialogHeader>
-                    <DialogTitle>Create New Purchase Order</DialogTitle>
-                </DialogHeader>
-                <div className="grid gap-4 py-4 max-h-[70vh] overflow-y-auto pr-4">
-                    <div className="space-y-2">
-                        <Label htmlFor="supplier">Supplier</Label>
-                        <Input id="supplier" value={supplier} onChange={e => setSupplier(e.target.value)} />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                             <Label>Order Date</Label>
-                            <Popover><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal">{orderDate ? format(orderDate, 'PPP') : 'Select date'}</Button></PopoverTrigger><PopoverContent><Calendar mode="single" selected={orderDate} onSelect={setOrderDate} /></PopoverContent></Popover>
-                        </div>
-                        <div className="space-y-2">
-                            <Label>Expected Arrival</Label>
-                            <Popover><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal">{expectedDate ? format(expectedDate, 'PPP') : 'Select date'}</Button></PopoverTrigger><PopoverContent><Calendar mode="single" selected={expectedDate} onSelect={setExpectedDate} /></PopoverContent></Popover>
-                        </div>
-                    </div>
-                     <div className="space-y-2">
-                        <Label htmlFor="tracking">Tracking Number</Label>
-                        <Input id="tracking" value={trackingNumber} onChange={e => setTrackingNumber(e.target.value)} />
-                    </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="trackingUrl">Tracking URL</Label>
-                        <Input id="trackingUrl" value={trackingUrl} onChange={e => setTrackingUrl(e.target.value)} placeholder="https://carrier.com/track/..."/>
-                    </div>
-                    <div>
-                        <Label>Items</Label>
-                        <div className="space-y-2 mt-2">
-                             {items.map(item => {
-                                const isLowStock = item.reorderPoint ? item.stock <= item.reorderPoint : false;
-                                return (
-                                <div key={item.productId} className="flex items-center gap-2 p-2 border rounded-md">
-                                    <div className="flex-1">
-                                        <p className="text-sm font-medium">{item.productName}</p>
-                                        <p className={cn("text-xs", isLowStock ? 'text-destructive' : 'text-muted-foreground')}>
-                                            {item.stock} in stock
-                                        </p>
-                                    </div>
-                                    <Input type="number" value={item.quantity} onChange={e => handleItemChange(item.productId, 'quantity', Number(e.target.value))} className="w-16 h-8" />
-                                    <Input type="number" value={item.costPerUnit} onChange={e => handleItemChange(item.productId, 'costPerUnit', Number(e.target.value))} className="w-20 h-8" />
-                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleRemoveItem(item.productId)}><Trash2 className="w-4 h-4" /></Button>
-                                </div>
-                            )})}
-                        </div>
-                        <Button variant="outline" className="mt-2 w-full" type="button" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2"/>Add Items</Button>
-                    </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="invoice">Invoice/Receipt</Label>
-                        <ImageUpload onImageUploaded={setInvoiceUrl} />
-                    </div>
-                     <div className="space-y-2">
-                        <Label htmlFor="notes">Notes</Label>
-                        <Textarea id="notes" value={notes} onChange={e => setNotes(e.target.value)} />
-                    </div>
-                </div>
-                <DialogFooter>
-                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                    <Button onClick={handleSave}>Save Order</Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-
-        <BrowseProductsDialog
-            open={isProductBrowserOpen}
-            onOpenChange={setIsProductBrowserOpen}
-            onSelect={handleAddProducts}
-            allProducts={products}
-            initialSelected={[]}
-        />
-        </>
-    );
-};
 
 const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrder, onTrack }: { order: Order | null, open: boolean, onOpenChange: (open: boolean) => void, onSave: (order: Order) => void, onCancelOrder: (orderId: string) => void, onTrack: (e: React.MouseEvent, url?: string) => void }) => {
     const [editableOrder, setEditableOrder] = useState<Order | null>(order);
@@ -392,13 +249,13 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                                 <div className="text-sm space-y-2">
                                     {editableOrder.trackingUrl && (
                                         <div className="flex items-center gap-2">
-                                            <Truck className="w-4 h-4 text-muted-foreground"/>
                                             <Button
                                                 variant="link"
                                                 size="xs"
                                                 className="p-0 h-auto"
                                                 onClick={(e) => onTrack(e, editableOrder.trackingUrl)}
                                             >
+                                                <Truck className="w-4 h-4 text-muted-foreground mr-2"/>
                                                 Track
                                             </Button>
                                         </div>
@@ -439,7 +296,12 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
 const OrdersTab = ({ orders, isLoading, onAddOrder, onUpdateOrder, onCancelOrder }: { orders: Order[], isLoading: boolean, onAddOrder: (order: Omit<Order, 'id'>) => void, onUpdateOrder: (order: Order) => void, onCancelOrder: (orderId: string) => void }) => {
     const [isAddOrderOpen, setIsAddOrderOpen] = useState(false);
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-
+    const [orderToReceive, setOrderToReceive] = useState<Order | null>(null);
+    const { toast } = useToast();
+    const { inventory, setInventory } = useInventory();
+    const { firestore } = useFirebase();
+    const tenantId = 'tenant-abc';
+    
     const openTrackingUrl = (e: React.MouseEvent, url: string | undefined) => {
         e.stopPropagation();
         if (!url) return;
@@ -448,6 +310,63 @@ const OrdersTab = ({ orders, isLoading, onAddOrder, onUpdateOrder, onCancelOrder
             finalUrl = 'https://' + url;
         }
         window.open(finalUrl, '_blank', 'noopener,noreferrer');
+    };
+
+    const handleReceiveStock = (receivedItems: ReceivedItem[]) => {
+      if (!firestore || !orderToReceive) return;
+
+      const batch = writeBatch(firestore);
+
+      receivedItems.forEach(item => {
+        const existingProduct = inventory.find(p => p.id === item.productId);
+        if (existingProduct) {
+          const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.productId);
+          const newBatch: Batch = {
+            id: `batch-${nanoid()}`,
+            stock: item.quantityReceived,
+            costPerUnit: item.costPerUnit,
+            receivedDate: new Date().toISOString(),
+            expirationDate: item.expirationDate?.toISOString(),
+          };
+          const updatedBatches = [...existingProduct.batches, newBatch];
+          const totalStock = updatedBatches.reduce((acc, b) => acc + b.stock, 0);
+
+          batch.update(productRef, {
+            batches: updatedBatches,
+            totalStock: totalStock,
+          });
+        }
+      });
+
+      const allItemsReceived = receivedItems.every(item => item.quantityReceived >= item.quantityOrdered);
+      const someItemsReceived = receivedItems.some(item => item.quantityReceived > 0);
+
+      let newStatus: Order['status'] = orderToReceive.status;
+      if (allItemsReceived) {
+        newStatus = 'Received';
+      } else if (someItemsReceived) {
+        newStatus = 'Partially Received';
+      }
+      
+      if (newStatus !== orderToReceive.status) {
+        const orderRef = doc(firestore, `tenants/${tenantId}/orders`, orderToReceive.id);
+        batch.update(orderRef, { status: newStatus });
+      }
+
+      batch.commit().then(() => {
+          toast({
+              title: "Stock Updated!",
+              description: "Inventory has been updated with the received items.",
+          });
+          setOrderToReceive(null);
+      }).catch(error => {
+          console.error("Error receiving stock: ", error);
+          toast({
+              variant: "destructive",
+              title: "Error",
+              description: "Failed to update stock.",
+          });
+      });
     };
     
     return (
@@ -465,7 +384,7 @@ const OrdersTab = ({ orders, isLoading, onAddOrder, onUpdateOrder, onCancelOrder
                 <CardContent>
                      {isLoading ? <p>Loading orders...</p> : orders.length > 0 ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {orders.map(order => <OrderCard key={order.id} order={order} onSelect={setSelectedOrder} onTrack={openTrackingUrl} />)}
+                            {orders.map(order => <OrderCard key={order.id} order={order} onSelect={setSelectedOrder} onTrack={openTrackingUrl} onReceive={setOrderToReceive} />)}
                         </div>
                     ) : (
                          <div className="text-center py-10 px-6 border-2 border-dashed rounded-lg">
@@ -485,10 +404,16 @@ const OrdersTab = ({ orders, isLoading, onAddOrder, onUpdateOrder, onCancelOrder
             <ViewOrEditOrderDialog
                 order={selectedOrder}
                 open={!!selectedOrder}
-                onOpenChange={() => setSelectedOrder(null)}
+                onOpenChange={(isOpen) => !isOpen && setSelectedOrder(null)}
                 onSave={onUpdateOrder}
                 onCancelOrder={onCancelOrder}
                 onTrack={openTrackingUrl}
+            />
+             <ReceiveStockDialog
+                open={!!orderToReceive}
+                onOpenChange={() => setOrderToReceive(null)}
+                order={orderToReceive}
+                onConfirm={handleReceiveStock}
             />
         </>
     );
@@ -788,33 +713,60 @@ export default function InventoryPage() {
   
   const handleAddOrder = (newOrderData: Omit<Order, 'id'>) => {
     if (!firestore) return;
+
+    const finalItems: { productId: string; productName: string; quantity: number; costPerUnit: number; }[] = [];
+    
+    newOrderData.items.forEach(item => {
+        if (item.productId.startsWith('custom-')) {
+            const newProductId = nanoid();
+            const newProductShell: InventoryItem = {
+                id: newProductId,
+                name: item.productName,
+                type: 'professional',
+                category: 'Uncategorized',
+                totalStock: 0,
+                supplier: newOrderData.supplier,
+                costPerUnit: item.costPerUnit,
+                batches: [],
+            };
+            const productDocRef = doc(firestore, `tenants/${tenantId}/inventory`, newProductId);
+            setDocumentNonBlocking(productDocRef, newProductShell, {});
+            finalItems.push({ ...item, productId: newProductId });
+        } else {
+            finalItems.push(item);
+        }
+    });
+
     const newOrder: Order = {
-      ...newOrderData,
-      id: nanoid(),
-      status: 'Placed',
+        ...newOrderData,
+        id: nanoid(),
+        items: finalItems,
+        status: 'Placed',
     };
     const orderRef = collection(firestore, 'tenants', tenantId, 'orders');
     addDocumentNonBlocking(orderRef, newOrder);
     
     const totalCost = newOrder.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
-    const newTransaction: Omit<Transaction, 'id' | 'date'> = {
-        description: `Purchase Order: ${newOrder.supplier}`,
-        clientOrVendor: newOrder.supplier,
-        type: 'expense',
-        context: 'Business',
-        category: 'Supplies',
-        amount: totalCost,
-        paymentMethod: 'On Account',
-        hasReceipt: !!newOrder.invoiceUrl,
-        receiptUrl: newOrder.invoiceUrl,
-        relatedOrderId: newOrder.id,
-    };
-    const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
-    addDocumentNonBlocking(transactionsRef, { ...newTransaction, date: newOrder.orderDate });
+    if (totalCost > 0) {
+        const newTransaction: Omit<Transaction, 'id' | 'date'> = {
+            description: `Purchase Order: ${newOrder.supplier}`,
+            clientOrVendor: newOrder.supplier,
+            type: 'expense',
+            context: 'Business',
+            category: 'Supplies',
+            amount: totalCost,
+            paymentMethod: 'On Account',
+            hasReceipt: !!newOrder.invoiceUrl,
+            receiptUrl: newOrder.invoiceUrl,
+            relatedOrderId: newOrder.id,
+        };
+        const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+        addDocumentNonBlocking(transactionsRef, { ...newTransaction, date: newOrder.orderDate });
+    }
 
     toast({
-      title: "Order Created!",
-      description: `Your order to ${newOrder.supplier} has been saved as '${newOrder.status}'.`
+        title: "Order Created!",
+        description: `Your order to ${newOrder.supplier} has been saved as '${newOrder.status}'.`
     });
   };
   
