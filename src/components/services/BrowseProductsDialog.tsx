@@ -17,6 +17,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { type InventoryItem } from '@/lib/data';
 import { Search } from 'lucide-react';
 import Image from 'next/image';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 
 interface BrowseProductsDialogProps {
   open: boolean;
@@ -64,7 +66,7 @@ export const BrowseProductsDialog: React.FC<BrowseProductsDialogProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Browse Products</DialogTitle>
           <DialogDescription>Select products to add.</DialogDescription>
@@ -81,27 +83,46 @@ export const BrowseProductsDialog: React.FC<BrowseProductsDialogProps> = ({
             </div>
             <ScrollArea className="h-72">
                 <div className="space-y-2 pr-4">
-                {filteredProducts.map(product => (
-                    <div
-                        key={product.id}
-                        className="flex items-center space-x-3 p-2 rounded-md hover:bg-muted"
-                    >
-                         <Checkbox
-                            id={`product-${product.id}`}
-                            checked={selectedIds.has(product.id)}
-                            onCheckedChange={() => handleToggle(product.id)}
-                        />
-                         <div className='w-10 h-10 bg-muted rounded-md flex-shrink-0'>
-                            <Image src={`https://picsum.photos/seed/inv${product.id}/100/100`} alt={product.name} width={40} height={40} className='rounded-md'/>
-                        </div>
-                        <label
-                            htmlFor={`product-${product.id}`}
-                            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 flex-1 cursor-pointer"
+                {filteredProducts.map(product => {
+                    const stockStatus = product.totalStock <= 0
+                        ? 'Out of Stock'
+                        : product.reorderPoint && product.totalStock <= product.reorderPoint
+                        ? 'Low Stock'
+                        : 'In Stock';
+                    return (
+                        <div
+                            key={product.id}
+                            className="flex items-center space-x-3 p-2 rounded-md hover:bg-muted"
                         >
-                            {product.name}
-                        </label>
-                    </div>
-                ))}
+                            <Checkbox
+                                id={`product-${product.id}`}
+                                checked={selectedIds.has(product.id)}
+                                onCheckedChange={() => handleToggle(product.id)}
+                            />
+                            <div className='w-10 h-10 bg-muted rounded-md flex-shrink-0'>
+                                <Image src={product.imageUrl || `https://picsum.photos/seed/inv${product.id}/100/100`} alt={product.name} width={40} height={40} className='rounded-md object-cover h-full w-full'/>
+                            </div>
+                            <label
+                                htmlFor={`product-${product.id}`}
+                                className="flex-1 cursor-pointer"
+                            >
+                                <p className="text-sm font-medium leading-none">{product.name}</p>
+                                <p className="text-xs text-muted-foreground">{product.category}</p>
+                            </label>
+                            <div className="text-right">
+                                <p className="font-mono text-sm font-semibold">{product.totalStock}</p>
+                                <Badge
+                                    variant={stockStatus === 'Out of Stock' ? 'destructive' : stockStatus === 'Low Stock' ? 'secondary' : 'outline'}
+                                    className={cn('text-[10px]', {
+                                        'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50': stockStatus === 'Low Stock',
+                                    })}
+                                >
+                                    {stockStatus}
+                                </Badge>
+                            </div>
+                        </div>
+                    )
+                })}
                 </div>
             </ScrollArea>
         </div>
