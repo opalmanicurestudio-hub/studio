@@ -350,19 +350,29 @@ export default function StaffPage() {
         const completedAppointmentsCount = completedAppointments.length;
 
         let totalInServiceMinutes = 0;
+        let totalMinutesVariance = 0;
         completedAppointments.forEach(apt => {
+            const service = services.find(s => s.id === apt.serviceId);
             if (apt.actualStartTime && apt.actualEndTime) {
-                totalInServiceMinutes += differenceInMinutes(apt.actualEndTime, apt.actualStartTime);
+                const actualDuration = differenceInMinutes(apt.actualEndTime, apt.actualStartTime);
+                totalInServiceMinutes += actualDuration;
+                if(service) {
+                    const scheduledDuration = service.duration;
+                    totalMinutesVariance += actualDuration - scheduledDuration;
+                }
             } else {
-                const service = services.find(s => s.id === apt.serviceId);
                 if (service) {
                     totalInServiceMinutes += service.duration;
                 }
             }
         });
-
+        
+        const avgVariance = completedAppointmentsCount > 0 ? totalMinutesVariance / completedAppointmentsCount : 0;
         const utilizationRate = totalMinutesWorked > 0 ? (totalInServiceMinutes / totalMinutesWorked) * 100 : 0;
         const avgSalePerAppointment = completedAppointmentsCount > 0 ? totalSales / completedAppointmentsCount : 0;
+        
+        const retailTransactionsWithAppointment = staffTransactions.filter(t => t.category === 'Retail' && t.appointmentId);
+        const retailAttachmentRate = completedAppointmentsCount > 0 ? (new Set(retailTransactionsWithAppointment.map(t => t.appointmentId)).size / completedAppointmentsCount) * 100 : 0;
 
         return {
             ...member,
@@ -377,6 +387,8 @@ export default function StaffPage() {
                 utilizationRate,
                 avgSalePerAppointment,
                 completedAppointments: completedAppointmentsCount,
+                retailAttachmentRate,
+                avgVariance,
             }
         };
     });
@@ -563,6 +575,7 @@ export default function StaffPage() {
         onSave={handleUpdateStaff}
         staffMember={editingStaff}
         services={services || []}
+        consentForms={consentForms || []}
       />
        <StaffDetailsSheet
         open={isDetailsSheetOpen}
@@ -593,6 +606,7 @@ export default function StaffPage() {
     </div>
   );
 }
+
 
 
 
