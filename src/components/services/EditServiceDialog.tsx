@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
+import { useForm, FormProvider, useFormContext, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
@@ -33,25 +33,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { type InventoryItem, type Location, type ConsentForm, type Resource } from '@/lib/data';
+import { type InventoryItem, type Location, type ConsentForm, type Resource, services as allServices, type Service } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
-import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2 } from 'lucide-react';
-import { inventory, services as allServices, type Service } from '@/lib/data';
+import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2, EyeOff } from 'lucide-react';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { BrowseProductsDialog } from './BrowseProductsDialog';
-import { SelectEquipmentDialog } from './SelectEquipmentDialog';
 import { SelectAddOnsDialog } from './SelectAddOnsDialog';
 import { BrowseConsentFormsDialog } from './BrowseConsentFormsDialog';
 import { Switch } from '../ui/switch';
 import { useInventory } from '@/context/InventoryContext';
-import { useIsMobile } from '@/hooks/use-mobile';
-import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
-import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
-import { collection } from 'firebase/firestore';
 import { SelectResourcesDialog } from './SelectResourcesDialog';
 import { cn } from '@/lib/utils';
+import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
 
 const serviceSchema = z.object({
   id: z.string(),
@@ -93,8 +89,8 @@ const Step1_BasicDetails = ({
     onNewCategory: (category: string) => void;
 }) => {
     const { register, control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
-    const [isAddingCategory, setIsAddingCategory] = useState(false);
-    const [newCategoryName, setNewCategoryName] = useState('');
+    const [isAddingCategory, setIsAddingCategory = useState(false);
+    const [newCategoryName, setNewCategoryName = useState('');
     const category = watch('category');
 
     const handleAddNewCategory = () => {
@@ -108,98 +104,98 @@ const Step1_BasicDetails = ({
     };
     
     return (
-  <div className="grid gap-6 py-4">
-    <div className="flex items-center justify-between p-4 border rounded-lg">
-        <div className='space-y-1'><Label htmlFor="is-addon-edit">Is this an Add-on Service?</Label><p className='text-sm text-muted-foreground'>Add-ons can be appended to primary services.</p></div>
-        <Controller name="isAddon" control={control} render={({ field }) => ( <Switch id="is-addon-edit" checked={field.value} onCheckedChange={field.onChange} /> )}/>
-    </div>
-    <div className="space-y-2">
-      <Label htmlFor="service-name-edit">Service Name</Label>
-      <Input id="service-name-edit" placeholder="e.g., Signature Haircut" {...register('name')} />
-       {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
-    </div>
-    <div className="space-y-2">
-      <Label htmlFor="category-edit">Category</Label>
-      {isAddingCategory ? (
-        <div className="flex gap-2">
-          <Input
-            placeholder="Enter new category name..."
-            value={newCategoryName}
-            onChange={(e) => setNewCategoryName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()}
-          />
-          <Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button>
-        </div>
-      ) : (
-        <div className="flex gap-2">
-          <Controller name="category" control={control} render={({ field }) => (
-               <Select onValueChange={field.onChange} value={field.value}>
-                <SelectTrigger> <SelectValue placeholder="Select a category" /> </SelectTrigger>
-                <SelectContent> {categories.map(cat => ( <SelectItem key={cat} value={cat}>{cat}</SelectItem> ))} </SelectContent>
-              </Select>
-          )}/>
-          <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"> <PlusCircle className="h-4 w-4" /> </Button>
-        </div>
-      )}
-       {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
-    </div>
+        <div className="grid gap-6 py-4">
+            <div className="flex items-center justify-between p-4 border rounded-lg">
+                <div className='space-y-1'><Label htmlFor="is-addon-edit">Is this an Add-on Service?</Label><p className='text-sm text-muted-foreground'>Add-ons can be appended to primary services.</p></div>
+                <Controller name="isAddon" control={control} render={({ field }) => ( <Switch id="is-addon-edit" checked={field.value} onCheckedChange={field.onChange} /> )}/>
+            </div>
+            <div className="space-y-2">
+                <Label htmlFor="service-name-edit">Service Name</Label>
+                <Input id="service-name-edit" placeholder="e.g., Signature Haircut" {...register('name')} />
+                {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+            </div>
+            <div className="space-y-2">
+                <Label htmlFor="category-edit">Category</Label>
+                {isAddingCategory ? (
+                    <div className="flex gap-2">
+                    <Input
+                        placeholder="Enter new category name..."
+                        value={newCategoryName}
+                        onChange={(e) => setNewCategoryName(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()}
+                    />
+                    <Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button>
+                    </div>
+                ) : (
+                    <div className="flex gap-2">
+                    <Controller name="category" control={control} render={({ field }) => (
+                        <Select onValueChange={field.onChange} value={field.value}>
+                            <SelectTrigger> <SelectValue placeholder="Select a category" /> </SelectTrigger>
+                            <SelectContent> {categories.map(cat => ( <SelectItem key={cat} value={cat}>{cat}</SelectItem> ))} </SelectContent>
+                        </Select>
+                    )}/>
+                    <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"> <PlusCircle className="h-4 w-4" /> </Button>
+                    </div>
+                )}
+                {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
+            </div>
 
-    <div className="grid grid-cols-3 gap-4">
-        <div className="space-y-2">
-            <Label htmlFor="duration-edit">Duration (min)</Label>
-            <Input id="duration-edit" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>
-            {errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}
-        </div>
-        <div className="space-y-2">
-            <Label htmlFor="pad-before-edit">Pad Before (min)</Label>
-            <Input id="pad-before-edit" type="number" placeholder="e.g., 0" {...register('padBefore', { valueAsNumber: true })} />
-        </div>
-        <div className="space-y-2">
-            <Label htmlFor="pad-after-edit">Pad After (min)</Label>
-            <Input id="pad-after-edit" type="number" placeholder="e.g., 15" {...register('padAfter', { valueAsNumber: true })} />
-        </div>
-    </div>
-    
-    <div className="space-y-2">
-      <Label htmlFor="description-edit">Description</Label>
-      <Textarea id="description-edit" placeholder="Describe the service for your booking page..." {...register('description')} />
-    </div>
+            <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2">
+                    <Label htmlFor="duration-edit">Duration (min)</Label>
+                    <Input id="duration-edit" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>
+                    {errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}
+                </div>
+                <div className="space-y-2">
+                    <Label htmlFor="pad-before-edit">Pad Before (min)</Label>
+                    <Input id="pad-before-edit" type="number" placeholder="e.g., 0" {...register('padBefore', { valueAsNumber: true })} />
+                </div>
+                <div className="space-y-2">
+                    <Label htmlFor="pad-after-edit">Pad After (min)</Label>
+                    <Input id="pad-after-edit" type="number" placeholder="e.g., 15" {...register('padAfter', { valueAsNumber: true })} />
+                </div>
+            </div>
+            
+            <div className="space-y-2">
+                <Label htmlFor="description-edit">Description</Label>
+                <Textarea id="description-edit" placeholder="Describe the service for your booking page..." {...register('description')} />
+            </div>
 
-    <div className="space-y-2">
-      <Label>Service Image</Label>
-       <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} /> )}/>
-    </div>
-  </div>
+            <div className="space-y-2">
+                <Label>Service Image</Label>
+                <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} /> )}/>
+            </div>
+        </div>
     );
 };
 
 const Step2_Formula = ({ onScanClick, resources }: { onScanClick: () => void, resources: Resource[] }) => {
     const { inventory } = useInventory();
-    const { control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
+    const { control, setValue, watch } = useFormContext<ServiceFormData>();
 
     const selectedProducts = watch('products') || [];
     const selectedResourceIds = watch('requiredResourceIds') || [];
     const compatibleAddOnIds = watch('compatibleAddOnIds') || [];
     const isAddon = watch('isAddon');
     
-    const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
-    const [isResourceSelectorOpen, setIsResourceSelectorOpen] = useState(false);
-    const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
+    const [isProductBrowserOpen, setIsProductBrowserOpen = useState(false);
+    const [isResourceSelectorOpen, setIsResourceSelectorOpen = useState(false);
+    const [isAddOnSelectorOpen, setIsAddOnSelectorOpen = useState(false);
 
     const selectedResources = useMemo(() => {
         return resources.filter(r => selectedResourceIds.includes(r.id));
     }, [resources, selectedResourceIds]);
 
     const handleProductSelect = (products: InventoryItem[]) => {
-      const productsWithQuantity = products.map(p => {
-        const existing = selectedProducts.find((sp: any) => sp.id === p.id);
-        return {
-            ...p,
-            quantityUsed: existing?.quantityUsed || 1, // Keep existing quantity or default to 1
-        };
-      });
-      setValue('products', productsWithQuantity, { shouldDirty: true, shouldTouch: true });
-      setIsProductBrowserOpen(false);
+        const productsWithQuantity = products.map(p => {
+            const existing = selectedProducts.find((sp: any) => sp.id === p.id);
+            return {
+                ...p,
+                quantityUsed: existing?.quantityUsed || 1, // Keep existing quantity or default to 1
+            };
+        });
+        setValue('products', productsWithQuantity, { shouldDirty: true, shouldTouch: true });
+        setIsProductBrowserOpen(false);
     };
     
     const handleResourceSelect = (resources: Resource[]) => {
@@ -260,7 +256,7 @@ const Step2_Formula = ({ onScanClick, resources }: { onScanClick: () => void, re
                             </Button>
                           </div>
                         </div>
-                      );
+                      )
                     })}</CardContent></Card>) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No products added yet.</CardContent></Card>)}
                     <div className='flex gap-2'><Button variant="outline" onClick={() => setIsProductBrowserOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Browse Library</Button><Button variant="outline" onClick={onScanClick} type="button"><QrCode className="mr-2 h-4 w-4" /> Scan to Add</Button></div></div>
                     <div className="space-y-2"><div className='flex items-center gap-2'><Hammer className="w-5 h-5 text-primary" /><Label className="text-base font-semibold">Required Resources</Label></div>
@@ -355,7 +351,7 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
                                 <div><RadioGroupItem value="full" id="full-edit" className="peer sr-only" /><Label htmlFor="full-edit" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Pay in Full</Label></div>
                             </RadioGroup>
                         )}/>
-                        {['deposit', 'breakeven'].includes(depositType) && (
+                        {['deposit', 'breakeven'].includes(depositType!) && (
                             <Card className="bg-background"><CardContent className="p-4 space-y-4">
                                 {depositType === 'deposit' && (
                                 <div className="space-y-2">
@@ -389,7 +385,7 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
 const Step4_VisibilityConfirmation = () => {
     const { register, control, setValue, watch } = useFormContext<ServiceFormData>();
     const requiredFormIds = watch('requiredFormIds') || [];
-    const [isConsentFormBrowserOpen, setIsConsentFormBrowserOpen] = useState(false);
+    const [isConsentFormBrowserOpen, setIsConsentFormBrowserOpen = useState(false);
     
     const { consentForms } = useInventory();
     const requiredForms = consentForms.filter(f => requiredFormIds.includes(f.id));
@@ -416,16 +412,6 @@ const Step4_VisibilityConfirmation = () => {
     );
 };
 
-interface EditServiceDialogProps { 
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  service: Service;
-  onServiceUpdated: (service: Service) => void;
-  categories: string[];
-  onNewCategory: (category: string) => void;
-  resources: Resource[];
-}
-
 export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({ 
     open, 
     onOpenChange, 
@@ -435,39 +421,17 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
     onNewCategory,
     resources,
 }) => {
-  const [step, setStep] = useState(1);
+  const [step, setStep = useState(1);
   const totalSteps = 4;
-  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [isScannerOpen, setIsScannerOpen = useState(false);
   const isMobile = useIsMobile();
   
   const methods = useForm<ServiceFormData>({
     resolver: zodResolver(serviceSchema),
   });
 
-  const { watch, reset, trigger } = methods;
-  const values = watch();
-  const { duration, padBefore, padAfter, products, requiredResourceIds } = values;
-
-  const [tmhr, setTmhr] = useState(0);
-  const { inventory } = useInventory();
-  
-  const { firestore } = useFirebase();
-  const tenantId = 'tenant-abc';
-  const consentFormsQuery = useMemoFirebase(() => {
-      if (!firestore) return null;
-      return collection(firestore, `tenants/${tenantId}/consentForms`);
-  }, [firestore, tenantId]);
-  const { data: consentForms } = useCollection<ConsentForm>(consentFormsQuery);
-
-
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-        setTmhr(parseFloat(localStorage.getItem('tmhr') || '50'));
-    }
-  }, []);
-
-  useEffect(() => {
-    if (service) {
+    if (service && open) {
         methods.reset({
             id: service.id,
             name: service.name,
@@ -494,13 +458,30 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
             confirmationMessage: service.confirmationMessage || '',
             requiredFormIds: service.requiredFormIds || [],
         });
+        setStep(1);
     }
-  }, [service, methods.reset])
+  }, [service, open, methods]);
+
+  const { watch, trigger, handleSubmit } = methods;
+  const values = watch();
+  const { duration, padBefore, padAfter, products, requiredResourceIds } = values;
+  const [tmhr, setTmhr = useState(0);
+  const { inventory } = useInventory();
   
-  
-  const handleOpenChange = (isOpen: boolean) => {
-    onOpenChange(isOpen);
-  }
+  const { firestore } = useFirebase();
+  const tenantId = 'tenant-abc';
+  const consentFormsQuery = useMemoFirebase(() => {
+      if (!firestore) return null;
+      return collection(firestore, `tenants/${tenantId}/consentForms`);
+  }, [firestore, tenantId]);
+  const { data: consentForms } = useCollection<ConsentForm>(consentFormsQuery);
+
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+        setTmhr(parseFloat(localStorage.getItem('tmhr') || '50'));
+    }
+  }, []);
 
   const breakEvenCost = useMemo(() => {
       const totalDuration = (duration || 0) + (padBefore || 0) + (padAfter || 0);
@@ -532,6 +513,10 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
 
       return timeCost + productCost + equipmentDepreciation;
   }, [duration, padBefore, padAfter, products, requiredResourceIds, tmhr, inventory]);
+  
+  const handleOpenChange = (isOpen: boolean) => {
+    onOpenChange(isOpen);
+  }
 
   const onSubmit = (data: ServiceFormData) => {
       const finalPrice = data.pricingTiers.senior || 0;
@@ -572,33 +557,61 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
       handleOpenChange(false);
   };
   
+  const handleNext = async () => {
+    const fieldsToValidate: (keyof ServiceFormData)[] = [];
+    if (step === 1) {
+      fieldsToValidate.push('name', 'category', 'duration');
+    }
+     if (step === 3) {
+      fieldsToValidate.push('pricingTiers');
+    }
+    
+    const isValid = fieldsToValidate.length > 0 ? await trigger(fieldsToValidate) : true;
+    
+    if (isValid && step < totalSteps) {
+      setStep(step + 1);
+    }
+  };
+
+  const handleBack = () => step > 1 && setStep(step - 1);
+
+  const getStepContent = () => {
+      switch(step) {
+          case 1: return <Step1_BasicDetails categories={categories} onNewCategory={onNewCategory} />;
+          case 2: return <Step2_Formula onScanClick={() => setIsScannerOpen(true)} resources={resources} />;
+          case 3: return <Step3_PricingBooking breakEvenCost={breakEvenCost} />;
+          case 4: return <Step4_VisibilityConfirmation />;
+          default: return null;
+      }
+  }
+  
   const formId = `edit-service-form-${service.id}`;
   const title = `Edit Service`;
   const description = `Update the details for "${service.name}".`;
 
   const formBody = (
     <FormProvider {...methods}>
-      <form id={formId} onSubmit={methods.handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+      <form id={formId} onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
         <DialogHeader className={isMobile ? "p-4 border-b text-left" : "p-6 pb-4"}>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
-          <EditServiceForm 
-             categories={categories}
-             onNewCategory={onNewCategory}
-             onScanClick={() => setIsScannerOpen(true)}
-             breakEvenCost={breakEvenCost}
-             consentForms={consentForms || []}
-             resources={resources}
-          />
+        <div className="px-4 md:px-6 py-4">
+          <Progress value={(step / totalSteps) * 100} />
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-6">
+          {getStepContent()}
         </div>
         <DialogFooter className={isMobile ? "p-4 border-t" : "p-6 border-t"}>
           <div className='flex justify-between w-full'>
-            <div></div>
+            <div>{step > 1 && <Button variant="outline" onClick={handleBack} type="button">Back</Button>}</div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
-              <Button type="submit" form={formId}>Save Changes</Button>
+              {step < totalSteps ? (
+                <Button onClick={handleNext} type="button">Next</Button>
+              ) : (
+                <Button type="submit" form={formId}>Save Changes</Button>
+              )}
             </div>
           </div>
         </DialogFooter>
@@ -624,3 +637,5 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
     </Dialog>
   );
 };
+
+    
