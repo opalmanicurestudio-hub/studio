@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo, useState, useRef } from 'react';
@@ -76,6 +77,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
   open,
   onOpenChange,
   staffMember,
+  dateRange: initialDateRange,
   transactions,
   services,
   appointments,
@@ -86,44 +88,40 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
   const [transactionSearch, setTransactionSearch] = useState('');
   const reportRef = useRef<HTMLDivElement>(null);
   
-  const [dateRange, setDateRange] = useState<DateRange | undefined>({
-    from: subDays(new Date(), 29),
-    to: new Date(),
-  });
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(initialDateRange);
 
   const filteredActivityLogs = useMemo(() => {
-    if (!activityLogs) return [];
+    if (!activityLogs || !staffMember) return [];
     const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
     const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
 
     return activityLogs.filter(log => {
+      if(log.staffId !== staffMember.id) return false;
       const logDate = log.timestamp;
       if (fromDate && logDate < fromDate) return false;
       if (toDate && logDate > toDate) return false;
       if (activitySearch.trim() && !log.type.toLowerCase().includes(activitySearch.toLowerCase())) return false;
       return true;
     });
-  }, [activityLogs, activitySearch, dateRange]);
+  }, [activityLogs, staffMember, activitySearch, dateRange]);
   
   const filteredTransactions = useMemo(() => {
-    if (!transactions) return [];
+    if (!transactions || !staffMember) return [];
     const fromDate = dateRange?.from ? startOfDay(dateRange.from) : null;
     const toDate = dateRange?.to ? endOfDay(dateRange.to) : null;
     
     return transactions.filter(t => {
+      if(t.staffId !== staffMember.id) return false;
       const transactionDate = t.date;
       if (fromDate && transactionDate < fromDate) return false;
       if (toDate && transactionDate > toDate) return false;
       if (transactionSearch.trim() && !(t.description.toLowerCase().includes(transactionSearch.toLowerCase()) || t.category.toLowerCase().includes(transactionSearch.toLowerCase()))) return false;
       return true;
     });
-  }, [transactions, transactionSearch, dateRange]);
-
-
-  if (!staffMember) return null;
+  }, [transactions, staffMember, transactionSearch, dateRange]);
 
   const staffServices = useMemo(() => {
-    if (!staffMember.services || !services) return [];
+    if (!staffMember?.services || !services) return [];
     const staffSkillLevel = staffMember.skillLevel || 'senior';
     return services
       .filter(s => staffMember.services?.includes(s.id))
@@ -143,6 +141,10 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
     
   const handlePrint = () => {
     window.print();
+  }
+
+  if (!staffMember) {
+    return null;
   }
 
   return (
