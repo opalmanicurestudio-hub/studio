@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useEffect, useMemo, KeyboardEvent } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -306,15 +306,15 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div className="space-y-2">
                             <Label htmlFor="junior-price-edit" className="font-normal text-muted-foreground">Junior</Label>
-                            <Input id="junior-price-edit" type="number" placeholder="0.00" {...register('pricingTiers.junior')} />
+                            <Input id="junior-price-edit" type="number" placeholder="0.00" {...register('pricingTiers.junior', { valueAsNumber: true })} />
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="senior-price-edit" className="font-normal text-muted-foreground">Senior</Label>
-                            <Input id="senior-price-edit" type="number" placeholder="0.00" {...register('pricingTiers.senior')} />
+                            <Input id="senior-price-edit" type="number" placeholder="0.00" {...register('pricingTiers.senior', { valueAsNumber: true })} />
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="master-price-edit" className="font-normal text-muted-foreground">Master</Label>
-                            <Input id="master-price-edit" type="number" placeholder="0.00" {...register('pricingTiers.master')} />
+                            <Input id="master-price-edit" type="number" placeholder="0.00" {...register('pricingTiers.master', { valueAsNumber: true })} />
                         </div>
                     </div>
                      {errors.pricingTiers && <p className="text-sm text-destructive">{errors.pricingTiers?.junior?.message || errors.pricingTiers?.senior?.message || errors.pricingTiers?.master?.message}</p>}
@@ -415,17 +415,6 @@ const Step4_VisibilityConfirmation = ({ consentForms }: { consentForms: ConsentF
     );
 };
 
-interface EditServiceDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  service: Service;
-  onServiceUpdated: (service: Service) => void;
-  categories: string[];
-  onNewCategory: (category: string) => void;
-  resources: Resource[];
-}
-
-
 export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({ 
     open, 
     onOpenChange, 
@@ -434,7 +423,6 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
     categories,
     onNewCategory,
     resources,
-    consentForms,
 }) => {
   const [step, setStep] = useState(1);
   const totalSteps = 4;
@@ -473,7 +461,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
             confirmationMessage: service.confirmationMessage || '',
             requiredFormIds: service.requiredFormIds || [],
         });
-        setStep(1); // Reset to first step when dialog opens with new service
+      setStep(1); // Reset to first step when dialog opens with new service
     }
   }, [service, open, methods]);
 
@@ -489,7 +477,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
       if (!firestore) return null;
       return collection(firestore, `tenants/${tenantId}/consentForms`);
   }, [firestore, tenantId]);
-  // const { data: consentForms } = useCollection<ConsentForm>(consentFormsQuery);
+  const { data: consentForms } = useCollection<ConsentForm>(consentFormsQuery);
 
 
   useEffect(() => {
@@ -652,5 +640,3 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
     </Dialog>
   );
 };
-
-    

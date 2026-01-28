@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
@@ -48,6 +48,11 @@ import { BrowseConsentFormsDialog } from './BrowseConsentFormsDialog';
 import { Switch } from '../ui/switch';
 import { useInventory } from '@/context/InventoryContext';
 import { SelectResourcesDialog } from './SelectResourcesDialog';
+import { cn } from '@/lib/utils';
+import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
+import { useFirebase, useMemoFirebase, useCollection } from '@/firebase';
+import { collection } from 'firebase/firestore';
+
 
 const serviceSchema = z.object({
   name: z.string().min(1, 'Service name is required'),
@@ -307,15 +312,15 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div className="space-y-2">
                             <Label htmlFor="junior-price" className="font-normal text-muted-foreground">Junior</Label>
-                            <Input id="junior-price" type="number" placeholder="0.00" {...register('pricingTiers.junior')} />
+                            <Input id="junior-price" type="number" placeholder="0.00" {...register('pricingTiers.junior', { valueAsNumber: true })} />
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="senior-price" className="font-normal text-muted-foreground">Senior</Label>
-                            <Input id="senior-price" type="number" placeholder="0.00" {...register('pricingTiers.senior')} />
+                            <Input id="senior-price" type="number" placeholder="0.00" {...register('pricingTiers.senior', { valueAsNumber: true })} />
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="master-price" className="font-normal text-muted-foreground">Master</Label>
-                            <Input id="master-price" type="number" placeholder="0.00" {...register('pricingTiers.master')} />
+                            <Input id="master-price" type="number" placeholder="0.00" {...register('pricingTiers.master', { valueAsNumber: true })} />
                         </div>
                     </div>
                      {errors.pricingTiers && <p className="text-sm text-destructive">{errors.pricingTiers?.junior?.message || errors.pricingTiers?.senior?.message || errors.pricingTiers?.master?.message}</p>}
