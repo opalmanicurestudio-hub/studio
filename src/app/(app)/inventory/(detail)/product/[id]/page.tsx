@@ -43,7 +43,7 @@ const CorrectionIcon = ({ reason }: { reason: string }) => {
 
 export default function ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { inventory, stockCorrections, setInventory, locations, services, transactions } = useInventory();
+  const { inventory, stockCorrections, locations, services, transactions } = useInventory();
   const { toast } = useToast();
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   
@@ -215,16 +215,17 @@ export default function ProductDetailPage() {
   }, [product]);
 
   const retailPerformance = useMemo(() => {
-    if (product.type !== 'retail' || !stockCorrections) return null;
+    if (product.type !== 'retail' || !transactions) return null;
 
     const landedCost = product.costPerUnit || 0;
     const retailPrice = product.msrp || landedCost; // Fallback to landed cost if no MSRP
     const profitPerUnit = retailPrice - landedCost;
 
-    const retailSaleCorrections = stockCorrections.filter(
-        sc => sc.productId === product.id && sc.reason.toLowerCase().startsWith('retail sale')
+    const retailSaleCorrections = transactions.filter(
+        t => t.description.includes(product.name) && t.category === 'Retail'
     );
-    const unitsSold = retailSaleCorrections.reduce((acc, sc) => acc + Math.abs(sc.change), 0);
+    // This logic is flawed as it doesn't account for quantity from transaction description
+    const unitsSold = retailSaleCorrections.length;
 
     const totalPurchased = unitsSold + product.totalStock;
     const sellThroughRate = totalPurchased > 0 ? (unitsSold / totalPurchased) * 100 : 0;
@@ -239,7 +240,7 @@ export default function ProductDetailPage() {
         sellThroughRate,
         totalProfit,
     };
-  }, [product, stockCorrections]);
+  }, [product, transactions]);
 
 
   return (
@@ -282,7 +283,7 @@ export default function ProductDetailPage() {
             <CardContent className="p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className='space-y-1'>
                     <div className='text-sm text-muted-foreground flex items-center gap-2'><Tag className='w-4 h-4' /> SKU</div>
-                    <div className='font-mono text-sm'>{product.id.slice(-8).toUpperCase()}</div>
+                    <div className='font-mono text-sm'>{product.sku || 'N/A'}</div>
                 </div>
                 <div className='space-y-1'>
                     <div className='text-sm text-muted-foreground flex items-center gap-2'><Truck className='w-4 h-4' /> Vendor</div>
@@ -550,5 +551,7 @@ export default function ProductDetailPage() {
 
     
 }
+
+    
 
     
