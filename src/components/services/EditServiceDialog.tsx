@@ -48,6 +48,9 @@ import { useInventory } from '@/context/InventoryContext';
 import { SelectResourcesDialog } from './SelectResourcesDialog';
 import { cn } from '@/lib/utils';
 import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
+import { useFirebase, useMemoFirebase, useCollection } from '@/firebase';
+import { collection } from 'firebase/firestore';
+
 
 const serviceSchema = z.object({
   id: z.string(),
@@ -383,12 +386,11 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
     );
 };
 
-const Step4_VisibilityConfirmation = () => {
+const Step4_VisibilityConfirmation = ({ consentForms }: { consentForms: ConsentForm[] }) => {
     const { register, control, setValue, watch } = useFormContext<ServiceFormData>();
     const requiredFormIds = watch('requiredFormIds') || [];
     const [isConsentFormBrowserOpen, setIsConsentFormBrowserOpen] = useState(false);
     
-    const { consentForms } = useInventory();
     const requiredForms = consentForms.filter(f => requiredFormIds.includes(f.id));
 
     const handleRemoveForm = (formId: string) => {
@@ -432,6 +434,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
     categories,
     onNewCategory,
     resources,
+    consentForms,
 }) => {
   const [step, setStep] = useState(1);
   const totalSteps = 4;
@@ -486,7 +489,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
       if (!firestore) return null;
       return collection(firestore, `tenants/${tenantId}/consentForms`);
   }, [firestore, tenantId]);
-  const { data: consentForms } = useCollection<ConsentForm>(consentFormsQuery);
+  // const { data: consentForms } = useCollection<ConsentForm>(consentFormsQuery);
 
 
   useEffect(() => {
@@ -592,7 +595,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
           case 1: return <Step1_BasicDetails categories={categories} onNewCategory={onNewCategory} />;
           case 2: return <Step2_Formula onScanClick={() => setIsScannerOpen(true)} resources={resources} />;
           case 3: return <Step3_PricingBooking breakEvenCost={breakEvenCost} />;
-          case 4: return <Step4_VisibilityConfirmation />;
+          case 4: return <Step4_VisibilityConfirmation consentForms={consentForms || []} />;
           default: return null;
       }
   }
@@ -649,3 +652,5 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
     </Dialog>
   );
 };
+
+    
