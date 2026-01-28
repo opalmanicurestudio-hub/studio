@@ -89,8 +89,8 @@ const Step1_BasicDetails = ({
     onNewCategory: (category: string) => void;
 }) => {
     const { register, control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
-    const [isAddingCategory, setIsAddingCategory = useState(false);
-    const [newCategoryName, setNewCategoryName = useState('');
+    const [isAddingCategory, setIsAddingCategory] = useState(false);
+    const [newCategoryName, setNewCategoryName] = useState('');
     const category = watch('category');
 
     const handleAddNewCategory = () => {
@@ -104,68 +104,68 @@ const Step1_BasicDetails = ({
     };
     
     return (
-        <div className="grid gap-6 py-4">
-            <div className="flex items-center justify-between p-4 border rounded-lg">
-                <div className='space-y-1'><Label htmlFor="is-addon-edit">Is this an Add-on Service?</Label><p className='text-sm text-muted-foreground'>Add-ons can be appended to primary services.</p></div>
-                <Controller name="isAddon" control={control} render={({ field }) => ( <Switch id="is-addon-edit" checked={field.value} onCheckedChange={field.onChange} /> )}/>
-            </div>
-            <div className="space-y-2">
-                <Label htmlFor="service-name-edit">Service Name</Label>
-                <Input id="service-name-edit" placeholder="e.g., Signature Haircut" {...register('name')} />
-                {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
-            </div>
-            <div className="space-y-2">
-                <Label htmlFor="category-edit">Category</Label>
-                {isAddingCategory ? (
-                    <div className="flex gap-2">
-                    <Input
-                        placeholder="Enter new category name..."
-                        value={newCategoryName}
-                        onChange={(e) => setNewCategoryName(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()}
-                    />
-                    <Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button>
-                    </div>
-                ) : (
-                    <div className="flex gap-2">
-                    <Controller name="category" control={control} render={({ field }) => (
-                        <Select onValueChange={field.onChange} value={field.value}>
-                            <SelectTrigger> <SelectValue placeholder="Select a category" /> </SelectTrigger>
-                            <SelectContent> {categories.map(cat => ( <SelectItem key={cat} value={cat}>{cat}</SelectItem> ))} </SelectContent>
-                        </Select>
-                    )}/>
-                    <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"> <PlusCircle className="h-4 w-4" /> </Button>
-                    </div>
-                )}
-                {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
-            </div>
-
-            <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-2">
-                    <Label htmlFor="duration-edit">Duration (min)</Label>
-                    <Input id="duration-edit" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>
-                    {errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}
-                </div>
-                <div className="space-y-2">
-                    <Label htmlFor="pad-before-edit">Pad Before (min)</Label>
-                    <Input id="pad-before-edit" type="number" placeholder="e.g., 0" {...register('padBefore', { valueAsNumber: true })} />
-                </div>
-                <div className="space-y-2">
-                    <Label htmlFor="pad-after-edit">Pad After (min)</Label>
-                    <Input id="pad-after-edit" type="number" placeholder="e.g., 15" {...register('padAfter', { valueAsNumber: true })} />
-                </div>
-            </div>
-            
-            <div className="space-y-2">
-                <Label htmlFor="description-edit">Description</Label>
-                <Textarea id="description-edit" placeholder="Describe the service for your booking page..." {...register('description')} />
-            </div>
-
-            <div className="space-y-2">
-                <Label>Service Image</Label>
-                <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} /> )}/>
-            </div>
+  <div className="grid gap-6 py-4">
+    <div className="flex items-center justify-between p-4 border rounded-lg">
+        <div className='space-y-1'><Label htmlFor="is-addon-edit">Is this an Add-on Service?</Label><p className='text-sm text-muted-foreground'>Add-ons can be appended to primary services.</p></div>
+        <Controller name="isAddon" control={control} render={({ field }) => ( <Switch id="is-addon-edit" checked={field.value} onCheckedChange={field.onChange} /> )}/>
+    </div>
+    <div className="space-y-2">
+      <Label htmlFor="service-name-edit">Service Name</Label>
+      <Input id="service-name-edit" placeholder="e.g., Signature Haircut" {...register('name')} />
+       {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+    </div>
+    <div className="space-y-2">
+      <Label htmlFor="category-edit">Category</Label>
+      {isAddingCategory ? (
+        <div className="flex gap-2">
+          <Input
+            placeholder="Enter new category name..."
+            value={newCategoryName}
+            onChange={(e) => setNewCategoryName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()}
+          />
+          <Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button>
         </div>
+      ) : (
+        <div className="flex gap-2">
+          <Controller name="category" control={control} render={({ field }) => (
+               <Select onValueChange={field.onChange} value={field.value}>
+                <SelectTrigger> <SelectValue placeholder="Select a category" /> </SelectTrigger>
+                <SelectContent> {categories.map(cat => ( <SelectItem key={cat} value={cat}>{cat}</SelectItem> ))} </SelectContent>
+              </Select>
+          )}/>
+          <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"> <PlusCircle className="h-4 w-4" /> </Button>
+        </div>
+      )}
+       {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
+    </div>
+
+    <div className="grid grid-cols-3 gap-4">
+        <div className="space-y-2">
+            <Label htmlFor="duration-edit">Duration (min)</Label>
+            <Input id="duration-edit" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>
+            {errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}
+        </div>
+        <div className="space-y-2">
+            <Label htmlFor="pad-before-edit">Pad Before (min)</Label>
+            <Input id="pad-before-edit" type="number" placeholder="e.g., 0" {...register('padBefore', { valueAsNumber: true })} />
+        </div>
+        <div className="space-y-2">
+            <Label htmlFor="pad-after-edit">Pad After (min)</Label>
+            <Input id="pad-after-edit" type="number" placeholder="e.g., 15" {...register('padAfter', { valueAsNumber: true })} />
+        </div>
+    </div>
+    
+    <div className="space-y-2">
+      <Label htmlFor="description-edit">Description</Label>
+      <Textarea id="description-edit" placeholder="Describe the service for your booking page..." {...register('description')} />
+    </div>
+
+    <div className="space-y-2">
+      <Label>Service Image</Label>
+       <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/>
+    </div>
+  </div>
     );
 };
 
@@ -178,24 +178,24 @@ const Step2_Formula = ({ onScanClick, resources }: { onScanClick: () => void, re
     const compatibleAddOnIds = watch('compatibleAddOnIds') || [];
     const isAddon = watch('isAddon');
     
-    const [isProductBrowserOpen, setIsProductBrowserOpen = useState(false);
-    const [isResourceSelectorOpen, setIsResourceSelectorOpen = useState(false);
-    const [isAddOnSelectorOpen, setIsAddOnSelectorOpen = useState(false);
+    const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
+    const [isResourceSelectorOpen, setIsResourceSelectorOpen] = useState(false);
+    const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
 
     const selectedResources = useMemo(() => {
         return resources.filter(r => selectedResourceIds.includes(r.id));
     }, [resources, selectedResourceIds]);
 
     const handleProductSelect = (products: InventoryItem[]) => {
-        const productsWithQuantity = products.map(p => {
-            const existing = selectedProducts.find((sp: any) => sp.id === p.id);
-            return {
-                ...p,
-                quantityUsed: existing?.quantityUsed || 1, // Keep existing quantity or default to 1
-            };
-        });
-        setValue('products', productsWithQuantity, { shouldDirty: true, shouldTouch: true });
-        setIsProductBrowserOpen(false);
+      const productsWithQuantity = products.map(p => {
+        const existing = selectedProducts.find((sp: any) => sp.id === p.id);
+        return {
+            ...p,
+            quantityUsed: existing?.quantityUsed || 1, // Keep existing quantity or default to 1
+        };
+      });
+      setValue('products', productsWithQuantity, { shouldDirty: true, shouldTouch: true });
+      setIsProductBrowserOpen(false);
     };
     
     const handleResourceSelect = (resources: Resource[]) => {
@@ -361,7 +361,7 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
                                         <SelectTrigger><SelectValue placeholder="Select deposit type" /></SelectTrigger>
                                         <SelectContent><SelectItem value="flat">Flat Rate</SelectItem><SelectItem value="percentage">Percentage</SelectItem></SelectContent>
                                     </Select>
-                                    )}/>
+                                    )}
                                 </div>
                                 )}
                                 <div className="space-y-2">
@@ -385,7 +385,7 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
 const Step4_VisibilityConfirmation = () => {
     const { register, control, setValue, watch } = useFormContext<ServiceFormData>();
     const requiredFormIds = watch('requiredFormIds') || [];
-    const [isConsentFormBrowserOpen, setIsConsentFormBrowserOpen = useState(false);
+    const [isConsentFormBrowserOpen, setIsConsentFormBrowserOpen] = useState(false);
     
     const { consentForms } = useInventory();
     const requiredForms = consentForms.filter(f => requiredFormIds.includes(f.id));
@@ -412,6 +412,17 @@ const Step4_VisibilityConfirmation = () => {
     );
 };
 
+interface EditServiceDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  service: Service;
+  onServiceUpdated: (service: Service) => void;
+  categories: string[];
+  onNewCategory: (category: string) => void;
+  resources: Resource[];
+}
+
+
 export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({ 
     open, 
     onOpenChange, 
@@ -421,9 +432,9 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
     onNewCategory,
     resources,
 }) => {
-  const [step, setStep = useState(1);
+  const [step, setStep] = useState(1);
   const totalSteps = 4;
-  const [isScannerOpen, setIsScannerOpen = useState(false);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
   const isMobile = useIsMobile();
   
   const methods = useForm<ServiceFormData>({
@@ -458,14 +469,14 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
             confirmationMessage: service.confirmationMessage || '',
             requiredFormIds: service.requiredFormIds || [],
         });
-        setStep(1);
+        setStep(1); // Reset to first step when dialog opens with new service
     }
   }, [service, open, methods]);
 
   const { watch, trigger, handleSubmit } = methods;
   const values = watch();
   const { duration, padBefore, padAfter, products, requiredResourceIds } = values;
-  const [tmhr, setTmhr = useState(0);
+  const [tmhr, setTmhr] = useState(0);
   const { inventory } = useInventory();
   
   const { firestore } = useFirebase();
