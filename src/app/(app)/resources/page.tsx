@@ -33,7 +33,7 @@ import {
 import { useInventory } from '@/context/InventoryContext';
 import type { Resource, InventoryItem } from '@/lib/data';
 import { AddResourceDialog } from '@/components/resources/AddResourceDialog';
-import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
+import { useFirebase } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import { addDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase/non-blocking-updates';
@@ -102,19 +102,12 @@ const ResourceCard = ({ resource, inventory, onDelete, onEdit }: { resource: Res
 };
 
 export default function ResourcesPage() {
-    const { firestore, user } = useFirebase();
+    const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
     const tenantId = selectedTenant?.id;
-    const { inventory } = useInventory();
+    const { inventory, resources, isLoading: resourcesLoading } = useInventory();
     const { toast } = useToast();
 
-    const resourcesQuery = useMemoFirebase(() => {
-        if (!firestore || !tenantId) return null;
-        return collection(firestore, `tenants/${tenantId}/resources`);
-    }, [firestore, tenantId]);
-
-    const { data: resources, isLoading: resourcesLoading } = useCollection<Resource>(resourcesQuery);
-    
     const [isAddResourceOpen, setIsAddResourceOpen] = useState(false);
 
     const handleSaveResource = (resourceData: Omit<Resource, 'id'>) => {
@@ -223,3 +216,5 @@ export default function ResourcesPage() {
     </div>
   );
 }
+
+    

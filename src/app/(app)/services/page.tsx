@@ -32,8 +32,8 @@ import { AddServiceDialog } from '@/components/services/AddServiceDialog';
 import { EditServiceDialog } from '@/components/services/EditServiceDialog';
 import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast';
-import { useCollection, useFirebase, useMemoFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
-import { collection, doc } from 'firebase/firestore';
+import { useFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
+import { doc } from 'firebase/firestore';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -41,6 +41,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
+import { useTenant } from '@/context/TenantContext';
 
 
 const InlineProfitTester = ({ service, tmhr, onPriceUpdate }: { service: Service, tmhr: number, onPriceUpdate: (newPrice: number) => void; }) => {
@@ -452,7 +453,8 @@ export default function ServicesPage() {
   const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
 
   const { firestore, user } = useFirebase();
-  const tenantId = 'tenant-abc';
+  const { selectedTenant } = useTenant();
+  const tenantId = selectedTenant?.id;
   const { services, appointments, resources, isLoading } = useInventory();
   
 
@@ -469,7 +471,7 @@ export default function ServicesPage() {
   }, []);
 
   const handleBulkArchive = useCallback(() => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
     selectedItems.forEach(id => {
         updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', id), { status: 'archived' });
     });
@@ -478,7 +480,7 @@ export default function ServicesPage() {
   }, [selectedItems, firestore, tenantId, toast]);
 
   const handleBulkUnarchive = useCallback(() => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
     selectedItems.forEach(id => {
         updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', id), { status: 'active' });
     });
@@ -491,7 +493,7 @@ export default function ServicesPage() {
   };
   
   const handleBulkDeleteConfirm = useCallback(() => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
     const itemCount = selectedItems.size;
     selectedItems.forEach(id => {
         deleteDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', id));
@@ -517,7 +519,7 @@ export default function ServicesPage() {
   };
   
   const handlePriceUpdate = (serviceId: string, newPrice: number) => {
-    if (!firestore || !services) return;
+    if (!firestore || !services || !tenantId) return;
     const serviceToUpdate = services.find(s => s.id === serviceId);
     if (!serviceToUpdate) return;
     
@@ -550,7 +552,7 @@ export default function ServicesPage() {
   };
   
   const handleAddNewService = (newService: Service) => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
     const serviceRef = doc(firestore, 'tenants', tenantId, 'services', newService.id);
     const sanitizedData = Object.fromEntries(
         Object.entries(newService).filter(([, value]) => value !== undefined)
@@ -563,7 +565,7 @@ export default function ServicesPage() {
   };
 
   const handleUpdateService = (updatedService: Service) => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
     const serviceRef = doc(firestore, 'tenants', tenantId, 'services', updatedService.id);
     const sanitizedData = Object.fromEntries(
         Object.entries(updatedService).filter(([, value]) => value !== undefined)
@@ -776,3 +778,5 @@ export default function ServicesPage() {
     </div>
   );
 }
+
+    

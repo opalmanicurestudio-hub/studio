@@ -34,7 +34,7 @@ import { format, subDays, startOfDay, endOfDay, parseISO, isPast, differenceInDa
 import { cn } from '@/lib/utils';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { StaffDetailsSheet } from '@/components/staff/StaffDetailsSheet';
-import { useCollection, useFirebase, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
+import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
 import { EditStaffDialog } from '@/components/staff/EditStaffDialog';
 import {
@@ -167,49 +167,17 @@ export default function StaffPage() {
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
   
-  const staffQuery = useMemoFirebase(() => {
-    if (!firestore || !user || !tenantId) return null;
-    return collection(firestore, 'tenants', tenantId, 'staff');
-  }, [firestore, user, tenantId]);
-  const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
-
-  const servicesQuery = useMemoFirebase(() => {
-    if (!firestore || !user || !tenantId) return null;
-    return collection(firestore, 'tenants', tenantId, 'services');
-  }, [firestore, user, tenantId]);
-  const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
-
-  const transactionsQuery = useMemoFirebase(() => {
-    if (!firestore || !user || !tenantId) return null;
-    return collection(firestore, 'tenants', tenantId, 'transactions');
-  }, [firestore, user, tenantId]);
-  const { data: rawTransactions } = useCollection<Transaction>(transactionsQuery);
-
-  const appointmentsQuery = useMemoFirebase(() => {
-    if (!firestore || !user || !tenantId) return null;
-    return collection(firestore, 'tenants', tenantId, 'appointments');
-  }, [firestore, user, tenantId]);
-  const { data: rawAppointments } = useCollection<Appointment>(appointmentsQuery);
-  
-  const activityLogsQuery = useMemoFirebase(() => {
-    if (!firestore || !user || !tenantId) return null;
-    return collection(firestore, 'tenants', tenantId, 'activityLogs');
-  }, [firestore, user, tenantId]);
-  const { data: rawActivityLogs } = useCollection<ActivityLog>(activityLogsQuery);
-
-  const stockCorrectionsQuery = useMemoFirebase(() => {
-    if (!firestore || !user || !tenantId) return null;
-    return collection(firestore, 'tenants', tenantId, 'stockCorrections');
-  }, [firestore, user, tenantId]);
-  const { data: stockCorrections } = useCollection<StockCorrection>(stockCorrectionsQuery);
-
-  const consentFormsQuery = useMemoFirebase(() => {
-    if (!firestore || !user || !tenantId) return null;
-    return collection(firestore, 'tenants', tenantId, 'consentForms');
-  }, [firestore, user, tenantId]);
-  const { data: consentForms } = useCollection<ConsentForm>(consentFormsQuery);
-  
-  const { inventory } = useInventory();
+  const {
+      staff,
+      services,
+      transactions: rawTransactions,
+      appointments: rawAppointments,
+      activityLogs: rawActivityLogs,
+      stockCorrections,
+      consentForms,
+      inventory,
+      isLoading,
+  } = useInventory();
 
   // Normalize all date-like fields into Date objects
   const transactions = useMemo(() => {
@@ -458,7 +426,7 @@ export default function StaffPage() {
   }
 
   const handleStatusChange = (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
-      if (!firestore || !staff) return;
+      if (!firestore || !staff || !tenantId) return;
 
       const staffMember = staff.find(s => s.id === staffId);
       if (!staffMember) return;
