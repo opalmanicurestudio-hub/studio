@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -43,12 +42,11 @@ import { z } from 'zod';
 import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2 } from 'lucide-react';
 import { type Service } from '@/lib/data';
 import { BrowseProductsDialog } from './BrowseProductsDialog';
-import { SelectEquipmentDialog } from './SelectEquipmentDialog';
+import { SelectResourcesDialog } from './SelectResourcesDialog';
 import { SelectAddOnsDialog } from './SelectAddOnsDialog';
 import { BrowseConsentFormsDialog } from './BrowseConsentFormsDialog';
 import { Switch } from '../ui/switch';
 import { useInventory } from '@/context/InventoryContext';
-import { SelectResourcesDialog } from './SelectResourcesDialog';
 import { cn } from '@/lib/utils';
 import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
 import { useFirebase, useMemoFirebase, useCollection } from '@/firebase';
@@ -571,23 +569,29 @@ export const AddServiceDialog: React.FC<{
       handleOpenChange(false);
   };
   
-  const handleNext = async () => {
-    const fieldsToValidate: (keyof ServiceFormData)[] = [];
-    if (step === 1) {
-      fieldsToValidate.push('name', 'category', 'duration');
-    }
-     if (step === 3) {
-      fieldsToValidate.push('pricingTiers');
-    }
-    
-    const isValid = fieldsToValidate.length > 0 ? await trigger(fieldsToValidate) : true;
-    
-    if (isValid && step < totalSteps) {
-      setStep(step + 1);
-    }
-  };
+    const handleNext = async (e: React.MouseEvent<HTMLButtonElement>) => {
+        e.preventDefault();
+        const fieldsToValidate: (keyof ServiceFormData)[] = [];
+        if (step === 1) {
+        fieldsToValidate.push('name', 'category', 'duration');
+        }
+        if (step === 3) {
+        fieldsToValidate.push('pricingTiers');
+        }
+        
+        const isValid = fieldsToValidate.length > 0 ? await trigger(fieldsToValidate) : true;
+        
+        if (isValid && step < totalSteps) {
+        setStep(step + 1);
+        }
+    };
 
-  const handleBack = () => step > 1 && setStep(step - 1);
+    const handleBack = (e: React.MouseEvent<HTMLButtonElement>) => {
+        e.preventDefault();
+        if (step > 1) {
+            setStep(step - 1);
+        }
+    };
 
   const getStepContent = () => {
       switch(step) {

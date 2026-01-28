@@ -1,8 +1,7 @@
 
-
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
@@ -45,6 +44,17 @@ import { type Service } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectEquipmentDialog } from '../services/SelectEquipmentDialog';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
+import { BrowseConsentFormsDialog } from '../services/BrowseConsentFormsDialog';
+import { Switch } from '../ui/switch';
+import { useInventory } from '@/context/InventoryContext';
+import { SelectResourcesDialog } from './SelectResourcesDialog';
+import { cn } from '@/lib/utils';
+import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
+import { format, parseISO } from 'date-fns';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { Calendar } from '../ui/calendar';
+import { CalendarIcon } from 'lucide-react';
+
 
 const productSchema = z.object({
   name: z.string().min(1, 'Product name is required'),
@@ -241,7 +251,20 @@ const Step3_InventorySupplier = ({ onAddLocationClick, locations }: { onAddLocat
                     <div className="space-y-2"><Label htmlFor="reorder-point">Reorder Point</Label><Input id="reorder-point" type="number" placeholder="e.g., 5" {...register('reorderPoint')} /></div>
                      <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2"><Label htmlFor="initial-stock">Initial Stock</Label><Input id="initial-stock" type="number" placeholder="Quantity" {...register('initialStock')} />{errors.initialStock && <p className="text-sm text-destructive">{errors.initialStock.message}</p>}</div>
-                        <div className="space-y-2"><Label>Expiration</Label><p className="text-xs text-muted-foreground">Batch tracking coming soon</p></div>
+                        <div className="space-y-2">
+                            <Label>Expiration Date</Label>
+                            <Controller name="expirationDate" control={control} render={({ field }) => (
+                                <Popover>
+                                    <PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), 'w-full justify-start text-left font-normal', !field.value && 'text-muted-foreground')}>
+                                        <CalendarIcon className="mr-2 h-4 w-4" />
+                                        {field.value ? format(field.value, 'PPP') : 'No expiry'}
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0">
+                                        <Calendar mode="single" selected={field.value} onSelect={field.onChange} />
+                                    </PopoverContent>
+                                </Popover>
+                            )}/>
+                        </div>
                     </div>
                 </CardContent>
             </Card>
@@ -279,16 +302,7 @@ const Step3_InventorySupplier = ({ onAddLocationClick, locations }: { onAddLocat
 };
 
 
-export const AddProductDialog = ({
-  open,
-  onOpenChange,
-  initialType,
-  categories,
-  onNewCategory,
-  onProductAdded,
-  locations,
-  onAddLocationClick,
-}: { 
+export const AddProductDialog: React.FC<{ 
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialType: 'professional' | 'retail';
@@ -297,6 +311,15 @@ export const AddProductDialog = ({
   onProductAdded: (product: InventoryItem) => void;
   locations: Location[],
   onAddLocationClick: () => void;
+}> = ({
+  open,
+  onOpenChange,
+  initialType,
+  categories,
+  onNewCategory,
+  onProductAdded,
+  locations,
+  onAddLocationClick,
 }) => {
   const [step, setStep] = useState(1);
   const totalSteps = 3;
@@ -317,7 +340,7 @@ export const AddProductDialog = ({
   }, [open, initialType, methods]);
 
   const onSubmit = (data: ProductFormData) => {
-    const costPerUnit = (data.totalPurchaseCost || 0) / (data.numUnits || 1);
+    const costPerUnit = (data.numUnits || 1) > 0 ? ((data.totalPurchaseCost || 0) + (data.shippingCost || 0) + (data.taxCost || 0) - (data.discounts || 0)) / (data.numUnits || 1) : 0;
     const newProduct: InventoryItem = {
         id: `prod-${Date.now()}`,
         name: data.name,
@@ -345,24 +368,30 @@ export const AddProductDialog = ({
     onProductAdded(newProduct);
     onOpenChange(false);
   };
+  
+    const handleNext = async (e: React.MouseEvent<HTMLButtonElement>) => {
+        e.preventDefault();
+        const fieldsToValidate: (keyof ProductFormData)[] = [];
+        if (step === 1) {
+        fieldsToValidate.push('name', 'category');
+        }
+        if (step === 3) {
+        fieldsToValidate.push('initialStock');
+        }
+        
+        const isValid = fieldsToValidate.length > 0 ? await methods.trigger(fieldsToValidate) : true;
+        
+        if (isValid && step < totalSteps) {
+        setStep(step + 1);
+        }
+    };
 
-  const handleNext = async () => {
-    const fieldsToValidate: (keyof ProductFormData)[] = [];
-    if (step === 1) {
-      fieldsToValidate.push('name', 'category');
-    }
-     if (step === 3) {
-      fieldsToValidate.push('initialStock');
-    }
-    
-    const isValid = fieldsToValidate.length > 0 ? await methods.trigger(fieldsToValidate) : true;
-    
-    if (isValid && step < totalSteps) {
-      setStep(step + 1);
-    }
-  };
-
-  const handleBack = () => step > 1 && setStep(step - 1);
+    const handleBack = (e: React.MouseEvent<HTMLButtonElement>) => {
+        e.preventDefault();
+        if (step > 1) {
+            setStep(step - 1);
+        }
+    };
   
   const handleOpenChange = (isOpen: boolean) => {
     onOpenChange(isOpen);

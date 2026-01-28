@@ -376,13 +376,11 @@ export const EditProductDialog: React.FC<EditProductDialogProps> = ({
     onOpenChange(false);
   };
   
-  const handleNext = async () => {
+  const handleNext = async (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
     const fieldsToValidate: (keyof ProductFormData)[] = [];
     if (step === 1) {
       fieldsToValidate.push('name', 'category');
-    }
-     if (step === 3) {
-      // No validation needed for step 3
     }
     
     const isValid = fieldsToValidate.length > 0 ? await methods.trigger(fieldsToValidate) : true;
@@ -392,7 +390,12 @@ export const EditProductDialog: React.FC<EditProductDialogProps> = ({
     }
   };
 
-  const handleBack = () => step > 1 && setStep(step - 1);
+  const handleBack = (e: React.MouseEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      if(step > 1) {
+          setStep(step - 1);
+      }
+  };
 
   const getStepContent = () => {
       switch(step) {
