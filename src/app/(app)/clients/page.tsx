@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Search, FileDown, UserPlus, Merge, Users, ShieldPlus, AlertTriangle, Ear, ShieldAlert, BadgeInfo, Ban, FileText } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Search, FileDown, UserPlus, Merge, Users, ShieldPlus, AlertTriangle, Ear, ShieldAlert, BadgeInfo, Ban, FileText, Package } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -95,7 +95,7 @@ export default function ClientsPage() {
       name: data.name,
       email: data.email || '',
       phone: data.phone || '',
-      avatarUrl: data.avatarUrl || `https://picsum.photos/seed/${nanoid()}/100`,
+      avatarUrl: data.avatarUrl || '',
       lifetimeValue: 0,
       lastAppointment: new Date().toISOString(),
       status: 'active',
@@ -486,13 +486,3 @@ export default function ClientsPage() {
     </div>
   );
 }
-
-    
-
-    
-
-
-
-    
-
-    

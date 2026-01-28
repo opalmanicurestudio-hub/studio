@@ -74,7 +74,7 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { type Appointment, type Client, type Service, inventory, CustomFormula, services, Resource } from '@/lib/data';
+import { type Appointment, type Client, type Service, CustomFormula, services, Resource } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -82,6 +82,7 @@ import { useToast } from '@/hooks/use-toast';
 import { type ReceiptData } from './PrintReceipt';
 import { type TicketData } from './PrintTicket';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
+import { useInventory } from '@/context/InventoryContext';
 
 interface AppointmentCardProps {
   appointment: Appointment;
@@ -232,7 +233,7 @@ const AppointmentDetails = ({
                 <div className="space-y-3">
                     <h4 className="font-medium text-sm">Inspiration Photo</h4>
                     <div className="rounded-lg overflow-hidden border">
-                        <Image src={appointment.inspirationPhotoUrl || client.inspirationPhotoUrl!} alt="Inspiration" width={400} height={300} className="object-cover" />
+                        <Image src={appointment.inspirationPhotoUrl || client.inspirationPhotoUrl} alt="Inspiration" width={400} height={300} className="object-cover" />
                     </div>
                 </div>
             )}
@@ -315,6 +316,7 @@ export function AppointmentCard({
   const [elapsedTime, setElapsedTime] = useState<string | null>(null);
   const isMobile = useIsMobile();
   const { toast } = useToast();
+  const { inventory } = useInventory();
 
   const handleShareLink = () => {
     if (!appointment.checkInToken) {
@@ -409,7 +411,7 @@ export function AppointmentCard({
     const totalNetProfit = totalRevenue - totalBreakEvenCost;
 
     return { revenue: totalRevenue, breakEvenCost: totalBreakEvenCost, netProfit: totalNetProfit, timeCost: totalTimeCost, productCost: totalProductCost, equipmentCost: totalEquipmentCost };
-  }, [service, appointment, tmhr, client, addOnServices]);
+  }, [service, appointment, tmhr, client, addOnServices, inventory]);
 
   const requiredResources = useMemo(() => {
     if (!service.requiredResourceIds || !resources) return [];

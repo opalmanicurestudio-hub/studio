@@ -496,8 +496,12 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onLogU
                             aria-label={`Select ${item.name}`}
                         />
                     </div>
-                     <Link href={detailHref} className='w-20 h-20 bg-muted rounded-md flex-shrink-0'>
-                        <Image src={item.imageUrl || `https://picsum.photos/seed/inv${item.id}/100/100`} alt={item.name} width={80} height={80} className='rounded-md object-cover' data-ai-hint="product photo"/>
+                    <Link href={detailHref} className="w-20 h-20 bg-muted rounded-md flex items-center justify-center flex-shrink-0">
+                        {item.imageUrl ? (
+                            <Image src={item.imageUrl} alt={item.name} width={80} height={80} className='rounded-md object-cover w-full h-full' data-ai-hint="product photo"/>
+                        ) : (
+                            <Package className="w-10 h-10 text-muted-foreground" />
+                        )}
                     </Link>
                     <div className='flex-1 min-w-0'>
                         <div className="flex justify-between items-start">
@@ -581,11 +585,7 @@ export default function InventoryPage() {
     locations, 
     locationTypes,
     transactions,
-    setInventory,
-    setLocations,
-    setLocationTypes,
-    addStockCorrection,
-    setTransactions
+    isLoading: isInventoryLoading
   } = useInventory();
   
   const { toast } = useToast();
@@ -1207,7 +1207,7 @@ export default function InventoryPage() {
                             locations={locations}
                             locationTypes={locationTypes}
                             inventory={inventory}
-                            setLocations={setLocations}
+                            setLocations={() => {}}
                             onAddLocation={handleOpenAddLocation}
                             onEditLocation={handleOpenEditLocation}
                         />

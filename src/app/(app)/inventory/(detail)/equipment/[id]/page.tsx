@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -12,7 +13,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Edit, PlusCircle, Trash2, User, Wrench, DollarSign, FlaskConical, Calendar as CalendarIcon, Rocket, CheckCircle, Percent, TrendingUp } from 'lucide-react';
+import { ArrowLeft, Edit, PlusCircle, Trash2, User, Wrench, DollarSign, FlaskConical, Calendar as CalendarIcon, Rocket, CheckCircle, Percent, TrendingUp, Hammer } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -278,8 +279,12 @@ export default function EquipmentDetailPage() {
         </div>
 
         <div className="flex flex-col sm:flex-row items-start gap-4">
-            <div className="w-24 h-24 bg-muted rounded-md flex-shrink-0">
-                <Image src={equipment.imageUrl || `https://picsum.photos/seed/inv${equipment.id}/100/100`} alt={equipment.name} width={96} height={96} className='rounded-md' data-ai-hint="equipment photo"/>
+            <div className="w-24 h-24 bg-muted rounded-md flex items-center justify-center flex-shrink-0">
+                {equipment.imageUrl ? (
+                    <Image src={equipment.imageUrl} alt={equipment.name} width={96} height={96} className='rounded-md object-cover w-full h-full' data-ai-hint="equipment photo"/>
+                ) : (
+                    <Hammer className="w-12 h-12 text-muted-foreground" />
+                )}
             </div>
             <div className='flex-1'>
                 <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
