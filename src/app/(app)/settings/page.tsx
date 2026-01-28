@@ -15,7 +15,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DollarSign, Gift, Save, ListChecks, MessageSquare, Clock, Building, Edit, PlusCircle, MoreHorizontal, Globe, Check, Link as LinkIcon, Calendar, Loader, FilePen } from 'lucide-react';
+import { DollarSign, Gift, Save, ListChecks, MessageSquare, Clock, Building, Edit, PlusCircle, MoreHorizontal, Globe, Check, Link as LinkIcon, Calendar, Loader, FilePen, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
@@ -89,23 +89,20 @@ export default function SettingsPage() {
   const { firestore, user } = useFirebase();
   const { tenants, selectedTenant, setSelectedTenant, isLoading: isTenantContextLoading } = useTenant();
 
-  const [isBusinessEditing, setIsBusinessEditing] = useState(false);
-  const [currentBusinessName, setCurrentBusinessName] = useState('');
+  const [editingTenantId, setEditingTenantId] = useState<string | null>(null);
+  const [tempTenantName, setTempTenantName] = useState('');
   
-  useEffect(() => {
-    if (selectedTenant) {
-      setCurrentBusinessName(selectedTenant.name);
+  const handleUpdateBusinessName = async (tenantId: string, newName: string) => {
+    if (!firestore || !newName.trim()) {
+        toast({ variant: 'destructive', title: "Name cannot be empty" });
+        return;
     }
-  }, [selectedTenant]);
-  
-  const handleUpdateBusinessName = async () => {
-    if (!selectedTenant || !firestore || !currentBusinessName.trim()) return;
 
-    const tenantRef = doc(firestore, 'tenants', selectedTenant.id);
+    const tenantRef = doc(firestore, 'tenants', tenantId);
     try {
-      await updateDocumentNonBlocking(tenantRef, { name: currentBusinessName.trim() });
+      await updateDocumentNonBlocking(tenantRef, { name: newName.trim() });
       toast({ title: "Business Name Updated" });
-      setIsBusinessEditing(false);
+      setEditingTenantId(null);
     } catch (error) {
       console.error("Error updating business name:", error);
       toast({ variant: 'destructive', title: "Update Failed" });
@@ -364,30 +361,43 @@ export default function SettingsPage() {
                     <CardTitle className="flex items-center gap-2"><Building className="w-5 h-5 text-primary"/>Business Profile</CardTitle>
                     <CardDescription>Manage your business locations and branding.</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                     <div className="space-y-2">
-                        <Label htmlFor="business-name">Current Business Name</Label>
-                        <div className="flex gap-2">
-                            <Input id="business-name" value={currentBusinessName} onChange={(e) => setCurrentBusinessName(e.target.value)} disabled={!isBusinessEditing} />
-                            {isBusinessEditing ? (
-                                <>
-                                    <Button variant="outline" onClick={() => { setIsBusinessEditing(false); setCurrentBusinessName(selectedTenant?.name || ''); }}>Cancel</Button>
-                                    <Button onClick={handleUpdateBusinessName}><Save className="w-4 h-4 mr-2"/>Save</Button>
-                                </>
-                            ) : (
-                                <Button variant="outline" onClick={() => setIsBusinessEditing(true)}><Edit className="w-4 h-4 mr-2"/>Edit</Button>
-                            )}
-                        </div>
-                     </div>
-                </CardContent>
-                <CardHeader>
-                    <CardTitle className="text-base">Your Locations</CardTitle>
-                </CardHeader>
                 <CardContent className="space-y-2">
                      {tenants.map(tenant => (
                         <div key={tenant.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-md">
-                            <p className="font-medium">{tenant.name}</p>
-                            {tenant.id === selectedTenant?.id && <Badge>Active</Badge>}
+                            {editingTenantId === tenant.id ? (
+                                <div className="flex-1 flex items-center gap-2">
+                                    <Input
+                                        value={tempTenantName}
+                                        onChange={(e) => setTempTenantName(e.target.value)}
+                                        onKeyDown={(e) => e.key === 'Enter' && handleUpdateBusinessName(tenant.id, tempTenantName)}
+                                        autoFocus
+                                    />
+                                    <Button size="icon" className="h-9 w-9" onClick={() => handleUpdateBusinessName(tenant.id, tempTenantName)}>
+                                        <Check className="h-4 w-4" />
+                                    </Button>
+                                    <Button size="icon" variant="ghost" className="h-9 w-9" onClick={() => setEditingTenantId(null)}>
+                                        <X className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            ) : (
+                                <>
+                                    <p className="font-medium">{tenant.name}</p>
+                                    <div className="flex items-center gap-2">
+                                        {tenant.id === selectedTenant?.id && <Badge>Active</Badge>}
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8"
+                                            onClick={() => {
+                                                setEditingTenantId(tenant.id);
+                                                setTempTenantName(tenant.name);
+                                            }}
+                                        >
+                                            <Edit className="w-4 h-4" />
+                                        </Button>
+                                    </div>
+                                </>
+                            )}
                         </div>
                      ))}
                      <Button variant="outline" className="w-full" onClick={handleCreateNewLocation}><PlusCircle className="w-4 h-4 mr-2"/>Create New Location</Button>
@@ -717,4 +727,3 @@ export default function SettingsPage() {
   );
 }
 
-    
