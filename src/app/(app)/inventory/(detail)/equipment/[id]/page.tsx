@@ -152,7 +152,6 @@ export default function EquipmentDetailPage() {
     // This is a placeholder. In a real app, you'd call a function from context or a server action.
     const updatedInventory = inventory.map(item => item.id === updatedEquipment.id ? updatedEquipment : item);
     // In a real app, you'd likely call a function passed down via context to update the state
-    // For now, we'll just log it.
     console.log("Updated Inventory (simulation):", updatedInventory);
     
     toast({
@@ -292,8 +291,8 @@ export default function EquipmentDetailPage() {
         <Card>
             <CardContent className="p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className='space-y-1'>
-                    <div className='text-sm text-muted-foreground flex items-center gap-2'><Tag className='w-4 h-4' /> ID</div>
-                    <div className='font-mono text-sm'>{equipment.id.slice(-8).toUpperCase()}</div>
+                    <div className='text-sm text-muted-foreground flex items-center gap-2'><Tag className='w-4 h-4' /> SKU</div>
+                    <div className='font-mono text-sm'>{equipment.sku || 'N/A'}</div>
                 </div>
                 <div className='space-y-1'>
                     <div className='text-sm text-muted-foreground flex items-center gap-2'><Truck className='w-4 h-4' /> Vendor</div>
