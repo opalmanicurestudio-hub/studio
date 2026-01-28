@@ -292,13 +292,19 @@ export default function ProductDetailPage() {
                  <div className='space-y-1'>
                     <div className='text-sm text-muted-foreground flex items-center gap-2'><QrCode className='w-4 h-4' /> Reorder QR</div>
                     <div className='w-12 h-12 bg-muted flex items-center justify-center rounded-md'>
-                        <Image
-                            src={`https://api.qrserver.com/v1/create-qr-code/?size=48x48&data=${encodeURIComponent(product.supplierUrl || `clarityflow://product/${product.id}`)}`}
-                            alt={`Reorder QR for ${product.name}`}
-                            width={48}
-                            height={48}
-                            className="object-contain"
-                        />
+                        {product.supplierUrl ? (
+                            <Image
+                                src={`https://api.qrserver.com/v1/create-qr-code/?size=48x48&data=${encodeURIComponent(product.supplierUrl)}`}
+                                alt={`Reorder QR for ${product.name}`}
+                                width={48}
+                                height={48}
+                                className="object-contain"
+                            />
+                        ) : (
+                             <div className="w-12 h-12 bg-muted/50 flex items-center justify-center rounded-md">
+                                <QrCode className="w-6 h-6 text-muted-foreground/50" />
+                            </div>
+                        )}
                     </div>
                 </div>
                  <div className='space-y-1'>
@@ -548,12 +554,4 @@ export default function ProductDetailPage() {
       )}
     </div>
   );
-
-    
 }
-
-    
-
-    
-
-    
