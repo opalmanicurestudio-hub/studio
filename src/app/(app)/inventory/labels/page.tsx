@@ -18,7 +18,8 @@ import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ArrowLeft, Printer, Download, Search, Sheet, ChevronsUpDown } from 'lucide-react';
 import Link from 'next/link';
-import { inventory as allProducts, type InventoryItem } from '@/lib/data';
+import { useInventory } from '@/context/InventoryContext';
+import { type InventoryItem } from '@/lib/data';
 import { Input } from '@/components/ui/input';
 import Image from 'next/image';
 import { cn } from '@/lib/utils';
@@ -34,6 +35,7 @@ interface LabelContentOptions {
 }
 
 const CustomizationSidebar = ({
+  products,
   selectedProducts,
   onProductSelect,
   labelContent,
@@ -41,6 +43,7 @@ const CustomizationSidebar = ({
   printMode,
   onPrintModeChange,
 }: {
+  products: InventoryItem[];
   selectedProducts: Set<string>;
   onProductSelect: (productId: string) => void;
   labelContent: LabelContentOptions;
@@ -50,8 +53,8 @@ const CustomizationSidebar = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const filteredProducts = useMemo(() => 
-    allProducts.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase())),
-    [searchTerm]
+    products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase())),
+    [searchTerm, products]
   );
 
   return (
@@ -205,17 +208,19 @@ const SingleLabel = ({ product, options }: { product: InventoryItem, options: La
 }
 
 const PrintPreview = ({
+  products,
   selectedProductIds,
   labelContent,
   printMode,
 }: {
+  products: InventoryItem[],
   selectedProductIds: Set<string>;
   labelContent: LabelContentOptions;
   printMode: 'sheet' | 'single';
 }) => {
   const selectedProducts = useMemo(() => 
-    allProducts.filter(p => selectedProductIds.has(p.id)),
-    [selectedProductIds]
+    products.filter(p => selectedProductIds.has(p.id)),
+    [selectedProductIds, products]
   );
   
   const labelsToRender = useMemo(() => {
@@ -266,6 +271,7 @@ const PrintPreview = ({
 
 
 function LabelPageContent() {
+  const { inventory: allProducts } = useInventory();
   const searchParams = useSearchParams();
   const initialProductId = searchParams.get('product');
 
@@ -350,6 +356,7 @@ function LabelPageContent() {
           <div className="grid lg:grid-cols-3 gap-8 items-start">
             <div className="lg:col-span-1 print:hidden">
               <CustomizationSidebar
+                products={allProducts}
                 selectedProducts={selectedProducts}
                 onProductSelect={handleProductSelect}
                 labelContent={labelContent}
@@ -359,7 +366,7 @@ function LabelPageContent() {
               />
             </div>
             <div className="lg:col-span-2">
-              <PrintPreview selectedProductIds={selectedProducts} labelContent={labelContent} printMode={printMode} />
+              <PrintPreview products={allProducts} selectedProductIds={selectedProducts} labelContent={labelContent} printMode={printMode} />
             </div>
           </div>
         </div>
@@ -403,7 +410,7 @@ function LabelPageContent() {
        {/* Assign a class to the container based on print mode for targeted print styles */}
        <div className={cn('label-print-area', printMode === 'single' ? 'thermal-print' : 'sheet-print')}>
            <div className="hidden">
-             <PrintPreview selectedProductIds={selectedProducts} labelContent={labelContent} printMode={printMode} />
+             <PrintPreview products={allProducts} selectedProductIds={selectedProducts} labelContent={labelContent} printMode={printMode} />
            </div>
        </div>
     </div>
@@ -417,6 +424,7 @@ export default function LabelPage() {
         </Suspense>
     );
 }
+
 
 
 
