@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -21,7 +21,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -36,22 +36,24 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { type InventoryItem, type Location, type ConsentForm, type Resource } from '@/lib/data';
+import { type InventoryItem, type Location, type Resource } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
-import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2, EyeOff } from 'lucide-react';
+import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2 } from 'lucide-react';
+import { type Service } from '@/lib/data';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { inventory, services as allServices, type Service } from '@/lib/data';
-import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
-import { SelectEquipmentDialog } from '../services/SelectEquipmentDialog';
+import { SelectResourcesDialog } from './SelectResourcesDialog';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { BrowseConsentFormsDialog } from '../services/BrowseConsentFormsDialog';
 import { Switch } from '../ui/switch';
 import { useInventory } from '@/context/InventoryContext';
-import { SelectResourcesDialog } from './SelectResourcesDialog';
 import { cn } from '@/lib/utils';
-import { useFirebase, useMemoFirebase, useCollection } from '@/firebase';
-import { collection } from 'firebase/firestore';
+import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
+import { format, parseISO } from 'date-fns';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { Calendar } from '../ui/calendar';
+import { CalendarIcon } from 'lucide-react';
+
 
 const editProductSchema = z.object({
   id: z.string(),
@@ -78,14 +80,21 @@ const editProductSchema = z.object({
 
   supplier: z.string().optional(),
   sku: z.string().optional(),
-  purchaseLink: z.string().optional(),
+  purchaseLink: z.string().url({ message: "Please enter a valid URL." }).optional().or(z.literal('')),
   reorderPoint: z.coerce.number().optional(),
   primaryLocationId: z.string().optional(),
+  expirationDate: z.date().optional(),
 });
 
 type ProductFormData = z.infer<typeof editProductSchema>;
 
-const Step1_BasicDetails = ({ categories, onNewCategory }: { categories: string[]; onNewCategory: (category: string) => void; }) => {
+const Step1_BasicDetails = ({ 
+    categories, 
+    onNewCategory 
+}: { 
+    categories: string[];
+    onNewCategory: (category: string) => void;
+}) => {
     const { register, control, setValue, watch, formState: { errors } } = useFormContext<ProductFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
@@ -104,8 +113,8 @@ const Step1_BasicDetails = ({ categories, onNewCategory }: { categories: string[
     return (
   <div className="grid gap-6 py-4">
     <div className="space-y-2">
-      <Label htmlFor="product-name">Product Name</Label>
-      <Input id="product-name" {...register('name')} />
+      <Label htmlFor="product-name-edit">Product Name</Label>
+      <Input id="product-name-edit" {...register('name')} />
        {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
     </div>
     <div className="space-y-2">
@@ -133,9 +142,13 @@ const Step1_BasicDetails = ({ categories, onNewCategory }: { categories: string[
       )}
        {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
     </div>
+    <div className="space-y-2">
+      <Label>Product Image</Label>
+       <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} /> )}/>
+    </div>
      <div className="space-y-2">
-        <Label>Product Image</Label>
-        <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} /> )}/>
+      <Label htmlFor="internal-notes-edit">Internal Notes</Label>
+      <Textarea id="internal-notes-edit" placeholder="Private usage instructions, formulation tips..." {...register('internalNotes')} />
     </div>
   </div>
     );
@@ -231,6 +244,11 @@ const Step3_InventorySupplier = ({ onAddLocationClick, locations }: { onAddLocat
                  <CardHeader><CardTitle>Stock Management</CardTitle></CardHeader>
                  <CardContent className="space-y-4">
                     <div className="space-y-2"><Label htmlFor="reorder-point-edit">Reorder Point</Label><Input id="reorder-point-edit" type="number" placeholder="e.g., 5" {...register('reorderPoint')} /></div>
+                    <div className="space-y-2">
+                        <Label>Expiration</Label>
+                        <p className="text-xs text-muted-foreground">Editing expiration for the first/most recent batch.</p>
+                        <Controller name="expirationDate" control={control} render={({ field }) => ( <Popover><PopoverTrigger className={cn( buttonVariants({ variant: 'outline' }), "w-full justify-start text-left font-normal", !field.value && "text-muted-foreground" )}> <CalendarIcon className="mr-2 h-4 w-4" /> {field.value ? format(field.value, "PPP") : "No expiry"}</PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} /></PopoverContent></Popover> )}/>
+                    </div>
                     <Alert variant="destructive">
                         <AlertTriangle className="h-4 w-4" />
                         <AlertTitle>Stock Levels</AlertTitle>
@@ -267,6 +285,7 @@ const Step3_InventorySupplier = ({ onAddLocationClick, locations }: { onAddLocat
     );
 };
 
+
 interface EditProductDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -298,31 +317,64 @@ export const EditProductDialog: React.FC<EditProductDialogProps> = ({
 
   useEffect(() => {
     if (product && open) {
+        const firstBatch = product.batches?.[0];
         methods.reset({
             id: product.id,
             name: product.name,
             type: product.type,
             category: product.category,
             imageUrl: product.imageUrl || '',
-            supplier: product.supplier || '',
-            purchaseLink: product.supplierUrl || '',
+            internalNotes: product.internalNotes || '',
+            
+            totalPurchaseCost: product.costPerUnit || 0,
+            numUnits: 1, 
+            shippingCost: 0,
+            taxCost: 0,
+            discounts: 0,
+
             costingMethod: product.costingMethod,
             containerSize: product.size,
             containerUnit: product.unit,
             usesPerContainer: product.estimatedUses,
+            restockingMarkup: product.restockingMarkup,
+
+            msrp: product.msrp,
+            markdownPrice: product.markdownPrice,
+
+            supplier: product.supplier,
+            sku: product.sku,
+            purchaseLink: product.supplierUrl,
             reorderPoint: product.reorderPoint,
             primaryLocationId: product.primaryLocationId,
-            // Non-editable fields like stock are not set here
-      });
-      setStep(1); // Reset to first step when dialog opens with new product
+            expirationDate: firstBatch?.expirationDate ? parseISO(firstBatch.expirationDate) : undefined,
+        });
+      setStep(1);
     }
   }, [product, open, methods]);
 
   const onSubmit = (data: ProductFormData) => {
-    onProductUpdated({ ...product, ...data });
+    const costPerUnit = (data.numUnits || 1) > 0 ? ((data.totalPurchaseCost || 0) + (data.shippingCost || 0) + (data.taxCost || 0) - (data.discounts || 0)) / (data.numUnits || 1) : 0;
+    
+    const updatedBatches = [...product.batches];
+    if (updatedBatches.length > 0) {
+        updatedBatches[0] = {
+            ...updatedBatches[0],
+            costPerUnit: costPerUnit,
+            expirationDate: data.expirationDate?.toISOString()
+        };
+    }
+
+    const updatedProduct: InventoryItem = {
+        ...product,
+        ...data,
+        costPerUnit: costPerUnit,
+        batches: updatedBatches,
+        supplierUrl: data.purchaseLink,
+    };
+    onProductUpdated(updatedProduct);
     onOpenChange(false);
   };
-
+  
   const handleNext = async () => {
     const fieldsToValidate: (keyof ProductFormData)[] = [];
     if (step === 1) {
@@ -339,13 +391,13 @@ export const EditProductDialog: React.FC<EditProductDialogProps> = ({
   const handleBack = () => step > 1 && setStep(step - 1);
 
   const getStepContent = () => {
-    switch (step) {
-      case 1: return <Step1_BasicDetails categories={categories} onNewCategory={onNewCategory} />;
-      case 2: return <Step2_CostingPricing />;
-      case 3: return <Step3_InventorySupplier onAddLocationClick={onAddLocationClick} locations={locations} />;
-      default: return null;
-    }
-  };
+      switch(step) {
+          case 1: return <Step1_BasicDetails categories={categories} onNewCategory={onNewCategory} />;
+          case 2: return <Step2_CostingPricing />;
+          case 3: return <Step3_InventorySupplier onAddLocationClick={onAddLocationClick} locations={locations} />;
+          default: return null;
+      }
+  }
   
   const formId = `edit-product-form-${product.id}`;
   const title = `Edit Product: ${product.name}`;
