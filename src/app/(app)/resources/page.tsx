@@ -43,7 +43,7 @@ import { useTenant } from '@/context/TenantContext';
 const ResourceCard = ({ resource, inventory, onDelete, onEdit }: { resource: Resource, inventory: InventoryItem[], onDelete: (id: string) => void, onEdit: (resource: Resource) => void }) => {
     const linkedItem = resource.inventoryItemId ? inventory.find(i => i.id === resource.inventoryItemId) : null;
     const Icon = resource.type === 'room' ? Building : HardHat;
-    const imageUrl = linkedItem?.imageUrl || `https://picsum.photos/seed/res${resource.id}/200/200`;
+    const imageUrl = linkedItem?.imageUrl;
 
     return (
         <Card className="flex flex-col overflow-hidden transition-all duration-200 hover:shadow-lg hover:-translate-y-1">
@@ -77,8 +77,12 @@ const ResourceCard = ({ resource, inventory, onDelete, onEdit }: { resource: Res
             <CardContent className="p-4 flex-1 space-y-4">
                 {resource.type === 'equipment' && linkedItem && (
                     <div className="flex items-center gap-3 p-3 bg-background rounded-md border">
-                        <div className="w-12 h-12 bg-muted rounded-md flex-shrink-0 relative">
-                            <Image src={imageUrl} alt={linkedItem.name} fill className="object-cover rounded-md" />
+                        <div className="w-12 h-12 bg-muted rounded-md flex-shrink-0 relative flex items-center justify-center">
+                            {imageUrl ? (
+                                <Image src={imageUrl} alt={linkedItem.name} fill className="object-cover rounded-md" />
+                            ) : (
+                                <HardHat className="w-6 h-6 text-muted-foreground" />
+                            )}
                         </div>
                         <div className="text-sm">
                             <p className="text-muted-foreground text-xs">Linked Inventory</p>

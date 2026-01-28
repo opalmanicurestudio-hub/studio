@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -131,7 +132,7 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
             } else {
                 costPerUse = product.costPerUnit || 0;
             }
-            cost = costPerUse * p.quantityUsed;
+            cost = costPerUse * (p.quantityUsed || 1);
         }
       return {
         ...p,
@@ -140,8 +141,8 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
       }
     });
 
-    const equipmentCosts = (service.equipment || []).map(e => {
-        const equipmentItem = inventory.find(i => i.id === e.id);
+    const equipmentCosts = (service.requiredResourceIds || []).map(resourceId => {
+        const equipmentItem = inventory.find(i => i.id === resourceId && i.type === 'equipment');
         let cost = 0;
         if (equipmentItem && equipmentItem.lifespanYears && equipmentItem.lifespanYears > 0) {
             const annualDepreciation = (equipmentItem.costPerUnit || 0) / equipmentItem.lifespanYears;
@@ -150,10 +151,12 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
             cost = hourlyDepreciation * serviceDurationHours;
         }
       return {
-        ...e,
+        id: resourceId,
+        name: equipmentItem?.name || 'Unknown Equipment',
+        imageUrl: equipmentItem?.imageUrl,
         cost: cost,
       }
-    });
+    }).filter(e => e.cost > 0);
 
     const totalProductCost = productCosts.reduce((acc, p) => acc + p.cost, 0);
     const totalEquipmentCost = equipmentCosts.reduce((acc, e) => acc + e.cost, 0);
@@ -181,8 +184,12 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
             {productCosts.length > 0 ? productCosts.map(p => (
                  <div key={p.id} className="flex items-center justify-between bg-muted/50 p-2 rounded-md">
                     <div className='flex items-center gap-2'>
-                        <div className="w-8 h-8 bg-background rounded-sm flex-shrink-0">
-                            <Image src={p.imageUrl || `https://picsum.photos/seed/inv${p.id}/100/100`} alt={p.name} width={32} height={32} className='rounded-sm object-cover h-full w-full' />
+                        <div className="w-8 h-8 bg-background rounded-sm flex-shrink-0 flex items-center justify-center">
+                            {p.imageUrl ? (
+                                <Image src={p.imageUrl} alt={p.name} width={32} height={32} className='rounded-sm object-cover h-full w-full' />
+                            ) : (
+                                <Box className="w-5 h-5 text-muted-foreground" />
+                            )}
                         </div>
                         <div className="flex flex-col">
                             <span className="font-medium text-xs">{p.name}</span>
@@ -198,8 +205,12 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
             {equipmentCosts.length > 0 ? equipmentCosts.map(e => (
                  <div key={e.id} className="flex items-center justify-between bg-muted/50 p-2 rounded-md">
                     <div className='flex items-center gap-2'>
-                        <div className="w-8 h-8 bg-background rounded-sm flex-shrink-0">
-                         <Image src={e.imageUrl || `https://picsum.photos/seed/inv${e.id}/100/100`} alt={e.name} width={32} height={32} className='rounded-sm object-cover h-full w-full' />
+                        <div className="w-8 h-8 bg-background rounded-sm flex-shrink-0 flex items-center justify-center">
+                         {e.imageUrl ? (
+                            <Image src={e.imageUrl} alt={e.name} width={32} height={32} className='rounded-sm object-cover h-full w-full' />
+                         ) : (
+                            <Hammer className="w-5 h-5 text-muted-foreground" />
+                         )}
                     </div>
                     <span className="font-medium text-xs">{e.name}</span>
                 </div>
@@ -292,15 +303,19 @@ export default function ServiceDetailPage() {
                 <Card>
                     <CardContent className="p-6">
                         <div className="flex flex-col md:flex-row items-start gap-6">
-                            <div className="w-32 h-32 bg-muted rounded-lg flex-shrink-0">
-                                <Image 
-                                    src={service.imageUrl || `https://picsum.photos/seed/svc${service.id}/200/200`} 
-                                    alt={service.name} 
-                                    width={128} 
-                                    height={128} 
-                                    className='rounded-lg object-cover h-full w-full' 
-                                    data-ai-hint="manicure nails" 
-                                />
+                            <div className="w-32 h-32 bg-muted rounded-lg flex-shrink-0 flex items-center justify-center">
+                                {service.imageUrl ? (
+                                    <Image 
+                                        src={service.imageUrl} 
+                                        alt={service.name} 
+                                        width={128} 
+                                        height={128} 
+                                        className='rounded-lg object-cover h-full w-full' 
+                                        data-ai-hint="manicure nails" 
+                                    />
+                                ) : (
+                                    <List className="w-16 h-16 text-muted-foreground" />
+                                )}
                             </div>
                             <div className="flex-1 space-y-2">
                                 <h1 className="text-3xl font-bold">{service.name}</h1>

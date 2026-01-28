@@ -377,6 +377,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
   const handleSave = (data: AddStaffFormData) => {
     const staffDataToSave: Omit<Staff, 'id' | 'avatarUrl'> = {
         ...data,
+        avatarUrl: data.avatarUrl || '',
         specialties: data.specialties?.split(',').map(s => s.trim()).filter(s => s),
         commissionRate: data.commissionRate || 0,
         retailCommissionRate: data.retailCommissionRate || 0,

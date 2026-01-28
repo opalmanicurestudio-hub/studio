@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -15,7 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { type InventoryItem } from '@/lib/data';
-import { Search } from 'lucide-react';
+import { Search, Package } from 'lucide-react';
 import Image from 'next/image';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -100,8 +101,12 @@ export const BrowseProductsDialog: React.FC<BrowseProductsDialogProps> = ({
                                 checked={selectedIds.has(product.id)}
                                 onCheckedChange={() => handleToggle(product.id)}
                             />
-                            <div className="w-12 h-12 bg-muted rounded-md flex-shrink-0 overflow-hidden">
-                                <Image src={product.imageUrl || `https://picsum.photos/seed/inv${product.id}/100/100`} alt={product.name} width={48} height={48} className='object-cover h-full w-full' />
+                            <div className='w-10 h-10 bg-muted rounded-md flex-shrink-0 flex items-center justify-center'>
+                                {product.imageUrl ? (
+                                    <Image src={product.imageUrl} alt={product.name} width={40} height={40} className='rounded-md object-cover h-full w-full'/>
+                                ) : (
+                                    <Package className="w-5 h-5 text-muted-foreground" />
+                                )}
                             </div>
                             <div className="flex-1">
                                 <p className="text-sm font-medium leading-none">{product.name}</p>

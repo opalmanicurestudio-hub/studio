@@ -542,6 +542,7 @@ export const AddClientDialog = ({ open, onOpenChange, clients, onSave }: { open:
       name: '',
       email: '',
       phone: '',
+      avatarUrl: '',
       notes: {
         goals: '',
         routine: '',
