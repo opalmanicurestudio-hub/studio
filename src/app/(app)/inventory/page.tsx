@@ -175,15 +175,22 @@ const AddOrderDialog = ({
     }
 
     const handleSave = () => {
-        const newOrder: Omit<Order, 'id'> = {
+        let newOrder: Omit<Order, 'id'> = {
             supplier,
             orderDate: (orderDate || new Date()).toISOString(),
-            expectedArrivalDate: expectedDate?.toISOString(),
             status: 'Draft',
             trackingNumber,
             notes,
             items,
         };
+
+        if (expectedDate) {
+            newOrder = {
+                ...newOrder,
+                expectedArrivalDate: expectedDate.toISOString(),
+            };
+        }
+
         onSave(newOrder);
         onOpenChange(false);
     };
@@ -1298,3 +1305,4 @@ export default function InventoryPage() {
 }
 
     
+
