@@ -44,6 +44,7 @@ export type Staff = {
   email: string;
   phone?: string;
   role: 'admin' | 'staff';
+  skillLevel?: 'junior' | 'senior' | 'master';
   avatarUrl: string;
   payStructure: 'commission' | 'hourly' | 'salary';
   commissionRate: number; // as a percentage, e.g., 40 for 40%
@@ -177,7 +178,11 @@ export type Service = {
   duration: number; // in minutes
   padBefore?: number;
   padAfter?: number;
-  price: number;
+  pricingTiers?: {
+      level: 'junior' | 'senior' | 'master';
+      price: number;
+  }[];
+  price: number; // Default or senior price, for display
   cost: number;
   profit: number;
   margin: number;
@@ -533,6 +538,7 @@ export const staff: Staff[] = [
     name: 'Brenda Barnes', 
     email: 'brenda@example.com', 
     role: 'staff', 
+    skillLevel: 'senior',
     avatarUrl: 'https://picsum.photos/seed/staff1/100', 
     payStructure: 'commission', 
     commissionRate: 45,
@@ -559,6 +565,7 @@ export const staff: Staff[] = [
     name: 'Carlos Reyes', 
     email: 'carlos@example.com', 
     role: 'admin', 
+    skillLevel: 'master',
     avatarUrl: 'https://picsum.photos/seed/staff2/100', 
     payStructure: 'salary', 
     commissionRate: 0,
@@ -603,6 +610,11 @@ export const services: Service[] = [
     duration: 45,
     padBefore: 10,
     padAfter: 5,
+    pricingTiers: [
+        { level: 'junior', price: 35.00 },
+        { level: 'senior', price: 45.00 },
+        { level: 'master', price: 55.00 },
+    ],
     price: 45.00,
     cost: 3.50,
     profit: 41.50,
@@ -630,6 +642,11 @@ export const services: Service[] = [
     category: 'Hair', 
     duration: 60,
     padAfter: 15,
+    pricingTiers: [
+        { level: 'junior', price: 65.00 },
+        { level: 'senior', price: 85.00 },
+        { level: 'master', price: 105.00 },
+    ],
     price: 85.00,
     cost: 5.00,
     profit: 80.00,
@@ -650,6 +667,11 @@ export const services: Service[] = [
     category: 'Hair', 
     duration: 120,
     padAfter: 30,
+    pricingTiers: [
+        { level: 'junior', price: 200.00 },
+        { level: 'senior', price: 250.00 },
+        { level: 'master', price: 300.00 },
+    ],
     price: 250.00,
     cost: 35.00,
     profit: 215.00,
@@ -669,6 +691,11 @@ export const services: Service[] = [
     type: 'service',
     category: 'Skincare', 
     duration: 75,
+    pricingTiers: [
+        { level: 'junior', price: 100.00 },
+        { level: 'senior', price: 120.00 },
+        { level: 'master', price: 140.00 },
+    ],
     price: 120.00,
     cost: 15.00,
     profit: 105.00,
@@ -686,6 +713,11 @@ export const services: Service[] = [
     category: 'Hair', 
     duration: 180,
     padAfter: 30,
+    pricingTiers: [
+        { level: 'junior', price: 300.00 },
+        { level: 'senior', price: 350.00 },
+        { level: 'master', price: 425.00 },
+    ],
     price: 350.00,
     cost: 50.00,
     profit: 300.00,
@@ -703,6 +735,11 @@ export const services: Service[] = [
     category: 'Hair', 
     duration: 45,
     padAfter: 10,
+    pricingTiers: [
+        { level: 'junior', price: 40.00 },
+        { level: 'senior', price: 50.00 },
+        { level: 'master', price: 65.00 },
+    ],
     price: 50.00,
     cost: 2.00,
     profit: 48.00,
@@ -721,6 +758,11 @@ export const services: Service[] = [
     duration: 90,
     padBefore: 10,
     padAfter: 10,
+    pricingTiers: [
+        { level: 'junior', price: 80.00 },
+        { level: 'senior', price: 95.00 },
+        { level: 'master', price: 110.00 },
+    ],
     price: 95.00,
     cost: 12.00,
     profit: 83.00,
@@ -739,6 +781,11 @@ export const services: Service[] = [
     type: 'service',
     category: 'Skincare', 
     duration: 15,
+    pricingTiers: [
+        { level: 'junior', price: 20.00 },
+        { level: 'senior', price: 25.00 },
+        { level: 'master', price: 30.00 },
+    ],
     price: 25.00,
     cost: 1.50,
     profit: 23.50,
@@ -755,6 +802,11 @@ export const services: Service[] = [
     category: 'Hair', 
     duration: 90,
     padAfter: 20,
+    pricingTiers: [
+        { level: 'junior', price: 100.00 },
+        { level: 'senior', price: 120.00 },
+        { level: 'master', price: 140.00 },
+    ],
     price: 120.00,
     cost: 20.00,
     profit: 100.00,
@@ -771,6 +823,11 @@ export const services: Service[] = [
     type: 'service',
     category: 'Hair', 
     duration: 45,
+    pricingTiers: [
+        { level: 'junior', price: 60.00 },
+        { level: 'senior', price: 75.00 },
+        { level: 'master', price: 90.00 },
+    ],
     price: 75.00,
     cost: 10.00,
     profit: 65.00,
@@ -787,6 +844,11 @@ export const services: Service[] = [
     type: 'service',
     category: 'Hair', 
     duration: 45,
+    pricingTiers: [
+        { level: 'junior', price: 50.00 },
+        { level: 'senior', price: 60.00 },
+        { level: 'master', price: 75.00 },
+    ],
     price: 60.00,
     cost: 5.00,
     profit: 55.00,
@@ -803,6 +865,11 @@ export const services: Service[] = [
     type: 'service',
     category: 'Hair', 
     duration: 60,
+    pricingTiers: [
+        { level: 'junior', price: 75.00 },
+        { level: 'senior', price: 90.00 },
+        { level: 'master', price: 110.00 },
+    ],
     price: 90.00,
     cost: 8.00,
     profit: 82.00,
