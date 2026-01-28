@@ -122,7 +122,20 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
 
   if (!staffMember) return null;
 
-  const staffServices = services.filter(s => staffMember.services?.includes(s.id));
+  const staffServices = useMemo(() => {
+    if (!staffMember.services || !services) return [];
+    const staffSkillLevel = staffMember.skillLevel || 'senior';
+    return services
+      .filter(s => staffMember.services?.includes(s.id))
+      .map(service => {
+        const tierPrice = service.pricingTiers?.find(t => t.level === staffSkillLevel)?.price;
+        const finalPrice = tierPrice ?? service.pricingTiers?.find(t => t.level === 'senior')?.price ?? service.price;
+        return {
+          ...service,
+          price: finalPrice,
+        };
+      });
+  }, [staffMember, services]);
 
   const dateRangeString = dateRange?.from && dateRange.to
     ? `${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d')}`
@@ -157,11 +170,11 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                         {dateRange?.from ? (
                         dateRange.to ? (
                             <>
-                            {format(dateRange.from, "LLL dd, y")} -{" "}
-                            {format(dateRange.to, "LLL dd, y")}
+                            {format(dateRange.from, "LLL dd, yyyy")} -{" "}
+                            {format(dateRange.to, "LLL dd, yyyy")}
                             </>
                         ) : (
-                            format(dateRange.from, "LLL dd, y")
+                            format(dateRange.from, "LLL dd, yyyy")
                         )
                         ) : (
                         <span>Pick a date range</span>
@@ -264,7 +277,10 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                         <AccordionContent className="p-4 pt-0">
                            <div className="space-y-2 mt-2">
                                {staffServices.map(s => (
-                                   <div key={s.id} className="p-2 bg-muted/50 rounded-md text-sm">{s.name}</div>
+                                   <div key={s.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md text-sm">
+                                      <span>{s.name}</span>
+                                      <span className="font-semibold">${s.price.toFixed(2)}</span>
+                                   </div>
                                ))}
                            </div>
                         </AccordionContent>
