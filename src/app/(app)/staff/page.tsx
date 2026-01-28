@@ -165,7 +165,8 @@ export default function StaffPage() {
   const [confirmation, setConfirmation] = useState<{ isOpen: boolean; title: string; description: string; onConfirm: () => void; } | null>(null);
 
   const { firestore, user } = useFirebase();
-  const tenantId = 'tenant-abc';
+  const { selectedTenant } = useTenant();
+  const tenantId = selectedTenant?.id;
   
   const staffQuery = useMemoFirebase(() => {
     if (!firestore || !user) return null;
@@ -297,9 +298,8 @@ export default function StaffPage() {
                     clockInTime = null;
                 } else if (log.type === 'break_start') {
                     breakStartTime = logTime;
-                } else if (log.type === 'break_end' && breakStartTime) {
-                    totalBreakMinutes += differenceInMinutes(logTime, breakStartTime);
-                    breakStartTime = null;
+                } else if (log.type === 'break_end' && log.durationMinutes) {
+                    totalBreakMinutes += log.durationMinutes;
                 }
             }
             if(clockInTime) {
@@ -406,11 +406,12 @@ export default function StaffPage() {
   };
 
   const handleAddStaff = (newStaffData: Omit<Staff, 'id' | 'avatarUrl'>) => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
 
-    const fullStaffObject: Staff = {
+    const fullStaffObject: Omit<Staff, 'id' | 'avatarUrl'> & { id: string, avatarUrl: string, tenantId: string, active: boolean, onBreak: boolean } = {
       ...newStaffData,
       id: `staff-${nanoid()}`,
+      tenantId: tenantId,
       avatarUrl: `https://picsum.photos/seed/${nanoid()}/100`,
       active: false,
       onBreak: false,
@@ -423,7 +424,7 @@ export default function StaffPage() {
   };
 
   const handleUpdateStaff = (updatedStaffData: Staff) => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
     const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', updatedStaffData.id);
     const sanitizedData = JSON.parse(JSON.stringify(updatedStaffData));
     updateDocumentNonBlocking(staffDocRef, sanitizedData);
@@ -568,6 +569,7 @@ export default function StaffPage() {
         onOpenChange={setIsAddStaffOpen} 
         onSave={handleAddStaff}
         services={services || []}
+        consentForms={consentForms || []}
       />
       <EditStaffDialog 
         open={isEditStaffOpen} 
@@ -606,10 +608,3 @@ export default function StaffPage() {
     </div>
   );
 }
-
-
-
-
-
-
-
