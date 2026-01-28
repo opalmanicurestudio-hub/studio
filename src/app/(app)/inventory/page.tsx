@@ -113,7 +113,7 @@ const OrderCard = ({ order, onSelect }: { order: Order, onSelect: (order: Order)
                         <Badge className={statusInfo.className}>{statusInfo.icon} <span className="ml-1.5">{order.status}</span></Badge>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                            <DropdownMenuContent>
+                            <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
                                 <DropdownMenuItem onClick={() => onSelect(order)}>View/Edit Order</DropdownMenuItem>
                                 <DropdownMenuItem>Receive Stock</DropdownMenuItem>
                             </DropdownMenuContent>
@@ -130,7 +130,16 @@ const OrderCard = ({ order, onSelect }: { order: Order, onSelect: (order: Order)
                             <Truck className="w-4 h-4 text-muted-foreground"/>
                             <span className="font-medium">Tracking:</span>
                             {order.trackingUrl ? (
-                                <a href={order.trackingUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-primary hover:underline" onClick={(e) => e.stopPropagation()}>{order.trackingNumber}</a>
+                                <Button
+                                    variant="link"
+                                    className="font-semibold text-primary hover:underline p-0 h-auto"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        window.open(order.trackingUrl, '_blank', 'noopener,noreferrer');
+                                    }}
+                                >
+                                    {order.trackingNumber}
+                                </Button>
                             ) : (
                                 <span className="font-semibold">{order.trackingNumber}</span>
                             )}
@@ -199,7 +208,7 @@ const AddOrderDialog = ({
             notes,
             items,
             invoiceUrl,
-            ...(expectedDate ? { expectedArrivalDate: expectedDate.toISOString() } : {}),
+            ...(expectedDate && { expectedArrivalDate: expectedDate.toISOString() }),
         };
 
         onSave(newOrder);
@@ -286,6 +295,7 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
         }
     }, [order]);
 
+    if (!order) return null;
     if (!editableOrder) return null;
 
     const totalCost = editableOrder.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
@@ -379,7 +389,16 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                                             <Truck className="w-4 h-4 text-muted-foreground"/>
                                             <span className="font-medium">Tracking:</span>
                                             {order.trackingUrl ? (
-                                                <a href={order.trackingUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-primary hover:underline" onClick={(e) => e.stopPropagation()}>{order.trackingNumber}</a>
+                                                <Button
+                                                    variant="link"
+                                                    className="font-semibold text-primary hover:underline p-0 h-auto"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        window.open(order.trackingUrl, '_blank', 'noopener,noreferrer');
+                                                    }}
+                                                >
+                                                    {order.trackingNumber}
+                                                </Button>
                                             ) : (
                                                 <span className="font-semibold">{order.trackingNumber}</span>
                                             )}
@@ -1113,10 +1132,14 @@ export default function InventoryPage() {
     }
     
     if (searchTerm) {
-        items = items.filter(item => 
-            item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            item.id.toLowerCase().includes(searchTerm.toLowerCase())
-        );
+        const lowercasedSearchTerm = searchTerm.toLowerCase();
+        const isFourDigitNumber = /^\d{4}$/.test(searchTerm);
+
+        items = items.filter(item => {
+            const nameMatch = item.name.toLowerCase().includes(lowercasedSearchTerm);
+            
+            return nameMatch;
+        });
     }
 
     return items;
@@ -1533,6 +1556,7 @@ export default function InventoryPage() {
 }
 
     
+
 
 
 
