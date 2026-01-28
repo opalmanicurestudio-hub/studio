@@ -39,7 +39,7 @@ import { ImageUpload } from '@/components/shared/ImageUpload';
 import { type InventoryItem, type Location, type ConsentForm, type Resource } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2 } from 'lucide-react';
-import { services as allServices, type Service } from '@/lib/data';
+import { inventory, services as allServices, type Service } from '@/lib/data';
 import { BrowseProductsDialog } from './BrowseProductsDialog';
 import { SelectEquipmentDialog } from './SelectEquipmentDialog';
 import { SelectAddOnsDialog } from './SelectAddOnsDialog';
@@ -85,36 +85,17 @@ const serviceSchema = z.object({
 
 type ServiceFormData = z.infer<typeof serviceSchema>;
 
-
-const EditServiceForm = ({ 
+const Step1_BasicDetails = ({ 
     categories, 
-    onNewCategory,
-    breakEvenCost,
-    onScanClick,
-    consentForms,
-    resources,
+    onNewCategory 
 }: { 
     categories: string[];
     onNewCategory: (category: string) => void;
-    breakEvenCost: number;
-    onScanClick: () => void;
-    consentForms: ConsentForm[];
-    resources: Resource[];
 }) => {
-    const { inventory } = useInventory();
     const { register, control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
-    
-    const requiredFormIds = watch('requiredFormIds') || [];
-    const [isConsentFormBrowserOpen, setIsConsentFormBrowserOpen] = useState(false);
-    
-    const requiredForms = consentForms.filter(f => requiredFormIds.includes(f.id));
-
-    const handleRemoveForm = (formId: string) => {
-        const newIds = requiredFormIds.filter(id => id !== formId);
-        setValue('requiredFormIds', newIds, { shouldDirty: true });
-    };
+    const category = watch('category');
 
     const handleAddNewCategory = () => {
         if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
@@ -126,26 +107,88 @@ const EditServiceForm = ({
         }
     };
     
+    return (
+  <div className="grid gap-6 py-4">
+    <div className="flex items-center justify-between p-4 border rounded-lg">
+        <div className='space-y-1'><Label htmlFor="is-addon-edit">Is this an Add-on Service?</Label><p className='text-sm text-muted-foreground'>Add-ons can be appended to primary services.</p></div>
+        <Controller name="isAddon" control={control} render={({ field }) => ( <Switch id="is-addon-edit" checked={field.value} onCheckedChange={field.onChange} /> )}/>
+    </div>
+    <div className="space-y-2">
+      <Label htmlFor="service-name-edit">Service Name</Label>
+      <Input id="service-name-edit" placeholder="e.g., Signature Haircut" {...register('name')} />
+       {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+    </div>
+    <div className="space-y-2">
+      <Label htmlFor="category-edit">Category</Label>
+      {isAddingCategory ? (
+        <div className="flex gap-2">
+          <Input
+            placeholder="Enter new category name..."
+            value={newCategoryName}
+            onChange={(e) => setNewCategoryName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()}
+          />
+          <Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button>
+        </div>
+      ) : (
+        <div className="flex gap-2">
+          <Controller name="category" control={control} render={({ field }) => (
+               <Select onValueChange={field.onChange} value={field.value}>
+                <SelectTrigger> <SelectValue placeholder="Select a category" /> </SelectTrigger>
+                <SelectContent> {categories.map(cat => ( <SelectItem key={cat} value={cat}>{cat}</SelectItem> ))} </SelectContent>
+              </Select>
+          )}/>
+          <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"> <PlusCircle className="h-4 w-4" /> </Button>
+        </div>
+      )}
+       {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
+    </div>
+
+    <div className="grid grid-cols-3 gap-4">
+        <div className="space-y-2">
+            <Label htmlFor="duration-edit">Duration (min)</Label>
+            <Input id="duration-edit" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>
+            {errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}
+        </div>
+        <div className="space-y-2">
+            <Label htmlFor="pad-before-edit">Pad Before (min)</Label>
+            <Input id="pad-before-edit" type="number" placeholder="e.g., 0" {...register('padBefore', { valueAsNumber: true })} />
+        </div>
+        <div className="space-y-2">
+            <Label htmlFor="pad-after-edit">Pad After (min)</Label>
+            <Input id="pad-after-edit" type="number" placeholder="e.g., 15" {...register('padAfter', { valueAsNumber: true })} />
+        </div>
+    </div>
+    
+    <div className="space-y-2">
+      <Label htmlFor="description-edit">Description</Label>
+      <Textarea id="description-edit" placeholder="Describe the service for your booking page..." {...register('description')} />
+    </div>
+
+    <div className="space-y-2">
+      <Label>Service Image</Label>
+       <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} /> )}/>
+    </div>
+  </div>
+    );
+};
+
+const Step2_Formula = ({ onScanClick, resources }: { onScanClick: () => void, resources: Resource[] }) => {
+    const { inventory } = useInventory();
+    const { control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
+
     const selectedProducts = watch('products') || [];
     const selectedResourceIds = watch('requiredResourceIds') || [];
     const compatibleAddOnIds = watch('compatibleAddOnIds') || [];
     const isAddon = watch('isAddon');
-    const depositType = watch('depositType');
-
+    
     const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
     const [isResourceSelectorOpen, setIsResourceSelectorOpen] = useState(false);
     const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
 
     const selectedResources = useMemo(() => {
-      return resources.filter(r => selectedResourceIds.includes(r.id));
+        return resources.filter(r => selectedResourceIds.includes(r.id));
     }, [resources, selectedResourceIds]);
-
-    useEffect(() => {
-        if (depositType === 'breakeven') {
-            setValue('depositAmount', breakEvenCost, { shouldValidate: true });
-            setValue('depositSubType', 'flat', { shouldValidate: true });
-        }
-    }, [depositType, breakEvenCost, setValue]);
 
     const handleProductSelect = (products: InventoryItem[]) => {
       const productsWithQuantity = products.map(p => {
@@ -182,32 +225,9 @@ const EditServiceForm = ({
     };
 
     const selectedAddOns = allServices.filter(s => compatibleAddOnIds.includes(s.id));
-    const pricingTiers = watch('pricingTiers');
 
     return (
-    <>
-        <div className="space-y-6">
-            <Card>
-                <CardHeader><CardTitle>Basics</CardTitle></CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="flex items-center justify-between p-4 border rounded-lg">
-                        <div className='space-y-1'><Label htmlFor="is-addon-edit">Is this an Add-on Service?</Label><p className='text-sm text-muted-foreground'>Add-ons can be appended to primary services.</p></div>
-                        <Controller name="isAddon" control={control} render={({ field }) => ( <Switch id="is-addon-edit" checked={field.value} onCheckedChange={field.onChange} /> )}/>
-                    </div>
-                    <div className="space-y-2"><Label htmlFor="service-name-edit">Name</Label><Input id="service-name-edit" placeholder="e.g., Signature Haircut" {...register('name')} />{errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}</div>
-                    <div className="space-y-2"><Label htmlFor="category-edit">Category</Label>
-                    {isAddingCategory ? ( <div className="flex gap-2"> <Input placeholder="Enter new category name..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()} /> <Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button> </div> ) : ( <div className="flex gap-2"> <Controller name="category" control={control} render={({ field }) => ( <Select onValueChange={field.onChange} value={field.value}> <SelectTrigger> <SelectValue placeholder="Select a category" /> </SelectTrigger> <SelectContent> {categories.map(cat => ( <SelectItem key={cat} value={cat}>{cat}</SelectItem> ))} </SelectContent> </Select> )}/> <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"> <PlusCircle className="h-4 w-4" /> </Button> </div> )}
-                    {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}</div>
-                    <div className="grid grid-cols-3 gap-4">
-                        <div className="space-y-2"><Label htmlFor="duration-edit">Duration (min)</Label><Input id="duration-edit" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>{errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}</div>
-                        <div className="space-y-2"><Label htmlFor="pad-before-edit">Pad Before (min)</Label><Input id="pad-before-edit" type="number" placeholder="e.g., 0" {...register('padBefore', { valueAsNumber: true })} /></div>
-                        <div className="space-y-2"><Label htmlFor="pad-after-edit">Pad After (min)</Label><Input id="pad-after-edit" type="number" placeholder="e.g., 15" {...register('padAfter', { valueAsNumber: true })} /></div>
-                    </div>
-                    <div className="space-y-2"><Label htmlFor="description-edit">Description</Label><Textarea id="description-edit" placeholder="Describe the service for your booking page..." {...register('description')} /></div>
-                    <div className="space-y-2"><Label>Service Image</Label><Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} /> )}/></div>
-                </CardContent>
-            </Card>
-
+        <>
             <Card>
                 <CardHeader><CardTitle>Formula</CardTitle></CardHeader>
                  <CardContent className="space-y-6">
@@ -217,6 +237,7 @@ const EditServiceForm = ({
                       const unit = inventoryItem?.costingMethod === 'uses' 
                         ? (inventoryItem.useUnit || 'uses') 
                         : (inventoryItem?.unit || 'unit');
+                        
                       return (
                         <div key={product.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50 gap-2">
                           <span className="text-sm font-medium flex-1 truncate pr-2">{product.name}</span>
@@ -250,108 +271,148 @@ const EditServiceForm = ({
                     <Button variant="outline" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button></div>)}
                 </CardContent>
             </Card>
+            <BrowseProductsDialog open={isProductBrowserOpen} onOpenChange={setIsProductBrowserOpen} onSelect={handleProductSelect} allProducts={inventory.filter(i => i.type === 'professional' || i.type === 'retail')} initialSelected={selectedProducts as InventoryItem[]} />
+            <SelectResourcesDialog open={isResourceSelectorOpen} onOpenChange={setIsResourceSelectorOpen} onSelect={handleResourceSelect} allResources={resources} initialSelected={selectedResources} />
+            <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={handleAddOnSelect} allAddOns={allServices.filter(s => s.type === 'addon')} initialSelected={selectedAddOns as Service[]} />
+        </>
+    );
+};
 
-             <Card>
-                <CardHeader><CardTitle>Pricing & Booking</CardTitle></CardHeader>
-                <CardContent className="space-y-6">
-                    <div className="space-y-4">
-                        <Label>Pricing Tiers</Label>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="junior-price-edit" className="font-normal text-muted-foreground">Junior</Label>
-                                <Input id="junior-price-edit" type="number" placeholder="0.00" {...register('pricingTiers.junior')} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="senior-price-edit" className="font-normal text-muted-foreground">Senior</Label>
-                                <Input id="senior-price-edit" type="number" placeholder="0.00" {...register('pricingTiers.senior')} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="master-price-edit" className="font-normal text-muted-foreground">Master</Label>
-                                <Input id="master-price-edit" type="number" placeholder="0.00" {...register('pricingTiers.master')} />
-                            </div>
+const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
+    const { control, watch, register, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
+    const isAddon = watch('isAddon');
+    const depositType = watch('depositType');
+    const pricingTiers = watch('pricingTiers');
+
+    const tiers = useMemo(() => [
+        { level: 'junior', price: pricingTiers?.junior || 0 },
+        { level: 'senior', price: pricingTiers?.senior || 0 },
+        { level: 'master', price: pricingTiers?.master || 0 },
+    ], [pricingTiers]);
+
+    useEffect(() => {
+        if (depositType === 'breakeven') {
+            setValue('depositAmount', breakEvenCost, { shouldValidate: true });
+            setValue('depositSubType', 'flat', { shouldValidate: true });
+        }
+    }, [depositType, breakEvenCost, setValue]);
+
+    return (
+        <Card>
+            <CardHeader><CardTitle>Pricing & Booking</CardTitle></CardHeader>
+            <CardContent className="space-y-6">
+                <div className="space-y-4">
+                    <Label>Pricing Tiers</Label>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="junior-price-edit" className="font-normal text-muted-foreground">Junior</Label>
+                            <Input id="junior-price-edit" type="number" placeholder="0.00" {...register('pricingTiers.junior')} />
                         </div>
-                        {errors.pricingTiers && <p className="text-sm text-destructive">{errors.pricingTiers?.junior?.message || errors.pricingTiers?.senior?.message || errors.pricingTiers?.master?.message}</p>}
+                        <div className="space-y-2">
+                            <Label htmlFor="senior-price-edit" className="font-normal text-muted-foreground">Senior</Label>
+                            <Input id="senior-price-edit" type="number" placeholder="0.00" {...register('pricingTiers.senior')} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="master-price-edit" className="font-normal text-muted-foreground">Master</Label>
+                            <Input id="master-price-edit" type="number" placeholder="0.00" {...register('pricingTiers.master')} />
+                        </div>
                     </div>
+                     {errors.pricingTiers && <p className="text-sm text-destructive">{errors.pricingTiers?.junior?.message || errors.pricingTiers?.senior?.message || errors.pricingTiers?.master?.message}</p>}
+                </div>
 
-                     <Card className="bg-muted/50"><CardContent className="p-4 space-y-4">
-                        <h4 className="font-semibold text-center">Profitability Preview</h4>
-                        <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                            <p className="font-semibold">Level</p>
-                            <p className="font-semibold">Profit</p>
-                            <p className="font-semibold">Margin</p>
-                        </div>
-                        {pricingTiers && ['junior', 'senior', 'master'].map(level => {
-                            const price = pricingTiers[level as keyof typeof pricingTiers] || 0;
-                            const netProfit = price - breakEvenCost;
-                            const profitMargin = price > 0 ? (netProfit / price) * 100 : 0;
-                            return (
-                                <div key={level} className="grid grid-cols-3 gap-2 text-center text-sm items-center">
-                                    <p className="capitalize font-medium">{level}</p>
-                                    <p className={cn("font-mono", netProfit >= 0 ? 'text-primary' : 'text-destructive')}>${netProfit.toFixed(2)}</p>
-                                    <p className={cn("font-mono", profitMargin >= 0 ? 'text-primary' : 'text-destructive')}>{profitMargin.toFixed(1)}%</p>
+                <Card className="bg-muted/50"><CardContent className="p-4 space-y-4">
+                    <h4 className="font-semibold text-center">Profitability Preview</h4>
+                     <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                        <p className="font-semibold">Level</p>
+                        <p className="font-semibold">Profit</p>
+                        <p className="font-semibold">Margin</p>
+                    </div>
+                     {tiers.map(tier => {
+                        const netProfit = tier.price - breakEvenCost;
+                        const profitMargin = tier.price > 0 ? (netProfit / tier.price) * 100 : 0;
+                        return (
+                            <div key={tier.level} className="grid grid-cols-3 gap-2 text-center text-sm items-center">
+                                <p className="capitalize font-medium">{tier.level}</p>
+                                <p className={cn("font-mono", netProfit >= 0 ? 'text-primary' : 'text-destructive')}>${netProfit.toFixed(2)}</p>
+                                <p className={cn("font-mono", profitMargin >= 0 ? 'text-primary' : 'text-destructive')}>{profitMargin.toFixed(1)}%</p>
+                            </div>
+                        )
+                     })}
+                    <div className="flex justify-between items-center text-xs border-t pt-2 mt-2">
+                        <p className="text-muted-foreground">Break-Even Cost:</p>
+                        <p className="font-mono text-destructive">${breakEvenCost.toFixed(2)}</p>
+                    </div>
+                </CardContent></Card>
+                
+                {!isAddon && (
+                    <div className="space-y-4 pt-4 border-t">
+                        <Label>Deposit Requirement</Label>
+                        <Controller name="depositType" control={control} defaultValue="none" render={({ field }) => (
+                            <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-4">
+                                <div><RadioGroupItem value="none" id="none-edit" className="peer sr-only" /><Label htmlFor="none-edit" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">None</Label></div>
+                                <div><RadioGroupItem value="deposit" id="deposit-edit" className="peer sr-only" /><Label htmlFor="deposit-edit" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Deposit</Label></div>
+                                <div><RadioGroupItem value="breakeven" id="breakeven-edit" className="peer sr-only" /><Label htmlFor="breakeven-edit" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Breakeven<span className="text-xs text-muted-foreground font-normal mt-1">${breakEvenCost.toFixed(2)}</span></Label></div>
+                                <div><RadioGroupItem value="full" id="full-edit" className="peer sr-only" /><Label htmlFor="full-edit" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Pay in Full</Label></div>
+                            </RadioGroup>
+                        )}/>
+                        {['deposit', 'breakeven'].includes(depositType) && (
+                            <Card className="bg-background"><CardContent className="p-4 space-y-4">
+                                {depositType === 'deposit' && (
+                                <div className="space-y-2">
+                                    <Label>Deposit Type</Label>
+                                    <Controller name="depositSubType" control={control} render={({ field }) => (
+                                    <Select onValueChange={field.onChange} value={field.value}>
+                                        <SelectTrigger><SelectValue placeholder="Select deposit type" /></SelectTrigger>
+                                        <SelectContent><SelectItem value="flat">Flat Rate</SelectItem><SelectItem value="percentage">Percentage</SelectItem></SelectContent>
+                                    </Select>
+                                    )}/>
                                 </div>
-                            )
-                        })}
-                        <div className="flex justify-between items-center text-xs border-t pt-2 mt-2">
-                            <p className="text-muted-foreground">Break-Even Cost:</p>
-                            <p className="font-mono text-destructive">${breakEvenCost.toFixed(2)}</p>
-                        </div>
-                    </CardContent></Card>
-                    
-                    {!isAddon && (
-                        <div className="space-y-4 pt-4 border-t">
-                            <Label>Deposit Requirement</Label>
-                            <Controller name="depositType" control={control} defaultValue="none" render={({ field }) => (
-                                <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-4">
-                                    <div><RadioGroupItem value="none" id="none-edit" className="peer sr-only" /><Label htmlFor="none-edit" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">None</Label></div>
-                                    <div><RadioGroupItem value="deposit" id="deposit-edit" className="peer sr-only" /><Label htmlFor="deposit-edit" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Deposit</Label></div>
-                                    <div><RadioGroupItem value="breakeven" id="breakeven-edit" className="peer sr-only" /><Label htmlFor="breakeven-edit" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Breakeven<span className="text-xs text-muted-foreground font-normal mt-1">${breakEvenCost.toFixed(2)}</span></Label></div>
-                                    <div><RadioGroupItem value="full" id="full-edit" className="peer sr-only" /><Label htmlFor="full-edit" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Pay in Full</Label></div>
-                                </RadioGroup>
-                            )}/>
-                            {['deposit', 'breakeven'].includes(depositType) && (
-                                <Card className="bg-background"><CardContent className="p-4 space-y-4">
-                                    {depositType === 'deposit' && (
-                                    <div className="space-y-2">
-                                        <Label>Deposit Type</Label>
-                                        <Controller name="depositSubType" control={control} render={({ field }) => (
-                                        <Select onValueChange={field.onChange} value={field.value}>
-                                            <SelectTrigger><SelectValue placeholder="Select deposit type" /></SelectTrigger>
-                                            <SelectContent><SelectItem value="flat">Flat Rate</SelectItem><SelectItem value="percentage">Percentage</SelectItem></SelectContent>
-                                        </Select>
-                                        )}/>
-                                    )}
-                                    <div className="space-y-2">
-                                        <Label>Deposit Amount</Label>
-                                        <Controller name="depositAmount" control={control} render={({ field }) => (
-                                        <div className="relative">
-                                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                            <Input type="number" placeholder="25.00" {...field} value={field.value ?? ''} className="pl-8" disabled={depositType === 'breakeven'}/>
-                                        </div>
-                                        )} />
+                                )}
+                                <div className="space-y-2">
+                                    <Label>Deposit Amount</Label>
+                                    <Controller name="depositAmount" control={control} render={({ field }) => (
+                                    <div className="relative">
+                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input type="number" placeholder="25.00" {...field} value={field.value ?? ''} className="pl-8" disabled={depositType === 'breakeven'}/>
                                     </div>
-                                </CardContent></Card>
-                            )}
-                        </div>
-                    )}
-                </CardContent>
-             </Card>
-             <Card>
-                 <CardHeader><CardTitle>Visibility & Confirmation</CardTitle></CardHeader>
-                 <CardContent className="space-y-4">
+                                    )} />
+                                </div>
+                            </CardContent></Card>
+                        )}
+                    </div>
+                )}
+            </CardContent>
+         </Card>
+    );
+};
+
+const Step4_VisibilityConfirmation = () => {
+    const { register, control, setValue, watch } = useFormContext<ServiceFormData>();
+    const requiredFormIds = watch('requiredFormIds') || [];
+    const [isConsentFormBrowserOpen, setIsConsentFormBrowserOpen] = useState(false);
+    
+    const { consentForms } = useInventory();
+    const requiredForms = consentForms.filter(f => requiredFormIds.includes(f.id));
+
+    const handleRemoveForm = (formId: string) => {
+        const newIds = requiredFormIds.filter(id => id !== formId);
+        setValue('requiredFormIds', newIds, { shouldDirty: true });
+    };
+
+    return (
+        <>
+            <Card>
+                <CardHeader><CardTitle>Visibility & Confirmation</CardTitle></CardHeader>
+                <CardContent className="space-y-4">
                     <div className="space-y-2"><Label htmlFor="confirmationMessage-edit">Confirmation Message</Label><Textarea id="confirmationMessage-edit" placeholder="Optional: A message to show clients after they book this service." {...register('confirmationMessage')} /></div>
                     <div className="flex items-center justify-between p-4 border rounded-lg"><div className='space-y-1'><Label htmlFor="private-service-edit">Private Service</Label><p className='text-sm text-muted-foreground'>Hide from public booking page.</p></div><Controller name="isPrivate" control={control} render={({ field }) => ( <Switch id="private-service-edit" checked={field.value} onCheckedChange={field.onChange} /> )}/></div>
                     <div className="space-y-2"><Label>Required Consent Forms</Label>
                     {requiredForms.length > 0 ? (<Card><CardContent className="p-2 space-y-2">{requiredForms.map(form => (<div key={form.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50"><span className="text-sm font-medium">{form.title}</span><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveForm(form.id)}><Trash2 className="h-4 w-4" /></Button></div>))}</CardContent></Card>) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No forms required.</CardContent></Card>)}
                     <Button variant="outline" onClick={() => setIsConsentFormBrowserOpen(true)} type="button" className="w-full"><PlusCircle className="mr-2 h-4 w-4" /> Browse Forms</Button></div>
-                 </CardContent>
-             </Card>
-        </div>
-        <BrowseProductsDialog open={isProductBrowserOpen} onOpenChange={setIsProductBrowserOpen} onSelect={handleProductSelect} allProducts={inventory.filter(i => i.type === 'professional' || i.type === 'retail')} initialSelected={selectedProducts as InventoryItem[]} />
-        <SelectResourcesDialog open={isResourceSelectorOpen} onOpenChange={setIsResourceSelectorOpen} onSelect={handleResourceSelect} allResources={resources} initialSelected={selectedResources} />
-        <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={handleAddOnSelect} allAddOns={allServices.filter(s => s.type === 'addon')} initialSelected={selectedAddOns as Service[]} />
-        <BrowseConsentFormsDialog open={isConsentFormBrowserOpen} onOpenChange={setIsConsentFormBrowserOpen} onSelect={(forms) => { setValue('requiredFormIds', forms.map(f => f.id), { shouldDirty: true }); }} allForms={consentForms || []} initialSelected={requiredForms} />
-    </>
+                </CardContent>
+            </Card>
+            <BrowseConsentFormsDialog open={isConsentFormBrowserOpen} onOpenChange={setIsConsentFormBrowserOpen} onSelect={(forms) => { setValue('requiredFormIds', forms.map(f => f.id), { shouldDirty: true }); }} allForms={consentForms || []} initialSelected={requiredForms} />
+        </>
     );
 };
 
@@ -563,5 +624,3 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
     </Dialog>
   );
 };
-
-    
