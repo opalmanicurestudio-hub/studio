@@ -7,9 +7,9 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
   CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
-  CardDescription,
   CardFooter,
 } from '@/components/ui/card';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -58,7 +58,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ManageSpoilageDialog, type SpoilageItem } from '@/components/inventory/ManageSpoilageDialog';
 import { InventorySidebar } from '@/components/inventory/InventorySidebar';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from '@/components/ui/sheet';
 import { type Batch } from '@/lib/data';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { transactions as initialTransactionsData, type Transaction } from '@/lib/financial-data';
@@ -557,6 +557,7 @@ export default function InventoryPage() {
     const newOrder: Order = {
       ...newOrderData,
       id: nanoid(),
+      status: 'Draft',
     };
     const orderRef = collection(firestore, 'tenants', tenantId, 'orders');
     addDocumentNonBlocking(orderRef, newOrder);
