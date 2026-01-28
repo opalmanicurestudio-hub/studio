@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
@@ -79,6 +80,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { CalendarIcon } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
 
 const OrderCard = ({ order }: { order: Order }) => {
@@ -289,7 +291,7 @@ const OrdersTab = ({ orders, isLoading, onAddOrder }: { orders: Order[], isLoadi
 };
 
 
-const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff, onLogUse, isSelected, onSelect }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (itemId: string) => void, onLogUse: (item: InventoryItem) => void, isSelected: boolean, onSelect: () => void }) => {
+const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff, onLogUse, isSelected, onSelect, isOrdered }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (itemId: string) => void, onLogUse: (item: InventoryItem) => void, isSelected: boolean, onSelect: () => void, isOrdered: boolean }) => {
     
     const stockStatus = useMemo(() => {
         const hasExpiredBatch = item.batches.some(b => b.expirationDate && isPast(parseISO(b.expirationDate)) && b.stock > 0);
@@ -374,7 +376,21 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
                     </div>
                 </div>
                  <div className="flex items-center justify-between mt-auto">
-                    <Badge variant="outline" className={stockStatus.className}>{stockStatus.label}</Badge>
+                    <div className="flex items-center gap-2">
+                        <Badge variant="outline" className={stockStatus.className}>{stockStatus.label}</Badge>
+                        {isOrdered && (
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger>
+                                        <Truck className="h-4 w-4 text-blue-500" />
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                        <p>This item is on order.</p>
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        )}
+                    </div>
                     {stockDisplay}
                 </div>
             </CardContent>
@@ -453,6 +469,20 @@ export default function InventoryPage() {
   
   const ordersQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/orders`) : null, [firestore, tenantId]);
   const { data: orders, isLoading: ordersLoading } = useCollection<Order>(ordersQuery);
+
+  const orderedProductIds = useMemo(() => {
+    if (!orders) return new Set();
+    const activeOrders = orders.filter(
+      (order) => order.status === 'Placed' || order.status === 'Shipped'
+    );
+    const productIds = new Set<string>();
+    activeOrders.forEach((order) => {
+      order.items.forEach((item) => {
+        productIds.add(item.productId);
+      });
+    });
+    return productIds;
+  }, [orders]);
 
   const handleEditItem = (item: InventoryItem) => {
     setEditingItem(item);
@@ -1059,6 +1089,7 @@ export default function InventoryPage() {
                                             onLogUse={handleOpenLogUse}
                                             isSelected={selectedItems.has(item.id)}
                                             onSelect={() => handleItemSelect(item.id)}
+                                            isOrdered={orderedProductIds.has(item.id)}
                                         />
                                     )) : (
                                         <p className="text-muted-foreground col-span-full text-center py-10">No items match your filters.</p>
