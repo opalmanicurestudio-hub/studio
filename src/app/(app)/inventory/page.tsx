@@ -625,6 +625,21 @@ export default function InventoryPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 8;
   
+  const [productCategories, setProductCategories] = useState<string[]>([]);
+
+    useEffect(() => {
+        if (inventory) {
+            const allCategories = inventory.map(p => p.category).filter((c): c is string => !!c);
+            setProductCategories([...new Set(allCategories)]);
+        }
+    }, [inventory]);
+
+    const onNewCategory = useCallback((newCategory: string) => {
+        if (!productCategories.includes(newCategory)) {
+            setProductCategories(prev => [...prev, newCategory].sort());
+        }
+    }, [productCategories]);
+  
   const ordersQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/orders`) : null, [firestore, tenantId]);
   const { data: orders, isLoading: ordersLoading } = useCollection<Order>(ordersQuery);
 
@@ -1002,17 +1017,6 @@ export default function InventoryPage() {
   
   const hasInventory = inventory.length > 0;
   const hasFilteredInventory = filteredInventory.length > 0;
-
-  const productCategories = useMemo(() => {
-    if (!inventory) return [];
-    const allCategories = inventory.map(p => p.category).filter((c): c is string => !!c);
-    return [...new Set(allCategories)];
-  }, [inventory]);
-
-  const onNewCategory = useCallback((newCategory: string) => {
-    // This logic would ideally be in the context, but for now, it's local
-    // to demonstrate the dialog functionality.
-  }, []);
 
   return (
     <ClientOnly>
