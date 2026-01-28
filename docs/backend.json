@@ -525,6 +525,35 @@
       },
       "required": ["id", "customerName", "serviceIds", "checkInTime", "status"]
     },
+    "Order": {
+      "title": "Order",
+      "description": "Represents a purchase order for inventory supplies.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "supplier": { "type": "string" },
+        "orderDate": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["Draft", "Placed", "Shipped", "Partially Received", "Received", "Cancelled"] },
+        "trackingNumber": { "type": "string" },
+        "trackingUrl": { "type": "string", "format": "uri" },
+        "expectedArrivalDate": { "type": "string", "format": "date" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "productId": { "type": "string" },
+              "productName": { "type": "string" },
+              "quantity": { "type": "number" },
+              "costPerUnit": { "type": "number" }
+            },
+            "required": ["productId", "productName", "quantity", "costPerUnit"]
+          }
+        },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "supplier", "orderDate", "status", "items"]
+    },
     "Bill": {
       "title": "Bill",
       "type": "object",
@@ -846,6 +875,10 @@
       },
       "description": "Calendar events for a tenant, including booked quotes."
     },
+    "/tenants/{tenantId}/orders/{orderId}": {
+        "schema": { "$ref": "#/entities/Order" },
+        "description": "Purchase orders for inventory supplies."
+    },
     "/tenants/{tenantId}/quotes/{quoteId}": {
       "schema": {
         "$ref": "#/entities/Quote"
@@ -896,4 +929,3 @@
     }
   }
 }
-

@@ -325,6 +325,14 @@ service cloud.firestore {
     match /tenants/{tenantId}/stockCorrections/{correctionId} {
         allow read, write: if isTenantOwner(tenantId) || isStaff(tenantId);
     }
+    
+    /**
+     * @description Rules for inventory purchase orders.
+     * @path /tenants/{tenantId}/orders/{orderId}
+     */
+    match /tenants/{tenantId}/orders/{orderId} {
+        allow read, write: if isTenantOwner(tenantId) || isStaff(tenantId);
+    }
 
     /**
      * @description Rules for activity logs. Logs are immutable.

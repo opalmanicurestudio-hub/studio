@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
@@ -28,7 +29,8 @@ import {
     billDefinitions as initialBillDefinitionsData,
     billInstances as initialBillInstancesData,
     initialLocations as initialLocationsData,
-    initialLocationTypes as initialLocationTypesData
+    initialLocationTypes as initialLocationTypesData,
+    type Order,
 } from '@/lib/data';
 import {
   DropdownMenu,
@@ -69,6 +71,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { EditProductDialog } from '@/components/inventory/EditProductDialog';
+import { OrdersTab } from '@/components/inventory/OrdersTab';
 
 const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff, onLogUse, isSelected, onSelect }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (itemId: string) => void, onLogUse: (item: InventoryItem) => void, isSelected: boolean, onSelect: () => void }) => {
     
@@ -197,6 +200,8 @@ export default function InventoryPage() {
   } = useInventory();
   
   const { toast } = useToast();
+  const { firestore, user } = useFirebase();
+  const tenantId = 'tenant-abc';
   
   const [activeView, setActiveView] = useState('products');
   const [activeFilter, setActiveFilter] = useState('all');
@@ -229,6 +234,9 @@ export default function InventoryPage() {
   
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 8;
+  
+  const ordersQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/orders`) : null, [firestore, tenantId]);
+  const { data: orders, isLoading: ordersLoading } = useCollection<Order>(ordersQuery);
 
   const handleEditItem = (item: InventoryItem) => {
     setEditingItem(item);
@@ -311,6 +319,20 @@ export default function InventoryPage() {
   
   const handleOverheadAdded = (newOverhead: InventoryItem) => {
     setInventory(prev => [...prev, newOverhead]);
+  };
+  
+  const handleAddOrder = (newOrderData: Omit<Order, 'id'>) => {
+    if (!firestore) return;
+    const newOrder: Order = {
+      ...newOrderData,
+      id: nanoid(),
+    };
+    const orderRef = collection(firestore, 'tenants', tenantId, 'orders');
+    addDocumentNonBlocking(orderRef, newOrder);
+    toast({
+      title: "Order Created!",
+      description: `Your order to ${newOrder.supplier} has been saved.`
+    });
   };
 
   const handleOpenAddLocation = () => setIsAddLocationDialogOpen(true);
@@ -707,8 +729,9 @@ export default function InventoryPage() {
                     </Sheet>
                 </div>
                 <Tabs value={activeView} onValueChange={setActiveView} className="w-full">
-                <TabsList className="grid w-full grid-cols-2">
+                <TabsList className="grid w-full grid-cols-3">
                     <TabsTrigger value="products">Products</TabsTrigger>
+                    <TabsTrigger value="orders">Orders</TabsTrigger>
                     <TabsTrigger value="locations">Locations</TabsTrigger>
                 </TabsList>
                 <TabsContent value="products" className="mt-6">
@@ -792,7 +815,7 @@ export default function InventoryPage() {
                             {!hasInventory ? (
                                 <EmptyState onAddFirstItem={() => handleOpenAddProductDialog('professional')} />
                             ) : (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-6">
                                     {hasFilteredInventory ? paginatedItems.map(item => (
                                         <ProductCard 
                                             key={item.id}
@@ -839,6 +862,13 @@ export default function InventoryPage() {
                             </CardFooter>
                         )}
                     </Card>
+                </TabsContent>
+                <TabsContent value="orders" className="mt-6">
+                    <OrdersTab 
+                        orders={orders || []} 
+                        isLoading={ordersLoading} 
+                        onAddOrder={handleAddOrder}
+                    />
                 </TabsContent>
                 <TabsContent value="locations" className="mt-6">
                         <Locations 

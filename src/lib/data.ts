@@ -310,6 +310,24 @@ export type Event = {
   projectFee?: number;
 };
 
+export type Order = {
+  id: string;
+  supplier: string;
+  orderDate: string; // ISO date string
+  status: 'Draft' | 'Placed' | 'Shipped' | 'Partially Received' | 'Received' | 'Cancelled';
+  trackingNumber?: string;
+  trackingUrl?: string;
+  expectedArrivalDate?: string; // ISO date string
+  items: {
+    productId: string;
+    productName: string;
+    quantity: number;
+    costPerUnit: number;
+    receivedQuantity?: number;
+  }[];
+  notes?: string;
+};
+
 export type Quote = {
   id: string;
   quoteNumber?: string;
