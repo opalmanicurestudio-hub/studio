@@ -277,10 +277,21 @@ export default function ClientsPage() {
     }
     
     if (searchTerm) {
-        clientsToFilter = clientsToFilter.filter(client => 
-            client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (client.email && client.email.toLowerCase().includes(searchTerm.toLowerCase()))
-        );
+        const lowercasedSearchTerm = searchTerm.toLowerCase();
+        const isFourDigitNumber = /^\d{4}$/.test(searchTerm);
+
+        clientsToFilter = clientsToFilter.filter(client => {
+            const nameMatch = client.name.toLowerCase().includes(lowercasedSearchTerm);
+            const emailMatch = client.email && client.email.toLowerCase().includes(lowercasedSearchTerm);
+            
+            let phoneMatch = false;
+            if (isFourDigitNumber && client.phone) {
+                const numericPhone = client.phone.replace(/\D/g, '');
+                phoneMatch = numericPhone.endsWith(searchTerm);
+            }
+
+            return nameMatch || emailMatch || phoneMatch;
+        });
     }
 
     return clientsToFilter.sort((a,b) => new Date(b.lastAppointment).getTime() - new Date(a.lastAppointment).getTime());
@@ -424,7 +435,7 @@ export default function ClientsPage() {
                               <div className="relative w-full sm:max-w-xs">
                                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                   <Input 
-                                      placeholder="Search by name or email..." 
+                                      placeholder="Search by name, email, or last 4 of phone..." 
                                       className="pl-9"
                                       value={searchTerm}
                                       onChange={(e) => setSearchTerm(e.target.value)}
@@ -565,3 +576,4 @@ export default function ClientsPage() {
     
 
     
+
