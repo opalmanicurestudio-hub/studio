@@ -140,7 +140,7 @@ const InlineProfitTester = ({ service, tmhr, onPriceUpdate }: { service: Service
         </div>
       </div>
        <div className='text-[10px] text-muted-foreground space-y-0.5 text-center'>
-          <p>Break-Even: ${breakEvenCost?.toFixed(2)}</p>
+          <p>Break-Even: ${breakEvenPoint?.toFixed(2)}</p>
        </div>
        <Button size="sm" className="w-full" onClick={handleUpdateClick} disabled={testPrice === service.price}>
             Update Service Price
@@ -752,6 +752,7 @@ export default function ServicesPage() {
             open={isEditServiceDialogOpen}
             onOpenChange={setIsEditServiceDialogOpen}
             service={selectedService}
+            services={services || []}
             categories={serviceCategories}
             onNewCategory={handleNewCategory}
             onServiceUpdated={handleUpdateService}

@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -36,7 +37,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { type InventoryItem, type Location, type ConsentForm, type Resource, services as allServices, type Service } from '@/lib/data';
+import { type InventoryItem, type Location, type ConsentForm, type Resource, type Service } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2, EyeOff } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -172,7 +173,7 @@ const Step1_BasicDetails = ({
     );
 };
 
-const Step2_Formula = ({ onScanClick, resources }: { onScanClick: () => void, resources: Resource[] }) => {
+const Step2_Formula = ({ onScanClick, resources, allServices }: { onScanClick: () => void, resources: Resource[], allServices: Service[] }) => {
     const { inventory } = useInventory();
     const { control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
 
@@ -414,10 +415,12 @@ const Step4_VisibilityConfirmation = ({ consentForms }: { consentForms: ConsentF
     );
 };
 
+
 interface EditServiceDialogProps { 
   open: boolean;
   onOpenChange: (open: boolean) => void;
   service: Service;
+  services: Service[];
   onServiceUpdated: (service: Service) => void;
   categories: string[];
   onNewCategory: (category: string) => void;
@@ -428,6 +431,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
     open, 
     onOpenChange, 
     service,
+    services,
     onServiceUpdated,
     categories,
     onNewCategory,
@@ -536,33 +540,17 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
       const margin = finalPrice > 0 ? (netProfit / finalPrice) * 100 : 0;
       
       const updatedService: Service = {
-        id: data.id,
-        name: data.name,
-        type: data.isAddon ? 'addon' : 'service',
-        category: data.category || 'Uncategorized',
-        duration: data.duration,
-        padBefore: data.padBefore,
-        padAfter: data.padAfter,
+        ...service,
+        ...data,
         price: finalPrice,
+        cost: breakEvenCost,
+        profit: netProfit,
+        margin: margin,
         pricingTiers: [
             { level: 'junior', price: data.pricingTiers.junior },
             { level: 'senior', price: data.pricingTiers.senior },
             { level: 'master', price: data.pricingTiers.master },
         ],
-        cost: breakEvenCost,
-        profit: netProfit,
-        margin: margin,
-        imageUrl: data.imageUrl,
-        description: data.description,
-        isPrivate: data.isPrivate,
-        products: data.products,
-        requiredResourceIds: data.requiredResourceIds,
-        confirmationMessage: data.confirmationMessage,
-        requiredFormIds: data.requiredFormIds,
-        depositType: data.depositType,
-        depositSubType: data.depositSubType,
-        depositAmount: data.depositAmount,
-        compatibleAddOnIds: data.compatibleAddOnIds,
       };
       
       onServiceUpdated(updatedService);
@@ -590,7 +578,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
   const getStepContent = () => {
       switch(step) {
           case 1: return <Step1_BasicDetails categories={categories} onNewCategory={onNewCategory} />;
-          case 2: return <Step2_Formula onScanClick={() => setIsScannerOpen(true)} resources={resources} />;
+          case 2: return <Step2_Formula onScanClick={() => setIsScannerOpen(true)} resources={resources} allServices={services} />;
           case 3: return <Step3_PricingBooking breakEvenCost={breakEvenCost} />;
           case 4: return <Step4_VisibilityConfirmation consentForms={consentForms || []} />;
           default: return null;

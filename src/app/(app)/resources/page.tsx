@@ -33,10 +33,9 @@ import {
 import { useInventory } from '@/context/InventoryContext';
 import type { Resource, InventoryItem } from '@/lib/data';
 import { AddResourceDialog } from '@/components/resources/AddResourceDialog';
-import { useFirebase } from '@/firebase';
+import { useFirebase, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
-import { addDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase/non-blocking-updates';
 import { useToast } from '@/hooks/use-toast';
 import Link from 'next/link';
 import { useTenant } from '@/context/TenantContext';
@@ -113,13 +112,14 @@ export default function ResourcesPage() {
     const handleSaveResource = (resourceData: Omit<Resource, 'id'>) => {
         if (!firestore || !tenantId) return;
         
+        const newResourceId = nanoid();
         const newResource: Resource = {
             ...resourceData,
-            id: nanoid(),
+            id: newResourceId,
         };
 
-        const resourceRef = collection(firestore, 'tenants', tenantId, 'resources');
-        addDocumentNonBlocking(resourceRef, newResource);
+        const resourceRef = doc(firestore, 'tenants', tenantId, 'resources', newResourceId);
+        setDocumentNonBlocking(resourceRef, newResource, {});
         
         toast({
             title: "Resource Added",
