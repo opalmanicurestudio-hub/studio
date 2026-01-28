@@ -38,7 +38,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { PhoneInput } from '@/components/ui/phone-input';
-import { type Staff, type Service } from '@/lib/data';
+import { type Staff, type Service, type ConsentForm } from '@/lib/data';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '../ui/scroll-area';
 import { User, Wallet, CalendarIcon, Shield, FileText, List, PlusCircle, Trash2, BookText, Instagram, Link as LinkIcon, Facebook, Twitter, Film, Pin, Youtube } from 'lucide-react';
@@ -49,6 +49,7 @@ import { nanoid } from 'nanoid';
 import { SelectServicesDialog } from './SelectServicesDialog';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Switch } from '../ui/switch';
+import { BrowseConsentFormsDialog } from '../services/BrowseConsentFormsDialog';
 
 const addStaffSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
@@ -71,6 +72,7 @@ const addStaffSchema = z.object({
   retailCommissionRate: z.coerce.number().min(0).max(100).optional(),
   hourlyRate: z.coerce.number().min(0).optional(),
   services: z.array(z.string()).optional(),
+  assignedFormIds: z.array(z.string()).optional(),
   emergencyContact: z.object({
       name: z.string().optional(),
       relationship: z.string().optional(),
@@ -108,18 +110,24 @@ interface AddStaffDialogProps {
   onOpenChange: (open: boolean) => void;
   onSave: (staffData: Omit<Staff, 'id' | 'avatarUrl'>) => void;
   services: Service[];
+  consentForms: ConsentForm[];
 }
 
-const AddStaffForm = ({ services }: { services: Service[] }) => {
+const AddStaffForm = ({ services, consentForms }: { services: Service[], consentForms: ConsentForm[] }) => {
     const { register, control, watch, setValue, formState: { errors } } = useFormContext<AddStaffFormData>();
     const payStructure = watch('payStructure');
     const selectedServiceIds = watch('services') || [];
+    const assignedFormIds = watch('assignedFormIds') || [];
     const [isServicesDialogOpen, setIsServicesDialogOpen] = useState(false);
+    const [isConsentFormDialogOpen, setIsConsentFormDialogOpen] = useState(false);
     
     const selectedServices = useMemo(() => {
         return services.filter(s => selectedServiceIds.includes(s.id));
     }, [selectedServiceIds, services]);
 
+    const assignedForms = useMemo(() => {
+        return consentForms.filter(f => assignedFormIds.includes(f.id));
+    }, [assignedFormIds, consentForms]);
 
     return (
         <>
@@ -283,6 +291,31 @@ const AddStaffForm = ({ services }: { services: Service[] }) => {
                                 <Controller name="compliance.licenseExpiry" control={control} render={({ field }) => ( <div className="space-y-2"><Label>License Expiry</Label><Popover><PopoverTrigger className={cn('w-full justify-start text-left font-normal', buttonVariants({ variant: 'outline' }), !field.value && "text-muted-foreground")}><CalendarIcon className="mr-2 h-4 w-4" />{field.value ? format(field.value, 'PPP') : <span>Pick a date</span>}</PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent></Popover></div> )}/>
                                 <div className="space-y-2 md:col-span-2"><Label>Upload License Document</Label><Controller name="compliance.documentUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/></div>
                             </div>
+                            <div className="space-y-2 mt-4">
+                                <Label>Assign Forms</Label>
+                                {assignedForms.length > 0 && (
+                                    <div className="space-y-2">
+                                        {assignedForms.map(form => (
+                                            <div key={form.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+                                                <span className="text-sm font-medium">{form.title}</span>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    type="button"
+                                                    className="h-6 w-6 text-destructive"
+                                                    onClick={() => setValue('assignedFormIds', assignedFormIds.filter(id => id !== form.id), { shouldDirty: true })}
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                <Button variant="outline" className="w-full" type="button" onClick={() => setIsConsentFormDialogOpen(true)}>
+                                    <PlusCircle className="mr-2 h-4 w-4" />
+                                    Assign Consent Forms
+                                </Button>
+                            </div>
                         </AccordionContent>
                     </AccordionItem>
                      <AccordionItem value="item-5" className="border rounded-lg">
@@ -305,6 +338,13 @@ const AddStaffForm = ({ services }: { services: Service[] }) => {
                     setValue('services', newSelection.map(s => s.id), { shouldDirty: true });
                 }}
             />
+            <BrowseConsentFormsDialog
+                open={isConsentFormDialogOpen}
+                onOpenChange={setIsConsentFormDialogOpen}
+                allForms={consentForms}
+                initialSelected={assignedForms}
+                onSelect={(forms) => setValue('assignedFormIds', forms.map(f => f.id), { shouldDirty: true })}
+            />
         </>
     )
 }
@@ -314,6 +354,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
   onOpenChange,
   onSave,
   services,
+  consentForms,
 }) => {
   const methods = useForm<AddStaffFormData>({
     resolver: zodResolver(addStaffSchema),
@@ -326,6 +367,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
       commissionRate: 40,
       retailCommissionRate: 10,
       services: [],
+      assignedFormIds: [],
     },
   });
 
@@ -340,6 +382,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
         retailCommissionRate: data.retailCommissionRate || 0,
         hourlyRate: data.hourlyRate,
         services: data.services || [],
+        assignedFormIds: data.assignedFormIds || [],
         skillLevel: data.skillLevel,
         compliance: data.compliance?.licenseExpiry 
             ? { ...data.compliance, licenseExpiry: data.compliance.licenseExpiry.toISOString() }
@@ -365,7 +408,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
                         </DialogDescription>
                     </DialogHeader>
                     <div className="flex-1 overflow-y-auto px-6 py-4">
-                        <AddStaffForm services={services} />
+                        <AddStaffForm services={services} consentForms={consentForms}/>
                     </div>
                     <DialogFooter className="p-6 pt-4 border-t">
                         <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>

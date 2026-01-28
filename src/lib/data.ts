@@ -86,6 +86,13 @@ export type Staff = {
     licenseExpiry?: string; // ISO Date
     documentUrl?: string;
   };
+  documents?: {
+      id: string;
+      name: string;
+      url: string;
+      uploadedAt: string;
+  }[];
+  assignedFormIds?: string[];
   active?: boolean;
   onBreak?: boolean;
   breakStartTime?: string; // ISO date string
