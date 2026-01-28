@@ -1,6 +1,7 @@
+
 'use client';
 
-import React, { useMemo, useState, useRef } from 'react';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
 import {
   Sheet,
   SheetContent,
@@ -33,6 +34,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Calendar } from '../ui/calendar';
 import { PrintableStaffReport } from './PrintableStaffReport';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 
 interface StaffDetailsSheetProps {
   open: boolean;
@@ -51,7 +53,7 @@ const TransactionCard = ({ transaction, service, timeVariance }: { transaction: 
             <div className="flex justify-between items-start gap-2">
                 <div className="flex-1 space-y-1">
                     <p className="font-medium text-sm leading-tight">{transaction.description}</p>
-                    <p className="text-xs text-muted-foreground">{format(transaction.date, 'MMM d, yyyy')}</p>
+                    <p className="text-xs text-muted-foreground">{format(new Date(transaction.date), 'MMM d, yyyy')}</p>
                 </div>
                 <div className="text-right flex-shrink-0">
                     <p className={cn('font-mono font-semibold', transaction.type === 'income' ? 'text-green-500' : 'text-red-500')}>
@@ -89,21 +91,6 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
   
   const [dateRange, setDateRange] = useState<DateRange | undefined>(initialDateRange);
 
-  const staffServices = useMemo(() => {
-    if (!staffMember?.services || !services) return [];
-    const staffSkillLevel = staffMember.skillLevel || 'senior';
-    return services
-      .filter(s => staffMember.services?.includes(s.id))
-      .map(service => {
-        const tierPrice = service.pricingTiers?.find(t => t.level === staffSkillLevel)?.price;
-        const finalPrice = tierPrice ?? service.pricingTiers?.find(t => t.level === 'senior')?.price ?? service.price;
-        return {
-          ...service,
-          price: finalPrice,
-        };
-      });
-  }, [staffMember, services]);
-
   useEffect(() => {
     setDateRange(initialDateRange);
   }, [initialDateRange]);
@@ -115,7 +102,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
 
     return activityLogs.filter(log => {
       if(log.staffId !== staffMember.id) return false;
-      const logDate = log.timestamp;
+      const logDate = new Date(log.timestamp);
       if (fromDate && logDate < fromDate) return false;
       if (toDate && logDate > toDate) return false;
       if (activitySearch.trim() && !log.type.toLowerCase().includes(activitySearch.toLowerCase())) return false;
@@ -130,7 +117,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
     
     return transactions.filter(t => {
       if(t.staffId !== staffMember.id) return false;
-      const transactionDate = t.date;
+      const transactionDate = new Date(t.date);
       if (fromDate && transactionDate < fromDate) return false;
       if (toDate && transactionDate > toDate) return false;
       if (transactionSearch.trim() && !(t.description.toLowerCase().includes(transactionSearch.toLowerCase()) || t.category.toLowerCase().includes(transactionSearch.toLowerCase()))) return false;
@@ -138,6 +125,21 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
     });
   }, [transactions, staffMember, transactionSearch, dateRange]);
   
+  const staffServices = useMemo(() => {
+    if (!staffMember?.services || !services) return [];
+    const staffSkillLevel = staffMember.skillLevel || 'senior';
+    return services
+      .filter(s => staffMember.services?.includes(s.id))
+      .map(service => {
+        const tierPrice = service.pricingTiers?.find(t => t.level === staffSkillLevel)?.price;
+        const finalPrice = tierPrice ?? service.pricingTiers?.find(t => t.level === 'senior')?.price ?? service.price;
+        return {
+          ...service,
+          price: finalPrice,
+        };
+      });
+  }, [staffMember, services]);
+    
   const dateRangeString = dateRange?.from && dateRange.to
     ? `${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d')}`
     : 'the selected period';
@@ -247,7 +249,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                             {filteredActivityLogs.length > 0 ? (
                                 filteredActivityLogs.map(log => (
                                     <TableRow key={log.id}>
-                                        <TableCell>{format(log.timestamp, 'PPP p')}</TableCell>
+                                        <TableCell>{format(new Date(log.timestamp), 'PPP p')}</TableCell>
                                         <TableCell className="capitalize flex items-center gap-2">
                                             {log.type === 'clock_in' && <Clock className="w-4 h-4 text-green-500" />}
                                             {log.type === 'clock_out' && <Clock className="w-4 h-4 text-red-500" />}
@@ -282,7 +284,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                             {filteredTransactions.length > 0 ? (
                             filteredTransactions.map(t => (
                                 <TableRow key={t.id}>
-                                <TableCell>{format(t.date, 'MMM d, yyyy h:mm a')}</TableCell>
+                                <TableCell>{format(new Date(t.date), 'MMM d, yyyy h:mm a')}</TableCell>
                                 <TableCell>{t.description}</TableCell>
                                 <TableCell><Badge variant={t.category === 'Tips' ? 'secondary' : 'outline'} className={t.category === 'Tips' ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : ''}>{t.category}</Badge></TableCell>
                                 <TableCell className="text-right font-mono"><div className='flex items-center justify-end gap-1'>{t.type === 'income' ? (<TrendingUp className="h-4 w-4 text-green-500" />) : (<DollarSign className="h-4 w-4 text-muted-foreground" />)} ${t.amount.toFixed(2)}</div></TableCell>
