@@ -24,7 +24,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import { useInventory } from '@/context/InventoryContext';
-import { type Staff, type Appointment, type Service, type Transaction, ActivityLog } from '@/lib/data';
+import { type Staff, type Appointment, type Service, type Transaction, ActivityLog, ConsentForm } from '@/lib/data';
 import { AddStaffDialog } from '@/components/staff/AddStaffDialog';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { nanoid } from 'nanoid';
@@ -202,6 +202,12 @@ export default function StaffPage() {
     return collection(firestore, 'tenants', tenantId, 'stockCorrections');
   }, [firestore, user, tenantId]);
   const { data: stockCorrections } = useCollection<StockCorrection>(stockCorrectionsQuery);
+
+  const consentFormsQuery = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    return collection(firestore, 'tenants', tenantId, 'consentForms');
+  }, [firestore, user, tenantId]);
+  const { data: consentForms } = useCollection<ConsentForm>(consentFormsQuery);
   
   const { inventory } = useInventory();
 
@@ -567,6 +573,7 @@ export default function StaffPage() {
         services={services || []}
         appointments={appointments || []}
         activityLogs={activityLogs || []}
+        consentForms={consentForms || []}
       />
       
       {confirmation && (
@@ -586,6 +593,7 @@ export default function StaffPage() {
     </div>
   );
 }
+
 
 
 

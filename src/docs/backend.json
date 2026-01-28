@@ -202,6 +202,25 @@
                 "documentUrl": { "type": "string", "format": "uri" }
             }
         },
+        "documents": {
+            "type": "array",
+            "description": "A list of important documents for the staff member, like contracts or certifications.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string" },
+                    "name": { "type": "string" },
+                    "url": { "type": "string", "format": "uri" },
+                    "uploadedAt": { "type": "string", "format": "date-time" }
+                },
+                "required": ["id", "name", "url", "uploadedAt"]
+            }
+        },
+        "assignedFormIds": {
+            "type": "array",
+            "description": "A list of consent form IDs that this staff member needs to sign.",
+            "items": { "type": "string" }
+        },
         "active": { "type": "boolean", "description": "Whether the staff member is currently active and schedulable." },
         "onBreak": { "type": "boolean", "description": "Whether the staff member is currently on a break." },
         "breakStartTime": { "type": "string", "format": "date-time", "description": "The timestamp of when the staff member started their current break." },
@@ -834,6 +853,10 @@
       },
       "description": "Staff members belonging to a specific tenant."
     },
+    "/tenants/{tenantId}/staff/{staffId}/documents/{documentId}": {
+        "schema": { "$ref": "#/entities/SignedDocument" },
+        "description": "Signed documents or uploaded files specific to a staff member."
+    },
     "/tenants/{tenantId}/activityLogs/{logId}": {
         "schema": {
             "$ref": "#/entities/ActivityLog"
@@ -936,4 +959,5 @@
     }
   }
 }
+
 

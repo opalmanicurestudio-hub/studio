@@ -192,6 +192,14 @@ service cloud.firestore {
     }
     
      /**
+      * @description Rules for staff documents.
+      * @path /tenants/{tenantId}/staff/{staffId}/documents/{documentId}
+      */
+    match /tenants/{tenantId}/staff/{staffId}/documents/{documentId} {
+      allow read, write: if isTenantOwner(tenantId) || isTenantAdmin(tenantId) || request.auth.uid == staffId;
+    }
+
+     /**
      * @description Rules for bookable resources.
      * @path /tenants/{tenantId}/resources/{resourceId}
      */
@@ -345,3 +353,4 @@ service cloud.firestore {
     }
   }
 }
+
