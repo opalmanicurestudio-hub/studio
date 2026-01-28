@@ -71,12 +71,228 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { EditProductDialog } from '@/components/inventory/EditProductDialog';
-import { OrdersTab } from '@/components/inventory/OrdersTab';
+import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
+import { collection, doc } from 'firebase/firestore';
+import { nanoid } from 'nanoid';
+import { BrowseProductsDialog } from '@/components/services/BrowseProductsDialog';
+import { format, subDays, startOfDay, endOfDay } from 'date-fns';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { CalendarIcon } from 'lucide-react';
+
+
+const OrderCard = ({ order }: { order: Order }) => {
+    const getStatusVariant = (status: Order['status']) => {
+        switch (status) {
+            case 'Placed': return { icon: <Clock className="h-3 w-3" />, className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300' };
+            case 'Shipped': return { icon: <Truck className="h-3 w-3" />, className: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300' };
+            case 'Received':
+            case 'Partially Received':
+                return { icon: <Check className="h-3 w-3" />, className: 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300' };
+            default: return { icon: <Package className="h-3 w-3" />, className: 'bg-gray-100 text-gray-700' };
+        }
+    };
+    const statusInfo = getStatusVariant(order.status);
+    const totalItems = order.items.reduce((acc, item) => acc + item.quantity, 0);
+    const totalCost = order.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
+
+    return (
+        <Card>
+            <CardHeader>
+                <div className="flex justify-between items-start">
+                    <div>
+                        <CardTitle className="text-base">{order.supplier}</CardTitle>
+                        <CardDescription>Order placed: {format(parseISO(order.orderDate), 'MMM d, yyyy')}</CardDescription>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Badge className={statusInfo.className}>{statusInfo.icon} <span className="ml-1.5">{order.status}</span></Badge>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                            <DropdownMenuContent>
+                                <DropdownMenuItem>View/Edit Order</DropdownMenuItem>
+                                <DropdownMenuItem>Receive Stock</DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
+                </div>
+            </CardHeader>
+            <CardContent>
+                <div className="text-sm space-y-2">
+                    <p><strong>{totalItems}</strong> items ordered</p>
+                    <p>Total Cost: <strong>${totalCost.toFixed(2)}</strong></p>
+                    {order.trackingNumber && <p>Tracking: <strong>{order.trackingNumber}</strong></p>}
+                    {order.expectedArrivalDate && <p>Expected: <strong>{format(parseISO(order.expectedArrivalDate), 'MMM d, yyyy')}</strong></p>}
+                </div>
+            </CardContent>
+        </Card>
+    );
+}
+
+const AddOrderDialog = ({
+  open,
+  onOpenChange,
+  onSave,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSave: (orderData: Omit<Order, 'id'>) => void;
+}) => {
+    const { inventory: products } = useInventory();
+    const [supplier, setSupplier] = useState('');
+    const [orderDate, setOrderDate] = useState<Date | undefined>(new Date());
+    const [expectedDate, setExpectedDate] = useState<Date | undefined>();
+    const [trackingNumber, setTrackingNumber] = useState('');
+    const [notes, setNotes] = useState('');
+    const [items, setItems] = useState<OrderItem[]>([]);
+
+    const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
+    
+    type OrderItem = {
+        productId: string;
+        productName: string;
+        quantity: number;
+        costPerUnit: number;
+    };
+
+    const handleAddProducts = (selectedProducts: InventoryItem[]) => {
+        const newItems = selectedProducts.map(p => ({
+            productId: p.id,
+            productName: p.name,
+            quantity: 1,
+            costPerUnit: p.costPerUnit || 0
+        }));
+        setItems(prev => [...prev, ...newItems.filter(newItem => !prev.find(item => item.productId === newItem.productId))]);
+    };
+
+    const handleItemChange = (productId: string, field: 'quantity' | 'costPerUnit', value: number) => {
+        setItems(prev => prev.map(item => item.productId === productId ? { ...item, [field]: value } : item));
+    }
+    
+    const handleRemoveItem = (productId: string) => {
+        setItems(prev => prev.filter(item => item.productId !== productId));
+    }
+
+    const handleSave = () => {
+        const newOrder: Omit<Order, 'id'> = {
+            supplier,
+            orderDate: (orderDate || new Date()).toISOString(),
+            expectedArrivalDate: expectedDate?.toISOString(),
+            status: 'Draft',
+            trackingNumber,
+            notes,
+            items,
+        };
+        onSave(newOrder);
+        onOpenChange(false);
+    };
+
+    return (
+        <>
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-lg">
+                <DialogHeader>
+                    <DialogTitle>Create New Purchase Order</DialogTitle>
+                </DialogHeader>
+                <div className="grid gap-4 py-4 max-h-[70vh] overflow-y-auto pr-4">
+                    <div className="space-y-2">
+                        <Label htmlFor="supplier">Supplier</Label>
+                        <Input id="supplier" value={supplier} onChange={e => setSupplier(e.target.value)} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                             <Label>Order Date</Label>
+                            <Popover><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal">{orderDate ? format(orderDate, 'PPP') : 'Select date'}</Button></PopoverTrigger><PopoverContent><Calendar mode="single" selected={orderDate} onSelect={setOrderDate} /></PopoverContent></Popover>
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Expected Arrival</Label>
+                            <Popover><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal">{expectedDate ? format(expectedDate, 'PPP') : 'Select date'}</Button></PopoverTrigger><PopoverContent><Calendar mode="single" selected={expectedDate} onSelect={setExpectedDate} /></PopoverContent></Popover>
+                        </div>
+                    </div>
+                     <div className="space-y-2">
+                        <Label htmlFor="tracking">Tracking Number</Label>
+                        <Input id="tracking" value={trackingNumber} onChange={e => setTrackingNumber(e.target.value)} />
+                    </div>
+                    <div>
+                        <Label>Items</Label>
+                        <div className="space-y-2 mt-2">
+                             {items.map(item => (
+                                <div key={item.productId} className="flex items-center gap-2 p-2 border rounded-md">
+                                    <span className="flex-1 text-sm font-medium">{item.productName}</span>
+                                    <Input type="number" value={item.quantity} onChange={e => handleItemChange(item.productId, 'quantity', Number(e.target.value))} className="w-16 h-8" />
+                                    <Input type="number" value={item.costPerUnit} onChange={e => handleItemChange(item.productId, 'costPerUnit', Number(e.target.value))} className="w-20 h-8" />
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleRemoveItem(item.productId)}><Trash2 className="w-4 h-4" /></Button>
+                                </div>
+                            ))}
+                        </div>
+                        <Button variant="outline" className="mt-2 w-full" type="button" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2"/>Add Items</Button>
+                    </div>
+                     <div className="space-y-2">
+                        <Label htmlFor="notes">Notes</Label>
+                        <Textarea id="notes" value={notes} onChange={e => setNotes(e.target.value)} />
+                    </div>
+                </div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                    <Button onClick={handleSave}>Save Order</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+
+        <BrowseProductsDialog
+            open={isProductBrowserOpen}
+            onOpenChange={setIsProductBrowserOpen}
+            onSelect={handleAddProducts}
+            allProducts={products}
+            initialSelected={[]}
+        />
+        </>
+    );
+};
+
+const OrdersTab = ({ orders, isLoading, onAddOrder }: { orders: Order[], isLoading: boolean, onAddOrder: (order: Omit<Order, 'id'>) => void }) => {
+    const [isAddOrderOpen, setIsAddOrderOpen] = useState(false);
+    
+    return (
+        <>
+            <Card>
+                <CardHeader>
+                    <div className="flex justify-between items-center">
+                        <div>
+                            <CardTitle>Purchase Orders</CardTitle>
+                            <CardDescription>Track your inventory supply orders.</CardDescription>
+                        </div>
+                        <Button onClick={() => setIsAddOrderOpen(true)}><PlusCircle className="mr-2"/>New Order</Button>
+                    </div>
+                </CardHeader>
+                <CardContent>
+                     {isLoading ? <p>Loading orders...</p> : orders.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {orders.map(order => <OrderCard key={order.id} order={order} />)}
+                        </div>
+                    ) : (
+                         <div className="text-center py-10 px-6 border-2 border-dashed rounded-lg">
+                            <Truck className="mx-auto h-12 w-12 text-muted-foreground" />
+                            <h3 className="mt-2 text-sm font-semibold">No orders yet</h3>
+                            <p className="mt-1 text-sm text-muted-foreground">Create your first purchase order to start tracking supplies.</p>
+                         </div>
+                    )}
+                </CardContent>
+            </Card>
+
+            <AddOrderDialog
+                open={isAddOrderOpen}
+                onOpenChange={setIsAddOrderOpen}
+                onSave={onAddOrder}
+            />
+        </>
+    );
+};
+
 
 const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff, onLogUse, isSelected, onSelect }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (itemId: string) => void, onLogUse: (item: InventoryItem) => void, isSelected: boolean, onSelect: () => void }) => {
     
     const stockStatus = useMemo(() => {
-        const hasExpiredBatch = item.batches.some(b => b.expirationDate && isPast(parseISO(b.expirationDate)));
+        const hasExpiredBatch = item.batches.some(b => b.expirationDate && isPast(parseISO(b.expirationDate)) && b.stock > 0);
         if (hasExpiredBatch) return { label: 'Expired', className: 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-400 dark:border-red-600/30' };
         if (item.totalStock <= 0 && (item.partialContainerUses === undefined || item.partialContainerUses <= 0) && (item.partialContainerSize === undefined || item.partialContainerSize <= 0) ) return { label: 'Out of Stock', className: 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-400 dark:border-red-600/30' };
         if (item.reorderPoint && item.totalStock <= item.reorderPoint) return { label: 'Low Stock', className: 'bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-400 dark:border-yellow-600/30' };
@@ -269,7 +485,12 @@ export default function InventoryPage() {
   };
   
   const handleBulkDeleteConfirm = useCallback(() => {
+    if (!firestore) return;
     const itemCount = selectedItems.size;
+    selectedItems.forEach(id => {
+      const clientDoc = doc(firestore, `tenants/${tenantId}/clients`, id);
+      deleteDocumentNonBlocking(clientDoc);
+    });
     setInventory(prev => prev.filter(item => !selectedItems.has(item.id)));
     setSelectedItems(new Set());
     setIsBulkDeleteConfirmOpen(false);
@@ -277,9 +498,14 @@ export default function InventoryPage() {
         title: "Items Deleted",
         description: `${itemCount} item(s) have been removed from your inventory.`,
     })
-  }, [selectedItems, setInventory, toast]);
+  }, [selectedItems, setInventory, toast, firestore, tenantId]);
 
     const handleBulkArchive = useCallback(() => {
+        if (!firestore) return;
+        selectedItems.forEach(id => {
+            const itemDoc = doc(firestore, `tenants/${tenantId}/inventory`, id);
+            updateDocumentNonBlocking(itemDoc, { status: 'archived' });
+        });
         setInventory(prev =>
             prev.map(item =>
                 selectedItems.has(item.id) ? { ...item, status: 'archived' } : item
@@ -287,9 +513,14 @@ export default function InventoryPage() {
         );
         toast({ title: `${selectedItems.size} item(s) have been archived.` });
         setSelectedItems(new Set());
-    }, [selectedItems, setInventory, toast]);
+    }, [selectedItems, setInventory, toast, firestore, tenantId]);
 
     const handleBulkUnarchive = useCallback(() => {
+        if (!firestore) return;
+        selectedItems.forEach(id => {
+            const itemDoc = doc(firestore, `tenants/${tenantId}/inventory`, id);
+            updateDocumentNonBlocking(itemDoc, { status: 'active' });
+        });
         setInventory(prev =>
             prev.map(item =>
                 selectedItems.has(item.id) ? { ...item, status: 'active' } : item
@@ -297,7 +528,7 @@ export default function InventoryPage() {
         );
         toast({ title: `${selectedItems.size} item(s) have been restored.` });
         setSelectedItems(new Set());
-    }, [selectedItems, setInventory, toast]);
+    }, [selectedItems, setInventory, toast, firestore, tenantId]);
 
 
   const handleOpenAddProductDialog = (type: 'professional' | 'retail') => {
