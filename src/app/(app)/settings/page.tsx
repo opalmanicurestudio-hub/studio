@@ -25,10 +25,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking, useDoc } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking, useDoc, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch, query, where, updateDoc } from 'firebase/firestore';
 import { type Tenant } from '@/lib/data';
 import { nanoid } from 'nanoid';
+import { useTenant } from '@/context/TenantContext';
 
 const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
   const timeOptions = Array.from({ length: (22 - 8) * 2 + 1 }, (_, i) => {
@@ -84,7 +85,47 @@ const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string;
 export default function SettingsPage() {
   const { toast } = useToast();
   const { firestore, user } = useFirebase();
-  const [tenantId, setTenantId] = useState<string | null>(null);
+  const { tenants, selectedTenant, setSelectedTenant, isLoading: isTenantContextLoading } = useTenant();
+
+  const [isBusinessEditing, setIsBusinessEditing] = useState(false);
+  const [currentBusinessName, setCurrentBusinessName] = useState('');
+  
+  useEffect(() => {
+    if (selectedTenant) {
+      setCurrentBusinessName(selectedTenant.name);
+    }
+  }, [selectedTenant]);
+  
+  const handleUpdateBusinessName = async () => {
+    if (!selectedTenant || !firestore || !currentBusinessName.trim()) return;
+
+    const tenantRef = doc(firestore, 'tenants', selectedTenant.id);
+    try {
+      await updateDocumentNonBlocking(tenantRef, { name: currentBusinessName.trim() });
+      toast({ title: "Business Name Updated" });
+      setIsBusinessEditing(false);
+    } catch (error) {
+      console.error("Error updating business name:", error);
+      toast({ variant: 'destructive', title: "Update Failed" });
+    }
+  };
+
+  const handleCreateNewLocation = () => {
+    if (!firestore || !user) return;
+    const newTenantId = nanoid();
+    const newTenantData: Omit<Tenant, 'id'> = {
+      name: `New Business #${(tenants?.length || 0) + 1}`,
+      userId: user.uid,
+      subscriptionStatus: "active",
+      subscriptionTier: "pro",
+    };
+    const newTenantRef = doc(firestore, 'tenants', newTenantId);
+    setDocumentNonBlocking(newTenantRef, { ...newTenantData, id: newTenantId }, {});
+    toast({
+      title: 'New Location Created!',
+      description: 'You can switch to it from the header dropdown.',
+    });
+  };
 
   // Editing states for each card
   const [isScheduleEditing, setIsScheduleEditing] = useState(false);
@@ -103,28 +144,17 @@ export default function SettingsPage() {
 
   const hasInitialized = useRef(false);
 
-  const tenantQuery = useMemoFirebase(() => {
-    if (!user || !firestore) return null;
-    return query(collection(firestore, 'tenants'), where('userId', '==', user.uid));
-  }, [user, firestore]);
-
-  const { data: tenants, isLoading: tenantsLoading } = useCollection(tenantQuery);
-  const initialTenantData = useMemo(() => tenants?.[0], [tenants]);
-
   const scheduleProfilesQuery = useMemoFirebase(() => {
-    if (!tenantId || !firestore) return null;
-    return collection(firestore, `tenants/${tenantId}/scheduleProfiles`);
-  }, [tenantId, firestore]);
+    if (!selectedTenant || !firestore) return null;
+    return collection(firestore, `tenants/${selectedTenant.id}/scheduleProfiles`);
+  }, [selectedTenant, firestore]);
   const { data: initialScheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection(scheduleProfilesQuery);
 
   useEffect(() => {
-    if (initialTenantData && !tenantId) {
-      setTenantId(initialTenantData.id);
+    if (selectedTenant) {
+      setTenantData(selectedTenant);
     }
-    if (initialTenantData) {
-      setTenantData(initialTenantData);
-    }
-  }, [initialTenantData, tenantId]);
+  }, [selectedTenant]);
 
   useEffect(() => {
     if (initialScheduleProfiles) {
@@ -133,7 +163,7 @@ export default function SettingsPage() {
   }, [initialScheduleProfiles]);
 
    useEffect(() => {
-        if (!scheduleProfilesLoading && scheduleProfiles.length === 0 && firestore && user && tenantId && !hasInitialized.current) {
+        if (!scheduleProfilesLoading && scheduleProfiles.length === 0 && firestore && user && selectedTenant && !hasInitialized.current) {
             hasInitialized.current = true;
             const defaultProfileId = nanoid();
             const defaultProfile = {
@@ -156,10 +186,10 @@ export default function SettingsPage() {
                     holidays: 8,
                 }
             };
-            const profileDocRef = doc(firestore, `tenants/${tenantId}/scheduleProfiles/${defaultProfileId}`);
+            const profileDocRef = doc(firestore, `tenants/${selectedTenant.id}/scheduleProfiles/${defaultProfileId}`);
             setDocumentNonBlocking(profileDocRef, defaultProfile, {});
         }
-    }, [scheduleProfilesLoading, scheduleProfiles, firestore, user, tenantId]);
+    }, [scheduleProfilesLoading, scheduleProfiles, firestore, user, selectedTenant]);
 
   const orderedDays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
   const activeScheduleProfile = useMemo(() => scheduleProfiles.find(p => p.isActive), [scheduleProfiles]);
@@ -213,11 +243,11 @@ export default function SettingsPage() {
   };
 
   const handleScheduleSave = async () => {
-    if (!tenantId || !firestore) return;
+    if (!selectedTenant || !firestore) return;
     try {
       const batch = writeBatch(firestore);
       scheduleProfiles.forEach(profile => {
-        const profileRef = doc(firestore, `tenants/${tenantId}/scheduleProfiles`, profile.id);
+        const profileRef = doc(firestore, `tenants/${selectedTenant.id}/scheduleProfiles`, profile.id);
         const { id, ...profileData } = profile;
         batch.update(profileRef, profileData);
       });
@@ -248,13 +278,13 @@ export default function SettingsPage() {
       setIsEditing(false);
     };
     const handleSave = async () => {
-      if (!tenantId || !firestore) return;
+      if (!selectedTenant || !firestore) return;
       const dataToUpdate: Partial<Tenant> = {};
       fieldsToSave.forEach(field => {
         dataToUpdate[field] = data[field] as any;
       });
       try {
-        const tenantRef = doc(firestore, 'tenants', tenantId);
+        const tenantRef = doc(firestore, 'tenants', selectedTenant.id);
         await updateDoc(tenantRef, dataToUpdate);
         toast({ title: 'Settings Saved!' });
         setIsEditing(false);
@@ -302,7 +332,7 @@ export default function SettingsPage() {
     return policy;
   }
 
-  const isLoading = tenantsLoading || scheduleProfilesLoading;
+  const isLoading = isTenantContextLoading || (selectedTenant && scheduleProfilesLoading);
 
   if (isLoading) {
     return (
@@ -327,6 +357,41 @@ export default function SettingsPage() {
             </p>
           </div>
           
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><Building className="w-5 h-5 text-primary"/>Business Profile</CardTitle>
+                    <CardDescription>Manage your business locations and branding.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                     <div className="space-y-2">
+                        <Label htmlFor="business-name">Current Business Name</Label>
+                        <div className="flex gap-2">
+                            <Input id="business-name" value={currentBusinessName} onChange={(e) => setCurrentBusinessName(e.target.value)} disabled={!isBusinessEditing} />
+                            {isBusinessEditing ? (
+                                <>
+                                    <Button variant="outline" onClick={() => { setIsBusinessEditing(false); setCurrentBusinessName(selectedTenant?.name || ''); }}>Cancel</Button>
+                                    <Button onClick={handleUpdateBusinessName}><Save className="w-4 h-4 mr-2"/>Save</Button>
+                                </>
+                            ) : (
+                                <Button variant="outline" onClick={() => setIsBusinessEditing(true)}><Edit className="w-4 h-4 mr-2"/>Edit</Button>
+                            )}
+                        </div>
+                     </div>
+                </CardContent>
+                <CardHeader>
+                    <CardTitle className="text-base">Your Locations</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                     {tenants.map(tenant => (
+                        <div key={tenant.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-md">
+                            <p className="font-medium">{tenant.name}</p>
+                            {tenant.id === selectedTenant?.id && <Badge>Active</Badge>}
+                        </div>
+                     ))}
+                     <Button variant="outline" className="w-full" onClick={handleCreateNewLocation}><PlusCircle className="w-4 h-4 mr-2"/>Create New Location</Button>
+                </CardContent>
+            </Card>
+
            <Card>
             <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
@@ -649,5 +714,3 @@ export default function SettingsPage() {
     </div>
   );
 }
-
-    
