@@ -13,7 +13,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette, QrCode, AlertTriangle, ListFilter, ChevronDown, ShoppingCart, Briefcase, DollarSign, Activity, Eye, CircleHelp, Warehouse, Beaker, Recycle, TrendingUp, Truck, Clock, Check } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette, QrCode, AlertTriangle, ListFilter, ChevronDown, ShoppingCart, Briefcase, DollarSign, Activity, Eye, CircleHelp, Warehouse, Beaker, Recycle, TrendingUp, Truck, Clock, Check, Link as LinkIcon } from 'lucide-react';
 import { 
     inventory as initialInventoryData,
     stockCorrections as initialStockCorrectionsData,
@@ -72,7 +72,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { EditProductDialog } from '@/components/inventory/EditProductDialog';
 import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
-import { collection, doc } from 'firebase/firestore';
+import { collection, doc, setDoc } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import { BrowseProductsDialog } from '@/components/services/BrowseProductsDialog';
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
@@ -83,7 +83,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
 
-const OrderCard = ({ order }: { order: Order }) => {
+const OrderCard = ({ order, onSelect }: { order: Order, onSelect: (order: Order) => void }) => {
     const getStatusVariant = (status: Order['status']) => {
         switch (status) {
             case 'Placed': return { icon: <Clock className="h-3 w-3" />, className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300' };
@@ -91,6 +91,8 @@ const OrderCard = ({ order }: { order: Order }) => {
             case 'Received':
             case 'Partially Received':
                 return { icon: <Check className="h-3 w-3" />, className: 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300' };
+            case 'Cancelled':
+                return { icon: <X className="h-3 w-3" />, className: 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300' };
             default: return { icon: <Package className="h-3 w-3" />, className: 'bg-gray-100 text-gray-700' };
         }
     };
@@ -99,7 +101,7 @@ const OrderCard = ({ order }: { order: Order }) => {
     const totalCost = order.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
 
     return (
-        <Card>
+        <Card onClick={() => onSelect(order)} className="cursor-pointer hover:shadow-lg transition-colors">
             <CardHeader>
                 <div className="flex justify-between items-start">
                     <div>
@@ -111,7 +113,7 @@ const OrderCard = ({ order }: { order: Order }) => {
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                             <DropdownMenuContent>
-                                <DropdownMenuItem>View/Edit Order</DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => onSelect(order)}>View/Edit Order</DropdownMenuItem>
                                 <DropdownMenuItem>Receive Stock</DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>
@@ -122,7 +124,17 @@ const OrderCard = ({ order }: { order: Order }) => {
                 <div className="text-sm space-y-2">
                     <p><strong>{totalItems}</strong> items ordered</p>
                     <p>Total Cost: <strong>${totalCost.toFixed(2)}</strong></p>
-                    {order.trackingNumber && <p>Tracking: <strong>{order.trackingNumber}</strong></p>}
+                    {order.trackingNumber && (
+                        <div className="flex items-center gap-2">
+                            <Truck className="w-4 h-4 text-muted-foreground"/>
+                            <span className="font-medium">Tracking:</span>
+                            {order.trackingUrl ? (
+                                <a href={order.trackingUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-primary hover:underline">{order.trackingNumber}</a>
+                            ) : (
+                                <span className="font-semibold">{order.trackingNumber}</span>
+                            )}
+                        </div>
+                    )}
                     {order.expectedArrivalDate && <p>Expected: <strong>{format(parseISO(order.expectedArrivalDate), 'MMM d, yyyy')}</strong></p>}
                 </div>
             </CardContent>
@@ -144,6 +156,7 @@ const AddOrderDialog = ({
     const [orderDate, setOrderDate] = useState<Date | undefined>(new Date());
     const [expectedDate, setExpectedDate] = useState<Date | undefined>();
     const [trackingNumber, setTrackingNumber] = useState('');
+    const [trackingUrl, setTrackingUrl] = useState('');
     const [notes, setNotes] = useState('');
     const [items, setItems] = useState<OrderItem[]>([]);
 
@@ -180,6 +193,7 @@ const AddOrderDialog = ({
             orderDate: (orderDate || new Date()).toISOString(),
             status: 'Placed',
             trackingNumber,
+            trackingUrl,
             notes,
             items,
             ...(expectedDate && { expectedArrivalDate: expectedDate.toISOString() }),
@@ -214,6 +228,10 @@ const AddOrderDialog = ({
                      <div className="space-y-2">
                         <Label htmlFor="tracking">Tracking Number</Label>
                         <Input id="tracking" value={trackingNumber} onChange={e => setTrackingNumber(e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="trackingUrl">Tracking URL</Label>
+                        <Input id="trackingUrl" value={trackingUrl} onChange={e => setTrackingUrl(e.target.value)} placeholder="https://carrier.com/track/..."/>
                     </div>
                     <div>
                         <Label>Items</Label>
@@ -252,8 +270,135 @@ const AddOrderDialog = ({
     );
 };
 
-const OrdersTab = ({ orders, isLoading, onAddOrder }: { orders: Order[], isLoading: boolean, onAddOrder: (order: Omit<Order, 'id'>) => void }) => {
+const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrder }: { order: Order | null, open: boolean, onOpenChange: (open: boolean) => void, onSave: (order: Order) => void, onCancelOrder: (orderId: string) => void }) => {
+    if (!order) return null;
+    
+    const [editableOrder, setEditableOrder] = useState<Order>(order);
+
+    useEffect(() => {
+        setEditableOrder(order);
+    }, [order]);
+
+    const totalCost = useMemo(() => {
+        return editableOrder.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
+    }, [editableOrder.items]);
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        const { name, value } = e.target;
+        setEditableOrder(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleDateChange = (date: Date | undefined, field: 'orderDate' | 'expectedArrivalDate') => {
+        setEditableOrder(prev => ({...prev, [field]: date?.toISOString()}))
+    }
+    
+    const handleItemChange = (productId: string, field: 'quantity' | 'costPerUnit', value: number) => {
+        setEditableOrder(prev => ({
+            ...prev,
+            items: prev.items.map(item => item.productId === productId ? { ...item, [field]: value } : item)
+        }));
+    }
+
+    const [isEditing, setIsEditing] = useState(false);
+    
+    const handleSave = () => {
+        onSave(editableOrder);
+        setIsEditing(false);
+    }
+    
+    const handleCancel = () => {
+        onCancelOrder(editableOrder.id);
+        onOpenChange(false);
+    }
+
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-xl">
+                <DialogHeader>
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <DialogTitle>Order from {order.supplier}</DialogTitle>
+                            <DialogDescription>
+                                Order ID: {order.id.slice(-6).toUpperCase()}
+                            </DialogDescription>
+                        </div>
+                        <Badge variant="secondary">{order.status}</Badge>
+                    </div>
+                </DialogHeader>
+                 <div className="py-4 max-h-[60vh] overflow-y-auto pr-4 -mr-4">
+                     <div className="space-y-4">
+                        {isEditing ? (
+                            <div className="space-y-4">
+                                <div className="space-y-2"><Label htmlFor="edit-supplier">Supplier</Label><Input id="edit-supplier" value={editableOrder.supplier} onChange={handleChange} name="supplier" /></div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2"><Label>Order Date</Label><Popover><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal">{editableOrder.orderDate ? format(parseISO(editableOrder.orderDate), 'PPP') : 'Select date'}</Button></PopoverTrigger><PopoverContent><Calendar mode="single" selected={parseISO(editableOrder.orderDate)} onSelect={(d) => handleDateChange(d, 'orderDate')} /></PopoverContent></Popover></div>
+                                    <div className="space-y-2"><Label>Expected Arrival</Label><Popover><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal">{editableOrder.expectedArrivalDate ? format(parseISO(editableOrder.expectedArrivalDate), 'PPP') : 'Select date'}</Button></PopoverTrigger><PopoverContent><Calendar mode="single" selected={editableOrder.expectedArrivalDate ? parseISO(editableOrder.expectedArrivalDate) : undefined} onSelect={(d) => handleDateChange(d, 'expectedArrivalDate')} /></PopoverContent></Popover></div>
+                                </div>
+                                <div className="space-y-2"><Label htmlFor="edit-trackingNumber">Tracking Number</Label><Input id="edit-trackingNumber" value={editableOrder.trackingNumber || ''} onChange={handleChange} name="trackingNumber" /></div>
+                                <div className="space-y-2"><Label htmlFor="edit-trackingUrl">Tracking URL</Label><Input id="edit-trackingUrl" value={editableOrder.trackingUrl || ''} onChange={handleChange} name="trackingUrl" placeholder="https://carrier.com/track/..."/></div>
+                                 <div className="space-y-2"><Label>Items</Label><div className="space-y-2">{editableOrder.items.map(item => (<div key={item.productId} className="flex items-center gap-2 p-2 border rounded-md"><span className="flex-1 text-sm font-medium">{item.productName}</span><Input type="number" value={item.quantity} onChange={e => handleItemChange(item.productId, 'quantity', Number(e.target.value))} className="w-16 h-8" /><Input type="number" value={item.costPerUnit} onChange={e => handleItemChange(item.productId, 'costPerUnit', Number(e.target.value))} className="w-20 h-8" /></div>))}</div></div>
+                                <div className="space-y-2"><Label htmlFor="edit-notes">Notes</Label><Textarea id="edit-notes" value={editableOrder.notes || ''} onChange={handleChange} name="notes" /></div>
+                            </div>
+                        ) : (
+                             <div className="space-y-4">
+                                <p><strong>Items:</strong></p>
+                                <div className="space-y-2 border rounded-md p-2">
+                                {order.items.map(item => (
+                                    <div key={item.productId} className="flex justify-between items-center p-2 hover:bg-muted/50 rounded-md">
+                                        <div>
+                                            <p className="font-medium">{item.productName}</p>
+                                            <p className="text-xs text-muted-foreground">{item.quantity} units @ ${item.costPerUnit.toFixed(2)}/unit</p>
+                                        </div>
+                                        <p className="font-semibold">${(item.quantity * item.costPerUnit).toFixed(2)}</p>
+                                    </div>
+                                ))}
+                                <div className="flex justify-between font-bold text-lg pt-2 border-t">
+                                    <span>Total Cost</span>
+                                    <span>${totalCost.toFixed(2)}</span>
+                                </div>
+                                </div>
+                                <div className="text-sm space-y-2">
+                                    {order.trackingNumber && (
+                                        <div className="flex items-center gap-2">
+                                            <Truck className="w-4 h-4 text-muted-foreground"/>
+                                            <span className="font-medium">Tracking:</span>
+                                            {order.trackingUrl ? (
+                                                <a href={order.trackingUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-primary hover:underline">{order.trackingNumber}</a>
+                                            ) : (
+                                                <span className="font-semibold">{order.trackingNumber}</span>
+                                            )}
+                                        </div>
+                                    )}
+                                    {order.expectedArrivalDate && <p><strong>Expected Arrival:</strong> {format(parseISO(order.expectedArrivalDate), 'MMM d, yyyy')}</p>}
+                                    {order.notes && <p><strong>Notes:</strong> {order.notes}</p>}
+                                </div>
+                            </div>
+                        )}
+                     </div>
+                </div>
+                <DialogFooter>
+                    {isEditing ? (
+                        <>
+                            <Button variant="ghost" onClick={() => setIsEditing(false)}>Cancel</Button>
+                            <Button onClick={handleSave}>Save Changes</Button>
+                        </>
+                    ) : (
+                        <>
+                            <Button variant="destructive" onClick={handleCancel} disabled={order.status === 'Cancelled'}>Cancel Order</Button>
+                            <div className="flex-1" />
+                            <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
+                            <Button onClick={() => setIsEditing(true)}>Edit Order</Button>
+                        </>
+                    )}
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    )
+}
+
+const OrdersTab = ({ orders, isLoading, onAddOrder, onUpdateOrder, onCancelOrder }: { orders: Order[], isLoading: boolean, onAddOrder: (order: Omit<Order, 'id'>) => void, onUpdateOrder: (order: Order) => void, onCancelOrder: (orderId: string) => void }) => {
     const [isAddOrderOpen, setIsAddOrderOpen] = useState(false);
+    const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
     
     return (
         <>
@@ -270,7 +415,7 @@ const OrdersTab = ({ orders, isLoading, onAddOrder }: { orders: Order[], isLoadi
                 <CardContent>
                      {isLoading ? <p>Loading orders...</p> : orders.length > 0 ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {orders.map(order => <OrderCard key={order.id} order={order} />)}
+                            {orders.map(order => <OrderCard key={order.id} order={order} onSelect={setSelectedOrder} />)}
                         </div>
                     ) : (
                          <div className="text-center py-10 px-6 border-2 border-dashed rounded-lg">
@@ -286,6 +431,13 @@ const OrdersTab = ({ orders, isLoading, onAddOrder }: { orders: Order[], isLoadi
                 open={isAddOrderOpen}
                 onOpenChange={setIsAddOrderOpen}
                 onSave={onAddOrder}
+            />
+            <ViewOrEditOrderDialog
+                order={selectedOrder}
+                open={!!selectedOrder}
+                onOpenChange={() => setSelectedOrder(null)}
+                onSave={onUpdateOrder}
+                onCancelOrder={onCancelOrder}
             />
         </>
     );
@@ -588,14 +740,72 @@ export default function InventoryPage() {
     const newOrder: Order = {
       ...newOrderData,
       id: nanoid(),
+      status: 'Placed',
     };
     const orderRef = collection(firestore, 'tenants', tenantId, 'orders');
     addDocumentNonBlocking(orderRef, newOrder);
+    
+    // Add a corresponding transaction for the expense
+    const totalCost = newOrder.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
+    const newTransaction: Omit<Transaction, 'id' | 'date'> = {
+        description: `Purchase Order: ${newOrder.supplier}`,
+        clientOrVendor: newOrder.supplier,
+        type: 'expense',
+        context: 'Business',
+        category: 'Supplies',
+        amount: totalCost,
+        paymentMethod: 'On Account',
+        hasReceipt: true, // Assuming invoice acts as receipt
+        relatedOrderId: newOrder.id,
+    };
+    const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+    addDocumentNonBlocking(transactionsRef, { ...newTransaction, date: newOrder.orderDate });
+
     toast({
       title: "Order Created!",
       description: `Your order to ${newOrder.supplier} has been saved as '${newOrder.status}'.`
     });
   };
+  
+  const handleUpdateOrder = (updatedOrder: Order) => {
+      const orderRef = doc(firestore, `tenants/${tenantId}/orders`, updatedOrder.id);
+      updateDocumentNonBlocking(orderRef, updatedOrder);
+      toast({
+          title: "Order Updated",
+          description: `Order ${updatedOrder.id.slice(-6)} has been updated.`
+      })
+  }
+
+  const handleCancelOrder = (orderId: string) => {
+      if(!firestore || !orders) return;
+      
+      const orderToCancel = orders.find(o => o.id === orderId);
+      if (!orderToCancel) return;
+
+      const orderRef = doc(firestore, `tenants/${tenantId}/orders`, orderId);
+      updateDocumentNonBlocking(orderRef, { status: 'Cancelled' });
+
+      // Create a reversal transaction
+      const totalCost = orderToCancel.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
+      const newTransaction: Omit<Transaction, 'id' | 'date'> = {
+        description: `Reversal for Order: ${orderToCancel.supplier}`,
+        clientOrVendor: orderToCancel.supplier,
+        type: 'reversal',
+        context: 'Business',
+        category: 'Supplies',
+        amount: totalCost,
+        paymentMethod: 'On Account',
+        hasReceipt: true,
+        relatedOrderId: orderToCancel.id,
+      };
+      const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+      addDocumentNonBlocking(transactionsRef, { ...newTransaction, date: new Date().toISOString() });
+
+      toast({
+          title: "Order Cancelled",
+          description: `Order ${orderId.slice(-6)} has been cancelled and the expense reversed.`
+      })
+  }
 
   const handleOpenAddLocation = () => setIsAddLocationDialogOpen(true);
   
@@ -1131,6 +1341,8 @@ export default function InventoryPage() {
                         orders={orders || []} 
                         isLoading={ordersLoading} 
                         onAddOrder={handleAddOrder}
+                        onUpdateOrder={handleUpdateOrder}
+                        onCancelOrder={handleCancelOrder}
                     />
                 </TabsContent>
                 <TabsContent value="locations" className="mt-6">
@@ -1264,7 +1476,7 @@ export default function InventoryPage() {
                     <AlertTriangle className="h-4 w-4" />
                     <AlertTitle>Camera Access Required</AlertTitle>
                     <AlertDescription>
-                        Please enable camera permissions in your browser settings to use this feature.
+                        Please enable camera permissions in your browser settings to use this app.
                     </AlertDescription>
                 </Alert>
             )}
@@ -1298,5 +1510,6 @@ export default function InventoryPage() {
 }
 
     
+
 
 
