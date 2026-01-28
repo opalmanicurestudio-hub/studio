@@ -74,6 +74,7 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useTenant } from '@/context/TenantContext';
 
 
 function PlannerPageContent() {
@@ -84,7 +85,8 @@ function PlannerPageContent() {
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   
   const { firestore, user, isUserLoading } = useFirebase();
-  const tenantId = 'tenant-abc';
+  const { selectedTenant, isLoading: isTenantLoading } = useTenant();
+  const tenantId = selectedTenant?.id;
   
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
@@ -118,17 +120,60 @@ function PlannerPageContent() {
   const [activeView, setActiveView] = useState(viewParam === 'resources' ? 'resources' : 'staff');
 
   // --- Data Fetching ---
-  const billDefinitionsQuery = useMemoFirebase(() => collection(firestore, 'tenants', tenantId, 'bills'), [firestore, tenantId]);
-  const billInstancesQuery = useMemoFirebase(() => collection(firestore, 'tenants', tenantId, 'billInstances'), [firestore, tenantId]);
-  const appointmentsQuery = useMemoFirebase(() => collection(firestore, 'tenants', tenantId, 'appointments'), [firestore, tenantId]);
-  const clientsQuery = useMemoFirebase(() => collection(firestore, 'tenants', tenantId, 'clients'), [firestore, tenantId]);
-  const walkInsQuery = useMemoFirebase(() => collection(firestore, 'tenants', tenantId, 'walkIns'), [firestore, tenantId]);
-  const servicesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/services`), [firestore, tenantId]);
-  const staffQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
-  const eventsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/events`), [firestore, tenantId]);
-  const scheduleProfilesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/scheduleProfiles`), [firestore, tenantId]);
-  const resourcesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/resources`), [firestore, tenantId]);
-  const inventoryQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/inventory`), [firestore, tenantId]);
+  const billDefinitionsQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, 'tenants', tenantId, 'bills');
+  }, [firestore, tenantId]);
+
+  const billInstancesQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, 'tenants', tenantId, 'billInstances');
+  }, [firestore, tenantId]);
+
+  const appointmentsQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, 'tenants', tenantId, 'appointments');
+  }, [firestore, tenantId]);
+
+  const clientsQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, 'tenants', tenantId, 'clients');
+  }, [firestore, tenantId]);
+
+  const walkInsQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, 'tenants', tenantId, 'walkIns');
+  }, [firestore, tenantId]);
+
+  const servicesQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, `tenants/${tenantId}/services`);
+  }, [firestore, tenantId]);
+
+  const staffQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, `tenants/${tenantId}/staff`);
+  }, [firestore, tenantId]);
+
+  const eventsQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, `tenants/${tenantId}/events`);
+  }, [firestore, tenantId]);
+
+  const scheduleProfilesQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, `tenants/${tenantId}/scheduleProfiles`);
+  }, [firestore, tenantId]);
+
+  const resourcesQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, `tenants/${tenantId}/resources`);
+  }, [firestore, tenantId]);
+
+  const inventoryQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, `tenants/${tenantId}/inventory`);
+  }, [firestore, tenantId]);
 
   const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
   const { data: fetchedBillDefinitions, isLoading: billDefinitionsLoading } = useCollection<BillDefinition>(billDefinitionsQuery);
@@ -194,7 +239,7 @@ const events = useMemo(() => {
   }, [weekStart]);
 
   const transactionsQuery = useMemoFirebase(() => {
-    if (!firestore || !user) return null;
+    if (!firestore || !user || !tenantId) return null;
     const dayStart = startOfDay(currentDate);
     const dayEnd = endOfDay(currentDate);
     return query(
@@ -405,7 +450,7 @@ const events = useMemo(() => {
   };
 
   const handleLogPaymentConfirm = (paymentData: { amount: number; date: Date; paymentMethod: string; paymentMethodIdentifier?: string; notes?: string, receiptUrl?: string; }) => {
-    if (!selectedBill || !firestore || !user) return;
+    if (!selectedBill || !firestore || !user || !tenantId) return;
 
     const billInstanceRef = doc(firestore, 'tenants', tenantId, 'billInstances', selectedBill.id);
     const newAmountPaid = selectedBill.amountPaid + paymentData.amount;
@@ -446,7 +491,7 @@ const events = useMemo(() => {
   };
 
   const handleCheckout = async (data: CheckoutData) => {
-    if (!selectedAppointment || !firestore) return;
+    if (!selectedAppointment || !firestore || !tenantId) return;
     
     const {
       serviceStaffOverrides,
@@ -592,7 +637,7 @@ const events = useMemo(() => {
   };
   
   const handleAddAppointment = async (newAppointment: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date}) => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
 
     let finalClientId = newAppointment.clientId;
     let finalClientName = (clients || []).find(c => c.id === finalClientId)?.name || 'Walk-in Customer';
@@ -648,7 +693,7 @@ const events = useMemo(() => {
   };
 
   const handleUpdateAppointment = (updatedAppointment: Appointment) => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', updatedAppointment.id);
     // Firestore doesn't like custom objects like Date, so we serialize
     const dataToSave = {
@@ -688,7 +733,7 @@ const events = useMemo(() => {
   };
 
   const handleAddEvent = (newEvent: Omit<Event, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date}) => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
     const newEventWithId = { ...newEvent, id: nanoid() };
     const eventRef = doc(firestore, 'tenants', tenantId, 'events', newEventWithId.id);
     const dataToSave = {
@@ -721,7 +766,7 @@ const events = useMemo(() => {
   };
 
     const handleUpdateEvent = (updatedEvent: Event) => {
-        if (!firestore) return;
+        if (!firestore || !tenantId) return;
         const eventRef = doc(firestore, 'tenants', tenantId, 'events', updatedEvent.id);
         const dataToSave = {
             ...updatedEvent,
@@ -737,7 +782,7 @@ const events = useMemo(() => {
     }
     
     const addTransaction = (transaction: Omit<Transaction, 'id' | 'date'>) => {
-        if (!firestore || !user) {
+        if (!firestore || !user || !tenantId) {
             toast({
                 variant: 'destructive',
                 title: 'Authentication Error',
@@ -758,7 +803,7 @@ const events = useMemo(() => {
   }
   
   const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
     updateDocumentNonBlocking(appointmentRef, {
         status: 'ready_for_checkout',
@@ -784,7 +829,7 @@ const events = useMemo(() => {
   };
 
   const handleUpdateStatus = (appointmentId: string, status: Appointment['status']) => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
     updateDocumentNonBlocking(appointmentRef, { status });
     toast({
@@ -801,7 +846,7 @@ const events = useMemo(() => {
   };
 
   const confirmStartService = () => {
-    if (!startConfirmAppointment || !firestore) return;
+    if (!startConfirmAppointment || !firestore || !tenantId) return;
     const nowISO = new Date().toISOString();
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', startConfirmAppointment.id);
     updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: nowISO });
@@ -835,7 +880,7 @@ const events = useMemo(() => {
 
 
   const handleDeleteAppointment = (appointmentId: string) => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
     deleteDocumentNonBlocking(appointmentRef);
      toast({
@@ -846,7 +891,7 @@ const events = useMemo(() => {
   };
   
   const handleChecklistItemToggle = (eventId: string, checklistItemId: string, completed: boolean) => {
-      if (!firestore) return;
+      if (!firestore || !tenantId) return;
       const eventToUpdate = events.find(e => e.id === eventId);
       if (!eventToUpdate) return;
       
@@ -998,7 +1043,7 @@ const events = useMemo(() => {
   
   const showStaffColumnHeader = !isMobile;
 
-  const isLoading = isUserLoading || appointmentsLoading || servicesLoading || clientsLoading || walkInsLoading || staffLoading || eventsLoading || billDefinitionsLoading || billInstancesLoading || scheduleProfilesLoading || resourcesLoading;
+  const isLoading = isUserLoading || isTenantLoading || appointmentsLoading || servicesLoading || clientsLoading || walkInsLoading || staffLoading || eventsLoading || billDefinitionsLoading || billInstancesLoading || scheduleProfilesLoading || resourcesLoading;
 
   if (!hasMounted || isLoading) {
     return (
