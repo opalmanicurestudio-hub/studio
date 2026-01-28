@@ -52,7 +52,7 @@ export const PrintableStaffReport = React.forwardRef<HTMLDivElement, PrintableSt
         </table>
       </section>
 
-      <section className="mb-8 break-before-page">
+      <section className="mb-8">
         <h2 className="text-xl font-semibold border-b pb-2 mb-4">Activity Log</h2>
         <Table>
             <TableHeader>
@@ -86,7 +86,7 @@ export const PrintableStaffReport = React.forwardRef<HTMLDivElement, PrintableSt
         </Table>
       </section>
 
-      <section className="break-before-page">
+      <section>
           <h2 className="text-xl font-semibold border-b pb-2 mb-4">Transaction History</h2>
             <Table>
                 <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Description</TableHead><TableHead>Type</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader>

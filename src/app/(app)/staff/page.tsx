@@ -107,7 +107,7 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity }: { m
                              <DropdownMenuItem asChild>
                                 <Link href={`/staff/${member.id}`}>View Public Profile</Link>
                              </DropdownMenuItem>
-                             <DropdownMenuItem onClick={() => onViewActivity(member)}>View Activity</DropdownMenuItem>
+                             <DropdownMenuItem onClick={() => onViewActivity(member)}>View Dashboard</DropdownMenuItem>
                              <DropdownMenuSeparator />
                              <DropdownMenuItem onClick={() => onEdit(member)}>Edit Profile</DropdownMenuItem>
                         </DropdownMenuContent>
@@ -586,6 +586,7 @@ export default function StaffPage() {
     </div>
   );
 }
+
 
 
 

@@ -36,7 +36,7 @@ import { services as initialServices, type Service, Staff, DayHours, ActivityLog
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, getDay } from 'date-fns';
 import Image from 'next/image';
 import { cn } from '@/lib/utils';
 import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog';
@@ -246,12 +246,8 @@ export default function StaffDetailPage() {
                         {staffMember.youtubeUrl && <a href={staffMember.youtubeUrl} target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "outline", size: "icon" }))}><Youtube className="h-5 w-5" /></a>}
                         {staffMember.portfolioUrl && <a href={staffMember.portfolioUrl} target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "outline", size: "icon" }))}><LinkIcon className="h-5 w-5" /></a>}
                     </div>
-                    <TabsList>
-                        <TabsTrigger value="overview">Overview</TabsTrigger>
-                        <TabsTrigger value="activity">Activity Log</TabsTrigger>
-                    </TabsList>
                 </div>
-                <TabsContent value="overview" className="max-w-lg mx-auto space-y-6">
+                <TabsContent value="overview" className="max-w-lg mx-auto space-y-6 mt-6">
                     <div className="grid grid-cols-3 gap-2 md:gap-4 text-center">
                         <Card>
                             <CardContent className="p-3 space-y-1">
@@ -310,37 +306,6 @@ export default function StaffDetailPage() {
                             <ScrollBar orientation="horizontal" />
                         </ScrollArea>
                     </div>
-                </TabsContent>
-                <TabsContent value="activity" className="max-w-3xl mx-auto">
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Activity Log</CardTitle>
-                            <CardDescription>A record of clock-ins, clock-outs, and breaks.</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead>Date & Time</TableHead>
-                                        <TableHead>Action</TableHead>
-                                        <TableHead className="text-right">Duration</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {staffActivityLogs.map(log => (
-                                        <TableRow key={log.id}>
-                                            <TableCell>{format(parseISO(log.timestamp), 'PPP p')}</TableCell>
-                                            <TableCell className="capitalize">{log.type.replace('_', ' ')}</TableCell>
-                                            <TableCell className="text-right">
-                                                {log.durationMinutes ? `${log.durationMinutes} min` : '—'}
-                                            </TableCell>
-                                        </TableRow>
-                                    ))}
-                                </TableBody>
-                            </Table>
-                             {staffActivityLogs.length === 0 && <p className="text-center text-muted-foreground py-10">No activity recorded yet.</p>}
-                        </CardContent>
-                    </Card>
                 </TabsContent>
             </Tabs>
       </main>
