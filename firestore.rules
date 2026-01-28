@@ -1,5 +1,4 @@
 
-
 /**
  * # Firestore Security Rules
  *
@@ -7,43 +6,19 @@
  * This ruleset enforces a strict multi-tenant security model. A `User` can own
  * multiple `Tenant`s (businesses). All data related to a specific business—such
  * as its services, clients, and appointments—is completely isolated within that
- * tenant's data hierarchy. Access control is primarily managed through a custom
- * auth claim, which efficiently verifies a user's ownership of a tenant without
- * needing extra database reads.
+ * tenant's data hierarchy.
  *
- * ## Data Structure
- * The structure is hierarchical and tenant-centric. User profiles are stored in a
- * top-level `/users/{userId}` collection. All business data resides under
- * `/tenants/{tenantId}`, with subcollections for `/services`, `/products`,
- * `/clients`, and `/appointments`. This namespacing is key to the security model.
+ * ## The "Key and Drawer" Model
+ * - The User's authentication UID is their unique **key**.
+ * - Each `/tenants/{tenantId}` document is a locked **drawer**.
+ * - The `userId` field on the tenant document is the **lock**, specifying which key can open it.
+ * - The `isTenantOwner()` function is the **locksmith**, verifying the key against the lock for every operation.
  *
  * ## Key Security Decisions
- * - **Custom Claims for Tenant Access**: To ensure high performance and avoid costly
- *   `get()` calls in rules, access to a tenant's data tree (`/tenants/{tenantId}/...`)
- *   is granted via a custom auth claim. The backend is responsible for setting a
- *   `tenants` array (e.g., `{ "tenants": ["tenantId1", "tenantId2"] }`) on the
- *   user's token upon sign-in.
- * - **Publicly Readable Services/Products**: A tenant's services and products
- *   (`/tenants/{tenantId}/services` and `/products`) are publicly readable to support
- *   features like public booking pages. However, all write operations are strictly
- *   limited to the owning user.
- * - **Private Tenant Data**: All other tenant data, including clients and appointments,
- *   is strictly private and can only be accessed by the tenant owner.
- * - **No User/Tenant Listing**: Listing the top-level `/users` or `/tenants`
- *   collections is disallowed to prevent enumeration of users or businesses on the platform.
- *
- * ## Denormalization for Authorization
- * The security model relies on custom auth claims rather than denormalizing the
- * owner's `userId` onto every subcollection document (e.g., on every Service).
- * The primary denormalization is the `userId` on the `Tenant` document itself,
- * which is used to establish the initial ownership link upon creation.
- *
- * ## Structural Segregation
- * The ruleset leverages structural segregation effectively. User-specific data
- * (`/users`) is kept separate from business-specific data (`/tenants`). Within
- * tenants, public-facing data (services, products) and private data (clients,
- * appointments) exist in different subcollections, allowing for simple and secure
- * list operations.
+ * - **Ownership-Based Access**: The primary method for granting access is checking the `userId` on the root `tenants/{tenantId}` document. This is done via the `isTenantOwner()` function, which is the cornerstone of our multi-tenancy.
+ * - **Staff Roles**: Staff members are granted specific, limited permissions within a tenant's data tree via the `isStaff()` and `isTenantAdmin()` functions.
+ * - **Publicly Readable Data**: Some data, like services and staff profiles, is publicly readable to support features like public booking pages. However, all write operations are strictly limited to the owning user or authorized staff.
+ * - **No User/Tenant Listing**: Listing the top-level `/users` or `/tenants` collections is disallowed to prevent enumeration of all users or businesses on the platform.
  */
 rules_version = '2';
 service cloud.firestore {
@@ -67,12 +42,14 @@ service cloud.firestore {
     }
 
     /**
-     * Returns true if the user is an owner of the specified tenant.
-     * This function performs a crucial cross-document read to verify that the
-     * `userId` on the tenant document matches the authenticated user's UID.
-     * This is a secure but slightly less performant alternative to custom claims.
+     * @description Checks if the currently signed-in user is the owner of a specific tenant.
+     * This is the core of our multi-tenant security model.
+     * @param tenantId The ID of the tenant document to check.
+     * @returns {boolean} True if the request.auth.uid matches the `userId` field on the tenant document.
      */
     function isTenantOwner(tenantId) {
+      // It reads the `tenant` document and compares its `userId` field
+      // with the UID of the user making the request.
       return isSignedIn() && get(/databases/$(database)/documents/tenants/$(tenantId)).data.userId == request.auth.uid;
     }
 
@@ -163,7 +140,7 @@ service cloud.firestore {
     }
 
     /**
-     * @description Rules for tenant (business) documents.
+     * @description Rules for tenant (business) documents. This is the root for all business-specific data.
      * @path /tenants/{tenantId}
      * @allow (create) A signed-in user creating a new tenant where they are the owner.
      * @deny (list) Any user attempting to list all tenants in the system.
@@ -185,14 +162,14 @@ service cloud.firestore {
     match /tenants/{tenantId}/staff/{staffId} {
       // PUBLIC: Allow anyone to read staff profiles for booking pages.
       allow get, list: if true;
-      // PRIVATE: Restrict write access.
+      // PRIVATE: Restrict write access to owner or admin staff. Staff can edit their own profile.
       allow create: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
       allow update: if (isTenantOwner(tenantId) || isTenantAdmin(tenantId)) || (request.auth.uid == staffId);
       allow delete: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
     }
     
      /**
-      * @description Rules for staff documents.
+      * @description Rules for private staff documents.
       * @path /tenants/{tenantId}/staff/{staffId}/documents/{documentId}
       */
     match /tenants/{tenantId}/staff/{staffId}/documents/{documentId} {
@@ -204,7 +181,9 @@ service cloud.firestore {
      * @path /tenants/{tenantId}/resources/{resourceId}
      */
     match /tenants/{tenantId}/resources/{resourceId} {
+      // PUBLIC: Readable for booking page availability.
       allow get, list: if true;
+      // PRIVATE: Only owner or staff can manage resources.
       allow write: if isTenantOwner(tenantId) || isStaff(tenantId);
     }
 
@@ -218,9 +197,7 @@ service cloud.firestore {
      */
     match /tenants/{tenantId}/services/{serviceId} {
       allow get, list: if true;
-      allow create: if isTenantOwner(tenantId);
-      allow update: if isTenantOwner(tenantId);
-      allow delete: if isTenantOwner(tenantId);
+      allow write: if isTenantOwner(tenantId);
     }
 
     /**
@@ -232,9 +209,7 @@ service cloud.firestore {
      */
     match /tenants/{tenantId}/products/{productId} {
       allow get, list: if true;
-      allow create: if isTenantOwner(tenantId);
-      allow update: if isTenantOwner(tenantId);
-      allow delete: if isTenantOwner(tenantId);
+      allow write: if isTenantOwner(tenantId);
     }
 
     /**
@@ -255,7 +230,9 @@ service cloud.firestore {
       // Do not allow `get` to prevent reading sensitive appointment details.
       allow list: if true;
       allow get: if isTenantOwner(tenantId) || isTenantAdmin(tenantId) || (isStaff(tenantId) && resource.data.staffId == request.auth.uid);
+      // ANYONE can create an appointment (book).
       allow create: if true;
+      // Owner/Admin/Assigned Staff can update. Check-in token allows client to update their own check-in status.
       allow update: if isTenantOwner(tenantId) || isTenantAdmin(tenantId) || (isStaff(tenantId) && resource.data.staffId == request.auth.uid) || exists(/databases/$(database)/documents/appointmentCheckIns/$(resource.data.checkInToken));
       allow delete: if isTenantOwner(tenantId) || isTenantAdmin(tenantId) || (isStaff(tenantId) && resource.data.staffId == request.auth.uid);
     }
@@ -318,11 +295,11 @@ service cloud.firestore {
     }
 
     /**
-     * @description Rules for financial transactions. This data is private.
+     * @description Rules for financial transactions. This data is private to authenticated users of the tenant.
      * @path /tenants/{tenantId}/transactions/{transactionId}
      */
     match /tenants/{tenantId}/transactions/{transactionId} {
-        allow read, write: if isSignedIn();
+        allow read, write: if isTenantOwner(tenantId) || isStaff(tenantId);
     }
 
     /**
@@ -353,4 +330,3 @@ service cloud.firestore {
     }
   }
 }
-
