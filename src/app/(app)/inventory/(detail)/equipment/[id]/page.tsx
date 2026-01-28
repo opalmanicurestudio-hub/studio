@@ -267,7 +267,7 @@ export default function EquipmentDetailPage() {
         <div className="flex flex-col sm:flex-row items-start gap-4">
             <div className="w-24 h-24 bg-muted rounded-md flex items-center justify-center flex-shrink-0">
                 {equipment.imageUrl ? (
-                    <Image src={equipment.imageUrl} alt={equipment.name} width={96} height={96} className='rounded-md object-cover w-full h-full' data-ai-hint="equipment photo"/>
+                    <Image src={equipment.imageUrl} alt={equipment.name} width={96} height={96} className='rounded-md object-cover w-full h-full' />
                 ) : (
                     <Hammer className="w-12 h-12 text-muted-foreground" />
                 )}
@@ -292,7 +292,7 @@ export default function EquipmentDetailPage() {
             <CardContent className="p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className='space-y-1'>
                     <div className='text-sm text-muted-foreground flex items-center gap-2'><Tag className='w-4 h-4' /> SKU</div>
-                    <div className='font-mono text-sm'>{equipment.sku || 'N/A'}</div>
+                    <div className='font-mono text-sm'>{equipment.sku || equipment.id.slice(-6).toUpperCase()}</div>
                 </div>
                 <div className='space-y-1'>
                     <div className='text-sm text-muted-foreground flex items-center gap-2'><Truck className='w-4 h-4' /> Vendor</div>
@@ -496,3 +496,5 @@ export default function EquipmentDetailPage() {
     </div>
   );
 }
+
+    

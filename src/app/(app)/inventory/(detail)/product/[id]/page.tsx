@@ -263,7 +263,7 @@ export default function ProductDetailPage() {
         <div className="flex flex-col sm:flex-row items-start gap-4">
             <div className="w-24 h-24 bg-muted rounded-md flex-shrink-0 flex items-center justify-center">
                 {product.imageUrl ? (
-                    <Image src={product.imageUrl} alt={product.name} width={96} height={96} className='rounded-md object-cover w-full h-full' data-ai-hint="product photo"/>
+                    <Image src={product.imageUrl} alt={product.name} width={96} height={96} className='rounded-md object-cover w-full h-full' />
                 ) : (
                     <Package className="w-12 h-12 text-muted-foreground" />
                 )}
@@ -283,7 +283,7 @@ export default function ProductDetailPage() {
             <CardContent className="p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className='space-y-1'>
                     <div className='text-sm text-muted-foreground flex items-center gap-2'><Tag className='w-4 h-4' /> SKU</div>
-                    <div className='font-mono text-sm'>{product.sku || 'N/A'}</div>
+                    <div className='font-mono text-sm'>{product.sku || product.id.slice(-6).toUpperCase()}</div>
                 </div>
                 <div className='space-y-1'>
                     <div className='text-sm text-muted-foreground flex items-center gap-2'><Truck className='w-4 h-4' /> Vendor</div>
@@ -551,6 +551,8 @@ export default function ProductDetailPage() {
 
     
 }
+
+    
 
     
 
