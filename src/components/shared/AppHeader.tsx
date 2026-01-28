@@ -1,4 +1,3 @@
-
 'use client';
 
 import {
@@ -12,7 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { SidebarTrigger } from '@/components/ui/sidebar';
-import { Bell, LifeBuoy, LogOut, Settings, User, PackageX, Calendar, Landmark, Check, X, ShieldAlert, CreditCard } from 'lucide-react';
+import { Bell, LifeBuoy, LogOut, Settings, User, PackageX, Calendar, Landmark, Check, X, ShieldAlert, CreditCard, ChevronsUpDown, Building } from 'lucide-react';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { useState, useMemo, useEffect } from 'react';
 import { Badge } from '../ui/badge';
@@ -20,10 +19,9 @@ import Link from 'next/link';
 import { ClientOnly } from './ClientOnly';
 import { useInventory } from '@/context/InventoryContext';
 import { differenceInDays, isPast, parseISO } from 'date-fns';
-
-type AppHeaderProps = {
-  title: string;
-};
+import { useTenant } from '@/context/TenantContext'; 
+import { Skeleton } from '../ui/skeleton';
+import { cn } from '@/lib/utils';
 
 // Mock data for notifications
 const baseNotifications = [
@@ -33,7 +31,50 @@ const baseNotifications = [
     { id: 4, type: 'stock', message: "Expired Stock: 'Pro Color Tube 5N' has expired.", link: '/inventory', read: true, icon: <PackageX className="h-4 w-4 text-destructive" /> },
 ];
 
-export function AppHeader({ title }: AppHeaderProps) {
+const TenantSwitcher = () => {
+    const { tenants, selectedTenant, setSelectedTenant, isLoading } = useTenant();
+
+    if (isLoading) {
+        return <Skeleton className="h-10 w-48" />;
+    }
+
+    if (!selectedTenant || !tenants || tenants.length <= 1) {
+        return (
+            <div className="flex items-center gap-2">
+                <Building className="h-5 w-5 text-muted-foreground" />
+                <span className="font-semibold text-lg">{selectedTenant?.name || 'My Business'}</span>
+            </div>
+        );
+    }
+    
+    return (
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="gap-2">
+                    <Building className="h-5 w-5 text-muted-foreground" />
+                    <span className="font-semibold">{selectedTenant.name}</span>
+                    <ChevronsUpDown className="h-4 w-4 text-muted-foreground" />
+                </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+                <DropdownMenuLabel>Switch Location</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {tenants.map(tenant => (
+                    <DropdownMenuItem key={tenant.id} onClick={() => setSelectedTenant(tenant)} disabled={selectedTenant.id === tenant.id}>
+                       <div className="flex items-center justify-between w-full">
+                         <span className={cn("mr-2", selectedTenant.id === tenant.id ? "font-bold" : "font-normal")}>
+                            {tenant.name}
+                        </span>
+                         {selectedTenant.id === tenant.id && <Check className="h-4 w-4" />}
+                       </div>
+                    </DropdownMenuItem>
+                ))}
+            </DropdownMenuContent>
+        </DropdownMenu>
+    )
+}
+
+export function AppHeader() {
   const { staff } = useInventory();
   
   const licenseNotifications = useMemo(() => {
@@ -94,7 +135,9 @@ export function AppHeader({ title }: AppHeaderProps) {
     <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-background/80 px-4 backdrop-blur-sm md:px-6 print:hidden">
       <div className="flex items-center gap-2">
         <SidebarTrigger className="md:hidden" />
-        <h1 className="text-xl font-semibold md:text-2xl">{title}</h1>
+        <ClientOnly>
+          <TenantSwitcher />
+        </ClientOnly>
       </div>
       <div className="ml-auto flex items-center gap-2">
         <ClientOnly>

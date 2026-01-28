@@ -47,6 +47,7 @@ import { collection, query, where, Timestamp } from 'firebase/firestore';
 import { startOfDay, endOfDay, subDays, format as formatDate, startOfWeek } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { ClientOnly } from '@/components/shared/ClientOnly';
+import { useTenant } from '@/context/TenantContext';
 
 const barChartConfig = {
   profit: {
@@ -81,7 +82,9 @@ export default function DashboardPage() {
   
   const { firestore, user, isUserLoading } = useFirebase();
   const { inventory, clients, services, appointments: allAppointments, transactions: allTransactions } = useInventory();
-  const tenantId = 'tenant-abc';
+  const { selectedTenant, isLoading: isTenantLoading } = useTenant();
+  
+  const tenantId = selectedTenant?.id;
   
   const [dateRange, setDateRange] = useState<{todayStart: Date, todayEnd: Date, weekStart: Date} | null>(null);
 
@@ -97,7 +100,7 @@ export default function DashboardPage() {
 
   // Queries for today's data
   const todayTransactionsQuery = useMemoFirebase(() => {
-    if (!firestore || !user || !dateRange) return null;
+    if (!firestore || !user || !dateRange || !tenantId) return null;
     return query(
       collection(firestore, 'tenants', tenantId, 'transactions'),
       where('date', '>=', Timestamp.fromDate(dateRange.todayStart)),
@@ -106,7 +109,7 @@ export default function DashboardPage() {
   }, [firestore, user, dateRange, tenantId]);
 
   const todayAppointmentsQuery = useMemoFirebase(() => {
-    if (!firestore || !user || !dateRange) return null;
+    if (!firestore || !user || !dateRange || !tenantId) return null;
     return query(
       collection(firestore, 'tenants', tenantId, 'appointments'),
       where('startTime', '>=', Timestamp.fromDate(dateRange.todayStart)),
@@ -116,7 +119,7 @@ export default function DashboardPage() {
   
   // Query for the last 7 days of transactions for the chart
   const weeklyTransactionsQuery = useMemoFirebase(() => {
-    if (!firestore || !user || !dateRange) return null;
+    if (!firestore || !user || !dateRange || !tenantId) return null;
     return query(
       collection(firestore, 'tenants', tenantId, 'transactions'),
       where('date', '>=', Timestamp.fromDate(dateRange.weekStart)),
@@ -271,11 +274,11 @@ export default function DashboardPage() {
     }
   };
 
-  const isLoading = isUserLoading || transactionsLoading || appointmentsLoading || weeklyTransactionsLoading || !dateRange;
+  const isLoading = isUserLoading || isTenantLoading || transactionsLoading || appointmentsLoading || weeklyTransactionsLoading || !dateRange;
 
   return (
     <div className="flex min-h-screen w-full flex-col">
-      <AppHeader title="Dashboard" />
+      <AppHeader />
       <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card>
@@ -500,5 +503,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-
-    
