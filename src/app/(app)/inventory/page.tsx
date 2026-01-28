@@ -130,7 +130,7 @@ const OrderCard = ({ order, onSelect }: { order: Order, onSelect: (order: Order)
                             <Truck className="w-4 h-4 text-muted-foreground"/>
                             <span className="font-medium">Tracking:</span>
                             {order.trackingUrl ? (
-                                <a href={order.trackingUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-primary hover:underline">{order.trackingNumber}</a>
+                                <a href={order.trackingUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-primary hover:underline" onClick={(e) => e.stopPropagation()}>{order.trackingNumber}</a>
                             ) : (
                                 <span className="font-semibold">{order.trackingNumber}</span>
                             )}
@@ -199,7 +199,7 @@ const AddOrderDialog = ({
             notes,
             items,
             invoiceUrl,
-            ...(expectedDate && { expectedArrivalDate: expectedDate.toISOString() }),
+            ...(expectedDate ? { expectedArrivalDate: expectedDate.toISOString() } : {}),
         };
 
         onSave(newOrder);
@@ -379,7 +379,7 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                                             <Truck className="w-4 h-4 text-muted-foreground"/>
                                             <span className="font-medium">Tracking:</span>
                                             {order.trackingUrl ? (
-                                                <a href={order.trackingUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-primary hover:underline">{order.trackingNumber}</a>
+                                                <a href={order.trackingUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-primary hover:underline" onClick={(e) => e.stopPropagation()}>{order.trackingNumber}</a>
                                             ) : (
                                                 <span className="font-semibold">{order.trackingNumber}</span>
                                             )}
@@ -1533,6 +1533,7 @@ export default function InventoryPage() {
 }
 
     
+
 
 
 
