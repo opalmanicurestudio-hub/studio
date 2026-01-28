@@ -125,24 +125,21 @@ const OrderCard = ({ order, onSelect }: { order: Order, onSelect: (order: Order)
                 <div className="text-sm space-y-2">
                     <p><strong>{totalItems}</strong> items ordered</p>
                     <p>Total Cost: <strong>${totalCost.toFixed(2)}</strong></p>
-                    {order.trackingNumber && (
+                    {order.trackingUrl && (
                         <div className="flex items-center gap-2">
                             <Truck className="w-4 h-4 text-muted-foreground"/>
-                            <span className="font-medium">Tracking:</span>
-                            {order.trackingUrl ? (
-                                <Button
-                                    variant="link"
-                                    className="font-semibold text-primary hover:underline p-0 h-auto"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
+                            <Button
+                                variant="outline"
+                                size="xs"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (order.trackingUrl) {
                                         window.open(order.trackingUrl, '_blank', 'noopener,noreferrer');
-                                    }}
-                                >
-                                    {order.trackingNumber}
-                                </Button>
-                            ) : (
-                                <span className="font-semibold">{order.trackingNumber}</span>
-                            )}
+                                    }
+                                }}
+                            >
+                                Track
+                            </Button>
                         </div>
                     )}
                     {order.expectedArrivalDate && <p>Expected: <strong>{format(parseISO(order.expectedArrivalDate), 'MMM d, yyyy')}</strong></p>}
@@ -294,8 +291,7 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
             setEditableOrder(order);
         }
     }, [order]);
-
-    if (!order) return null;
+    
     if (!editableOrder) return null;
 
     const totalCost = editableOrder.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
@@ -336,12 +332,12 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                 <DialogHeader>
                     <div className="flex justify-between items-start">
                         <div>
-                            <DialogTitle>Order from {order.supplier}</DialogTitle>
+                            <DialogTitle>Order from {editableOrder.supplier}</DialogTitle>
                             <DialogDescription>
-                                Order ID: {order.id.slice(-6).toUpperCase()}
+                                Order ID: {editableOrder.id.slice(-6).toUpperCase()}
                             </DialogDescription>
                         </div>
-                        <Badge variant="secondary">{order.status}</Badge>
+                        <Badge variant="secondary">{editableOrder.status}</Badge>
                     </div>
                 </DialogHeader>
                  <div className="py-4 max-h-[60vh] overflow-y-auto pr-4 -mr-4">
@@ -369,7 +365,7 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                              <div className="space-y-4">
                                 <p><strong>Items:</strong></p>
                                 <div className="space-y-2 border rounded-md p-2">
-                                {order.items.map(item => (
+                                {editableOrder.items.map(item => (
                                     <div key={item.productId} className="flex justify-between items-center p-2 hover:bg-muted/50 rounded-md">
                                         <div>
                                             <p className="font-medium">{item.productName}</p>
@@ -384,35 +380,35 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                                 </div>
                                 </div>
                                 <div className="text-sm space-y-2">
-                                    {order.trackingNumber && (
+                                    {editableOrder.trackingNumber && (
                                         <div className="flex items-center gap-2">
                                             <Truck className="w-4 h-4 text-muted-foreground"/>
                                             <span className="font-medium">Tracking:</span>
-                                            {order.trackingUrl ? (
+                                            <span className="font-semibold">{editableOrder.trackingNumber}</span>
+                                            {editableOrder.trackingUrl && (
                                                 <Button
-                                                    variant="link"
-                                                    className="font-semibold text-primary hover:underline p-0 h-auto"
+                                                    variant="outline"
+                                                    size="xs"
+                                                    className="ml-2"
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        window.open(order.trackingUrl, '_blank', 'noopener,noreferrer');
+                                                        window.open(editableOrder.trackingUrl, '_blank', 'noopener,noreferrer');
                                                     }}
                                                 >
-                                                    {order.trackingNumber}
+                                                    Track
                                                 </Button>
-                                            ) : (
-                                                <span className="font-semibold">{order.trackingNumber}</span>
                                             )}
                                         </div>
                                     )}
-                                    {order.expectedArrivalDate && <p><strong>Expected Arrival:</strong> {format(parseISO(order.expectedArrivalDate), 'MMM d, yyyy')}</p>}
-                                    {order.invoiceUrl && (
+                                    {editableOrder.expectedArrivalDate && <p><strong>Expected Arrival:</strong> {format(parseISO(editableOrder.expectedArrivalDate), 'MMM d, yyyy')}</p>}
+                                    {editableOrder.invoiceUrl && (
                                         <div className="flex items-center gap-2">
                                             <FileImage className="w-4 h-4 text-muted-foreground" />
                                             <span className="font-medium">Invoice:</span>
-                                            <a href={order.invoiceUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-primary hover:underline">View Attached File</a>
+                                            <a href={editableOrder.invoiceUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-primary hover:underline">View Attached File</a>
                                         </div>
                                     )}
-                                    {order.notes && <p><strong>Notes:</strong> {order.notes}</p>}
+                                    {editableOrder.notes && <p><strong>Notes:</strong> {editableOrder.notes}</p>}
                                 </div>
                             </div>
                         )}
@@ -426,7 +422,7 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                         </>
                     ) : (
                         <>
-                            <Button variant="destructive" onClick={handleCancel} disabled={order.status === 'Cancelled'}>Cancel Order</Button>
+                            <Button variant="destructive" onClick={handleCancel} disabled={editableOrder.status === 'Cancelled'}>Cancel Order</Button>
                             <div className="flex-1" />
                             <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
                             <Button onClick={() => setIsEditing(true)}>Edit Order</Button>
@@ -1556,10 +1552,4 @@ export default function InventoryPage() {
 }
 
     
-
-
-
-
-
-
-
+```
