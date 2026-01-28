@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState } from 'react';
@@ -75,10 +76,14 @@ export const AddLocationDialog = ({
   } = useForm<LocationFormData>({
     resolver: zodResolver(locationSchema),
     defaultValues: {
+      name: '',
+      locationTypeId: '',
+      description: '',
       refrigerated: false,
       noSunlight: false,
       ventilated: false,
       humidityControlled: false,
+      customNeeds: '',
     }
   });
 
