@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -48,7 +49,7 @@ const equipmentSchema = z.object({
   lifespanYears: z.coerce.number().min(0, 'Lifespan must be a positive number.'),
   purchaseDate: z.date({ required_error: 'A purchase date is required.' }),
   supplier: z.string().optional(),
-  supplierUrl: z.string().url().optional().or(z.literal('')),
+  supplierUrl: z.string().optional(),
   primaryLocationId: z.string().optional(),
   imageUrl: z.string().optional(),
 });

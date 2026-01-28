@@ -1,24 +1,25 @@
+
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useForm, FormProvider, useFormContext, Controller } from 'react-hook-form';
+import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from '@/components/ui/dialog';
 import {
   Sheet,
   SheetContent,
-  SheetHeader,
-  SheetTitle,
   SheetDescription,
   SheetFooter,
+  SheetHeader,
+  SheetTitle,
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,16 +36,24 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { type InventoryItem, type Location } from '@/lib/data';
-import { Check, PlusCircle, QrCode, AlertTriangle } from 'lucide-react';
+import { type InventoryItem, type Location, type ConsentForm, type Resource } from '@/lib/data';
+import { useToast } from '@/hooks/use-toast';
+import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2, EyeOff } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { inventory, services as allServices, type Service } from '@/lib/data';
 import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectEquipmentDialog } from '../services/SelectEquipmentDialog';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
+import { BrowseConsentFormsDialog } from '../services/BrowseConsentFormsDialog';
+import { Switch } from '../ui/switch';
+import { useInventory } from '@/context/InventoryContext';
+import { SelectResourcesDialog } from './SelectResourcesDialog';
+import { cn } from '@/lib/utils';
+import { useFirebase, useMemoFirebase, useCollection } from '@/firebase';
+import { collection } from 'firebase/firestore';
 
-const productSchema = z.object({
+const editProductSchema = z.object({
   id: z.string(),
   name: z.string().min(1, 'Product name is required'),
   type: z.enum(['professional', 'retail', 'equipment', 'overhead']),
@@ -69,59 +78,66 @@ const productSchema = z.object({
 
   supplier: z.string().optional(),
   sku: z.string().optional(),
-  purchaseLink: z.string().url().optional().or(z.literal('')),
+  purchaseLink: z.string().optional(),
   reorderPoint: z.coerce.number().optional(),
   primaryLocationId: z.string().optional(),
 });
 
-type ProductFormData = z.infer<typeof productSchema>;
+type ProductFormData = z.infer<typeof editProductSchema>;
 
 const Step1_BasicDetails = ({ categories, onNewCategory }: { categories: string[]; onNewCategory: (category: string) => void; }) => {
-    const { register, control, setValue, formState: { errors } } = useFormContext<ProductFormData>();
+    const { register, control, setValue, watch, formState: { errors } } = useFormContext<ProductFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
+    const category = watch('category');
 
     const handleAddNewCategory = () => {
-        if (newCategoryName.trim()) {
-            onNewCategory(newCategoryName.trim());
-            setValue('category', newCategoryName.trim(), { shouldValidate: true });
-            setIsAddingCategory(false);
+        if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
+            const newCategory = newCategoryName.trim();
+            onNewCategory(newCategory);
+            setValue('category', newCategory, { shouldValidate: true });
             setNewCategoryName('');
+            setIsAddingCategory(false);
         }
     };
     
     return (
-        <div className="grid gap-6 py-4">
-            <div className="space-y-2">
-            <Label htmlFor="product-name">Product Name</Label>
-            <Input id="product-name" {...register('name')} />
-            {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
-            </div>
-            <div className="space-y-2">
-            <Label htmlFor="category">Category</Label>
-            {isAddingCategory ? (
-                <div className="flex gap-2">
-                <Input placeholder="New category..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} />
-                <Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button>
-                </div>
-            ) : (
-                <div className="flex gap-2">
-                <Controller name="category" control={control} render={({ field }) => (
-                    <Select onValueChange={field.onChange} value={field.value}>
-                        <SelectTrigger><SelectValue placeholder="Select a category" /></SelectTrigger>
-                        <SelectContent>{categories.map(cat => (<SelectItem key={cat} value={cat}>{cat}</SelectItem>))}</SelectContent>
-                    </Select>
-                )} />
-                <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"><PlusCircle className="h-4 w-4" /></Button>
-                </div>
-            )}
-            {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
-            </div>
-             <div className="space-y-2">
-                <Label>Product Image</Label>
-                <Controller name="imageUrl" control={control} render={({ field }) => (<ImageUpload onImageUploaded={field.onChange} initialImage={field.value} />)} />
-            </div>
+  <div className="grid gap-6 py-4">
+    <div className="space-y-2">
+      <Label htmlFor="product-name">Product Name</Label>
+      <Input id="product-name" {...register('name')} />
+       {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+    </div>
+    <div className="space-y-2">
+      <Label htmlFor="category-edit">Category</Label>
+      {isAddingCategory ? (
+        <div className="flex gap-2">
+          <Input
+            placeholder="Enter new category name..."
+            value={newCategoryName}
+            onChange={(e) => setNewCategoryName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()}
+          />
+          <Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button>
         </div>
+      ) : (
+        <div className="flex gap-2">
+          <Controller name="category" control={control} render={({ field }) => (
+               <Select onValueChange={field.onChange} value={field.value}>
+                <SelectTrigger> <SelectValue placeholder="Select a category" /> </SelectTrigger>
+                <SelectContent> {categories.map(cat => ( <SelectItem key={cat} value={cat}>{cat}</SelectItem> ))} </SelectContent>
+              </Select>
+          )}/>
+          <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"> <PlusCircle className="h-4 w-4" /> </Button>
+        </div>
+      )}
+       {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
+    </div>
+     <div className="space-y-2">
+        <Label>Product Image</Label>
+        <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} /> )}/>
+    </div>
+  </div>
     );
 };
 
@@ -277,7 +293,7 @@ export const EditProductDialog: React.FC<EditProductDialogProps> = ({
   const isMobile = useIsMobile();
   
   const methods = useForm<ProductFormData>({
-    resolver: zodResolver(productSchema),
+    resolver: zodResolver(editProductSchema),
   });
 
   useEffect(() => {

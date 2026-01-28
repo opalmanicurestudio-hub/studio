@@ -70,7 +70,7 @@ const productSchema = z.object({
 
   supplier: z.string().optional(),
   sku: z.string().optional(),
-  purchaseLink: z.string().url().optional().or(z.literal('')),
+  purchaseLink: z.string().optional(),
   reorderPoint: z.coerce.number().optional(),
   initialStock: z.coerce.number().min(1, 'Initial stock is required'),
   expirationDate: z.date().optional(),
