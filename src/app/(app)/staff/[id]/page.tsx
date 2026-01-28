@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -28,6 +29,8 @@ import {
   BookOpen,
   Users,
   Award,
+  Clock,
+  Loader,
 } from 'lucide-react';
 import { services as initialServices, type Service, Staff, DayHours, ActivityLog } from '@/lib/data';
 import Link from 'next/link';
@@ -39,7 +42,6 @@ import { cn } from '@/lib/utils';
 import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog';
 import { useFirebase, useCollection, useDoc, useMemoFirebase } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
-import { Loader } from 'lucide-react';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
