@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -50,6 +48,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import Link from 'next/link';
+import { useTenant } from '@/context/TenantContext';
 
 const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewActivity: (member: Staff & { stats: any }) => void }) => {
     const [licenseInfo, setLicenseInfo] = useState<{
@@ -169,43 +168,43 @@ export default function StaffPage() {
   const tenantId = selectedTenant?.id;
   
   const staffQuery = useMemoFirebase(() => {
-    if (!firestore || !user) return null;
+    if (!firestore || !user || !tenantId) return null;
     return collection(firestore, 'tenants', tenantId, 'staff');
   }, [firestore, user, tenantId]);
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
 
   const servicesQuery = useMemoFirebase(() => {
-    if (!firestore || !user) return null;
+    if (!firestore || !user || !tenantId) return null;
     return collection(firestore, 'tenants', tenantId, 'services');
   }, [firestore, user, tenantId]);
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
 
   const transactionsQuery = useMemoFirebase(() => {
-    if (!firestore || !user) return null;
+    if (!firestore || !user || !tenantId) return null;
     return collection(firestore, 'tenants', tenantId, 'transactions');
   }, [firestore, user, tenantId]);
   const { data: rawTransactions } = useCollection<Transaction>(transactionsQuery);
 
   const appointmentsQuery = useMemoFirebase(() => {
-    if (!firestore || !user) return null;
+    if (!firestore || !user || !tenantId) return null;
     return collection(firestore, 'tenants', tenantId, 'appointments');
   }, [firestore, user, tenantId]);
   const { data: rawAppointments } = useCollection<Appointment>(appointmentsQuery);
   
   const activityLogsQuery = useMemoFirebase(() => {
-    if (!firestore || !user) return null;
+    if (!firestore || !user || !tenantId) return null;
     return collection(firestore, 'tenants', tenantId, 'activityLogs');
   }, [firestore, user, tenantId]);
   const { data: rawActivityLogs } = useCollection<ActivityLog>(activityLogsQuery);
 
   const stockCorrectionsQuery = useMemoFirebase(() => {
-    if (!firestore || !user) return null;
+    if (!firestore || !user || !tenantId) return null;
     return collection(firestore, 'tenants', tenantId, 'stockCorrections');
   }, [firestore, user, tenantId]);
   const { data: stockCorrections } = useCollection<StockCorrection>(stockCorrectionsQuery);
 
   const consentFormsQuery = useMemoFirebase(() => {
-    if (!firestore || !user) return null;
+    if (!firestore || !user || !tenantId) return null;
     return collection(firestore, 'tenants', tenantId, 'consentForms');
   }, [firestore, user, tenantId]);
   const { data: consentForms } = useCollection<ConsentForm>(consentFormsQuery);

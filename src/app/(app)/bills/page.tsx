@@ -55,9 +55,9 @@ import { format as formatTZ, toZonedTime } from 'date-fns-tz';
 import { isPast, isFuture, parseISO } from 'date-fns';
 import { LogPaymentDialog } from '@/components/bills/LogPaymentDialog';
 import { useToast } from '@/hooks/use-toast';
-import { useInventory } from '@/context/InventoryContext';
 import { useCollection, useFirebase, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
+import { useTenant } from '@/context/TenantContext';
 
 type StatusFilter = 'all' | 'paid' | 'unpaid' | 'overdue';
 type ContextFilter = 'all' | 'Business' | 'Personal';
@@ -203,32 +203,30 @@ const BillCard = ({ instance, onLogPaymentClick }: { instance: BillInstance & { 
 
 
 export default function BillsPage() {
-  const { billDefinitions: mockDefinitions, billInstances: mockInstances } = useInventory();
   const { firestore, user, isUserLoading } = useFirebase();
-  const tenantId = 'tenant-abc';
+  const { selectedTenant } = useTenant();
+  const tenantId = selectedTenant?.id;
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [contextFilter, setContextFilter] = useState<ContextFilter>('all');
   const [selectedBill, setSelectedBill] = useState<(BillInstance & { definition: BillDefinition }) | null>(null);
   const { toast } = useToast();
 
   const billDefinitionsQuery = useMemoFirebase(() => {
-    if (isUserLoading || !user || !firestore) return null;
+    if (isUserLoading || !user || !firestore || !tenantId) return null;
     return collection(firestore, 'tenants', tenantId, 'bills');
   }, [firestore, user, isUserLoading, tenantId]);
 
   const billInstancesQuery = useMemoFirebase(() => {
-    if (isUserLoading || !user || !firestore) return null;
+    if (isUserLoading || !user || !firestore || !tenantId) return null;
     return collection(firestore, 'tenants', tenantId, 'billInstances');
   }, [firestore, user, isUserLoading, tenantId]);
 
-  const { data: fetchedBillDefinitions, isLoading: definitionsLoading } = useCollection<BillDefinition>(billDefinitionsQuery);
-  const { data: fetchedBillInstances, isLoading: instancesLoading } = useCollection<BillInstance>(billInstancesQuery);
+  const { data: billDefinitions, isLoading: definitionsLoading } = useCollection<BillDefinition>(billDefinitionsQuery);
+  const { data: billInstances, isLoading: instancesLoading } = useCollection<BillInstance>(billInstancesQuery);
   
-  const billDefinitions = useMemo(() => (fetchedBillDefinitions && fetchedBillDefinitions.length > 0) ? fetchedBillDefinitions : mockDefinitions, [fetchedBillDefinitions, mockDefinitions]);
-  const billInstances = useMemo(() => (fetchedBillInstances && fetchedBillInstances.length > 0) ? fetchedBillInstances : mockInstances, [fetchedBillInstances, mockInstances]);
-
 
   const instancesWithDefinitions = useMemo(() => {
+    if (!billInstances || !billDefinitions) return [];
     return billInstances.map(instance => {
       const definition = billDefinitions.find(def => def.id === instance.billDefinitionId);
       return { ...instance, definition: definition! };
@@ -236,6 +234,7 @@ export default function BillsPage() {
   }, [billInstances, billDefinitions]);
 
   const { monthlyTotal, upcomingTotal, pastDueTotal } = useMemo(() => {
+    if (!billDefinitions || !instancesWithDefinitions) return { monthlyTotal: 0, upcomingTotal: 0, pastDueTotal: 0 };
     const total = billDefinitions.reduce((acc, def) => def.billingCycle === 'monthly' ? acc + def.amount : acc, 0);
     const upcoming = instancesWithDefinitions.filter(i => i.status !== 'paid' && isFuture(parseISO(i.dueDate))).reduce((acc, i) => acc + i.amountDue, 0);
     const pastDue = instancesWithDefinitions.filter(i => i.status === 'overdue').reduce((acc, i) => acc + i.amountDue, 0);
@@ -267,7 +266,7 @@ export default function BillsPage() {
   };
   
   const handleLogPaymentConfirm = (paymentData: { amount: number; date: Date; paymentMethod: string; paymentMethodIdentifier?: string; notes?: string; receiptUrl?: string }) => {
-    if (!selectedBill || !firestore || !user) return;
+    if (!selectedBill || !firestore || !user || !tenantId) return;
     
     // 1. Update the BillInstance in Firestore
     const billInstanceRef = doc(firestore, 'tenants', tenantId, 'billInstances', selectedBill.id);
@@ -291,7 +290,6 @@ export default function BillsPage() {
         category: selectedBill.definition.category,
         amount: paymentData.amount,
         paymentMethod: paymentData.paymentMethod,
-        paymentMethodIdentifier: paymentData.paymentMethodIdentifier,
         hasReceipt: !!paymentData.receiptUrl,
         receiptUrl: paymentData.receiptUrl,
         relatedBillInstanceId: selectedBill.id,
@@ -430,3 +428,5 @@ export default function BillsPage() {
     </div>
   );
 }
+
+    
