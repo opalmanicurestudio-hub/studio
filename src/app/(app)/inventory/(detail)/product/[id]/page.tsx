@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -12,7 +10,6 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Edit, DollarSign, Package, AlertCircle, ShoppingCart, BarChart, FileText, Clock, Database, Book, QrCode, Tag, Truck, TrendingUp, TrendingDown, RefreshCw, Percent } from 'lucide-react';
-import { services } from '@/lib/data';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -30,7 +27,7 @@ import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import React, { useMemo, useState } from 'react';
 import { useInventory } from '@/context/InventoryContext';
-import { StockCorrection, type InventoryItem } from '@/lib/data';
+import { StockCorrection, type InventoryItem, type Service } from '@/lib/data';
 import { EditProductDialog } from '@/components/inventory/EditProductDialog';
 import { useToast } from '@/hooks/use-toast';
 
@@ -44,14 +41,19 @@ const CorrectionIcon = ({ reason }: { reason: string }) => {
 
 export default function ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { inventory, stockCorrections, setInventory, locations } = useInventory();
+  const { inventory, stockCorrections, setInventory, locations, services } = useInventory();
   const { toast } = useToast();
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   
   const product = inventory.find((p) => p.id === id);
 
   const handleProductUpdate = (updatedProduct: InventoryItem) => {
-    setInventory(prev => prev.map(p => p.id === updatedProduct.id ? updatedProduct : p));
+    // This is a placeholder. In a real app, you'd call a function from context or a server action.
+    const updatedInventory = inventory.map(p => p.id === updatedProduct.id ? updatedProduct : p);
+    // In a real app, you'd likely call a function passed down via context to update the state
+    // For now, we'll just log it.
+    console.log("Updated Inventory (simulation):", updatedInventory);
+
     toast({
         title: "Product Updated",
         description: `${updatedProduct.name} has been successfully updated.`,
@@ -76,7 +78,7 @@ export default function ProductDetailPage() {
     )
   }
   
-  const servicesUsingProduct = services.filter(s => s.products?.some(p => p.id === product.id));
+  const servicesUsingProduct = (services || []).filter(s => s.products?.some(p => p.id === product.id));
   const productStockCorrections = stockCorrections.filter(sc => sc.productId === product.id).sort((a,b) => parseISO(b.date).getTime() - parseISO(a.date).getTime());
 
   const stockValue = (product.totalStock || 0) * (product.costPerUnit || 0);

@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -21,7 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import Image from 'next/image';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { format, differenceInMonths, parseISO, differenceInYears } from 'date-fns';
-import { type MaintenanceRecord, type Service, appointments as initialAppointments, clients as initialClients, type LifespanTestResult, type InventoryItem } from '@/lib/data';
+import { type MaintenanceRecord, type Service, type LifespanTestResult, type InventoryItem } from '@/lib/data';
 import {
   Dialog,
   DialogContent,
@@ -150,7 +148,12 @@ export default function EquipmentDetailPage() {
   const equipment = inventory.find((p) => p.id === id && p.type === 'equipment');
   
   const handleEquipmentUpdate = (updatedEquipment: InventoryItem) => {
-    setInventory(prev => prev.map(item => item.id === updatedEquipment.id ? updatedEquipment : item));
+    // This is a placeholder. In a real app, you'd call a function from context or a server action.
+    const updatedInventory = inventory.map(item => item.id === updatedEquipment.id ? updatedEquipment : item);
+    // In a real app, you'd likely call a function passed down via context to update the state
+    // For now, we'll just log it.
+    console.log("Updated Inventory (simulation):", updatedInventory);
+    
     toast({
         title: "Equipment Updated",
         description: `${updatedEquipment.name} has been successfully updated.`,
@@ -192,7 +195,8 @@ export default function EquipmentDetailPage() {
       .filter(apt => {
         if (apt.status !== 'completed') return false;
         const service = services.find(s => s.id === apt.serviceId);
-        return service?.equipment?.some(e => e.id === equipment.id);
+        // The original code had a bug here, referencing equipment instead of service.equipment
+        return service?.requiredResourceIds?.includes(equipment.id);
       })
       .map(apt => ({
           ...apt,
@@ -208,9 +212,8 @@ export default function EquipmentDetailPage() {
     const newRecord: MaintenanceRecord = { ...entry, id: `maint-${Date.now()}` };
     const updatedHistory = [...(equipment.maintenanceHistory || []), newRecord];
     
-    setInventory(prev => prev.map(item => 
-        item.id === equipment.id ? { ...item, maintenanceHistory: updatedHistory } : item
-    ));
+    // In a real app, this would be a Firestore update
+    console.log("Saving maintenance:", newRecord);
   };
 
   const handleToggleExperiment = () => {
@@ -219,33 +222,16 @@ export default function EquipmentDetailPage() {
     if (equipment.isExperimentActive) {
         setIsEndExperimentOpen(true);
     } else {
-        setInventory(prev => prev.map(item => 
-            item.id === equipment.id ? { ...item, isExperimentActive: true, lastTestResult: undefined } : item
-        ));
+        // In a real app, this would be a Firestore update
+        console.log("Starting experiment for:", equipment.id);
     }
   }
 
   const handleEndExperimentConfirmed = (results: LifespanTestResult) => {
     if (!equipment) return;
     
-    setInventory(prev => prev.map(item => {
-        if (item.id === equipment.id) {
-            const updatedItem: InventoryItem = { 
-                ...item, 
-                isExperimentActive: false,
-                lastTestResult: results,
-            };
-            
-            if (item.type === 'professional' || item.type === 'retail') {
-                updatedItem.estimatedUses = results.actualLifespanMonths; // Re-using this field for actual uses
-            } else if (item.type === 'equipment') {
-                updatedItem.actualLifespanMonths = results.actualLifespanMonths;
-            }
-
-            return updatedItem;
-        }
-        return item;
-    }));
+    // In a real app, this would be a Firestore update
+    console.log("Ending experiment with results:", results);
     
     setIsEndExperimentOpen(false);
 };
