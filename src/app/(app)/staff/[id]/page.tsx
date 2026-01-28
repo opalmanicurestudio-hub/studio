@@ -171,8 +171,21 @@ export default function StaffDetailPage() {
     }, [staffMember?.availability]);
   
   const staffServices = useMemo(() => {
-      if (!staffMember?.services || !services) return [];
-      return services.filter(s => staffMember.services?.includes(s.id));
+    if (!staffMember?.services || !services || !staffMember.skillLevel) return [];
+    
+    const staffSkillLevel = staffMember.skillLevel;
+
+    return services
+      .filter(s => staffMember.services?.includes(s.id) && !s.isPrivate)
+      .map(service => {
+        const tierPrice = service.pricingTiers?.find(t => t.level === staffSkillLevel)?.price;
+        // Fallback to senior price or base price if specific tier not found
+        const finalPrice = tierPrice ?? service.pricingTiers?.find(t => t.level === 'senior')?.price ?? service.price;
+        return {
+          ...service,
+          price: finalPrice, // Override the service price with the correct tier price
+        };
+      });
   }, [staffMember, services]);
 
   if (isLoading) {

@@ -102,9 +102,7 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity }: { m
                         {member.active ? (member.onBreak ? 'On Break' : 'Clocked In') : 'Clocked Out'}
                     </Badge>
                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 -mt-2 -mr-2"><MoreHorizontal className="h-4 w-4" /></Button>
-                        </DropdownMenuTrigger>
+                        <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 -mt-2 -mr-2"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                         <DropdownMenuContent>
                              <DropdownMenuItem asChild>
                                 <Link href={`/staff/${member.id}`}>View Public Profile</Link>
@@ -122,7 +120,10 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity }: { m
                     <AvatarFallback>{member.name.substring(0, 2)}</AvatarFallback>
                 </Avatar>
                 <h3 className="text-lg font-semibold">{member.name}</h3>
-                <p className="text-sm text-muted-foreground capitalize">{member.role}</p>
+                <div className="flex items-center justify-center gap-2">
+                    <p className="text-sm text-muted-foreground capitalize">{member.role}</p>
+                    {member.skillLevel && <Badge variant="outline" className="capitalize">{member.skillLevel}</Badge>}
+                </div>
                 <Separator className="my-4" />
                 <div className="w-full text-left space-y-3 text-sm">
                     <div className="flex justify-between items-center"><span className="text-muted-foreground">Total Sales</span><span className="font-semibold">${member.stats.totalSales.toFixed(2)}</span></div>
@@ -585,6 +586,7 @@ export default function StaffPage() {
     </div>
   );
 }
+
 
 
 
