@@ -164,9 +164,9 @@ const AddAppointmentForm = ({
             return true;
           })
           .forEach(apt => {
-            const aptService = services.find(s => s.id === apt.serviceId);
-            const padBefore = aptService?.padBefore || 0;
-            const padAfter = aptService?.padAfter || 0;
+            const service = services.find(s => s.id === apt.serviceId);
+            const padBefore = service?.padBefore || 0;
+            const padAfter = service?.padAfter || 0;
             busyIntervals.push({
               start: addMinutes(apt.startTime, -padBefore),
               end: addMinutes(apt.endTime, padAfter),

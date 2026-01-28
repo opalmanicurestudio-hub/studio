@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -55,7 +56,7 @@ export const MergeClientsDialog = ({
 
   const handleFindDuplicates = () => {
     if (!email) return;
-    const found = allClients.filter(c => c.email.toLowerCase() === email.toLowerCase());
+    const found = allClients.filter(c => c.email && c.email.toLowerCase() === email.toLowerCase());
     if (found.length < 2) {
       toast({
         title: 'No Duplicates Found',
@@ -155,7 +156,7 @@ export const MergeClientsDialog = ({
                                                 <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
                                                      <div className="flex items-center gap-1.5"><DollarSign className="w-3 h-3" /> LTV: ${client.lifetimeValue.toFixed(2)}</div>
                                                      <div className="flex items-center gap-1.5"><Hash className="w-3 h-3" /> Appts: {clientAppointments.length}</div>
-                                                     <div className="flex items-center gap-1.5"><Calendar className="w-3 h-3" /> Last seen: {format(new Date(client.lastAppointment), "MMM yyyy")}</div>
+                                                     <div className="flex items-center gap-1.5"><Calendar className="w-3 h-3" /> Last seen: {client.lastAppointment ? format(new Date(client.lastAppointment), "MMM yyyy") : 'N/A'}</div>
                                                 </div>
                                             </div>
                                         </div>

@@ -139,7 +139,7 @@ const InlineProfitTester = ({ service, tmhr, onPriceUpdate }: { service: Service
         </div>
       </div>
        <div className='text-[10px] text-muted-foreground space-y-0.5 text-center'>
-          <p>Break-Even: ${breakEvenPoint?.toFixed(2)}</p>
+          <p>Break-Even: ${breakEvenCost?.toFixed(2)}</p>
        </div>
        <Button size="sm" className="w-full" onClick={handleUpdateClick} disabled={testPrice === service.price}>
             Update Service Price
@@ -451,30 +451,10 @@ export default function ServicesPage() {
   const [selectedItems, setSelectedItems] = useState(new Set<string>());
   const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
 
-  const { firestore, user, isUserLoading } = useFirebase();
+  const { firestore, user } = useFirebase();
   const tenantId = 'tenant-abc';
+  const { services, appointments, resources, isLoading } = useInventory();
   
-  const servicesQuery = useMemoFirebase(() => {
-    if (isUserLoading || !user || !firestore) return null;
-    return collection(firestore, 'tenants', tenantId, 'services');
-  }, [firestore, user, isUserLoading, tenantId]);
-
-  const { data: services, isLoading: areServicesLoading } = useCollection<Service>(servicesQuery);
-  
-  const appointmentsQuery = useMemoFirebase(() => {
-    if (isUserLoading || !user || !firestore) return null;
-    return collection(firestore, 'tenants', tenantId, 'appointments');
-  }, [firestore, user, isUserLoading, tenantId]);
-
-  const { data: appointments, isLoading: areAppointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
-
-   const resourcesQuery = useMemoFirebase(() => {
-    if (isUserLoading || !user || !firestore) return null;
-    return collection(firestore, 'tenants', tenantId, 'resources');
-  }, [firestore, user, isUserLoading, tenantId]);
-
-  const { data: resources, isLoading: areResourcesLoading } = useCollection<Resource>(resourcesQuery);
-
 
   const handleItemSelect = useCallback((itemId: string) => {
     setSelectedItems(prev => {
@@ -543,7 +523,8 @@ export default function ServicesPage() {
     
     const breakEvenCost = serviceToUpdate.cost;
     const newProfit = newPrice - breakEvenCost;
-    const newMargin = newPrice > 0 ? (newProfit / finalPrice) * 100 : 0;
+    const finalPrice = newPrice;
+    const newMargin = finalPrice > 0 ? (newProfit / finalPrice) * 100 : 0;
 
     const serviceRef = doc(firestore, 'tenants', tenantId, 'services', serviceId);
     updateDocumentNonBlocking(serviceRef, { 
@@ -705,7 +686,7 @@ export default function ServicesPage() {
             <TabsTrigger value="add-ons">Add-ons</TabsTrigger>
           </TabsList>
           <TabsContent value="services" className="mt-6 space-y-8">
-             {!hasServices && !areServicesLoading ? (
+             {!hasServices && !isLoading ? (
                 <EmptyState onAddNewService={() => setIsAddServiceDialogOpen(true)} />
             ) : Object.keys(servicesByCategory).length > 0 ? (
                 Object.entries(servicesByCategory).map(([category, services]) => (
@@ -721,7 +702,7 @@ export default function ServicesPage() {
                         onSelectItem={handleItemSelect}
                     />
                 ))
-            ) : !areServicesLoading ? (
+            ) : !isLoading ? (
                  <Card>
                     <CardContent className="text-center py-20">
                         <p className="text-muted-foreground">No services match your filters.</p>

@@ -2,38 +2,28 @@
 
 'use client';
 
-import React, { createContext, useContext, useState, ReactNode } from 'react';
-import { 
-    inventory as initialInventory, 
-    stockCorrections as initialStockCorrections, 
+import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
+import { useTenant } from '@/context/TenantContext';
+import { collection, doc } from 'firebase/firestore';
+import {
     type InventoryItem, 
     type StockCorrection,
     type Location as LocationType,
     type LocationType as LocType,
-    clients as initialClients,
     type Client,
-    appointments as initialAppointments,
     type Appointment,
-    services as initialServices,
     type Service,
-    initialLocations,
-    initialLocationTypes,
-    type ConsentForm,
-    staff as initialStaff,
     type Staff,
-    walkIns as initialWalkIns,
     type WalkIn,
-    activityLogs as initialActivityLogs,
     type ActivityLog,
-    memberships as initialMemberships,
     type Membership,
-    packages as initialPackages,
-    type Package
+    type Package,
+    type ConsentForm,
+    type Resource,
+    type Event,
 } from '@/lib/data';
 import {
-    billDefinitions as initialBillDefinitions,
-    billInstances as initialBillInstances,
-    transactions as initialTransactions,
     type BillDefinition as Bill,
     type BillInstance,
     type Transaction,
@@ -42,95 +32,74 @@ import {
 
 interface InventoryContextType {
   inventory: InventoryItem[];
-  setInventory: React.Dispatch<React.SetStateAction<InventoryItem[]>>;
   stockCorrections: StockCorrection[];
-  setStockCorrections: React.Dispatch<React.SetStateAction<StockCorrection[]>>;
-  addStockCorrection: (correction: StockCorrection) => void;
   locations: LocationType[];
-  setLocations: React.Dispatch<React.SetStateAction<LocationType[]>>;
   locationTypes: LocType[];
-  setLocationTypes: React.Dispatch<React.SetStateAction<LocType[]>>;
   billDefinitions: Bill[];
-  setBillDefinitions: React.Dispatch<React.SetStateAction<Bill[]>>;
   billInstances: BillInstance[];
-  setBillInstances: React.Dispatch<React.SetStateAction<BillInstance[]>>;
   transactions: Transaction[];
-  setTransactions: React.Dispatch<React.SetStateAction<Transaction[]>>;
   clients: Client[];
-  setClients: React.Dispatch<React.SetStateAction<Client[]>>;
   appointments: Appointment[];
-  setAppointments: React.Dispatch<React.SetStateAction<Appointment[]>>;
   services: Service[];
-  setServices: React.Dispatch<React.SetStateAction<Service[]>>;
   staff: Staff[];
-  setStaff: React.Dispatch<React.SetStateAction<Staff[]>>;
   walkIns: WalkIn[];
-  setWalkIns: React.Dispatch<React.SetStateAction<WalkIn[]>>;
   activityLogs: ActivityLog[];
-  setActivityLogs: React.Dispatch<React.SetStateAction<ActivityLog[]>>;
   memberships: Membership[];
-  setMemberships: React.Dispatch<React.SetStateAction<Membership[]>>;
   packages: Package[];
-  setPackages: React.Dispatch<React.SetStateAction<Package[]>>;
+  consentForms: ConsentForm[];
+  resources: Resource[];
+  events: Event[];
+  isLoading: boolean;
 }
 
 const InventoryContext = createContext<InventoryContextType | undefined>(undefined);
 
 export const InventoryProvider = ({ children }: { children: ReactNode }) => {
-  const [inventory, setInventory] = useState<InventoryItem[]>(initialInventory);
-  const [stockCorrections, setStockCorrections] = useState<StockCorrection[]>(initialStockCorrections);
-  const [locations, setLocations] = useState<LocationType[]>(initialLocations);
-  const [locationTypes, setLocationTypes] = useState<LocType[]>(initialLocationTypes);
+  const { firestore } = useFirebase();
+  const { selectedTenant } = useTenant();
+  const tenantId = selectedTenant?.id;
 
-  const [billDefinitions, setBillDefinitions] = useState<Bill[]>(initialBillDefinitions);
-  const [billInstances, setBillInstances] = useState<BillInstance[]>(initialBillInstances);
-  const [transactions, setTransactions] = useState<Transaction[]>(initialTransactions);
-  const [clients, setClients] = useState<Client[]>(initialClients);
-  const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
-  const [services, setServices] = useState<Service[]>(initialServices);
-  const [staff, setStaff] = useState<Staff[]>(initialStaff);
-  const [walkIns, setWalkIns] = useState<WalkIn[]>(initialWalkIns);
-  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(initialActivityLogs);
-  const [memberships, setMemberships] = useState<Membership[]>(initialMemberships);
-  const [packages, setPackages] = useState<Package[]>(initialPackages);
-
-
-  const addStockCorrection = (correction: StockCorrection) => {
-    setStockCorrections(prev => [...prev, correction]);
-  };
-
+  const { data: inventory, isLoading: inventoryLoading } = useCollection<InventoryItem>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'inventory') : null, [firestore, tenantId]));
+  const { data: stockCorrections, isLoading: stockCorrectionsLoading } = useCollection<StockCorrection>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'stockCorrections') : null, [firestore, tenantId]));
+  const { data: locations, isLoading: locationsLoading } = useCollection<LocationType>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'locations') : null, [firestore, tenantId]));
+  const { data: locationTypes, isLoading: locationTypesLoading } = useCollection<LocType>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'locationTypes') : null, [firestore, tenantId]));
+  const { data: billDefinitions, isLoading: billDefinitionsLoading } = useCollection<Bill>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'bills') : null, [firestore, tenantId]));
+  const { data: billInstances, isLoading: billInstancesLoading } = useCollection<BillInstance>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'billInstances') : null, [firestore, tenantId]));
+  const { data: transactions, isLoading: transactionsLoading } = useCollection<Transaction>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'transactions') : null, [firestore, tenantId]));
+  const { data: clients, isLoading: clientsLoading } = useCollection<Client>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'clients') : null, [firestore, tenantId]));
+  const { data: appointments, isLoading: appointmentsLoading } = useCollection<Appointment>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'appointments') : null, [firestore, tenantId]));
+  const { data: services, isLoading: servicesLoading } = useCollection<Service>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'services') : null, [firestore, tenantId]));
+  const { data: staff, isLoading: staffLoading } = useCollection<Staff>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'staff') : null, [firestore, tenantId]));
+  const { data: walkIns, isLoading: walkInsLoading } = useCollection<WalkIn>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'walkIns') : null, [firestore, tenantId]));
+  const { data: activityLogs, isLoading: activityLogsLoading } = useCollection<ActivityLog>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'activityLogs') : null, [firestore, tenantId]));
+  const { data: memberships, isLoading: membershipsLoading } = useCollection<Membership>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'memberships') : null, [firestore, tenantId]));
+  const { data: packages, isLoading: packagesLoading } = useCollection<Package>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'packages') : null, [firestore, tenantId]));
+  const { data: consentForms, isLoading: consentFormsLoading } = useCollection<ConsentForm>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'consentForms') : null, [firestore, tenantId]));
+  const { data: resources, isLoading: resourcesLoading } = useCollection<Resource>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'resources') : null, [firestore, tenantId]));
+  const { data: events, isLoading: eventsLoading } = useCollection<Event>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'events') : null, [firestore, tenantId]));
+  
+  const isLoading = inventoryLoading || stockCorrectionsLoading || locationsLoading || locationTypesLoading || billDefinitionsLoading || billInstancesLoading || transactionsLoading || clientsLoading || appointmentsLoading || servicesLoading || staffLoading || walkInsLoading || activityLogsLoading || membershipsLoading || packagesLoading || consentFormsLoading || resourcesLoading || eventsLoading;
+  
   const value = {
-    inventory,
-    setInventory,
-    stockCorrections,
-    setStockCorrections,
-    addStockCorrection,
-    locations,
-    setLocations,
-    locationTypes,
-    setLocationTypes,
-    billDefinitions,
-    setBillDefinitions,
-    billInstances,
-    setBillInstances,
-    transactions,
-    setTransactions,
-    clients,
-    setClients,
-    appointments,
-    setAppointments,
-    services,
-    setServices,
-    staff,
-    setStaff,
-    walkIns,
-    setWalkIns,
-    activityLogs,
-    setActivityLogs,
-    memberships,
-    setMemberships,
-    packages,
-    setPackages,
+    inventory: inventory || [],
+    stockCorrections: stockCorrections || [],
+    locations: locations || [],
+    locationTypes: locationTypes || [],
+    billDefinitions: billDefinitions || [],
+    billInstances: billInstances || [],
+    transactions: transactions || [],
+    clients: clients || [],
+    appointments: appointments || [],
+    services: services || [],
+    staff: staff || [],
+    walkIns: walkIns || [],
+    activityLogs: activityLogs || [],
+    memberships: memberships || [],
+    packages: packages || [],
+    consentForms: consentForms || [],
+    resources: resources || [],
+    events: events || [],
+    isLoading,
   };
 
   return (
