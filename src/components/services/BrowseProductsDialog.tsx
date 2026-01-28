@@ -90,37 +90,37 @@ export const BrowseProductsDialog: React.FC<BrowseProductsDialogProps> = ({
                         ? 'Low Stock'
                         : 'In Stock';
                     return (
-                        <div
+                        <label
                             key={product.id}
-                            className="flex items-center space-x-3 p-2 rounded-md hover:bg-muted"
+                            htmlFor={`product-${product.id}`}
+                            className="flex items-center space-x-4 p-3 rounded-lg border hover:bg-muted has-[:checked]:border-primary has-[:checked]:bg-primary/5 transition-colors cursor-pointer"
                         >
                             <Checkbox
                                 id={`product-${product.id}`}
                                 checked={selectedIds.has(product.id)}
                                 onCheckedChange={() => handleToggle(product.id)}
                             />
-                            <div className='w-10 h-10 bg-muted rounded-md flex-shrink-0'>
-                                <Image src={product.imageUrl || `https://picsum.photos/seed/inv${product.id}/100/100`} alt={product.name} width={40} height={40} className='rounded-md object-cover h-full w-full'/>
+                            <div className="w-12 h-12 bg-muted rounded-md flex-shrink-0 overflow-hidden">
+                                <Image src={product.imageUrl || `https://picsum.photos/seed/inv${product.id}/100/100`} alt={product.name} width={48} height={48} className='object-cover h-full w-full' />
                             </div>
-                            <label
-                                htmlFor={`product-${product.id}`}
-                                className="flex-1 cursor-pointer"
-                            >
+                            <div className="flex-1">
                                 <p className="text-sm font-medium leading-none">{product.name}</p>
                                 <p className="text-xs text-muted-foreground">{product.category}</p>
-                            </label>
+                            </div>
                             <div className="text-right">
-                                <p className="font-mono text-sm font-semibold">{product.totalStock}</p>
+                                <p className="font-mono text-lg font-bold">{product.totalStock}</p>
                                 <Badge
-                                    variant={stockStatus === 'Out of Stock' ? 'destructive' : stockStatus === 'Low Stock' ? 'secondary' : 'outline'}
-                                    className={cn('text-[10px]', {
-                                        'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50': stockStatus === 'Low Stock',
+                                    variant="outline"
+                                    className={cn('text-xs w-20 justify-center', {
+                                        'bg-green-100 text-green-800 border-green-200 dark:bg-green-900/40 dark:text-green-400 dark:border-green-600/30': stockStatus === 'In Stock',
+                                        'bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-400 dark:border-yellow-600/30': stockStatus === 'Low Stock',
+                                        'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-400 dark:border-red-600/30': stockStatus === 'Out of Stock',
                                     })}
                                 >
                                     {stockStatus}
                                 </Badge>
                             </div>
-                        </div>
+                        </label>
                     )
                 })}
                 </div>
