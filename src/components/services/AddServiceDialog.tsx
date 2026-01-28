@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -397,8 +398,15 @@ const Step4_VisibilityConfirmation = () => {
     const requiredFormIds = watch('requiredFormIds') || [];
     const [isConsentFormBrowserOpen, setIsConsentFormBrowserOpen] = useState(false);
     
-    const { consentForms } = useInventory();
-    const requiredForms = consentForms.filter(f => requiredFormIds.includes(f.id));
+    const { firestore } = useFirebase();
+    const { selectedTenant } = useTenant();
+    const consentFormsQuery = useMemoFirebase(() => {
+        if (!firestore || !selectedTenant) return null;
+        return collection(firestore, `tenants/${selectedTenant.id}/consentForms`);
+    }, [firestore, selectedTenant]);
+    const { data: consentForms } = useCollection<ConsentForm>(consentFormsQuery);
+    
+    const requiredForms = consentForms?.filter(f => requiredFormIds.includes(f.id)) || [];
 
     const handleRemoveForm = (formId: string) => {
         const newIds = requiredFormIds.filter(id => id !== formId);
@@ -431,6 +439,7 @@ export const AddServiceDialog: React.FC<{
   onNewCategory: (category: string) => void;
   onServiceAdded: (service: Service) => void;
   resources: Resource[];
+  services: Service[];
 }> = ({
   open,
   onOpenChange,
@@ -439,6 +448,7 @@ export const AddServiceDialog: React.FC<{
   onNewCategory,
   onServiceAdded,
   resources,
+  services,
 }) => {
   const [step, setStep] = useState(1);
   const totalSteps = 4;
@@ -452,8 +462,6 @@ export const AddServiceDialog: React.FC<{
       isAddon: initialType === 'addon',
     }
   });
-
-  const { services } = useInventory();
 
   useEffect(() => {
     if (open) {
@@ -470,7 +478,7 @@ export const AddServiceDialog: React.FC<{
     }
   }, [open, initialType, methods]);
 
-  const { watch } = methods;
+  const { watch, trigger, handleSubmit } = methods;
   const values = watch();
   const { duration, padBefore, padAfter, products, requiredResourceIds } = values;
   const [tmhr, setTmhr] = useState(0);
@@ -572,7 +580,7 @@ export const AddServiceDialog: React.FC<{
       fieldsToValidate.push('pricingTiers');
     }
     
-    const isValid = fieldsToValidate.length > 0 ? await methods.trigger(fieldsToValidate) : true;
+    const isValid = fieldsToValidate.length > 0 ? await trigger(fieldsToValidate) : true;
     
     if (isValid && step < totalSteps) {
       setStep(step + 1);

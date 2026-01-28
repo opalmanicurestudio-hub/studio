@@ -1,3 +1,4 @@
+
 'use client';
 
 import {
@@ -22,6 +23,7 @@ import { differenceInDays, isPast, parseISO } from 'date-fns';
 import { useTenant } from '@/context/TenantContext'; 
 import { Skeleton } from '../ui/skeleton';
 import { cn } from '@/lib/utils';
+import { useUser } from '@/firebase';
 
 // Mock data for notifications
 const baseNotifications = [
@@ -76,6 +78,7 @@ const TenantSwitcher = () => {
 
 export function AppHeader() {
   const { staff } = useInventory();
+  const { user } = useUser();
   
   const licenseNotifications = useMemo(() => {
     if (!staff) return [];
@@ -183,8 +186,8 @@ export function AppHeader() {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-10 w-10 rounded-full">
                 <Avatar className="h-10 w-10">
-                  <AvatarImage src="https://picsum.photos/seed/106/100/100" alt="User" data-ai-hint="man smiling" />
-                  <AvatarFallback>U</AvatarFallback>
+                  <AvatarImage src={user?.photoURL || ''} alt="User" />
+                  <AvatarFallback>{user?.displayName?.charAt(0) || 'U'}</AvatarFallback>
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>

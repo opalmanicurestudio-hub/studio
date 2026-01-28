@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -190,8 +191,12 @@ export default function ProductDetailPage() {
         </div>
 
         <div className="flex flex-col sm:flex-row items-start gap-4">
-            <div className="w-24 h-24 bg-muted rounded-md flex-shrink-0">
-                <Image src={product.imageUrl || `https://picsum.photos/seed/inv${product.id}/100/100`} alt={product.name} width={96} height={96} className='rounded-md' data-ai-hint="product photo"/>
+            <div className="w-24 h-24 bg-muted rounded-md flex-shrink-0 flex items-center justify-center">
+                {product.imageUrl ? (
+                    <Image src={product.imageUrl} alt={product.name} width={96} height={96} className='rounded-md object-cover w-full h-full' data-ai-hint="product photo"/>
+                ) : (
+                    <Package className="w-12 h-12 text-muted-foreground" />
+                )}
             </div>
             <div className='flex-1'>
                 <h1 className="text-2xl md:text-3xl font-bold tracking-tight">

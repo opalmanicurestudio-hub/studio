@@ -1,3 +1,5 @@
+
+
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -38,8 +40,8 @@ import { useToast } from '@/hooks/use-toast';
 import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Check, PlusCircle, QrCode, AlertTriangle } from 'lucide-react';
-import { inventory, services as allServices, type Service } from '@/lib/data';
+import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2 } from 'lucide-react';
+import { type Service } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectEquipmentDialog } from '../services/SelectEquipmentDialog';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
@@ -338,7 +340,7 @@ export const AddProductDialog = ({
             costPerUnit: costPerUnit,
             receivedDate: new Date().toISOString(),
             expirationDate: data.expirationDate?.toISOString(),
-        }]
+        }],
     };
     onProductAdded(newProduct);
     onOpenChange(false);
