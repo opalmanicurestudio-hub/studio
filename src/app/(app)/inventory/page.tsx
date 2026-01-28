@@ -15,21 +15,13 @@ import {
 import { Button, buttonVariants } from '@/components/ui/button';
 import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette, QrCode, AlertTriangle, ListFilter, ChevronDown, ShoppingCart, Briefcase, DollarSign, Activity, Eye, CircleHelp, Warehouse, Beaker, Recycle, TrendingUp, Truck, Clock, Check, Link as LinkIcon, FileImage, X } from 'lucide-react';
 import { 
-    inventory as initialInventoryData,
-    stockCorrections as initialStockCorrectionsData,
     type InventoryItem, 
     type StockCorrection,
     type Client,
-    clients as initialClientsData,
     type Appointment,
     type Location,
     type LocationType,
-    services as initialServicesData,
-    appointments as initialAppointmentsData,
-    billDefinitions as initialBillDefinitionsData,
-    billInstances as initialBillInstancesData,
-    initialLocations as initialLocationsData,
-    initialLocationTypes as initialLocationTypesData,
+    type Service,
     type Order,
     type Batch,
 } from '@/lib/data';
@@ -61,7 +53,7 @@ import { ManageSpoilageDialog, type SpoilageItem } from '@/components/inventory/
 import { InventorySidebar } from '@/components/inventory/InventorySidebar';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { transactions as initialTransactionsData, type Transaction } from '@/lib/financial-data';
+import { type Transaction } from '@/lib/financial-data';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { AddProductDialog } from '@/components/inventory/AddProductDialog';
 import { AddEquipmentDialog } from '@/components/inventory/AddEquipmentDialog';
@@ -84,6 +76,7 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/comp
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { AddOrderDialog } from '@/components/inventory/AddOrderDialog';
 import { ReceiveStockDialog, type ReceivedItem } from '@/components/inventory/ReceiveStockDialog';
+import { useTenant } from '@/context/TenantContext';
 
 
 const OrderCard = ({ order, onSelect, onTrack, onReceive }: { order: Order, onSelect: (order: Order) => void, onTrack: (e: React.MouseEvent, url?: string) => void, onReceive: (order: Order) => void }) => {
@@ -284,14 +277,21 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
     )
 }
 
-const OrdersTab = ({ orders, isLoading, onAddOrder, onUpdateOrder, onCancelOrder }: { orders: Order[], isLoading: boolean, onAddOrder: (order: Omit<Order, 'id'>) => void, onUpdateOrder: (order: Order) => void, onCancelOrder: (orderId: string) => void }) => {
+const OrdersTab = ({ orders, inventory, isLoading, onAddOrder, onUpdateOrder, onCancelOrder }: { 
+    orders: Order[],
+    inventory: InventoryItem[],
+    isLoading: boolean, 
+    onAddOrder: (order: Omit<Order, 'id'>) => void, 
+    onUpdateOrder: (order: Order) => void, 
+    onCancelOrder: (orderId: string) => void 
+}) => {
     const [isAddOrderOpen, setIsAddOrderOpen] = useState(false);
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
     const [orderToReceive, setOrderToReceive] = useState<Order | null>(null);
     const { toast } = useToast();
-    const { inventory, setInventory, addStockCorrection } = useInventory();
     const { firestore } = useFirebase();
-    const tenantId = 'tenant-abc';
+    const { selectedTenant } = useTenant();
+    const tenantId = selectedTenant?.id;
     
     const openTrackingUrl = (e: React.MouseEvent, url?: string) => {
         e.stopPropagation();
@@ -304,11 +304,9 @@ const OrdersTab = ({ orders, isLoading, onAddOrder, onUpdateOrder, onCancelOrder
     };
 
     const handleReceiveStock = (receivedItems: ReceivedItem[]) => {
-      if (!firestore || !orderToReceive) return;
+      if (!firestore || !orderToReceive || !tenantId) return;
 
       const batch = writeBatch(firestore);
-      const stockCorrections: Omit<StockCorrection, 'id'>[] = [];
-      const damageTransactions: Omit<Transaction, 'id'>[] = [];
 
       receivedItems.forEach(item => {
         const existingProduct = inventory.find(p => p.id === item.productId);
@@ -316,14 +314,15 @@ const OrdersTab = ({ orders, isLoading, onAddOrder, onUpdateOrder, onCancelOrder
           const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.productId);
           
           if (item.quantityReceived > 0) {
-              const newBatch: Batch = {
+              const newBatchData: Batch = {
                 id: `batch-${nanoid()}`,
                 stock: item.quantityReceived,
                 costPerUnit: item.costPerUnit,
                 receivedDate: new Date().toISOString(),
                 expirationDate: item.expirationDate?.toISOString(),
               };
-              const updatedBatches = [...existingProduct.batches, newBatch];
+              
+              const updatedBatches = [...existingProduct.batches, newBatchData];
               const totalStock = updatedBatches.reduce((acc, b) => acc + b.stock, 0);
 
               batch.update(productRef, {
@@ -331,18 +330,20 @@ const OrdersTab = ({ orders, isLoading, onAddOrder, onUpdateOrder, onCancelOrder
                 totalStock: totalStock,
               });
 
-              stockCorrections.push({
+              const stockCorrection: Omit<StockCorrection, 'id'> = {
                 productId: item.productId,
                 date: new Date().toISOString(),
                 change: item.quantityReceived,
                 unit: existingProduct.unit || 'units',
                 reason: `Shipment from ${orderToReceive.supplier}`,
-              });
+              };
+              const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
+              batch.set(scRef, stockCorrection);
           }
 
           if (item.quantityDamaged > 0) {
               const damageCost = item.quantityDamaged * item.costPerUnit;
-              damageTransactions.push({
+              const damageTransaction: Omit<Transaction, 'id'> = {
                 date: new Date().toISOString(),
                 description: `Damaged on arrival: ${item.quantityDamaged} x ${item.productName}`,
                 clientOrVendor: orderToReceive.supplier,
@@ -351,24 +352,16 @@ const OrdersTab = ({ orders, isLoading, onAddOrder, onUpdateOrder, onCancelOrder
                 category: 'Spoilage',
                 amount: damageCost,
                 paymentMethod: 'Internal',
-                hasReceipt: true,
+                hasReceipt: !!orderToReceive.invoiceUrl,
                 receiptUrl: orderToReceive.invoiceUrl,
                 relatedOrderId: orderToReceive.id,
-              });
+              };
+              const dtRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+              batch.set(dtRef, damageTransaction);
           }
         }
       });
       
-      stockCorrections.forEach(sc => {
-          const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
-          batch.set(scRef, sc);
-      });
-      damageTransactions.forEach(dt => {
-          const dtRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-          batch.set(dtRef, dt);
-      });
-
-
       const allItemsFullyOrPartiallyReceived = receivedItems.every(item => item.quantityReceived + item.quantityDamaged >= item.quantityOrdered);
       const someItemsReceived = receivedItems.some(item => item.quantityReceived > 0 || item.quantityDamaged > 0);
 
@@ -449,7 +442,6 @@ const OrdersTab = ({ orders, isLoading, onAddOrder, onUpdateOrder, onCancelOrder
         </>
     );
 };
-
 
 const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onLogUse, isSelected, onSelect, isOrdered }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onLogUse: (item: InventoryItem) => void, isSelected: boolean, onSelect: () => void, isOrdered: boolean }) => {
     
@@ -584,16 +576,22 @@ const EmptyState = ({ onAddFirstItem }: { onAddFirstItem: () => void }) => (
 
 export default function InventoryPage() {
   const { 
-    inventory, setInventory, 
-    stockCorrections, addStockCorrection,
-    locations, setLocations, 
-    locationTypes, setLocationTypes,
-    setTransactions 
+    inventory, 
+    stockCorrections,
+    locations, 
+    locationTypes,
+    transactions,
+    setInventory,
+    setLocations,
+    setLocationTypes,
+    addStockCorrection,
+    setTransactions
   } = useInventory();
   
   const { toast } = useToast();
   const { firestore, user } = useFirebase();
-  const tenantId = 'tenant-abc';
+  const { selectedTenant } = useTenant();
+  const tenantId = selectedTenant?.id;
   
   const [activeView, setActiveView] = useState('products');
   const [activeFilter, setActiveFilter] = useState('all');
@@ -627,7 +625,7 @@ export default function InventoryPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 8;
   
-  const ordersQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/orders`) : null, [firestore, tenantId]);
+  const ordersQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/orders`) : null, [firestore, tenantId]);
   const { data: orders, isLoading: ordersLoading } = useCollection<Order>(ordersQuery);
 
   const orderedProductIds = useMemo(() => {
@@ -650,7 +648,9 @@ export default function InventoryPage() {
   };
 
   const handleUpdateItem = (updatedItem: InventoryItem) => {
-    setInventory(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
+    if (!firestore || !tenantId) return;
+    const itemDocRef = doc(firestore, `tenants/${tenantId}/inventory`, updatedItem.id);
+    updateDocumentNonBlocking(itemDocRef, updatedItem);
     toast({
         title: "Item Updated",
         description: `${updatedItem.name} has been successfully updated.`,
@@ -675,50 +675,45 @@ export default function InventoryPage() {
   };
   
   const handleBulkDeleteConfirm = useCallback(() => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
     const itemCount = selectedItems.size;
+    const batch = writeBatch(firestore);
     selectedItems.forEach(id => {
-      const clientDoc = doc(firestore, `tenants/${tenantId}/clients`, id);
-      deleteDocumentNonBlocking(clientDoc);
+      const itemDoc = doc(firestore, `tenants/${tenantId}/inventory`, id);
+      batch.delete(itemDoc);
     });
-    setInventory(prev => prev.filter(item => !selectedItems.has(item.id)));
+    batch.commit();
     setSelectedItems(new Set());
     setIsBulkDeleteConfirmOpen(false);
     toast({
         title: "Items Deleted",
         description: `${itemCount} item(s) have been removed from your inventory.`,
     })
-  }, [selectedItems, setInventory, toast, firestore, tenantId]);
-
+  }, [selectedItems, toast, firestore, tenantId]);
+  
     const handleBulkArchive = useCallback(() => {
-        if (!firestore) return;
+        if (!firestore || !tenantId) return;
+        const batch = writeBatch(firestore);
         selectedItems.forEach(id => {
             const itemDoc = doc(firestore, `tenants/${tenantId}/inventory`, id);
-            updateDocumentNonBlocking(itemDoc, { status: 'archived' });
+            batch.update(itemDoc, { status: 'archived' });
         });
-        setInventory(prev =>
-            prev.map(item =>
-                selectedItems.has(item.id) ? { ...item, status: 'archived' } : item
-            )
-        );
+        batch.commit();
         toast({ title: `${selectedItems.size} item(s) have been archived.` });
         setSelectedItems(new Set());
-    }, [selectedItems, setInventory, toast, firestore, tenantId]);
+    }, [selectedItems, firestore, tenantId, toast]);
 
     const handleBulkUnarchive = useCallback(() => {
-        if (!firestore) return;
+        if (!firestore || !tenantId) return;
+        const batch = writeBatch(firestore);
         selectedItems.forEach(id => {
             const itemDoc = doc(firestore, `tenants/${tenantId}/inventory`, id);
-            updateDocumentNonBlocking(itemDoc, { status: 'active' });
+            batch.update(itemDoc, { status: 'active' });
         });
-        setInventory(prev =>
-            prev.map(item =>
-                selectedItems.has(item.id) ? { ...item, status: 'active' } : item
-            )
-        );
+        batch.commit();
         toast({ title: `${selectedItems.size} item(s) have been restored.` });
         setSelectedItems(new Set());
-    }, [selectedItems, setInventory, toast, firestore, tenantId]);
+    }, [selectedItems, firestore, tenantId, toast]);
 
 
   const handleOpenAddProductDialog = (type: 'professional' | 'retail') => {
@@ -727,7 +722,9 @@ export default function InventoryPage() {
   };
   
   const handleProductAdded = (newProduct: InventoryItem) => {
-    setInventory(prev => [...prev, newProduct]);
+    if (!firestore || !tenantId) return;
+    const newProductRef = doc(firestore, 'tenants', tenantId, 'inventory', newProduct.id);
+    setDocumentNonBlocking(newProductRef, newProduct, {});
     toast({
       title: `New ${newProduct.type} product created`,
       description: `${newProduct.name} has been added to your inventory.`
@@ -735,15 +732,19 @@ export default function InventoryPage() {
   };
 
   const handleEquipmentAdded = (newEquipment: InventoryItem) => {
-    setInventory(prev => [...prev, newEquipment]);
+    if (!firestore || !tenantId) return;
+    const newEquipmentRef = doc(firestore, 'tenants', tenantId, 'inventory', newEquipment.id);
+    setDocumentNonBlocking(newEquipmentRef, newEquipment, {});
   };
   
   const handleOverheadAdded = (newOverhead: InventoryItem) => {
-    setInventory(prev => [...prev, newOverhead]);
+    if (!firestore || !tenantId) return;
+    const newOverheadRef = doc(firestore, 'tenants', tenantId, 'inventory', newOverhead.id);
+    setDocumentNonBlocking(newOverheadRef, newOverhead, {});
   };
   
   const handleAddOrder = (newOrderData: Omit<Order, 'id'>) => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
 
     const finalItems: { productId: string; productName: string; quantity: number; costPerUnit: number; }[] = [];
     
@@ -802,7 +803,7 @@ export default function InventoryPage() {
   };
   
   const handleUpdateOrder = (updatedOrder: Order) => {
-      if (!firestore) return;
+      if (!firestore || !tenantId) return;
       const orderRef = doc(firestore, `tenants/${tenantId}/orders`, updatedOrder.id);
       updateDocumentNonBlocking(orderRef, updatedOrder);
       toast({
@@ -812,7 +813,7 @@ export default function InventoryPage() {
   }
 
   const handleCancelOrder = (orderId: string) => {
-      if(!firestore || !orders) return;
+      if(!firestore || !orders || !tenantId) return;
       
       const orderToCancel = orders.find(o => o.id === orderId);
       if (!orderToCancel) return;
@@ -850,18 +851,24 @@ export default function InventoryPage() {
   };
   
   const handleSaveLocation = (newLocation: Omit<Location, 'id'>) => {
-    const newLocWithId = { ...newLocation, id: `loc-${Date.now()}`};
-    setLocations(prev => [...prev, newLocWithId]);
+    if (!firestore || !tenantId) return {} as Location;
+    const newLocWithId = { ...newLocation, id: `loc-${nanoid()}`};
+    const locationRef = doc(firestore, 'tenants', tenantId, 'locations', newLocWithId.id);
+    setDocumentNonBlocking(locationRef, newLocWithId, {});
     return newLocWithId;
   };
 
   const handleUpdateLocation = (updatedLocation: Location) => {
-    setLocations(prev => prev.map(loc => loc.id === updatedLocation.id ? updatedLocation : loc));
+    if (!firestore || !tenantId) return;
+    const locationRef = doc(firestore, 'tenants', tenantId, 'locations', updatedLocation.id);
+    updateDocumentNonBlocking(locationRef, updatedLocation);
   };
 
   const handleAddNewLocationType = (name: string, icon: string): LocationType => {
-    const newType = { id: `lt-${Date.now()}`, name, icon };
-    setLocationTypes(prev => [...prev, newType]);
+    if (!firestore || !tenantId) return { id: '', name: '', icon: '' };
+    const newType = { id: `lt-${nanoid()}`, name, icon };
+    const locTypeRef = doc(firestore, 'tenants', tenantId, 'locationTypes', newType.id);
+    setDocumentNonBlocking(locTypeRef, newType, {});
     return newType;
   };
 
@@ -878,116 +885,33 @@ export default function InventoryPage() {
   }
   
   const handleLogUseConfirm = (productId: string, quantity: number, notes: string): { success: boolean, message: string } => {
-    let success = false;
-    let message = '';
+    if (!firestore || !tenantId) return { success: false, message: 'Firestore not available' };
     
-    setInventory(prevInventory => {
-        const newInventory = JSON.parse(JSON.stringify(prevInventory));
-        const productIndex = newInventory.findIndex((p: InventoryItem) => p.id === productId);
-        
-        if (productIndex === -1) {
-            message = 'Product not found.';
-            return prevInventory;
-        }
+    const product = inventory.find((p: InventoryItem) => p.id === productId);
+    if (!product) return { success: false, message: 'Product not found' };
 
-        const product = newInventory[productIndex];
-        let unit = product.unit || 'units';
+    let unit = product.unit || 'units';
 
-        if (product.isExperimentActive) {
-            product.experimentUses = (product.experimentUses || 0) + quantity;
-        } else if (product.costingMethod === 'uses') {
-            unit = product.useUnit || 'uses';
-            let currentUses = product.partialContainerUses || 0;
-            
-            if (currentUses >= quantity) {
-                product.partialContainerUses -= quantity;
-            } else {
-                let usesNeeded = quantity - currentUses;
-                product.partialContainerUses = 0;
-                
-                const usesPerContainer = product.estimatedUses || 1;
-                
-                const containersToOpen = Math.ceil(usesNeeded / usesPerContainer);
-
-                if (product.totalStock >= containersToOpen) {
-                    product.totalStock -= containersToOpen;
-                    const remainingUses = (containersToOpen * usesPerContainer) - usesNeeded;
-                    product.partialContainerUses = remainingUses;
-                } else {
-                    message = `Insufficient stock for ${product.name}. Cannot log use.`;
-                    return prevInventory;
-                }
-            }
-        } else if (product.costingMethod === 'size') {
-            unit = product.unit || 'units';
-            let currentSize = product.partialContainerSize || 0;
-
-            if (currentSize >= quantity) {
-                product.partialContainerSize -= quantity;
-            } else {
-                let sizeNeeded = quantity - currentSize;
-                product.partialContainerSize = 0;
-
-                const sizePerContainer = product.size || 1;
-                const containersToOpen = Math.ceil(sizeNeeded / sizePerContainer);
-
-                 if (product.totalStock >= containersToOpen) {
-                    product.totalStock -= containersToOpen;
-                    const remainingSize = (containersToOpen * sizePerContainer) - sizeNeeded;
-                    product.partialContainerSize = remainingSize;
-                } else {
-                    message = `Insufficient stock for ${product.name}. Cannot log use.`;
-                    return prevInventory;
-                }
-            }
-        } else {
-            if (product.totalStock >= quantity) {
-                product.totalStock -= quantity;
-                let remainingToDeduct = quantity;
-                const sortedBatches = product.batches.filter((b: Batch) => b.stock > 0).sort((a: Batch, b: Batch) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime());
-                for (const batch of sortedBatches) {
-                    if (remainingToDeduct === 0) break;
-                    const canDeduct = Math.min(batch.stock, remainingToDeduct);
-                    batch.stock -= canDeduct;
-                    remainingToDeduct -= canDeduct;
-                }
-            } else {
-                 message = `Insufficient stock for ${product.name}. Only ${product.totalStock} units available.`;
-                 return prevInventory;
-            }
-        }
-
-        const newCorrection: StockCorrection = {
-            id: `sc-${Date.now()}`,
-            productId: productId,
-            date: new Date().toISOString(),
-            change: -quantity,
-            unit: unit,
-            reason: notes || (product.isExperimentActive ? 'Experiment Use' : 'Manual Use'),
-        };
-        addStockCorrection(newCorrection);
-        
-        success = true;
-        if (!message) {
-             if (product.isExperimentActive) {
-                message = `Logged ${quantity} experimental use(s) for ${product.name}.`;
-             } else {
-                message = `${quantity} ${unit} of ${product.name} logged.`;
-             }
-        }
-        
-        return newInventory;
-    });
-
+    const newCorrection: Omit<StockCorrection, 'id'> = {
+        productId: productId,
+        date: new Date().toISOString(),
+        change: -quantity,
+        unit: unit,
+        reason: notes || 'Manual Use Log',
+    };
+    const stockCorrectionsRef = collection(firestore, 'tenants', tenantId, 'stockCorrections');
+    addDocumentNonBlocking(stockCorrectionsRef, newCorrection);
+    
+    let success = true;
+    let message = `${quantity} ${unit} of ${product.name} logged.`;
+    
     return { success, message };
   };
   
   const handleToggleExperiment = (item: InventoryItem) => {
-    setInventory(prev => prev.map(p => 
-        p.id === item.id 
-        ? { ...p, isExperimentActive: true, experimentUses: 0 } 
-        : p
-    ));
+    if (!firestore || !tenantId) return;
+    const itemRef = doc(firestore, 'tenants', tenantId, 'inventory', item.id);
+    updateDocumentNonBlocking(itemRef, { isExperimentActive: true, experimentUses: 0 });
     toast({
         title: "Experiment Started!",
         description: `You are now tracking the cost-per-use for ${item.name}.`,
@@ -1000,13 +924,10 @@ export default function InventoryPage() {
   };
   
   const handleEndExperimentConfirmed = (results: any) => {
-    if (!selectedProduct) return;
+    if (!selectedProduct || !firestore || !tenantId) return;
     
-    setInventory(prev => prev.map(p => 
-        p.id === selectedProduct.id 
-        ? { ...p, isExperimentActive: false, lastTestResult: results } 
-        : p
-    ));
+    const itemRef = doc(firestore, 'tenants', tenantId, 'inventory', selectedProduct.id);
+    updateDocumentNonBlocking(itemRef, { isExperimentActive: false, lastTestResult: results });
 
     toast({
         title: "Experiment Ended",
@@ -1028,13 +949,7 @@ export default function InventoryPage() {
     
     if (searchTerm) {
         const lowercasedSearchTerm = searchTerm.toLowerCase();
-        const isFourDigitNumber = /^\d{4}$/.test(searchTerm);
-
-        items = items.filter(item => {
-            const nameMatch = item.name.toLowerCase().includes(lowercasedSearchTerm);
-            
-            return nameMatch;
-        });
+        items = items.filter(item => item.name.toLowerCase().includes(lowercasedSearchTerm));
     }
 
     return items;
@@ -1180,7 +1095,7 @@ export default function InventoryPage() {
                                     <div className="relative flex-1 w-full">
                                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                         <Input 
-                                            placeholder="Search by name, email, or last 4 of phone..." 
+                                            placeholder="Search by name..." 
                                             className="pl-9"
                                             value={searchTerm}
                                             onChange={(e) => setSearchTerm(e.target.value)}
@@ -1238,7 +1153,6 @@ export default function InventoryPage() {
                                             onToggleExperiment={handleToggleExperiment} 
                                             onEndExperiment={handleEndExperiment} 
                                             onLogUse={handleOpenLogUse}
-                                            onWriteOff={()=>{}}
                                             isSelected={selectedItems.has(item.id)}
                                             onSelect={() => handleItemSelect(item.id)}
                                             isOrdered={orderedProductIds.has(item.id)}
@@ -1281,6 +1195,7 @@ export default function InventoryPage() {
                 <TabsContent value="orders" className="mt-6">
                     <OrdersTab 
                         orders={orders || []} 
+                        inventory={inventory || []}
                         isLoading={ordersLoading} 
                         onAddOrder={handleAddOrder}
                         onUpdateOrder={handleUpdateOrder}
@@ -1449,4 +1364,3 @@ export default function InventoryPage() {
     </ClientOnly>
   );
 }
-
