@@ -13,7 +13,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette, QrCode, AlertTriangle, ListFilter, ChevronDown, ShoppingCart, Briefcase, DollarSign, Activity, Eye, CircleHelp, Warehouse, Beaker, Recycle, TrendingUp, Truck, Clock, Check, Link as LinkIcon } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette, QrCode, AlertTriangle, ListFilter, ChevronDown, ShoppingCart, Briefcase, DollarSign, Activity, Eye, CircleHelp, Warehouse, Beaker, Recycle, TrendingUp, Truck, Clock, Check, Link as LinkIcon, FileImage } from 'lucide-react';
 import { 
     inventory as initialInventoryData,
     stockCorrections as initialStockCorrectionsData,
@@ -81,6 +81,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { CalendarIcon } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { ImageUpload } from '@/components/shared/ImageUpload';
 
 
 const OrderCard = ({ order, onSelect }: { order: Order, onSelect: (order: Order) => void }) => {
@@ -158,6 +159,7 @@ const AddOrderDialog = ({
     const [trackingNumber, setTrackingNumber] = useState('');
     const [trackingUrl, setTrackingUrl] = useState('');
     const [notes, setNotes] = useState('');
+    const [invoiceUrl, setInvoiceUrl] = useState('');
     const [items, setItems] = useState<OrderItem[]>([]);
 
     const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
@@ -196,6 +198,7 @@ const AddOrderDialog = ({
             trackingUrl,
             notes,
             items,
+            invoiceUrl,
             ...(expectedDate && { expectedArrivalDate: expectedDate.toISOString() }),
         };
 
@@ -246,6 +249,10 @@ const AddOrderDialog = ({
                             ))}
                         </div>
                         <Button variant="outline" className="mt-2 w-full" type="button" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2"/>Add Items</Button>
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="invoice">Invoice/Receipt</Label>
+                        <ImageUpload onImageUploaded={setInvoiceUrl} />
                     </div>
                      <div className="space-y-2">
                         <Label htmlFor="notes">Notes</Label>
@@ -337,6 +344,13 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                                 <div className="space-y-2"><Label htmlFor="edit-trackingNumber">Tracking Number</Label><Input id="edit-trackingNumber" value={editableOrder.trackingNumber || ''} onChange={handleChange} name="trackingNumber" /></div>
                                 <div className="space-y-2"><Label htmlFor="edit-trackingUrl">Tracking URL</Label><Input id="edit-trackingUrl" value={editableOrder.trackingUrl || ''} onChange={handleChange} name="trackingUrl" placeholder="https://carrier.com/track/..."/></div>
                                  <div className="space-y-2"><Label>Items</Label><div className="space-y-2">{editableOrder.items.map(item => (<div key={item.productId} className="flex items-center gap-2 p-2 border rounded-md"><span className="flex-1 text-sm font-medium">{item.productName}</span><Input type="number" value={item.quantity} onChange={e => handleItemChange(item.productId, 'quantity', Number(e.target.value))} className="w-16 h-8" /><Input type="number" value={item.costPerUnit} onChange={e => handleItemChange(item.productId, 'costPerUnit', Number(e.target.value))} className="w-20 h-8" /></div>))}</div></div>
+                                <div className="space-y-2">
+                                    <Label>Invoice/Receipt</Label>
+                                    <ImageUpload
+                                        onImageUploaded={(url) => setEditableOrder(prev => ({...prev, invoiceUrl: url}))}
+                                        initialImage={editableOrder.invoiceUrl}
+                                    />
+                                </div>
                                 <div className="space-y-2"><Label htmlFor="edit-notes">Notes</Label><Textarea id="edit-notes" value={editableOrder.notes || ''} onChange={handleChange} name="notes" /></div>
                             </div>
                         ) : (
@@ -370,6 +384,13 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                                         </div>
                                     )}
                                     {order.expectedArrivalDate && <p><strong>Expected Arrival:</strong> {format(parseISO(order.expectedArrivalDate), 'MMM d, yyyy')}</p>}
+                                    {order.invoiceUrl && (
+                                        <div className="flex items-center gap-2">
+                                            <FileImage className="w-4 h-4 text-muted-foreground" />
+                                            <span className="font-medium">Invoice:</span>
+                                            <a href={order.invoiceUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-primary hover:underline">View Attached File</a>
+                                        </div>
+                                    )}
                                     {order.notes && <p><strong>Notes:</strong> {order.notes}</p>}
                                 </div>
                             </div>
@@ -745,7 +766,6 @@ export default function InventoryPage() {
     const orderRef = collection(firestore, 'tenants', tenantId, 'orders');
     addDocumentNonBlocking(orderRef, newOrder);
     
-    // Add a corresponding transaction for the expense
     const totalCost = newOrder.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
     const newTransaction: Omit<Transaction, 'id' | 'date'> = {
         description: `Purchase Order: ${newOrder.supplier}`,
@@ -755,7 +775,8 @@ export default function InventoryPage() {
         category: 'Supplies',
         amount: totalCost,
         paymentMethod: 'On Account',
-        hasReceipt: true, // Assuming invoice acts as receipt
+        hasReceipt: !!newOrder.invoiceUrl,
+        receiptUrl: newOrder.invoiceUrl,
         relatedOrderId: newOrder.id,
     };
     const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
@@ -1510,6 +1531,7 @@ export default function InventoryPage() {
 }
 
     
+
 
 
 

@@ -326,6 +326,7 @@ export type Order = {
     receivedQuantity?: number;
   }[];
   notes?: string;
+  invoiceUrl?: string;
 };
 
 export type Quote = {

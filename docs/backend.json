@@ -550,7 +550,8 @@
             "required": ["productId", "productName", "quantity", "costPerUnit"]
           }
         },
-        "notes": { "type": "string" }
+        "notes": { "type": "string" },
+        "invoiceUrl": { "type": "string", "format": "uri" }
       },
       "required": ["id", "supplier", "orderDate", "status", "items"]
     },
@@ -693,6 +694,10 @@
         "hasReceipt": {
           "type": "boolean"
         },
+        "receiptUrl": {
+          "type": "string",
+          "format": "uri"
+        },
         "staffId": {
             "type": "string",
             "description": "The ID of the staff member associated with the transaction."
@@ -704,6 +709,14 @@
         "appointmentId": {
             "type": "string",
             "description": "The ID of the appointment this transaction is associated with."
+        },
+        "relatedOrderId": {
+            "type": "string",
+            "description": "The ID of the purchase order this transaction is related to."
+        },
+        "reversalOf": {
+            "type": "string",
+            "description": "The ID of the transaction this entry is reversing."
         }
       },
       "required": ["id", "date", "description", "type", "context", "category", "amount", "paymentMethod"]
