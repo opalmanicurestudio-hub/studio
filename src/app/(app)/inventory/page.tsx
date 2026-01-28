@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
@@ -126,17 +127,15 @@ const OrderCard = ({ order, onSelect, onTrack, onReceive }: { order: Order, onSe
                 <div className="text-sm space-y-2">
                     <p><strong>{totalItems}</strong> items ordered</p>
                     <p>Total Cost: <strong>${totalCost.toFixed(2)}</strong></p>
-                    {order.trackingUrl && (
-                         <Button
-                            variant="link"
-                            size="xs"
-                            className="p-0 h-auto"
-                            onClick={(e) => onTrack(e, order.trackingUrl)}
-                        >
-                            <Truck className="w-4 h-4 text-muted-foreground mr-2"/>
-                            Track
-                        </Button>
-                    )}
+                     <Button
+                        variant="link"
+                        size="xs"
+                        className="p-0 h-auto"
+                        onClick={(e) => onTrack(e, order.trackingUrl)}
+                    >
+                        <Truck className="w-4 h-4 text-muted-foreground mr-2"/>
+                        Track
+                    </Button>
                     {order.expectedArrivalDate && <p>Expected: <strong>{format(parseISO(order.expectedArrivalDate), 'MMM d, yyyy')}</strong></p>}
                 </div>
             </CardContent>
@@ -146,14 +145,13 @@ const OrderCard = ({ order, onSelect, onTrack, onReceive }: { order: Order, onSe
 
 const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrder, onTrack }: { order: Order | null, open: boolean, onOpenChange: (open: boolean) => void, onSave: (order: Order) => void, onCancelOrder: (orderId: string) => void, onTrack: (e: React.MouseEvent, url?: string) => void }) => {
     const [editableOrder, setEditableOrder] = useState<Order | null>(order);
-    
     const [isEditing, setIsEditing] = useState(false);
 
     useEffect(() => {
-        if (!open) {
-            setIsEditing(false); // Reset editing state when dialog is closed.
-        }
         setEditableOrder(order);
+        if (!open) {
+            setIsEditing(false);
+        }
     }, [order, open]);
 
     const handleSave = () => {
@@ -244,17 +242,15 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                                 </div>
                                 </div>
                                 <div className="text-sm space-y-2">
-                                    {editableOrder.trackingUrl && (
-                                        <Button
-                                            variant="link"
-                                            size="xs"
-                                            className="p-0 h-auto"
-                                            onClick={(e) => onTrack(e, editableOrder.trackingUrl)}
-                                        >
-                                            <Truck className="w-4 h-4 text-muted-foreground mr-2"/>
-                                            Track
-                                        </Button>
-                                    )}
+                                     <Button
+                                        variant="link"
+                                        size="xs"
+                                        className="p-0 h-auto"
+                                        onClick={(e) => onTrack(e, editableOrder.trackingUrl)}
+                                    >
+                                        <Truck className="w-4 h-4 text-muted-foreground mr-2"/>
+                                        Track
+                                    </Button>
                                     {editableOrder.expectedArrivalDate && <p><strong>Expected Arrival:</strong> {format(parseISO(editableOrder.expectedArrivalDate), 'MMM d, yyyy')}</p>}
                                     {editableOrder.invoiceUrl && (
                                         <div className="flex items-center gap-2">
@@ -293,7 +289,7 @@ const OrdersTab = ({ orders, isLoading, onAddOrder, onUpdateOrder, onCancelOrder
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
     const [orderToReceive, setOrderToReceive] = useState<Order | null>(null);
     const { toast } = useToast();
-    const { inventory, setInventory } = useInventory();
+    const { inventory, setInventory, addStockCorrection } = useInventory();
     const { firestore } = useFirebase();
     const tenantId = 'tenant-abc';
     
@@ -311,33 +307,73 @@ const OrdersTab = ({ orders, isLoading, onAddOrder, onUpdateOrder, onCancelOrder
       if (!firestore || !orderToReceive) return;
 
       const batch = writeBatch(firestore);
+      const stockCorrections: Omit<StockCorrection, 'id'>[] = [];
+      const damageTransactions: Omit<Transaction, 'id'>[] = [];
 
       receivedItems.forEach(item => {
         const existingProduct = inventory.find(p => p.id === item.productId);
         if (existingProduct) {
           const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.productId);
-          const newBatch: Batch = {
-            id: `batch-${nanoid()}`,
-            stock: item.quantityReceived,
-            costPerUnit: item.costPerUnit,
-            receivedDate: new Date().toISOString(),
-            expirationDate: item.expirationDate?.toISOString(),
-          };
-          const updatedBatches = [...existingProduct.batches, newBatch];
-          const totalStock = updatedBatches.reduce((acc, b) => acc + b.stock, 0);
+          
+          if (item.quantityReceived > 0) {
+              const newBatch: Batch = {
+                id: `batch-${nanoid()}`,
+                stock: item.quantityReceived,
+                costPerUnit: item.costPerUnit,
+                receivedDate: new Date().toISOString(),
+                expirationDate: item.expirationDate?.toISOString(),
+              };
+              const updatedBatches = [...existingProduct.batches, newBatch];
+              const totalStock = updatedBatches.reduce((acc, b) => acc + b.stock, 0);
 
-          batch.update(productRef, {
-            batches: updatedBatches,
-            totalStock: totalStock,
-          });
+              batch.update(productRef, {
+                batches: updatedBatches,
+                totalStock: totalStock,
+              });
+
+              stockCorrections.push({
+                productId: item.productId,
+                date: new Date().toISOString(),
+                change: item.quantityReceived,
+                unit: existingProduct.unit || 'units',
+                reason: `Shipment from ${orderToReceive.supplier}`,
+              });
+          }
+
+          if (item.quantityDamaged > 0) {
+              const damageCost = item.quantityDamaged * item.costPerUnit;
+              damageTransactions.push({
+                date: new Date().toISOString(),
+                description: `Damaged on arrival: ${item.quantityDamaged} x ${item.productName}`,
+                clientOrVendor: orderToReceive.supplier,
+                type: 'expense',
+                context: 'Business',
+                category: 'Spoilage',
+                amount: damageCost,
+                paymentMethod: 'Internal',
+                hasReceipt: true,
+                receiptUrl: orderToReceive.invoiceUrl,
+                relatedOrderId: orderToReceive.id,
+              });
+          }
         }
       });
+      
+      stockCorrections.forEach(sc => {
+          const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
+          batch.set(scRef, sc);
+      });
+      damageTransactions.forEach(dt => {
+          const dtRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+          batch.set(dtRef, dt);
+      });
 
-      const allItemsReceived = receivedItems.every(item => item.quantityReceived >= item.quantityOrdered);
-      const someItemsReceived = receivedItems.some(item => item.quantityReceived > 0);
+
+      const allItemsFullyOrPartiallyReceived = receivedItems.every(item => item.quantityReceived + item.quantityDamaged >= item.quantityOrdered);
+      const someItemsReceived = receivedItems.some(item => item.quantityReceived > 0 || item.quantityDamaged > 0);
 
       let newStatus: Order['status'] = orderToReceive.status;
-      if (allItemsReceived) {
+      if (allItemsFullyOrPartiallyReceived) {
         newStatus = 'Received';
       } else if (someItemsReceived) {
         newStatus = 'Partially Received';
@@ -415,7 +451,7 @@ const OrdersTab = ({ orders, isLoading, onAddOrder, onUpdateOrder, onCancelOrder
 };
 
 
-const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWriteOff, onLogUse, isSelected, onSelect, isOrdered }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onWriteOff: (itemId: string) => void, onLogUse: (item: InventoryItem) => void, isSelected: boolean, onSelect: () => void, isOrdered: boolean }) => {
+const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onLogUse, isSelected, onSelect, isOrdered }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onLogUse: (item: InventoryItem) => void, isSelected: boolean, onSelect: () => void, isOrdered: boolean }) => {
     
     const stockStatus = useMemo(() => {
         const hasExpiredBatch = item.batches.some(b => b.expirationDate && isPast(parseISO(b.expirationDate)) && b.stock > 0);
@@ -521,7 +557,7 @@ const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onWrit
              <CardFooter className="p-2 border-t bg-muted/50">
                 <div className="grid grid-cols-2 gap-2 w-full">
                     <Button variant="ghost" size="sm" className="w-full" onClick={() => onLogUse(item)}><Pipette className="mr-2 h-4 w-4"/>Log Use</Button>
-                    <Button variant="ghost" size="sm" className="w-full" onClick={() => onWriteOff(item.id)}><PackageX className="mr-2 h-4 w-4"/>Write-off</Button>
+                    <Button variant="ghost" size="sm" className="w-full"><PackageX className="mr-2 h-4 w-4"/>Write-off</Button>
                 </div>
             </CardFooter>
         </Card>
@@ -840,14 +876,6 @@ export default function InventoryPage() {
     setLogUseDialogType('overhead');
     setIsLogUseOpen(true);
   }
-
-  const handleOpenWriteOff = (itemId: string) => {
-    const productToWriteOff = inventory.find(item => item.id === itemId);
-    if(productToWriteOff) {
-      setSelectedProduct(productToWriteOff);
-      setIsWriteOffOpen(true);
-    }
-  }
   
   const handleLogUseConfirm = (productId: string, quantity: number, notes: string): { success: boolean, message: string } => {
     let success = false;
@@ -952,97 +980,6 @@ export default function InventoryPage() {
     });
 
     return { success, message };
-  };
-
-  const handleWriteOffConfirm = (productId: string, batchId: string, quantity: number, reason: string): { success: boolean, message: string } => {
-    let success = false;
-    let message = '';
-  
-    setInventory(prevInventory => {
-      const newInventory = [...prevInventory];
-      const productIndex = newInventory.findIndex(p => p.id === productId);
-  
-      if (productIndex === -1) {
-        message = 'Product not found.';
-        return prevInventory;
-      }
-  
-      const product = { ...newInventory[productIndex] };
-      const batchIndex = product.batches.findIndex(b => b.id === batchId);
-  
-      if (batchIndex === -1) {
-        message = 'Batch not found.';
-        return prevInventory;
-      }
-  
-      const batch = { ...product.batches[batchIndex] };
-  
-      if (batch.stock < quantity) {
-        message = `Cannot write off more than available in batch (${batch.stock}).`;
-        return prevInventory;
-      }
-  
-      batch.stock -= quantity;
-      product.batches[batchIndex] = batch;
-  
-      product.totalStock = product.batches.reduce((acc, b) => acc + b.stock, 0);
-  
-      if (product.totalStock === 0) {
-        product.partialContainerSize = 0;
-        product.partialContainerUses = 0;
-      }
-  
-      newInventory[productIndex] = product;
-  
-      const newCorrection: StockCorrection = {
-        id: `sc-${Date.now()}`,
-        productId: productId,
-        date: new Date().toISOString(),
-        change: -quantity,
-        unit: 'units',
-        reason: reason,
-      };
-      addStockCorrection(newCorrection);
-  
-      const newTransaction = {
-        date: new Date().toISOString(),
-        description: `Write-off: ${quantity} x ${product.name}`,
-        clientOrVendor: 'Internal',
-        type: 'expense' as const,
-        context: 'Business' as const,
-        category: 'Spoilage',
-        amount: batch.costPerUnit * quantity,
-        paymentMethod: 'Internal',
-        hasReceipt: false,
-      };
-      setTransactions(prev => [...prev, { ...newTransaction, id: `txn-${Date.now()}` }]);
-  
-      success = true;
-      message = `${quantity} unit(s) of ${product.name} written off.`;
-      return newInventory;
-    });
-  
-    return { success, message };
-  };
-
-  const handleLogOverheadConsumption = (productId: string) => {
-    // This function logic would be very similar to handleLogUseConfirm but simplified for single-unit overhead items.
-    toast({ title: 'Overhead Consumed', description: `An overhead item has been logged as an expense.` });
-  };
-  
- const handleSpoilageConfirm = (itemsToWriteOff: SpoilageItem[]) => {
-    let totalLoss = 0;
-    itemsToWriteOff.forEach(item => {
-        handleWriteOffConfirm(item.productId, item.batchId, item.stock, 'Expired');
-        totalLoss += item.stock * item.costPerUnit;
-    });
-
-    if (itemsToWriteOff.length > 0) {
-        toast({
-            title: 'Spoilage Written Off',
-            description: `${itemsToWriteOff.length} item(s) totaling $${totalLoss.toFixed(2)} have been removed and expensed.`,
-        });
-    }
   };
   
   const handleToggleExperiment = (item: InventoryItem) => {
@@ -1173,8 +1110,8 @@ export default function InventoryPage() {
                 <InventorySidebar
                   inventory={inventory}
                   stockCorrections={stockCorrections}
-                  onSpoilageConfirm={handleSpoilageConfirm} 
-                  onLogOverheadUse={handleLogOverheadConsumption} 
+                  onSpoilageConfirm={() => {}} 
+                  onLogOverheadUse={() => {}} 
                 />
             </div>
 
@@ -1197,8 +1134,8 @@ export default function InventoryPage() {
                                      <InventorySidebar
                                       inventory={inventory}
                                       stockCorrections={stockCorrections}
-                                      onSpoilageConfirm={handleSpoilageConfirm}
-                                      onLogOverheadUse={handleLogOverheadConsumption}
+                                      onSpoilageConfirm={() => {}}
+                                      onLogOverheadUse={() => {}}
                                      />
                                 </div>
                             </ScrollArea>
@@ -1300,8 +1237,8 @@ export default function InventoryPage() {
                                             onEdit={handleEditItem} 
                                             onToggleExperiment={handleToggleExperiment} 
                                             onEndExperiment={handleEndExperiment} 
-                                            onWriteOff={handleOpenWriteOff} 
                                             onLogUse={handleOpenLogUse}
+                                            onWriteOff={()=>{}}
                                             isSelected={selectedItems.has(item.id)}
                                             onSelect={() => handleItemSelect(item.id)}
                                             isOrdered={orderedProductIds.has(item.id)}
@@ -1433,7 +1370,7 @@ export default function InventoryPage() {
             open={isWriteOffOpen}
             onOpenChange={setIsWriteOffOpen}
             product={selectedProduct}
-            onConfirm={handleWriteOffConfirm}
+            onConfirm={() => { return {success: false, message: ''}}}
         />
       )}
       
@@ -1512,3 +1449,4 @@ export default function InventoryPage() {
     </ClientOnly>
   );
 }
+

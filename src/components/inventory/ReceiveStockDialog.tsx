@@ -1,3 +1,5 @@
+
+
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -26,6 +28,7 @@ export type ReceivedItem = {
   productName: string;
   quantityOrdered: number;
   quantityReceived: number;
+  quantityDamaged: number;
   costPerUnit: number;
   expirationDate?: Date;
 };
@@ -52,16 +55,33 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
         productName: item.productName,
         quantityOrdered: item.quantity,
         quantityReceived: item.quantity, // Default to receiving all
+        quantityDamaged: 0,
         costPerUnit: item.costPerUnit,
         expirationDate: undefined,
       })));
     }
   }, [order]);
 
-  const handleItemChange = (productId: string, field: 'quantityReceived' | 'expirationDate', value: number | Date | undefined) => {
-    setReceivedItems(prev => prev.map(item =>
-      item.productId === productId ? { ...item, [field]: value } : item
-    ));
+  const handleItemChange = (productId: string, field: 'quantityReceived' | 'quantityDamaged' | 'expirationDate', value: number | Date | undefined) => {
+    setReceivedItems(prev => prev.map(item => {
+        if (item.productId === productId) {
+            const updatedItem = { ...item, [field]: value };
+
+            if (field === 'quantityReceived' || field === 'quantityDamaged') {
+              const received = field === 'quantityReceived' ? (value as number) : updatedItem.quantityReceived;
+              const damaged = field === 'quantityDamaged' ? (value as number) : updatedItem.quantityDamaged;
+              if (received + damaged > item.quantityOrdered) {
+                if (field === 'quantityReceived') {
+                  updatedItem.quantityDamaged = Math.max(0, item.quantityOrdered - received);
+                } else { // field === 'quantityDamaged'
+                  updatedItem.quantityReceived = Math.max(0, item.quantityOrdered - damaged);
+                }
+              }
+            }
+            return updatedItem;
+        }
+        return item;
+    }));
   };
 
   const handleConfirmClick = () => {
@@ -85,18 +105,27 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
                 {receivedItems.map(item => (
                     <div key={item.productId} className="p-4 border rounded-lg space-y-3">
                         <p className="font-semibold">{item.productName}</p>
+                         <div className="flex justify-between items-center bg-muted/50 p-2 rounded-md">
+                            <Label htmlFor={`qty-ordered-${item.productId}`} className="text-sm">Ordered</Label>
+                            <Input id={`qty-ordered-${item.productId}`} value={item.quantityOrdered} disabled className="w-20 h-8 text-center" />
+                        </div>
                         <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label htmlFor={`qty-ordered-${item.productId}`}>Ordered</Label>
-                                <Input id={`qty-ordered-${item.productId}`} value={item.quantityOrdered} disabled />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor={`qty-received-${item.productId}`}>Received</Label>
+                             <div className="space-y-2">
+                                <Label htmlFor={`qty-received-${item.productId}`}>Qty OK</Label>
                                 <Input 
                                     id={`qty-received-${item.productId}`}
                                     type="number"
                                     value={item.quantityReceived}
                                     onChange={(e) => handleItemChange(item.productId, 'quantityReceived', parseInt(e.target.value) || 0)}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor={`qty-damaged-${item.productId}`}>Qty Damaged</Label>
+                                <Input 
+                                    id={`qty-damaged-${item.productId}`}
+                                    type="number"
+                                    value={item.quantityDamaged}
+                                    onChange={(e) => handleItemChange(item.productId, 'quantityDamaged', parseInt(e.target.value) || 0)}
                                 />
                             </div>
                         </div>
