@@ -1,25 +1,25 @@
 
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { useForm, FormProvider, useFormContext, Controller } from 'react-hook-form';
+import React, { useState, useEffect, useMemo, KeyboardEvent } from 'react';
+import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from '@/components/ui/dialog';
 import {
   Sheet,
   SheetContent,
-  SheetHeader,
-  SheetTitle,
   SheetDescription,
   SheetFooter,
+  SheetHeader,
+  SheetTitle,
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,7 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { type InventoryItem, type Location, type ConsentForm, type Resource, services as allServices, type Service } from '@/lib/data';
@@ -171,7 +171,7 @@ const Step1_BasicDetails = ({
 
 const Step2_Formula = ({ onScanClick, resources }: { onScanClick: () => void, resources: Resource[] }) => {
     const { inventory } = useInventory();
-    const { control, setValue, watch } = useFormContext<ServiceFormData>();
+    const { control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
 
     const selectedProducts = watch('products') || [];
     const selectedResourceIds = watch('requiredResourceIds') || [];
@@ -258,7 +258,8 @@ const Step2_Formula = ({ onScanClick, resources }: { onScanClick: () => void, re
                         </div>
                       )
                     })}</CardContent></Card>) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No products added yet.</CardContent></Card>)}
-                    <div className='flex gap-2'><Button variant="outline" onClick={() => setIsProductBrowserOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Browse Library</Button><Button variant="outline" onClick={onScanClick} type="button"><QrCode className="mr-2 h-4 w-4" /> Scan to Add</Button></div></div>
+                    <div className='flex gap-2'><Button variant="outline" onClick={() => setIsProductBrowserOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Browse Library</Button><Button variant="outline" onClick={onScanClick} type="button"><QrCode className="mr-2 h-4 w-4" /> Scan to Add</Button></div>
+                    </div>
                     <div className="space-y-2"><div className='flex items-center gap-2'><Hammer className="w-5 h-5 text-primary" /><Label className="text-base font-semibold">Required Resources</Label></div>
                     {selectedResources.length > 0 ? (<Card><CardContent className="p-2 space-y-2">{selectedResources.map((item: any) => (<div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50"><span className="text-sm font-medium">{item.name}</span><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeResource(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}</CardContent></Card>) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No resources required.</CardContent></Card>)}
                     <Button variant="outline" onClick={() => setIsResourceSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Resources</Button></div>
@@ -361,7 +362,7 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
                                         <SelectTrigger><SelectValue placeholder="Select deposit type" /></SelectTrigger>
                                         <SelectContent><SelectItem value="flat">Flat Rate</SelectItem><SelectItem value="percentage">Percentage</SelectItem></SelectContent>
                                     </Select>
-                                    )}
+                                    )} />
                                 </div>
                                 )}
                                 <div className="space-y-2">
@@ -648,5 +649,3 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
     </Dialog>
   );
 };
-
-    
