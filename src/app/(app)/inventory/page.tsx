@@ -292,7 +292,9 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
         }
     }, [order]);
     
-    if (!editableOrder) return null;
+    if (!editableOrder) {
+        return null;
+    }
 
     const totalCost = editableOrder.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
 
@@ -384,19 +386,20 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                                         <div className="flex items-center gap-2">
                                             <Truck className="w-4 h-4 text-muted-foreground"/>
                                             <span className="font-medium">Tracking:</span>
-                                            <span className="font-semibold">{editableOrder.trackingNumber}</span>
-                                            {editableOrder.trackingUrl && (
-                                                <Button
-                                                    variant="outline"
+                                            {editableOrder.trackingUrl ? (
+                                                 <Button
+                                                    variant="link"
                                                     size="xs"
-                                                    className="ml-2"
+                                                    className="p-0 h-auto"
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         window.open(editableOrder.trackingUrl, '_blank', 'noopener,noreferrer');
                                                     }}
                                                 >
-                                                    Track
+                                                    {editableOrder.trackingNumber}
                                                 </Button>
+                                            ) : (
+                                                <span className="font-semibold">{editableOrder.trackingNumber}</span>
                                             )}
                                         </div>
                                     )}
@@ -1550,6 +1553,3 @@ export default function InventoryPage() {
     </ClientOnly>
   );
 }
-
-    
-```
