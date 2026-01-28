@@ -40,7 +40,7 @@ import { useForm, FormProvider, useFormContext, Controller, type Control } from 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2 } from 'lucide-react';
-import { inventory, services as allServices, type Service } from '@/lib/data';
+import { type Service } from '@/lib/data';
 import { BrowseProductsDialog } from './BrowseProductsDialog';
 import { SelectEquipmentDialog } from './SelectEquipmentDialog';
 import { SelectAddOnsDialog } from './SelectAddOnsDialog';
@@ -179,7 +179,7 @@ const Step1_BasicDetails = ({
     );
 };
 
-const Step2_Formula = ({ onScanClick, resources }: { onScanClick: () => void, resources: Resource[] }) => {
+const Step2_Formula = ({ onScanClick, resources, allServices }: { onScanClick: () => void, resources: Resource[], allServices: Service[] }) => {
     const { inventory } = useInventory();
     const { control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
 
@@ -311,15 +311,15 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
                     <Label>Pricing Tiers</Label>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div className="space-y-2">
-                            <Label htmlFor="junior-price" className="font-normal text-muted-foreground">Junior</Label>
+                            <Label htmlFor="junior-price">Junior</Label>
                             <Input id="junior-price" type="number" placeholder="0.00" {...register('pricingTiers.junior', { valueAsNumber: true })} />
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="senior-price" className="font-normal text-muted-foreground">Senior</Label>
+                            <Label htmlFor="senior-price">Senior</Label>
                             <Input id="senior-price" type="number" placeholder="0.00" {...register('pricingTiers.senior', { valueAsNumber: true })} />
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="master-price" className="font-normal text-muted-foreground">Master</Label>
+                            <Label htmlFor="master-price">Master</Label>
                             <Input id="master-price" type="number" placeholder="0.00" {...register('pricingTiers.master', { valueAsNumber: true })} />
                         </div>
                     </div>
@@ -453,6 +453,8 @@ export const AddServiceDialog: React.FC<{
     }
   });
 
+  const { services } = useInventory();
+
   useEffect(() => {
     if (open) {
       methods.reset({ 
@@ -582,7 +584,7 @@ export const AddServiceDialog: React.FC<{
   const getStepContent = () => {
       switch(step) {
           case 1: return <Step1_BasicDetails categories={categories} onNewCategory={onNewCategory} />;
-          case 2: return <Step2_Formula onScanClick={() => setIsScannerOpen(true)} resources={resources} />;
+          case 2: return <Step2_Formula onScanClick={() => setIsScannerOpen(true)} resources={resources} allServices={services} />;
           case 3: return <Step3_PricingBooking breakEvenCost={breakEvenCost} />;
           case 4: return <Step4_VisibilityConfirmation />;
           default: return null;

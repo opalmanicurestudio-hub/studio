@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -305,15 +304,15 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
                     <Label>Pricing Tiers</Label>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div className="space-y-2">
-                            <Label htmlFor="junior-price-edit" className="font-normal text-muted-foreground">Junior</Label>
+                            <Label htmlFor="junior-price-edit">Junior</Label>
                             <Input id="junior-price-edit" type="number" placeholder="0.00" {...register('pricingTiers.junior', { valueAsNumber: true })} />
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="senior-price-edit" className="font-normal text-muted-foreground">Senior</Label>
+                            <Label htmlFor="senior-price-edit">Senior</Label>
                             <Input id="senior-price-edit" type="number" placeholder="0.00" {...register('pricingTiers.senior', { valueAsNumber: true })} />
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="master-price-edit" className="font-normal text-muted-foreground">Master</Label>
+                            <Label htmlFor="master-price-edit">Master</Label>
                             <Input id="master-price-edit" type="number" placeholder="0.00" {...register('pricingTiers.master', { valueAsNumber: true })} />
                         </div>
                     </div>
