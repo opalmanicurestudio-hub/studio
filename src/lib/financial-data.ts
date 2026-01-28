@@ -41,6 +41,7 @@ export type Transaction = {
   receiptUrl?: string;
   relatedBillInstanceId?: string; // Link to a bill instance
   relatedEventId?: string; // Link to an event
+  relatedOrderId?: string; // Link to a purchase order
   reversalOf?: string; // ID of the transaction this entry is reversing
   staffId?: string;
   tipAmount?: number;

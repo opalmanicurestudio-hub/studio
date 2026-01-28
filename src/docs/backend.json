@@ -524,6 +524,35 @@
       },
       "required": ["id", "customerName", "serviceIds", "checkInTime", "status"]
     },
+    "Order": {
+      "title": "Order",
+      "description": "Represents a purchase order for inventory supplies.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "supplier": { "type": "string" },
+        "orderDate": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["Draft", "Placed", "Shipped", "Partially Received", "Received", "Cancelled"] },
+        "trackingNumber": { "type": "string" },
+        "trackingUrl": { "type": "string", "format": "uri" },
+        "expectedArrivalDate": { "type": "string", "format": "date" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "productId": { "type": "string" },
+              "productName": { "type": "string" },
+              "quantity": { "type": "number" },
+              "costPerUnit": { "type": "number" }
+            },
+            "required": ["productId", "productName", "quantity", "costPerUnit"]
+          }
+        },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "supplier", "orderDate", "status", "items"]
+    },
     "Bill": {
       "title": "Bill",
       "type": "object",
@@ -638,6 +667,10 @@
         "clientOrVendor": {
           "type": "string"
         },
+        "clientId": {
+          "type": "string",
+          "description": "The ID of the client this transaction is associated with."
+        },
         "type": {
           "type": "string",
           "enum": ["income", "expense", "reversal", "payment"]
@@ -670,6 +703,14 @@
         "appointmentId": {
             "type": "string",
             "description": "The ID of the appointment this transaction is associated with."
+        },
+        "relatedOrderId": {
+            "type": "string",
+            "description": "The ID of the purchase order this transaction is related to."
+        },
+        "reversalOf": {
+            "type": "string",
+            "description": "The ID of the transaction this entry is reversing."
         }
       },
       "required": ["id", "date", "description", "type", "context", "category", "amount", "paymentMethod"]
@@ -840,6 +881,10 @@
         "$ref": "#/entities/Event"
       },
       "description": "Calendar events for a tenant, including booked quotes."
+    },
+    "/tenants/{tenantId}/orders/{orderId}": {
+        "schema": { "$ref": "#/entities/Order" },
+        "description": "Purchase orders for inventory supplies."
     },
     "/tenants/{tenantId}/quotes/{quoteId}": {
       "schema": {
