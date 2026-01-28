@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
@@ -292,17 +293,14 @@ const AddOrderDialog = ({
 const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrder, onTrack }: { order: Order | null, open: boolean, onOpenChange: (open: boolean) => void, onSave: (order: Order) => void, onCancelOrder: (orderId: string) => void, onTrack: (e: React.MouseEvent, url?: string) => void }) => {
     const [editableOrder, setEditableOrder] = useState<Order | null>(order);
     
-    useEffect(() => {
-        setEditableOrder(order);
-    }, [order]);
-    
     const [isEditing, setIsEditing] = useState(false);
 
     useEffect(() => {
         if (!open) {
-            setIsEditing(false);
+            setIsEditing(false); // Reset editing state when dialog is closed.
         }
-    }, [open]);
+        setEditableOrder(order);
+    }, [order, open]);
 
     const handleSave = () => {
         if (editableOrder) {
@@ -456,12 +454,12 @@ const OrdersTab = ({ orders, isLoading, onAddOrder, onUpdateOrder, onCancelOrder
         <>
             <Card>
                 <CardHeader>
-                    <div className="flex justify-between items-center">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <div>
                             <CardTitle>Purchase Orders</CardTitle>
                             <CardDescription>Track your inventory supply orders.</CardDescription>
                         </div>
-                        <Button onClick={() => setIsAddOrderOpen(true)}><PlusCircle className="mr-2"/>New Order</Button>
+                        <Button onClick={() => setIsAddOrderOpen(true)} className="w-full sm:w-auto"><PlusCircle className="mr-2 h-4 w-4"/>New Order</Button>
                     </div>
                 </CardHeader>
                 <CardContent>
