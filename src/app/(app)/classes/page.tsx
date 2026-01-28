@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -26,18 +27,19 @@ import {
 import { format } from 'date-fns';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { collection } from 'firebase/firestore';
-import type { Class, Staff, Resource } from '@/lib/data';
+import type { Service as Class, Staff, Resource } from '@/lib/data';
 import { AddClassDialog } from '@/components/classes/AddClassDialog';
 import { Badge } from '@/components/ui/badge';
 import { nanoid } from 'nanoid';
 import { addDocumentNonBlocking } from '@/firebase/non-blocking-updates';
 import { useToast } from '@/hooks/use-toast';
 import { Label } from '@/components/ui/label';
+import { useTenant } from '@/context/TenantContext';
 
 const ClassCard = ({ classItem, staff, resources }: { classItem: Class, staff: Staff[], resources: Resource[] }) => {
     const instructor = staff.find(s => s.id === classItem.staffId);
-    const attendeesCount = classItem.attendees?.length || 0;
-    const capacityProgress = (attendeesCount / classItem.capacity) * 100;
+    const attendeesCount = (classItem as any).attendees?.length || 0;
+    const capacityProgress = (attendeesCount / (classItem.capacity || 1)) * 100;
     
     const breakEvenPoint = useMemo(() => {
         const fixed = classItem.fixedCost || 0;
@@ -89,12 +91,24 @@ const ClassCard = ({ classItem, staff, resources }: { classItem: Class, staff: S
 
 export default function ClassesPage() {
   const { firestore, user } = useFirebase();
-  const tenantId = 'tenant-abc';
+  const { selectedTenant } = useTenant();
+  const tenantId = selectedTenant?.id;
   const { toast } = useToast();
   
-  const classesQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/classes`) : null, [firestore, tenantId]);
-  const staffQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/staff`) : null, [firestore, tenantId]);
-  const resourcesQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/resources`) : null, [firestore, tenantId]);
+  const classesQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, `tenants/${tenantId}/classes`);
+  }, [firestore, tenantId]);
+
+  const staffQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, `tenants/${tenantId}/staff`);
+  }, [firestore, tenantId]);
+
+  const resourcesQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, `tenants/${tenantId}/resources`);
+  }, [firestore, tenantId]);
 
   const { data: classes, isLoading: classesLoading } = useCollection<Class>(classesQuery);
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
@@ -103,7 +117,7 @@ export default function ClassesPage() {
   const [isAddClassDialogOpen, setIsAddClassDialogOpen] = useState(false);
   
   const handleSaveClass = (classData: Omit<Class, 'id'>) => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
 
     const newClass = {
         ...classData,

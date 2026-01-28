@@ -39,6 +39,7 @@ import { nanoid } from 'nanoid';
 import { addDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase/non-blocking-updates';
 import { useToast } from '@/hooks/use-toast';
 import Link from 'next/link';
+import { useTenant } from '@/context/TenantContext';
 
 const ResourceCard = ({ resource, inventory, onDelete, onEdit }: { resource: Resource, inventory: InventoryItem[], onDelete: (id: string) => void, onEdit: (resource: Resource) => void }) => {
     const linkedItem = resource.inventoryItemId ? inventory.find(i => i.id === resource.inventoryItemId) : null;
@@ -102,12 +103,13 @@ const ResourceCard = ({ resource, inventory, onDelete, onEdit }: { resource: Res
 
 export default function ResourcesPage() {
     const { firestore, user } = useFirebase();
-    const tenantId = 'tenant-abc';
+    const { selectedTenant } = useTenant();
+    const tenantId = selectedTenant?.id;
     const { inventory } = useInventory();
     const { toast } = useToast();
 
     const resourcesQuery = useMemoFirebase(() => {
-        if (!firestore) return null;
+        if (!firestore || !tenantId) return null;
         return collection(firestore, `tenants/${tenantId}/resources`);
     }, [firestore, tenantId]);
 
@@ -116,7 +118,7 @@ export default function ResourcesPage() {
     const [isAddResourceOpen, setIsAddResourceOpen] = useState(false);
 
     const handleSaveResource = (resourceData: Omit<Resource, 'id'>) => {
-        if (!firestore) return;
+        if (!firestore || !tenantId) return;
         
         const newResource: Resource = {
             ...resourceData,
@@ -134,7 +136,7 @@ export default function ResourcesPage() {
     }
     
     const handleDeleteResource = (resourceId: string) => {
-        if (!firestore) return;
+        if (!firestore || !tenantId) return;
         const resourceRef = doc(firestore, 'tenants', tenantId, 'resources', resourceId);
         deleteDocumentNonBlocking(resourceRef);
         toast({
