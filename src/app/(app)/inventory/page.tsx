@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
@@ -127,18 +126,16 @@ const OrderCard = ({ order, onSelect, onTrack, onReceive }: { order: Order, onSe
                 <div className="text-sm space-y-2">
                     <p><strong>{totalItems}</strong> items ordered</p>
                     <p>Total Cost: <strong>${totalCost.toFixed(2)}</strong></p>
-                    {order.trackingNumber && (
-                        <div className="flex items-center gap-2">
-                             <Button
-                                variant="link"
-                                size="xs"
-                                className="p-0 h-auto"
-                                onClick={(e) => onTrack(e, order.trackingUrl)}
-                            >
-                                <Truck className="w-4 h-4 text-muted-foreground mr-2"/>
-                                Track
-                            </Button>
-                        </div>
+                    {order.trackingUrl && (
+                         <Button
+                            variant="link"
+                            size="xs"
+                            className="p-0 h-auto"
+                            onClick={(e) => onTrack(e, order.trackingUrl)}
+                        >
+                            <Truck className="w-4 h-4 text-muted-foreground mr-2"/>
+                            Track
+                        </Button>
                     )}
                     {order.expectedArrivalDate && <p>Expected: <strong>{format(parseISO(order.expectedArrivalDate), 'MMM d, yyyy')}</strong></p>}
                 </div>
@@ -248,17 +245,15 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                                 </div>
                                 <div className="text-sm space-y-2">
                                     {editableOrder.trackingUrl && (
-                                        <div className="flex items-center gap-2">
-                                            <Button
-                                                variant="link"
-                                                size="xs"
-                                                className="p-0 h-auto"
-                                                onClick={(e) => onTrack(e, editableOrder.trackingUrl)}
-                                            >
-                                                <Truck className="w-4 h-4 text-muted-foreground mr-2"/>
-                                                Track
-                                            </Button>
-                                        </div>
+                                        <Button
+                                            variant="link"
+                                            size="xs"
+                                            className="p-0 h-auto"
+                                            onClick={(e) => onTrack(e, editableOrder.trackingUrl)}
+                                        >
+                                            <Truck className="w-4 h-4 text-muted-foreground mr-2"/>
+                                            Track
+                                        </Button>
                                     )}
                                     {editableOrder.expectedArrivalDate && <p><strong>Expected Arrival:</strong> {format(parseISO(editableOrder.expectedArrivalDate), 'MMM d, yyyy')}</p>}
                                     {editableOrder.invoiceUrl && (
@@ -302,7 +297,7 @@ const OrdersTab = ({ orders, isLoading, onAddOrder, onUpdateOrder, onCancelOrder
     const { firestore } = useFirebase();
     const tenantId = 'tenant-abc';
     
-    const openTrackingUrl = (e: React.MouseEvent, url: string | undefined) => {
+    const openTrackingUrl = (e: React.MouseEvent, url?: string) => {
         e.stopPropagation();
         if (!url) return;
         let finalUrl = url;

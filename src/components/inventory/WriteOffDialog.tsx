@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -43,7 +42,7 @@ interface WriteOffDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   product: InventoryItem;
-  onConfirm: (productId: string, batchId: string, quantity: number, reason: string) => void;
+  onConfirm: (productId: string, batchId: string, quantity: number, reason: string) => { success: boolean, message: string };
 }
 
 export const WriteOffDialog: React.FC<WriteOffDialogProps> = ({
@@ -146,7 +145,8 @@ export const WriteOffDialog: React.FC<WriteOffDialogProps> = ({
                                     <SelectValue placeholder="Select a reason" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="Damaged">Damaged</SelectItem>
+                                    <SelectItem value="Damaged on Arrival">Damaged on Arrival</SelectItem>
+                                    <SelectItem value="Damaged in Store">Damaged in Store</SelectItem>
                                     <SelectItem value="Expired">Expired</SelectItem>
                                     <SelectItem value="Theft">Theft/Loss</SelectItem>
                                     <SelectItem value="Internal Use">Internal Use</SelectItem>
