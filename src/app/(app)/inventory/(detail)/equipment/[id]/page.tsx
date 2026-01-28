@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -145,6 +144,8 @@ export default function EquipmentDetailPage() {
   const [isEndExperimentOpen, setIsEndExperimentOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const { toast } = useToast();
+  const [isQrModalOpen, setIsQrModalOpen] = useState(false);
+  const [qrModalContent, setQrModalContent] = useState({ url: '', alt: '', title: '' });
   
   const equipment = inventory.find((p) => p.id === id && p.type === 'equipment');
   
@@ -300,7 +301,23 @@ export default function EquipmentDetailPage() {
                 </div>
                 <div className='space-y-1'>
                     <div className='text-sm text-muted-foreground flex items-center gap-2'><QrCode className='w-4 h-4' /> Reorder QR</div>
-                    <div className='w-12 h-12 bg-muted flex items-center justify-center rounded-md'>
+                    <button
+                        className={cn(
+                            'w-12 h-12 bg-muted flex items-center justify-center rounded-md',
+                            !equipment.supplierUrl && 'cursor-not-allowed opacity-50'
+                        )}
+                        onClick={() => {
+                            if (equipment.supplierUrl) {
+                                setQrModalContent({
+                                    url: `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(equipment.supplierUrl)}`,
+                                    alt: `Reorder QR for ${equipment.name}`,
+                                    title: 'Reorder QR Code'
+                                });
+                                setIsQrModalOpen(true);
+                            }
+                        }}
+                        disabled={!equipment.supplierUrl}
+                    >
                         {equipment.supplierUrl ? (
                             <Image
                                 src={`https://api.qrserver.com/v1/create-qr-code/?size=48x48&data=${encodeURIComponent(equipment.supplierUrl)}`}
@@ -310,15 +327,25 @@ export default function EquipmentDetailPage() {
                                 className="object-contain"
                             />
                         ) : (
-                             <div className="w-12 h-12 bg-muted/50 flex items-center justify-center rounded-md">
+                            <div className="w-12 h-12 bg-muted/50 flex items-center justify-center rounded-md">
                                 <QrCode className="w-6 h-6 text-muted-foreground/50" />
                             </div>
                         )}
-                    </div>
+                    </button>
                 </div>
                 <div className='space-y-1'>
                     <div className='text-sm text-muted-foreground flex items-center gap-2'><QrCode className='w-4 h-4' /> Internal QR</div>
-                    <div className='w-12 h-12 bg-muted flex items-center justify-center rounded-md'>
+                     <button
+                        className='w-12 h-12 bg-muted flex items-center justify-center rounded-md'
+                        onClick={() => {
+                            setQrModalContent({
+                                url: `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(`clarityflow://product/${equipment.id}`)}`,
+                                alt: `Internal QR for ${equipment.name}`,
+                                title: 'Internal Equipment QR Code'
+                            });
+                            setIsQrModalOpen(true);
+                        }}
+                    >
                         <Image
                             src={`https://api.qrserver.com/v1/create-qr-code/?size=48x48&data=${encodeURIComponent(`clarityflow://product/${equipment.id}`)}`}
                             alt={`Internal QR for ${equipment.name}`}
@@ -326,7 +353,7 @@ export default function EquipmentDetailPage() {
                             height={48}
                             className="object-contain"
                         />
-                    </div>
+                    </button>
                 </div>
             </CardContent>
         </Card>
@@ -498,6 +525,22 @@ export default function EquipmentDetailPage() {
                 locations={locations}
             />
         )}
+        <Dialog open={isQrModalOpen} onOpenChange={setIsQrModalOpen}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>{qrModalContent.title}</DialogTitle>
+                </DialogHeader>
+                <div className="flex items-center justify-center p-4">
+                    <Image
+                        src={qrModalContent.url}
+                        alt={qrModalContent.alt}
+                        width={256}
+                        height={256}
+                        className="object-contain rounded-md"
+                    />
+                </div>
+            </DialogContent>
+        </Dialog>
       </main>
     </div>
   );

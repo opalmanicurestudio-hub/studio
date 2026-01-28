@@ -1,4 +1,3 @@
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -31,6 +30,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { StockCorrection, type InventoryItem, type Service } from '@/lib/data';
 import { EditProductDialog } from '@/components/inventory/EditProductDialog';
 import { useToast } from '@/hooks/use-toast';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 const CorrectionIcon = ({ reason }: { reason: string }) => {
     if (reason.toLowerCase().includes('appointment')) return <TrendingDown className="h-4 w-4 text-red-500" />;
@@ -46,6 +46,8 @@ export default function ProductDetailPage() {
   const { inventory, stockCorrections, locations, services, transactions } = useInventory();
   const { toast } = useToast();
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isQrModalOpen, setIsQrModalOpen] = useState(false);
+  const [qrModalContent, setQrModalContent] = useState({ url: '', alt: '', title: '' });
   
   const product = inventory.find((p) => p.id === id);
 
@@ -283,7 +285,7 @@ export default function ProductDetailPage() {
             <CardContent className="p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className='space-y-1'>
                     <div className='text-sm text-muted-foreground flex items-center gap-2'><Tag className='w-4 h-4' /> SKU</div>
-                    <div className='font-mono text-sm'>{product.sku || product.id.slice(-6).toUpperCase()}</div>
+                    <div className='font-mono text-sm'>{product.sku || 'N/A'}</div>
                 </div>
                 <div className='space-y-1'>
                     <div className='text-sm text-muted-foreground flex items-center gap-2'><Truck className='w-4 h-4' /> Vendor</div>
@@ -291,7 +293,23 @@ export default function ProductDetailPage() {
                 </div>
                  <div className='space-y-1'>
                     <div className='text-sm text-muted-foreground flex items-center gap-2'><QrCode className='w-4 h-4' /> Reorder QR</div>
-                    <div className='w-12 h-12 bg-muted flex items-center justify-center rounded-md'>
+                    <button
+                        className={cn(
+                            'w-12 h-12 bg-muted flex items-center justify-center rounded-md',
+                            !product.supplierUrl && 'cursor-not-allowed opacity-50'
+                        )}
+                        onClick={() => {
+                            if (product.supplierUrl) {
+                                setQrModalContent({
+                                    url: `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(product.supplierUrl)}`,
+                                    alt: `Reorder QR for ${product.name}`,
+                                    title: 'Reorder QR Code'
+                                });
+                                setIsQrModalOpen(true);
+                            }
+                        }}
+                        disabled={!product.supplierUrl}
+                    >
                         {product.supplierUrl ? (
                             <Image
                                 src={`https://api.qrserver.com/v1/create-qr-code/?size=48x48&data=${encodeURIComponent(product.supplierUrl)}`}
@@ -305,11 +323,21 @@ export default function ProductDetailPage() {
                                 <QrCode className="w-6 h-6 text-muted-foreground/50" />
                             </div>
                         )}
-                    </div>
+                    </button>
                 </div>
                  <div className='space-y-1'>
                     <div className='text-sm text-muted-foreground flex items-center gap-2'><QrCode className='w-4 h-4' /> Internal QR</div>
-                     <div className='w-12 h-12 bg-muted flex items-center justify-center rounded-md'>
+                     <button
+                        className='w-12 h-12 bg-muted flex items-center justify-center rounded-md'
+                        onClick={() => {
+                            setQrModalContent({
+                                url: `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(`clarityflow://product/${product.id}`)}`,
+                                alt: `Internal QR for ${product.name}`,
+                                title: 'Internal Product QR Code'
+                            });
+                            setIsQrModalOpen(true);
+                        }}
+                    >
                         <Image
                             src={`https://api.qrserver.com/v1/create-qr-code/?size=48x48&data=${encodeURIComponent(`clarityflow://product/${product.id}`)}`}
                             alt={`Internal QR for ${product.name}`}
@@ -317,7 +345,7 @@ export default function ProductDetailPage() {
                             height={48}
                             className="object-contain"
                         />
-                    </div>
+                    </button>
                 </div>
             </CardContent>
         </Card>
@@ -552,6 +580,22 @@ export default function ProductDetailPage() {
             onAddLocationClick={() => {}}
         />
       )}
+      <Dialog open={isQrModalOpen} onOpenChange={setIsQrModalOpen}>
+        <DialogContent>
+            <DialogHeader>
+                <DialogTitle>{qrModalContent.title}</DialogTitle>
+            </DialogHeader>
+            <div className="flex items-center justify-center p-4">
+                <Image
+                    src={qrModalContent.url}
+                    alt={qrModalContent.alt}
+                    width={256}
+                    height={256}
+                    className="object-contain rounded-md"
+                />
+            </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
