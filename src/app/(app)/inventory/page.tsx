@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
@@ -79,6 +78,7 @@ import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { CalendarIcon } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
 
 
 const OrderCard = ({ order }: { order: Order }) => {
@@ -1265,3 +1265,5 @@ export default function InventoryPage() {
     </ClientOnly>
   );
 }
+
+    
