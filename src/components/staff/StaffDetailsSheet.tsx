@@ -12,11 +12,11 @@ import {
 } from '@/components/ui/sheet';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { type Staff, type Transaction, type Service, type Appointment, type ActivityLog } from '@/lib/data';
+import { type Staff, type Transaction, type Service, type Appointment, type ActivityLog, type ConsentForm } from '@/lib/data';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { format, differenceInMinutes, parseISO, subDays, startOfDay, endOfDay } from 'date-fns';
-import { TrendingUp, DollarSign, PackageX, Clock, Info, Briefcase, User, MessageSquare, Coffee, Hourglass, BarChart, Percent, Users, List, FileText, Shield, Search, Calendar as CalendarIcon, Printer } from 'lucide-react';
+import { TrendingUp, DollarSign, PackageX, Clock, Info, Briefcase, User, MessageSquare, Coffee, Hourglass, BarChart, Percent, Users, List, FileText, Shield, Search, Calendar as CalendarIcon, Printer, ShieldAlert } from 'lucide-react';
 import { Button, buttonVariants } from '../ui/button';
 import {
   Tooltip,
@@ -45,6 +45,7 @@ interface StaffDetailsSheetProps {
   services: Service[];
   appointments: Appointment[];
   activityLogs: ActivityLog[];
+  consentForms: ConsentForm[];
 }
 
 const TransactionCard = ({ transaction, service, timeVariance }: { transaction: Transaction, service?: Service, timeVariance: number | null }) => (
@@ -83,6 +84,7 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
   services,
   appointments,
   activityLogs,
+  consentForms,
 }) => {
   const isMobile = useIsMobile();
   const [activitySearch, setActivitySearch] = useState('');
@@ -90,6 +92,21 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
   const reportRef = useRef<HTMLDivElement>(null);
   
   const [dateRange, setDateRange] = useState<DateRange | undefined>(initialDateRange);
+  
+  const staffServices = useMemo(() => {
+    if (!staffMember?.services || !services) return [];
+    const staffSkillLevel = staffMember.skillLevel || 'senior';
+    return services
+      .filter(s => staffMember.services?.includes(s.id))
+      .map(service => {
+        const tierPrice = service.pricingTiers?.find(t => t.level === staffSkillLevel)?.price;
+        const finalPrice = tierPrice ?? service.pricingTiers?.find(t => t.level === 'senior')?.price ?? service.price;
+        return {
+          ...service,
+          price: finalPrice,
+        };
+      });
+  }, [staffMember, services]);
 
   useEffect(() => {
     setDateRange(initialDateRange);
@@ -124,21 +141,6 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
       return true;
     });
   }, [transactions, staffMember, transactionSearch, dateRange]);
-  
-  const staffServices = useMemo(() => {
-    if (!staffMember?.services || !services) return [];
-    const staffSkillLevel = staffMember.skillLevel || 'senior';
-    return services
-      .filter(s => staffMember.services?.includes(s.id))
-      .map(service => {
-        const tierPrice = service.pricingTiers?.find(t => t.level === staffSkillLevel)?.price;
-        const finalPrice = tierPrice ?? service.pricingTiers?.find(t => t.level === 'senior')?.price ?? service.price;
-        return {
-          ...service,
-          price: finalPrice,
-        };
-      });
-  }, [staffMember, services]);
     
   const dateRangeString = dateRange?.from && dateRange.to
     ? `${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d')}`
@@ -222,9 +224,10 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                     </Card>
                 </div>
                 <Tabs defaultValue="activity" className="w-full">
-                  <TabsList className="grid w-full grid-cols-3">
+                  <TabsList className="grid w-full grid-cols-4">
                     <TabsTrigger value="activity">Activity Log</TabsTrigger>
                     <TabsTrigger value="transactions">Transactions</TabsTrigger>
+                    <TabsTrigger value="effectiveness">Effectiveness</TabsTrigger>
                     <TabsTrigger value="profile">Profile</TabsTrigger>
                   </TabsList>
                   <TabsContent value="activity" className="mt-4">
@@ -296,6 +299,30 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                         </TableBody>
                     </Table>
                   </TabsContent>
+                   <TabsContent value="effectiveness" className="mt-4">
+                    <Card><CardContent className="p-4 space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="p-3 rounded-lg bg-muted/50">
+                                <div className="text-sm font-medium text-muted-foreground">Utilization Rate</div>
+                                <div className="text-2xl font-bold">{staffMember.stats.utilizationRate.toFixed(1)}%</div>
+                            </div>
+                            <div className="p-3 rounded-lg bg-muted/50">
+                                <div className="text-sm font-medium text-muted-foreground">Avg. Ticket Size</div>
+                                <div className="text-2xl font-bold">${staffMember.stats.avgSalePerAppointment.toFixed(2)}</div>
+                            </div>
+                            <div className="p-3 rounded-lg bg-muted/50">
+                                <div className="text-sm font-medium text-muted-foreground">Retail Attach Rate</div>
+                                <div className="text-2xl font-bold">{staffMember.stats.retailAttachmentRate.toFixed(1)}%</div>
+                            </div>
+                             <div className="p-3 rounded-lg bg-muted/50">
+                                <div className="text-sm font-medium text-muted-foreground">Avg Time Variance</div>
+                                <div className={cn('text-2xl font-bold', staffMember.stats.avgVariance > 0 ? 'text-destructive' : 'text-green-500')}>
+                                    {staffMember.stats.avgVariance > 0 ? '+' : ''}{staffMember.stats.avgVariance.toFixed(1)} min
+                                </div>
+                            </div>
+                        </div>
+                    </CardContent></Card>
+                  </TabsContent>
                    <TabsContent value="profile" className="mt-4 space-y-4">
                         <Card>
                             <CardHeader><CardTitle className="text-base">Contact & Emergency</CardTitle></CardHeader>
@@ -315,6 +342,19 @@ export const StaffDetailsSheet: React.FC<StaffDetailsSheetProps> = ({
                             <CardContent className="text-sm space-y-2">
                                 <p><strong>License #:</strong> {staffMember.compliance?.licenseNumber || 'N/A'}</p>
                                 <p><strong>Expires:</strong> {staffMember.compliance?.licenseExpiry ? format(parseISO(staffMember.compliance.licenseExpiry), 'PPP') : 'N/A'}</p>
+                                <div className="space-y-2 pt-2">
+                                    <h4 className="font-medium">Documents</h4>
+                                    {(staffMember.documents || []).length > 0 ? staffMember.documents?.map(doc => (
+                                        <div key={doc.id}><a href={doc.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{doc.name}</a></div>
+                                    )) : <p className="text-muted-foreground text-xs">No documents uploaded.</p>}
+                                </div>
+                                 <div className="space-y-2 pt-2">
+                                    <h4 className="font-medium">Assigned Forms</h4>
+                                     {(staffMember.assignedFormIds || []).length > 0 ? (staffMember.assignedFormIds || []).map(formId => {
+                                        const form = consentForms.find(f => f.id === formId);
+                                        return <div key={formId}><p>{form?.title || 'Unknown Form'}</p></div>;
+                                     }) : <p className="text-muted-foreground text-xs">No forms assigned.</p>}
+                                </div>
                             </CardContent>
                         </Card>
                         <Card>
