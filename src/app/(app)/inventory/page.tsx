@@ -175,21 +175,15 @@ const AddOrderDialog = ({
     }
 
     const handleSave = () => {
-        let newOrder: Omit<Order, 'id'> = {
+        const newOrder: Omit<Order, 'id'> = {
             supplier,
             orderDate: (orderDate || new Date()).toISOString(),
-            status: 'Draft',
+            status: 'Placed',
             trackingNumber,
             notes,
             items,
+            ...(expectedDate && { expectedArrivalDate: expectedDate.toISOString() }),
         };
-
-        if (expectedDate) {
-            newOrder = {
-                ...newOrder,
-                expectedArrivalDate: expectedDate.toISOString(),
-            };
-        }
 
         onSave(newOrder);
         onOpenChange(false);
@@ -594,13 +588,12 @@ export default function InventoryPage() {
     const newOrder: Order = {
       ...newOrderData,
       id: nanoid(),
-      status: 'Draft',
     };
     const orderRef = collection(firestore, 'tenants', tenantId, 'orders');
     addDocumentNonBlocking(orderRef, newOrder);
     toast({
       title: "Order Created!",
-      description: `Your order to ${newOrder.supplier} has been saved.`
+      description: `Your order to ${newOrder.supplier} has been saved as '${newOrder.status}'.`
     });
   };
 
@@ -1305,4 +1298,5 @@ export default function InventoryPage() {
 }
 
     
+
 
