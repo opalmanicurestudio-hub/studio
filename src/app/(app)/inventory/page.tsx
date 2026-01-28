@@ -13,7 +13,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette, QrCode, AlertTriangle, ListFilter, ChevronDown, ShoppingCart, Briefcase, DollarSign, Activity, Eye, CircleHelp, Warehouse, Beaker, Recycle, TrendingUp, Truck, Clock, Check, Link as LinkIcon, FileImage } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette, QrCode, AlertTriangle, ListFilter, ChevronDown, ShoppingCart, Briefcase, DollarSign, Activity, Eye, CircleHelp, Warehouse, Beaker, Recycle, TrendingUp, Truck, Clock, Check, Link as LinkIcon, FileImage, X } from 'lucide-react';
 import { 
     inventory as initialInventoryData,
     stockCorrections as initialStockCorrectionsData,
@@ -278,38 +278,40 @@ const AddOrderDialog = ({
 };
 
 const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrder }: { order: Order | null, open: boolean, onOpenChange: (open: boolean) => void, onSave: (order: Order) => void, onCancelOrder: (orderId: string) => void }) => {
-    if (!order) return null;
-    
-    const [editableOrder, setEditableOrder] = useState<Order>(order);
+    const [editableOrder, setEditableOrder] = useState<Order | null>(order);
 
     useEffect(() => {
-        setEditableOrder(order);
+        if (order) {
+            setEditableOrder(order);
+        }
     }, [order]);
 
-    const totalCost = useMemo(() => {
-        return editableOrder.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
-    }, [editableOrder.items]);
+    if (!editableOrder) return null;
+
+    const totalCost = editableOrder.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
-        setEditableOrder(prev => ({ ...prev, [name]: value }));
+        setEditableOrder(prev => prev ? ({ ...prev, [name]: value }) : null);
     };
 
     const handleDateChange = (date: Date | undefined, field: 'orderDate' | 'expectedArrivalDate') => {
-        setEditableOrder(prev => ({...prev, [field]: date?.toISOString()}))
+        setEditableOrder(prev => prev ? ({...prev, [field]: date?.toISOString()}) : null)
     }
     
     const handleItemChange = (productId: string, field: 'quantity' | 'costPerUnit', value: number) => {
-        setEditableOrder(prev => ({
+        setEditableOrder(prev => prev ? ({
             ...prev,
             items: prev.items.map(item => item.productId === productId ? { ...item, [field]: value } : item)
-        }));
+        }) : null);
     }
 
     const [isEditing, setIsEditing] = useState(false);
     
     const handleSave = () => {
-        onSave(editableOrder);
+        if (editableOrder) {
+            onSave(editableOrder);
+        }
         setIsEditing(false);
     }
     
@@ -347,7 +349,7 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                                 <div className="space-y-2">
                                     <Label>Invoice/Receipt</Label>
                                     <ImageUpload
-                                        onImageUploaded={(url) => setEditableOrder(prev => ({...prev, invoiceUrl: url}))}
+                                        onImageUploaded={(url) => setEditableOrder(prev => prev ? ({...prev, invoiceUrl: url}) : null)}
                                         initialImage={editableOrder.invoiceUrl}
                                     />
                                 </div>
@@ -1259,7 +1261,7 @@ export default function InventoryPage() {
                                     <div className="relative flex-1 w-full">
                                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                         <Input 
-                                            placeholder="Search by name or SKU..." 
+                                            placeholder="Search by name, email, or last 4 of phone..." 
                                             className="pl-9"
                                             value={searchTerm}
                                             onChange={(e) => setSearchTerm(e.target.value)}
@@ -1531,6 +1533,7 @@ export default function InventoryPage() {
 }
 
     
+
 
 
 
