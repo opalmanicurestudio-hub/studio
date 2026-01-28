@@ -1,6 +1,6 @@
 'use client';
 
-import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
+import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, QrCode, Globe, Building, HardHat } from 'lucide-react';
 import { type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState, type Resource } from '@/lib/data';
@@ -1048,7 +1048,7 @@ const events = useMemo(() => {
   if (!hasMounted || isLoading) {
     return (
       <div className="flex h-screen w-full flex-col">
-        <AppHeaderClient title="Planner" />
+        <AppHeader />
         <div className="flex items-center justify-center flex-1">
           <Loader className="h-8 w-8 animate-spin" />
         </div>
@@ -1058,7 +1058,7 @@ const events = useMemo(() => {
   
   return (
     <div className="flex h-screen w-full flex-col">
-      <AppHeaderClient title="Planner" />
+      <AppHeader />
       
       <div className="p-4 border-b space-y-4">
         <div className="flex items-center justify-between gap-4">
@@ -1544,7 +1544,7 @@ export default function PlannerPageWrapper() {
   return (
     <Suspense fallback={
         <div className="flex h-screen w-full flex-col">
-            <AppHeaderClient title="Planner" />
+            <AppHeader />
             <div className="flex items-center justify-center flex-1">
                 <Loader className="h-8 w-8 animate-spin" />
             </div>
