@@ -1,9 +1,8 @@
 
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useForm, FormProvider, useFormContext, Controller } from 'react-hook-form';
+import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
@@ -74,7 +73,11 @@ const serviceSchema = z.object({
   depositSubType: z.enum(['flat', 'percentage']).optional(),
   depositAmount: z.coerce.number().optional(),
   
-  price: z.coerce.number().optional(),
+  pricingTiers: z.object({
+    junior: z.coerce.number().min(0, 'Price must be 0 or more.'),
+    senior: z.coerce.number().min(0, 'Price must be 0 or more.'),
+    master: z.coerce.number().min(0, 'Price must be 0 or more.'),
+  }),
   confirmationMessage: z.string().optional(),
   requiredFormIds: z.array(z.string()).optional(),
 });
@@ -178,12 +181,8 @@ const EditServiceForm = ({
     };
 
     const selectedAddOns = allServices.filter(s => compatibleAddOnIds.includes(s.id));
+    const pricingTiers = watch('pricingTiers');
 
-    const price = watch('price');
-    const finalPrice = price || 0;
-    const netProfit = finalPrice - breakEvenCost;
-    const profitMargin = finalPrice > 0 ? (netProfit / finalPrice) * 100 : 0;
-    
     return (
     <>
         <div className="space-y-6">
@@ -254,12 +253,48 @@ const EditServiceForm = ({
              <Card>
                 <CardHeader><CardTitle>Pricing & Booking</CardTitle></CardHeader>
                 <CardContent className="space-y-6">
-                    <div className="space-y-2"><Label htmlFor="final-price-edit">Final Price</Label><div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input id="final-price-edit" type="number" placeholder="100.00" {...register('price', { valueAsNumber: true })} className="pl-8"/></div></div>
-                    <Card className="bg-muted/50"><CardContent className="p-4 space-y-4">
+                    <div className="space-y-4">
+                        <Label>Pricing Tiers</Label>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="junior-price-edit" className="font-normal text-muted-foreground">Junior</Label>
+                                <Input id="junior-price-edit" type="number" placeholder="0.00" {...register('pricingTiers.junior')} />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="senior-price-edit" className="font-normal text-muted-foreground">Senior</Label>
+                                <Input id="senior-price-edit" type="number" placeholder="0.00" {...register('pricingTiers.senior')} />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="master-price-edit" className="font-normal text-muted-foreground">Master</Label>
+                                <Input id="master-price-edit" type="number" placeholder="0.00" {...register('pricingTiers.master')} />
+                            </div>
+                        </div>
+                        {errors.pricingTiers && <p className="text-sm text-destructive">{errors.pricingTiers?.junior?.message || errors.pricingTiers?.senior?.message || errors.pricingTiers?.master?.message}</p>}
+                    </div>
+
+                     <Card className="bg-muted/50"><CardContent className="p-4 space-y-4">
                         <h4 className="font-semibold text-center">Profitability Preview</h4>
-                        <div className="flex justify-between items-center"><p className="text-sm text-muted-foreground">Break-Even Cost:</p><p className="font-mono text-destructive">${breakEvenCost.toFixed(2)}</p></div>
-                        <div className="flex justify-between items-center font-medium border-t pt-2 mt-2"><p>Net Profit:</p><p className="text-primary">${netProfit.toFixed(2)}</p></div>
-                        <div className="flex justify-between items-center text-sm text-muted-foreground"><span>Profit Margin:</span><span className="text-primary">{profitMargin.toFixed(1)}%</span></div>
+                        <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                            <p className="font-semibold">Level</p>
+                            <p className="font-semibold">Profit</p>
+                            <p className="font-semibold">Margin</p>
+                        </div>
+                        {pricingTiers && ['junior', 'senior', 'master'].map(level => {
+                            const price = pricingTiers[level as keyof typeof pricingTiers] || 0;
+                            const netProfit = price - breakEvenCost;
+                            const profitMargin = price > 0 ? (netProfit / price) * 100 : 0;
+                            return (
+                                <div key={level} className="grid grid-cols-3 gap-2 text-center text-sm items-center">
+                                    <p className="capitalize font-medium">{level}</p>
+                                    <p className={cn("font-mono", netProfit >= 0 ? 'text-primary' : 'text-destructive')}>${netProfit.toFixed(2)}</p>
+                                    <p className={cn("font-mono", profitMargin >= 0 ? 'text-primary' : 'text-destructive')}>{profitMargin.toFixed(1)}%</p>
+                                </div>
+                            )
+                        })}
+                        <div className="flex justify-between items-center text-xs border-t pt-2 mt-2">
+                            <p className="text-muted-foreground">Break-Even Cost:</p>
+                            <p className="font-mono text-destructive">${breakEvenCost.toFixed(2)}</p>
+                        </div>
                     </CardContent></Card>
                     
                     {!isAddon && (
@@ -369,8 +404,8 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
   }, []);
 
   useEffect(() => {
-      if (service) {
-          methods.reset({
+    if (service) {
+        methods.reset({
             id: service.id,
             name: service.name,
             type: service.type,
@@ -382,7 +417,12 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
             padAfter: service.padAfter || undefined,
             description: service.description || undefined,
             imageUrl: service.imageUrl || undefined,
-            price: service.price,
+            pricingTiers: {
+                junior: service.pricingTiers?.find(t => t.level === 'junior')?.price || 0,
+                senior: service.pricingTiers?.find(t => t.level === 'senior')?.price || service.price || 0,
+                master: service.pricingTiers?.find(t => t.level === 'master')?.price || 0,
+            },
+            price: service.price, // Keep for compatibility if needed elsewhere
             products: service.products || [],
             requiredResourceIds: service.requiredResourceIds || [],
             compatibleAddOnIds: service.compatibleAddOnIds || [],
@@ -391,8 +431,8 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
             depositAmount: service.depositAmount,
             confirmationMessage: service.confirmationMessage || '',
             requiredFormIds: service.requiredFormIds || [],
-          });
-      }
+        });
+    }
   }, [service, methods.reset])
   
   
@@ -432,7 +472,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
   }, [duration, padBefore, padAfter, products, requiredResourceIds, tmhr, inventory]);
 
   const onSubmit = (data: ServiceFormData) => {
-      const finalPrice = data.price || 0;
+      const finalPrice = data.pricingTiers.senior || 0;
       const netProfit = finalPrice - breakEvenCost;
       const margin = finalPrice > 0 ? (netProfit / finalPrice) * 100 : 0;
       
@@ -445,6 +485,11 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
         padBefore: data.padBefore,
         padAfter: data.padAfter,
         price: finalPrice,
+        pricingTiers: [
+            { level: 'junior', price: data.pricingTiers.junior },
+            { level: 'senior', price: data.pricingTiers.senior },
+            { level: 'master', price: data.pricingTiers.master },
+        ],
         cost: breakEvenCost,
         profit: netProfit,
         margin: margin,
@@ -488,8 +533,11 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
         </div>
         <DialogFooter className={isMobile ? "p-4 border-t" : "p-6 border-t"}>
           <div className='flex justify-between w-full'>
-            <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
-            <Button type="submit" form={formId}>Save Changes</Button>
+            <div></div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => onOpenChange(false)} type="button">Cancel</Button>
+              <Button type="submit" form={formId}>Save Changes</Button>
+            </div>
           </div>
         </DialogFooter>
       </form>
@@ -499,7 +547,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={handleOpenChange}>
-        <SheetContent side="bottom" className="max-h-[90vh] flex flex-col p-0">
+        <SheetContent side="bottom" className="max-h-[90dvh] flex flex-col p-0">
           {formBody}
         </SheetContent>
       </Sheet>

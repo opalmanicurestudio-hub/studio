@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -70,7 +69,11 @@ const serviceSchema = z.object({
   depositSubType: z.enum(['flat', 'percentage']).optional(),
   depositAmount: z.coerce.number().optional(),
   
-  price: z.coerce.number().optional(),
+  pricingTiers: z.object({
+    junior: z.coerce.number().min(0, 'Price must be 0 or more.'),
+    senior: z.coerce.number().min(0, 'Price must be 0 or more.'),
+    master: z.coerce.number().min(0, 'Price must be 0 or more.'),
+  }),
   confirmationMessage: z.string().optional(),
   requiredFormIds: z.array(z.string()).optional(),
 });
@@ -280,10 +283,13 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
     const { control, watch, register, setValue } = useFormContext<ServiceFormData>();
     const isAddon = watch('isAddon');
     const depositType = watch('depositType');
-    const price = watch('price');
-    const finalPrice = price || 0;
-    const netProfit = finalPrice - breakEvenCost;
-    const profitMargin = finalPrice > 0 ? (netProfit / finalPrice) * 100 : 0;
+    const pricingTiers = watch('pricingTiers');
+
+    const tiers = useMemo(() => [
+        { level: 'junior', price: pricingTiers?.junior || 0 },
+        { level: 'senior', price: pricingTiers?.senior || 0 },
+        { level: 'master', price: pricingTiers?.master || 0 },
+    ], [pricingTiers]);
 
     useEffect(() => {
         if (depositType === 'breakeven') {
@@ -296,12 +302,47 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
         <Card>
             <CardHeader><CardTitle>Pricing & Booking</CardTitle></CardHeader>
             <CardContent className="space-y-6">
-                <div className="space-y-2"><Label htmlFor="final-price">Final Price</Label><div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input id="final-price" type="number" placeholder="100.00" {...register('price', { valueAsNumber: true })} className="pl-8"/></div></div>
+                <div className="space-y-4">
+                    <Label>Pricing Tiers</Label>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="junior-price" className="font-normal text-muted-foreground">Junior</Label>
+                            <Input id="junior-price" type="number" placeholder="0.00" {...register('pricingTiers.junior')} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="senior-price" className="font-normal text-muted-foreground">Senior</Label>
+                            <Input id="senior-price" type="number" placeholder="0.00" {...register('pricingTiers.senior')} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="master-price" className="font-normal text-muted-foreground">Master</Label>
+                            <Input id="master-price" type="number" placeholder="0.00" {...register('pricingTiers.master')} />
+                        </div>
+                    </div>
+                     {errors.pricingTiers && <p className="text-sm text-destructive">{errors.pricingTiers?.junior?.message || errors.pricingTiers?.senior?.message || errors.pricingTiers?.master?.message}</p>}
+                </div>
+
                 <Card className="bg-muted/50"><CardContent className="p-4 space-y-4">
                     <h4 className="font-semibold text-center">Profitability Preview</h4>
-                    <div className="flex justify-between items-center"><p className="text-sm text-muted-foreground">Break-Even Cost:</p><p className="font-mono text-destructive">${breakEvenCost.toFixed(2)}</p></div>
-                    <div className="flex justify-between items-center font-medium border-t pt-2 mt-2"><p>Net Profit:</p><p className="text-primary">${netProfit.toFixed(2)}</p></div>
-                    <div className="flex justify-between items-center text-sm text-muted-foreground"><span>Profit Margin:</span><span className="text-primary">{profitMargin.toFixed(1)}%</span></div>
+                     <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                        <p className="font-semibold">Level</p>
+                        <p className="font-semibold">Profit</p>
+                        <p className="font-semibold">Margin</p>
+                    </div>
+                     {tiers.map(tier => {
+                        const netProfit = tier.price - breakEvenCost;
+                        const profitMargin = tier.price > 0 ? (netProfit / tier.price) * 100 : 0;
+                        return (
+                            <div key={tier.level} className="grid grid-cols-3 gap-2 text-center text-sm items-center">
+                                <p className="capitalize font-medium">{tier.level}</p>
+                                <p className={cn("font-mono", netProfit >= 0 ? 'text-primary' : 'text-destructive')}>${netProfit.toFixed(2)}</p>
+                                <p className={cn("font-mono", profitMargin >= 0 ? 'text-primary' : 'text-destructive')}>{profitMargin.toFixed(1)}%</p>
+                            </div>
+                        )
+                     })}
+                    <div className="flex justify-between items-center text-xs border-t pt-2 mt-2">
+                        <p className="text-muted-foreground">Break-Even Cost:</p>
+                        <p className="font-mono text-destructive">${breakEvenCost.toFixed(2)}</p>
+                    </div>
                 </CardContent></Card>
                 
                 {!isAddon && (
@@ -371,7 +412,7 @@ const Step4_VisibilityConfirmation = () => {
                     <Button variant="outline" onClick={() => setIsConsentFormBrowserOpen(true)} type="button" className="w-full"><PlusCircle className="mr-2 h-4 w-4" /> Browse Forms</Button></div>
                 </CardContent>
             </Card>
-            <BrowseConsentFormsDialog open={isConsentFormBrowserOpen} onOpenChange={setIsConsentFormBrowserOpen} onSelect={(forms) => { setValue('requiredFormIds', forms.map(f => f.id), { shouldDirty: true }); }} allForms={consentForms} initialSelected={requiredForms} />
+            <BrowseConsentFormsDialog open={isConsentFormBrowserOpen} onOpenChange={setIsConsentFormBrowserOpen} onSelect={(forms) => { setValue('requiredFormIds', forms.map(f => f.id), { shouldDirty: true }); }} allForms={consentForms || []} initialSelected={requiredForms} />
         </>
     );
 };
@@ -416,6 +457,7 @@ export const AddServiceDialog: React.FC<{
         compatibleAddOnIds: [],
         depositType: 'none',
         requiredFormIds: [],
+        pricingTiers: { junior: 0, senior: 0, master: 0 },
       });
       setStep(1);
     }
@@ -470,7 +512,7 @@ export const AddServiceDialog: React.FC<{
   }
 
   const onSubmit = (data: ServiceFormData) => {
-      const finalPrice = data.price || 0;
+      const finalPrice = data.pricingTiers.senior || 0;
       const netProfit = finalPrice - breakEvenCost;
       const margin = finalPrice > 0 ? (netProfit / finalPrice) * 100 : 0;
       
@@ -483,6 +525,11 @@ export const AddServiceDialog: React.FC<{
         padBefore: data.padBefore,
         padAfter: data.padAfter,
         price: finalPrice,
+        pricingTiers: [
+            { level: 'junior', price: data.pricingTiers.junior },
+            { level: 'senior', price: data.pricingTiers.senior },
+            { level: 'master', price: data.pricingTiers.master },
+        ],
         cost: breakEvenCost,
         profit: netProfit,
         margin: margin,
@@ -515,7 +562,7 @@ export const AddServiceDialog: React.FC<{
       fieldsToValidate.push('name', 'category', 'duration');
     }
      if (step === 3) {
-      fieldsToValidate.push('price');
+      fieldsToValidate.push('pricingTiers');
     }
     
     const isValid = fieldsToValidate.length > 0 ? await methods.trigger(fieldsToValidate) : true;
