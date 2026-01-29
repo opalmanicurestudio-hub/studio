@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { ArrowLeft, Save, Send, Loader, Eye, Mail, MessageSquare, Wand2, HandHeart, Sparkles, PartyPopper, Search, User as UserIcon, FlaskConical } from 'lucide-react';
+import { ArrowLeft, Save, Send, Loader, Eye, Mail, MessageSquare, Wand2, HandHeart, Sparkles, PartyPopper, Search, User as UserIcon, FlaskConical, Gift } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
@@ -67,7 +67,7 @@ const premadeCampaigns = [
   {
     name: "Birthday Special",
     icon: PartyPopper,
-    targetAudience: 'birthday', // This would ideally be a 'birthday' trigger
+    targetAudience: 'birthday',
     type: 'email',
     subject: "Happy Birthday from all of us!",
     body: "Hi {{clientName}},\n\nWishing you a fantastic birthday! To celebrate, we're giving you a special gift of 20% off your next visit. Treat yourself!\n\nWarmly,\nThe Team",
@@ -220,6 +220,7 @@ export default function NewCampaignPage() {
     const [previewData, setPreviewData] = useState<CampaignFormData | null>(null);
     const [isClientSelectorOpen, setIsClientSelectorOpen] = useState(false);
     const [isABTest, setIsABTest] = useState(false);
+    const bodyTextareaRef = useRef<HTMLTextAreaElement>(null);
 
 
     const { control, handleSubmit, register, watch, setValue, formState: { errors } } = useForm<CampaignFormData>({
@@ -233,6 +234,24 @@ export default function NewCampaignPage() {
     
     const campaignType = watch('type');
     const targetAudience = watch('targetAudience');
+
+    const handleInsertPlaceholder = (placeholder: string) => {
+        const textarea = bodyTextareaRef.current;
+        if (textarea) {
+            const start = textarea.selectionStart;
+            const end = textarea.selectionEnd;
+            const text = textarea.value;
+            const newText = text.substring(0, start) + placeholder + text.substring(end);
+            
+            setValue('body', newText, { shouldDirty: true });
+
+            // We need to wait for the re-render to complete before setting cursor
+            setTimeout(() => {
+                textarea.selectionStart = textarea.selectionEnd = start + placeholder.length;
+                textarea.focus();
+            }, 0);
+        }
+    };
     
     const handleTemplateSelect = (templateName: string) => {
         const template = premadeCampaigns.find(t => t.name === templateName);
@@ -384,8 +403,26 @@ export default function NewCampaignPage() {
                             )}
 
                             <div className="space-y-2">
-                                <Label htmlFor="body">Message Body</Label>
-                                <Textarea id="body" placeholder="Hi {{clientName}}, ..." {...register('body')} rows={8} />
+                                <div className="flex items-center justify-between">
+                                    <Label htmlFor="body">Message Body</Label>
+                                    <div className="text-xs">
+                                        <Button
+                                            type="button"
+                                            variant="link"
+                                            className="p-1 h-auto"
+                                            onClick={() => handleInsertPlaceholder('{{clientName}}')}
+                                        >
+                                            Insert Client Name
+                                        </Button>
+                                    </div>
+                                </div>
+                                <Textarea
+                                    id="body"
+                                    placeholder="Hi {{clientName}}, ..."
+                                    {...register('body')}
+                                    ref={bodyTextareaRef}
+                                    rows={8}
+                                />
                                 <p className="text-xs text-muted-foreground">Use {'{{clientName}}'} to personalize your message.</p>
                                 {errors.body && <p className="text-sm text-destructive">{errors.body.message}</p>}
                             </div>
