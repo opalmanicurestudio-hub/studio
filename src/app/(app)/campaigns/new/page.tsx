@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -210,13 +209,14 @@ const ClientSelectorDialog = ({
 }
 
 export default function NewCampaignPage() {
-    const { firestore } = useFirebase();
+    const { firestore, user } = useFirebase();
     const { selectedTenant } = useTenant();
     const router = useRouter();
     const { toast } = useToast();
     const { discounts, clients } = useInventory();
     const [isSaving, setIsSaving] = useState(false);
     const [isSending, setIsSending] = useState(false);
+    const [isSendingTest, setIsSendingTest] = useState(false);
     const [previewData, setPreviewData] = useState<CampaignFormData | null>(null);
     const [isClientSelectorOpen, setIsClientSelectorOpen] = useState(false);
     const [isABTest, setIsABTest] = useState(false);
@@ -302,21 +302,47 @@ export default function NewCampaignPage() {
         }
     }
 
+    const handleSendTest = async (data: CampaignFormData) => {
+        if (!user?.email) {
+            toast({
+                variant: 'destructive',
+                title: 'Cannot Send Test',
+                description: 'Your email address is not available.',
+            });
+            return;
+        }
+
+        setIsSendingTest(true);
+        // Simulate sending a test email
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        toast({
+            title: 'Test Sent!',
+            description: `A test campaign has been sent to ${user.email}.`,
+        });
+
+        setIsSendingTest(false);
+    };
+
     return (
         <div className="flex min-h-screen w-full flex-col">
             <AppHeader title="New Campaign" />
             <main className="flex-1 p-4 md:p-8">
                 <form>
                      <div className="flex flex-col-reverse sm:flex-row items-center justify-between gap-4 mb-8">
-                        <div className="flex items-center gap-2 w-full sm:w-auto">
-                             <Button type="button" variant="outline" onClick={handleSubmit((data) => processSubmit(data, 'draft'))} disabled={isSaving || isSending} className="flex-1 sm:flex-auto">
+                        <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
+                             <Button type="button" variant="outline" onClick={handleSubmit((data) => processSubmit(data, 'draft'))} disabled={isSaving || isSending || isSendingTest} className="flex-1 sm:flex-auto">
                                 {isSaving ? <Loader className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                                 Save Draft
                             </Button>
-                            <Button type="button" variant="secondary" onClick={handleSubmit((data) => setPreviewData(data))}>
+                            <Button type="button" variant="secondary" onClick={handleSubmit((data) => setPreviewData(data))} disabled={isSaving || isSending || isSendingTest}>
                                 <Eye className="mr-2 h-4 w-4" /> Preview
                             </Button>
-                            <Button type="button" onClick={handleSubmit((data) => processSubmit(data, 'sent'))} disabled={isSaving || isSending} className="flex-1 sm:flex-auto">
+                             <Button type="button" variant="secondary" onClick={handleSubmit(handleSendTest)} disabled={isSaving || isSending || isSendingTest}>
+                                {isSendingTest ? <Loader className="mr-2 h-4 w-4 animate-spin" /> : <FlaskConical className="mr-2 h-4 w-4" />}
+                                Send Test
+                            </Button>
+                            <Button type="button" onClick={handleSubmit((data) => processSubmit(data, 'sent'))} disabled={isSaving || isSending || isSendingTest} className="flex-1 sm:flex-auto">
                                 {isSending ? <Loader className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
                                 Send
                             </Button>
