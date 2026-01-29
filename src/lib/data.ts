@@ -303,6 +303,7 @@ export type Appointment = {
   lateTimeMinutes?: number;
   automatedRescheduleOffered?: boolean;
   requiredResourceIds?: string[];
+  recurrenceId?: string;
 };
 
 export type EventChecklistItem = {
@@ -1208,6 +1209,7 @@ export { nanoid };
     
 
     
+
 
 
 
