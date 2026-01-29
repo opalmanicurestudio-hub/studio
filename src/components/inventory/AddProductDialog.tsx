@@ -39,7 +39,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2 } from 'lucide-react';
+import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2, ShoppingCart } from 'lucide-react';
 import { type Service } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectResourcesDialog } from './SelectResourcesDialog';
@@ -99,7 +99,7 @@ const Step1_BasicDetails = ({
     const { register, control, setValue, watch, formState: { errors } } = useFormContext<ProductFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
-    const category = watch('category');
+    const productType = watch('type');
 
     const handleAddNewCategory = () => {
         if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
@@ -113,16 +113,34 @@ const Step1_BasicDetails = ({
     
     return (
   <div className="grid gap-6 py-4">
-    <div className="flex items-center justify-between p-4 border rounded-lg">
-        <div className='space-y-1'><Label htmlFor="is-addon">Is this an Add-on Service?</Label><p className='text-sm text-muted-foreground'>Add-ons can be appended to primary services.</p></div>
-        <Controller name="isAddon" control={control} render={({ field }) => ( <Switch id="is-addon" checked={field.value} onCheckedChange={field.onChange} /> )}/>
-    </div>
     <div className="space-y-2">
       <Label htmlFor="product-name">Product Name</Label>
       <Input id="product-name" placeholder="e.g., Hydrating Shampoo" {...register('name')} />
        {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
     </div>
-    <Controller name="type" control={control} render={({ field }) => ( <input type="hidden" {...field} /> )}/>
+    <Controller
+        name="type"
+        control={control}
+        render={({ field }) => (
+            <div className="space-y-2">
+                <Label>Product Type</Label>
+                <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
+                    <div>
+                        <RadioGroupItem value="professional" id="professional" className="peer sr-only" />
+                        <Label htmlFor="professional" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
+                            <Package className="mb-2 h-6 w-6" /> Professional
+                        </Label>
+                    </div>
+                    <div>
+                        <RadioGroupItem value="retail" id="retail" className="peer sr-only" />
+                        <Label htmlFor="retail" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
+                            <ShoppingCart className="mb-2 h-6 w-6" /> Retail
+                        </Label>
+                    </div>
+                </RadioGroup>
+            </div>
+        )}
+    />
     <div className="space-y-2">
       <Label htmlFor="category">Category</Label>
       {isAddingCategory ? (
@@ -149,36 +167,13 @@ const Step1_BasicDetails = ({
        {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
     </div>
 
-    <div className="grid grid-cols-3 gap-4">
-        <div className="space-y-2">
-            <Label htmlFor="duration">Duration (min)</Label>
-            <Input id="duration" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>
-            {errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}
-        </div>
-        <div className="space-y-2">
-            <Label htmlFor="pad-before">Pad Before (min)</Label>
-            <Input id="pad-before" type="number" placeholder="e.g., 0" {...register('padBefore', { valueAsNumber: true })} />
-        </div>
-        <div className="space-y-2">
-            <Label htmlFor="pad-after">Pad After (min)</Label>
-            <Input id="pad-after" type="number" placeholder="e.g., 15" {...register('padAfter', { valueAsNumber: true })} />
-        </div>
+    <div className="space-y-2">
+      <Label>Product Image</Label>
+       <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/>
     </div>
      <div className="space-y-2">
-        <Label htmlFor="capacity">Capacity</Label>
-        <Input id="capacity" type="number" placeholder="1" {...register('capacity', { valueAsNumber: true })}/>
-        <p className="text-xs text-muted-foreground">Max number of clients for this service at the same time. Set to 1 for individual services.</p>
-        {errors.capacity && <p className="text-sm text-destructive">{errors.capacity.message}</p>}
-    </div>
-    
-    <div className="space-y-2">
-      <Label htmlFor="description">Description</Label>
-      <Textarea id="description" placeholder="Describe the service for your booking page..." {...register('description')} />
-    </div>
-
-    <div className="space-y-2">
-      <Label>Service Image</Label>
-       <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/>
+        <Label htmlFor="internalNotes">Internal Notes</Label>
+        <Textarea id="internalNotes" placeholder="e.g., Back-ordered until June, store on bottom shelf." {...register('internalNotes')} />
     </div>
   </div>
     );
@@ -411,18 +406,18 @@ export const AddProductDialog: React.FC<{
   
     const handleNext = async (e: React.MouseEvent<HTMLButtonElement>) => {
         e.preventDefault();
-        const fieldsToValidate: (keyof ServiceFormData)[] = [];
+        const fieldsToValidate: (keyof ProductFormData)[] = [];
         if (step === 1) {
-        fieldsToValidate.push('name', 'category', 'duration');
+            fieldsToValidate.push('name', 'category');
         }
         if (step === 3) {
-        fieldsToValidate.push('pricingTiers');
+            fieldsToValidate.push('initialStock');
         }
         
         const isValid = fieldsToValidate.length > 0 ? await trigger(fieldsToValidate) : true;
         
         if (isValid && step < totalSteps) {
-        setStep(step + 1);
+            setStep(step + 1);
         }
     };
 
