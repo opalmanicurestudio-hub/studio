@@ -510,6 +510,11 @@ export type Discount = {
   validUntil?: string;
   applicableServiceIds?: string[];
   limitOnePerCustomer?: boolean;
+  usedByClientIds?: string[];
+  automation?: {
+    trigger: 'none' | 'new_client' | 'loyalty';
+    appointmentThreshold?: number;
+  };
 };
 
 
@@ -1183,6 +1188,7 @@ export { nanoid };
     
 
     
+
 
 
 

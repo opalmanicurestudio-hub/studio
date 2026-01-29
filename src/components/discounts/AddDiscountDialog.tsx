@@ -25,7 +25,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { DollarSign, Percent, PlusCircle, Trash2, Users, AlertTriangle } from 'lucide-react';
+import { DollarSign, Percent, PlusCircle, Trash2, Users, AlertTriangle, Wand } from 'lucide-react';
 import { useForm, Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -51,6 +51,10 @@ const discountSchema = z.object({
   validUntil: z.date().optional(),
   applicableServiceIds: z.array(z.string()).optional(),
   limitOnePerCustomer: z.boolean().default(false),
+  automation: z.object({
+      trigger: z.enum(['none', 'new_client', 'loyalty']),
+      appointmentThreshold: z.coerce.number().optional(),
+  }).optional(),
 }).refine(data => data.type !== 'percentage' || (data.value >= 1 && data.value <= 100), {
   message: "Percentage must be between 1 and 100.",
   path: ["value"],
@@ -228,6 +232,9 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
             type: 'percentage',
             applicableServiceIds: [],
             limitOnePerCustomer: false,
+            automation: {
+                trigger: 'none',
+            }
         }
     });
 
@@ -235,6 +242,8 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
     const discountValue = watch('value');
     const usageLimit = watch('usageLimit') || 0;
     const selectedServiceIds = watch('applicableServiceIds') || [];
+    const automationTrigger = watch('automation.trigger');
+
 
     const selectedServices = useMemo(() => {
         return allServices.filter(s => selectedServiceIds.includes(s.id));
@@ -248,6 +257,7 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
                 validUntil: discountToEdit.validUntil ? parseISO(discountToEdit.validUntil) : undefined,
                 applicableServiceIds: discountToEdit.applicableServiceIds || [],
                 limitOnePerCustomer: discountToEdit.limitOnePerCustomer || false,
+                automation: discountToEdit.automation || { trigger: 'none' }
             });
         } else {
             reset({
@@ -261,6 +271,9 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
                 validUntil: undefined,
                 applicableServiceIds: [],
                 limitOnePerCustomer: false,
+                automation: {
+                    trigger: 'none'
+                }
             });
         }
     }, [discountToEdit, reset, open]);
@@ -319,58 +332,106 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
 
         <Separator />
 
-        <div className="space-y-2">
-            <Label>Applicability</Label>
-            <p className="text-xs text-muted-foreground">
-                Apply this discount to specific services, or leave empty to apply to the entire cart.
-            </p>
-            {selectedServices.length > 0 && (
-                <Card>
-                    <CardContent className="p-2 space-y-2">
-                        {selectedServices.map(service => (
-                            <div key={service.id} className="flex justify-between items-center bg-muted/50 p-2 rounded-md">
-                                <span className="text-sm font-medium">{service.name}</span>
-                                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeService(service.id)} type="button">
-                                    <Trash2 className="h-4 w-4"/>
-                                </Button>
-                            </div>
-                        ))}
-                    </CardContent>
-                </Card>
-            )}
-            <Button variant="outline" type="button" className="w-full" onClick={() => setIsServiceSelectorOpen(true)}>
-                <PlusCircle className="mr-2 h-4 w-4"/>
-                {selectedServices.length > 0 ? 'Edit Services' : 'Select Services'}
-            </Button>
-        </div>
+        <Accordion type="single" collapsible>
+            <AccordionItem value="applicability" className="border-0">
+                <AccordionTrigger className="p-0 hover:no-underline font-medium text-base">Rules & Applicability</AccordionTrigger>
+                <AccordionContent className="pt-4 space-y-6">
+                    <div className="space-y-2">
+                        <Label>Applicability</Label>
+                        <p className="text-xs text-muted-foreground">
+                            Apply this discount to specific services, or leave empty to apply to the entire cart.
+                        </p>
+                        {selectedServices.length > 0 && (
+                            <Card>
+                                <CardContent className="p-2 space-y-2">
+                                    {selectedServices.map(service => (
+                                        <div key={service.id} className="flex justify-between items-center bg-muted/50 p-2 rounded-md">
+                                            <span className="text-sm font-medium">{service.name}</span>
+                                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeService(service.id)} type="button">
+                                                <Trash2 className="h-4 w-4"/>
+                                            </Button>
+                                        </div>
+                                    ))}
+                                </CardContent>
+                            </Card>
+                        )}
+                        <Button variant="outline" type="button" className="w-full" onClick={() => setIsServiceSelectorOpen(true)}>
+                            <PlusCircle className="mr-2 h-4 w-4"/>
+                            {selectedServices.length > 0 ? 'Edit Services' : 'Select Services'}
+                        </Button>
+                    </div>
 
-        {selectedServices.length > 0 && (
-            <ProfitabilityAnalysis services={selectedServices} discountType={discountType} discountValue={discountValue} />
-        )}
+                    {selectedServices.length > 0 && (
+                        <ProfitabilityAnalysis services={selectedServices} discountType={discountType} discountValue={discountValue} />
+                    )}
+
+                    <div className="space-y-2">
+                        <Label htmlFor="usage-limit">Usage Limit</Label>
+                        <Input id="usage-limit" type="number" placeholder="0 for unlimited" {...register('usageLimit')} />
+                        <p className="text-xs text-muted-foreground">Set to 0 for unlimited uses.</p>
+                    </div>
+
+                    <PotentialImpactAnalysis 
+                        discountType={discountType}
+                        discountValue={discountValue}
+                        usageLimit={usageLimit}
+                        selectedServices={selectedServices}
+                    />
+
+                    <div className="flex items-center justify-between">
+                        <Label htmlFor="limit-per-customer" className="flex items-center gap-2"><Users className="w-4 h-4 text-muted-foreground" />One use per customer</Label>
+                        <Controller name="limitOnePerCustomer" control={control} render={({ field }) => (<Switch id="limit-per-customer" checked={field.value} onCheckedChange={field.onChange} /> )}/>
+                    </div>
+                    <div className="flex items-center justify-between">
+                        <Label htmlFor="is-active">Active</Label>
+                        <Controller name="isActive" control={control} render={({ field }) => (<Switch id="is-active" checked={field.value} onCheckedChange={field.onChange} /> )}/>
+                    </div>
+                </AccordionContent>
+            </AccordionItem>
+        </Accordion>
         
         <Separator />
 
-        <div className="space-y-2">
-            <Label htmlFor="usage-limit">Usage Limit</Label>
-            <Input id="usage-limit" type="number" placeholder="0 for unlimited" {...register('usageLimit')} />
-            <p className="text-xs text-muted-foreground">Set to 0 for unlimited uses.</p>
-        </div>
-
-         <PotentialImpactAnalysis 
-            discountType={discountType}
-            discountValue={discountValue}
-            usageLimit={usageLimit}
-            selectedServices={selectedServices}
-        />
-
-        <div className="flex items-center justify-between">
-            <Label htmlFor="limit-per-customer" className="flex items-center gap-2"><Users className="w-4 h-4 text-muted-foreground" />One use per customer</Label>
-            <Controller name="limitOnePerCustomer" control={control} render={({ field }) => (<Switch id="limit-per-customer" checked={field.value} onCheckedChange={field.onChange} /> )}/>
-        </div>
-        <div className="flex items-center justify-between">
-            <Label htmlFor="is-active">Active</Label>
-            <Controller name="isActive" control={control} render={({ field }) => (<Switch id="is-active" checked={field.value} onCheckedChange={field.onChange} /> )}/>
-        </div>
+        <Accordion type="single" collapsible>
+            <AccordionItem value="automation" className="border-0">
+                <AccordionTrigger className="p-0 hover:no-underline font-medium text-base">Automation</AccordionTrigger>
+                 <AccordionContent className="pt-4 space-y-4">
+                    <p className="text-xs text-muted-foreground">Set up rules to automatically suggest this discount at checkout.</p>
+                    <Controller
+                        name="automation.trigger"
+                        control={control}
+                        render={({ field }) => (
+                        <div className="space-y-2">
+                            <Label>Trigger</Label>
+                            <Select onValueChange={field.onChange} value={field.value}>
+                            <SelectTrigger>
+                                <SelectValue placeholder="No Automation" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="none">None (Manual Entry Only)</SelectItem>
+                                <SelectItem value="new_client">New Client's First Visit</SelectItem>
+                                <SelectItem value="loyalty">Loyalty (After X Visits)</SelectItem>
+                            </SelectContent>
+                            </Select>
+                        </div>
+                        )}
+                    />
+                    {automationTrigger === 'loyalty' && (
+                        <Controller
+                        name="automation.appointmentThreshold"
+                        control={control}
+                        render={({ field }) => (
+                            <div className="space-y-2">
+                            <Label>Appointment Threshold</Label>
+                            <Input type="number" placeholder="e.g., 5" {...field} value={field.value ?? ''} />
+                            <p className="text-xs text-muted-foreground">Trigger when the client completes this many appointments.</p>
+                            </div>
+                        )}
+                        />
+                    )}
+                 </AccordionContent>
+            </AccordionItem>
+        </Accordion>
       </div>
     );
 

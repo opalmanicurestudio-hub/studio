@@ -6,9 +6,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { MoreHorizontal, Percent, Tag, Trash2, Edit, Users, AlertTriangle } from 'lucide-react';
+import { MoreHorizontal, Percent, Tag, Trash2, Edit, Users, AlertTriangle, Wand } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { type Discount } from '@/lib/data';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 
 interface DiscountCardProps {
   discount: Discount;
@@ -36,15 +37,29 @@ export const DiscountCard: React.FC<DiscountCardProps> = ({ discount, onEdit, on
             </CardTitle>
             <CardDescription>{discount.description || 'No description'}</CardDescription>
           </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8 -mt-2 -mr-2"><MoreHorizontal className="h-4 w-4" /></Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              <DropdownMenuItem onClick={() => onEdit(discount)}><Edit className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
-              <DropdownMenuItem className="text-destructive" onClick={() => onDelete(discount.id)}><Trash2 className="mr-2 h-4 w-4" />Delete</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+           <div className="flex items-center gap-2">
+                {discount.automation && discount.automation.trigger !== 'none' && (
+                <TooltipProvider>
+                    <Tooltip>
+                        <TooltipTrigger>
+                            <Wand className="h-4 w-4 text-purple-500" />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                            <p>Automated Discount</p>
+                        </TooltipContent>
+                    </Tooltip>
+                </TooltipProvider>
+                )}
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 -mt-2 -mr-2"><MoreHorizontal className="h-4 w-4" /></Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                    <DropdownMenuItem onClick={() => onEdit(discount)}><Edit className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
+                    <DropdownMenuItem className="text-destructive" onClick={() => onDelete(discount.id)}><Trash2 className="mr-2 h-4 w-4" />Delete</DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">

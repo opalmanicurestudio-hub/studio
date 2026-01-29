@@ -866,13 +866,25 @@
             "description": "A list of service IDs this discount applies to. If empty, it applies to the entire sale."
         },
         "limitOnePerCustomer": {
-            "type": "boolean",
-            "description": "If true, the discount code can only be used once per client."
+            "type": "boolean"
         },
         "usedByClientIds": {
             "type": "array",
-            "items": { "type": "string" },
-            "description": "A list of client IDs who have used this discount."
+            "items": { "type": "string" }
+        },
+        "automation": {
+            "type": "object",
+            "properties": {
+                "trigger": {
+                    "type": "string",
+                    "enum": ["none", "new_client", "loyalty"],
+                    "description": "The event that triggers this automation."
+                },
+                "appointmentThreshold": {
+                    "type": "number",
+                    "description": "Number of appointments to trigger loyalty discount."
+                }
+            }
         }
       },
       "required": ["id", "code", "type", "value"]
