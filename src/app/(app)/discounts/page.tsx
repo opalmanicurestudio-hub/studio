@@ -1,18 +1,18 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, Search } from 'lucide-react';
+import { PlusCircle, Search, DollarSign, Ticket, Award } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useInventory } from '@/context/InventoryContext';
 import { AddDiscountDialog } from '@/components/discounts/AddDiscountDialog';
 import { DiscountCard } from '@/components/discounts/DiscountCard';
 import { type Discount } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
-import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
+import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { collection, doc } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
@@ -39,6 +39,7 @@ export default function DiscountsPage() {
 
     const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
     const [editingDiscount, setEditingDiscount] = useState<Discount | null>(null);
+    const [searchTerm, setSearchTerm] = useState('');
 
     const handleAdd = () => {
         setEditingDiscount(null);
@@ -79,6 +80,45 @@ export default function DiscountsPage() {
             toast({ title: 'Discount Created' });
         }
     };
+    
+    const kpiData = useMemo(() => {
+        if (!discounts || discounts.length === 0) {
+        return {
+            totalValue: 0,
+            totalRedemptions: 0,
+            mostPopularCode: 'N/A',
+        };
+        }
+
+        let totalValue = 0;
+        let totalRedemptions = 0;
+        let mostPopularCode = 'N/A';
+        let maxUsage = -1;
+
+        discounts.forEach(discount => {
+            totalRedemptions += discount.usageCount;
+
+            if (discount.type === 'fixed') {
+                totalValue += discount.value * discount.usageCount;
+            }
+            // Note: Percentage-based discount values are not included in this total for accuracy.
+            
+            if (discount.usageCount > maxUsage) {
+                maxUsage = discount.usageCount;
+                mostPopularCode = discount.code;
+            }
+        });
+
+        return { totalValue, totalRedemptions, mostPopularCode };
+    }, [discounts]);
+    
+    const filteredDiscounts = useMemo(() => {
+        if (!discounts) return [];
+        return discounts.filter(discount => 
+            discount.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (discount.description || '').toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    }, [discounts, searchTerm]);
 
     return (
         <div className="flex min-h-screen w-full flex-col">
@@ -96,19 +136,57 @@ export default function DiscountsPage() {
                     </Button>
                 </div>
                 
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Total Discount Value</CardTitle>
+                        <DollarSign className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                        <div className="text-2xl font-bold">${kpiData.totalValue.toFixed(2)}</div>
+                        <p className="text-xs text-muted-foreground">Value of all fixed-amount discounts redeemed.</p>
+                        </CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Total Redemptions</CardTitle>
+                        <Ticket className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                        <div className="text-2xl font-bold">{kpiData.totalRedemptions}</div>
+                        <p className="text-xs text-muted-foreground">Total times any discount has been used.</p>
+                        </CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Most Popular Code</CardTitle>
+                        <Award className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                        <div className="text-2xl font-bold">{kpiData.mostPopularCode}</div>
+                        <p className="text-xs text-muted-foreground">The most frequently used promotion.</p>
+                        </CardContent>
+                    </Card>
+                </div>
+
                 <Card>
                     <CardHeader>
                          <div className="relative w-full max-w-sm">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input placeholder="Search by code or description..." className="pl-9" />
+                            <Input 
+                                placeholder="Search by code or description..." 
+                                className="pl-9"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
                         </div>
                     </CardHeader>
                     <CardContent>
                         {isLoading ? (
                             <p>Loading...</p>
-                        ) : discounts.length > 0 ? (
+                        ) : filteredDiscounts.length > 0 ? (
                             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                {discounts.map(discount => (
+                                {filteredDiscounts.map(discount => (
                                     <DiscountCard key={discount.id} discount={discount} onEdit={handleEdit} onDelete={handleDelete} />
                                 ))}
                             </div>
