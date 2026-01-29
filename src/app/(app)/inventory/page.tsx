@@ -78,6 +78,7 @@ import { AddOrderDialog } from '@/components/inventory/AddOrderDialog';
 import { ReceiveStockDialog, type ReceivedItem } from '@/components/inventory/ReceiveStockDialog';
 import { useTenant } from '@/context/TenantContext';
 import { Html5Qrcode } from 'html5-qrcode';
+import { ProductCard } from '@/components/inventory/ProductCard';
 
 
 const OrderCard = ({ order, onSelect, onTrack, onReceive }: { order: Order, onSelect: (order: Order) => void, onTrack: (e: React.MouseEvent, url?: string) => void, onReceive: (order: Order) => void }) => {
@@ -443,123 +444,6 @@ const OrdersTab = ({ orders, inventory, isLoading, onAddOrder, onUpdateOrder, on
         </>
     );
 };
-
-const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onLogUse, isSelected, onSelect, isOrdered }: { item: InventoryItem, onEdit: (item: InventoryItem) => void, onToggleExperiment: (item: InventoryItem) => void, onEndExperiment: (item: InventoryItem) => void, onLogUse: (item: InventoryItem) => void, isSelected: boolean, onSelect: () => void, isOrdered: boolean }) => {
-    
-    const stockStatus = useMemo(() => {
-        const hasExpiredBatch = item.batches.some(b => b.expirationDate && isPast(parseISO(b.expirationDate)) && b.stock > 0);
-        if (hasExpiredBatch) return { label: 'Expired', className: 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-400 dark:border-red-600/30' };
-        if (item.totalStock <= 0 && (item.partialContainerUses === undefined || item.partialContainerUses <= 0) && (item.partialContainerSize === undefined || item.partialContainerSize <= 0) ) return { label: 'Out of Stock', className: 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-400 dark:border-red-600/30' };
-        if (item.reorderPoint && item.totalStock <= item.reorderPoint) return { label: 'Low Stock', className: 'bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-400 dark:border-yellow-600/30' };
-        return { label: 'In Stock', className: 'bg-green-100 text-green-800 border-green-200 dark:bg-green-900/40 dark:text-green-400 dark:border-green-600/30' };
-    }, [item]);
-
-    const detailHref = `/inventory/${item.id}`;
-
-    let stockDisplay;
-
-    if (item.costingMethod === 'size' && typeof item.partialContainerSize === 'number') {
-        stockDisplay = (
-            <div className="text-right">
-                <p className="font-mono font-semibold text-lg">{item.totalStock} <span className="text-sm text-muted-foreground">full</span></p>
-                <p className="text-xs text-muted-foreground">{item.partialContainerSize.toFixed(0)}{item.unit} left</p>
-            </div>
-        );
-    } else if (item.costingMethod === 'uses' && typeof item.partialContainerUses === 'number') {
-         stockDisplay = (
-            <div className="text-right">
-                <p className="font-mono font-semibold text-lg">{item.totalStock} <span className="text-sm text-muted-foreground">full</span></p>
-                <p className="text-xs text-muted-foreground">{item.partialContainerUses} {item.useUnit || 'uses'} left</p>
-            </div>
-        );
-    } else {
-        stockDisplay = (
-             <div className="text-right">
-                <p className="font-mono font-semibold text-lg">{item.totalStock}</p>
-                <p className="text-xs text-muted-foreground">{item.unit || 'units'}</p>
-            </div>
-        );
-    }
-    
-    return (
-        <Card className={cn(
-            "transition-all duration-200 hover:shadow-xl hover:-translate-y-1 flex flex-col",
-            item.isExperimentActive && "shadow-lg shadow-purple-500/10 border-purple-500/20",
-            isSelected && "border-primary ring-2 ring-primary"
-        )}>
-            <CardContent className="p-4 flex-1 flex flex-col space-y-4">
-                 <div className="flex items-start gap-4">
-                    <div className="flex items-center pt-1">
-                        <Checkbox
-                            id={`select-${item.id}`}
-                            checked={isSelected}
-                            onCheckedChange={onSelect}
-                            aria-label={`Select ${item.name}`}
-                        />
-                    </div>
-                    <Link href={detailHref} className="w-20 h-20 bg-muted rounded-md flex items-center justify-center flex-shrink-0">
-                        {item.imageUrl ? (
-                            <Image src={item.imageUrl} alt={item.name} width={80} height={80} className='rounded-md object-cover w-full h-full' data-ai-hint="product photo"/>
-                        ) : (
-                            <Package className="w-10 h-10 text-muted-foreground" />
-                        )}
-                    </Link>
-                    <div className='flex-1 min-w-0'>
-                        <div className="flex justify-between items-start">
-                            <Link href={detailHref} className="group">
-                               <p className="font-semibold text-base leading-tight group-hover:underline pr-2">{item.name}</p>
-                            </Link>
-                            <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button aria-haspopup="true" size="icon" variant="ghost" className="h-8 w-8 flex-shrink-0 -mt-1 -mr-1">
-                                <MoreHorizontal className="h-4 w-4" />
-                                <span className="sr-only">Toggle menu</span>
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                                <DropdownMenuItem asChild><Link href={detailHref}>View Details</Link></DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => onEdit(item)}>
-                                    <Edit className="mr-2 h-4 w-4"/>Edit
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={() => item.isExperimentActive ? onEndExperiment(item) : onToggleExperiment(item)}>
-                                    {item.isExperimentActive ? <><CheckCircle className="mr-2 h-4 w-4 text-green-500" />End Lifespan Test</> : <><Rocket className="mr-2 h-4 w-4 text-purple-500"/>Start Lifespan Test</>}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem asChild><Link href={`/inventory/labels?product=${item.id}`}><Printer className="mr-2 h-4 w-4" /> Print Label</Link></DropdownMenuItem>
-                            </DropdownMenuContent>
-                            </DropdownMenu>
-                        </div>
-                        <p className="text-sm text-muted-foreground">{item.category}</p>
-                    </div>
-                </div>
-                 <div className="flex items-center justify-between mt-auto">
-                    <div className="flex items-center gap-2">
-                        <Badge variant="outline" className={stockStatus.className}>{stockStatus.label}</Badge>
-                        {isOrdered && (
-                            <TooltipProvider>
-                                <Tooltip>
-                                    <TooltipTrigger>
-                                        <Truck className="h-4 w-4 text-blue-500" />
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                        <p>This item is on order.</p>
-                                    </TooltipContent>
-                                </Tooltip>
-                            </TooltipProvider>
-                        )}
-                    </div>
-                    {stockDisplay}
-                </div>
-            </CardContent>
-             <CardFooter className="p-2 border-t bg-muted/50">
-                <div className="grid grid-cols-2 gap-2 w-full">
-                    <Button variant="ghost" size="sm" className="w-full" onClick={() => onLogUse(item)}><Pipette className="mr-2 h-4 w-4"/>Log Use</Button>
-                    <Button variant="ghost" size="sm" className="w-full"><PackageX className="mr-2 h-4 w-4"/>Write-off</Button>
-                </div>
-            </CardFooter>
-        </Card>
-    )
-}
 
 const EmptyState = ({ onAddFirstItem }: { onAddFirstItem: () => void }) => (
     <div className="text-center py-20 px-6 col-span-full border-2 border-dashed rounded-lg">
@@ -1186,6 +1070,7 @@ export default function InventoryPage() {
                                             onToggleExperiment={handleToggleExperiment} 
                                             onEndExperiment={handleEndExperiment} 
                                             onLogUse={handleOpenLogUse}
+                                            onWriteOff={handleOpenWriteOff}
                                             isSelected={selectedItems.has(item.id)}
                                             onSelect={() => handleItemSelect(item.id)}
                                             isOrdered={orderedProductIds.has(item.id)}
