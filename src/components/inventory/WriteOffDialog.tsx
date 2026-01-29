@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -42,7 +43,7 @@ interface WriteOffDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   product: InventoryItem;
-  onConfirm: (productId: string, batchId: string, quantity: number, reason: string) => { success: boolean, message: string };
+  onConfirm: (productId: string, batchId: string, quantity: number, reason: string, notes?: string, imageUrl?: string) => void;
 }
 
 export const WriteOffDialog: React.FC<WriteOffDialogProps> = ({
@@ -83,7 +84,7 @@ export const WriteOffDialog: React.FC<WriteOffDialogProps> = ({
 
   const handleFormSubmit = (data: WriteOffFormData) => {
     if (quantityError) return;
-    onConfirm(product.id, data.batchId, data.quantity, data.reason);
+    onConfirm(product.id, data.batchId, data.quantity, data.reason, data.notes, data.imageUrl);
     onOpenChange(false);
   };
 

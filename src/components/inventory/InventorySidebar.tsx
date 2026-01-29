@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -31,7 +32,7 @@ export const InventorySidebar = ({
 }: { 
     inventory: InventoryItem[];
     stockCorrections: StockCorrection[];
-    onSpoilageConfirm: (items: SpoilageItem[]) => void; 
+    onSpoilageConfirm: (items: SpoilageItem[], notes?: string, imageUrl?: string) => void; 
     onLogOverheadUse: (productId: string) => void;
 }) => {
     const [isSpoilageDialogOpen, setIsSpoilageDialogOpen] = useState(false);
@@ -135,8 +136,8 @@ export const InventorySidebar = ({
         return Object.values(usageCounts).sort((a, b) => b.count - a.count).slice(0, 5);
     }, [stockCorrections, inventory]);
 
-    const handleConfirmAndClose = (items: SpoilageItem[]) => {
-        onSpoilageConfirm(items);
+    const handleConfirmAndClose = (items: SpoilageItem[], notes?: string, imageUrl?: string) => {
+        onSpoilageConfirm(items, notes, imageUrl);
         setIsSpoilageDialogOpen(false);
     };
 
@@ -277,3 +278,4 @@ export const InventorySidebar = ({
     )
 
     
+
