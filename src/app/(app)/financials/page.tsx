@@ -166,7 +166,7 @@ const BillItemRow = ({
                         </div>
                      </div>
                       {bill.isCustom && (
-                        <Button variant="outline" size="sm" className="text-destructive w-full"><Trash2 className="w-4 h-4 mr-2"/>Delete Custom Bill</Button>
+                        <Button variant="outline" size="sm" className="text-destructive w-full"><Trash2 className="w-4 h-4 mr-2"/>Delete Custom Cost</Button>
                       )}
                 </AccordionContent>
             </AccordionItem>
@@ -341,6 +341,7 @@ const FinancialProfileManager = ({
   isEditing,
   renamingProfileId,
   setRenamingProfileId,
+  onDeleteProfile,
 }: {
   activeTab: string;
   profiles: any;
@@ -348,6 +349,7 @@ const FinancialProfileManager = ({
   isEditing: boolean;
   renamingProfileId: string | null;
   setRenamingProfileId: (id: string | null) => void;
+  onDeleteProfile: (id: string) => void;
 }) => {
   const { firestore } = useFirebase();
   const tenantId = 'tenant-abc';
@@ -475,7 +477,7 @@ const FinancialProfileManager = ({
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => handleStartRename(profile)}>Rename</DropdownMenuItem>
                         <DropdownMenuItem>Duplicate</DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive" disabled={currentProfiles.length <= 1}>Delete</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onDeleteProfile(profile.id)} className="text-destructive" disabled={currentProfiles.length <= 1}>Delete</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                 </div>
@@ -547,14 +549,16 @@ const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal, totalHours }: { life
 
 export default function FinancialFoundationPage() {
     const { firestore, user } = useFirebase();
-    const tenantId = 'tenant-abc';
+    const { selectedTenant, isLoading: isTenantLoading } = useTenant();
+    const tenantId = selectedTenant?.id;
     const [isEditing, setIsEditing] = useState(false);
     const [activeTab, setActiveTab] = useState('lifestyle');
     const [renamingProfileId, setRenamingProfileId] = useState<string | null>(null);
+    const { toast } = useToast();
 
-    const lifestyleProfilesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/lifestyleProfiles`), [firestore, tenantId]);
-    const businessProfilesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/businessProfiles`), [firestore, tenantId]);
-    const scheduleProfilesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/scheduleProfiles`), [firestore, tenantId]);
+    const lifestyleProfilesQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/lifestyleProfiles`) : null, [firestore, tenantId]);
+    const businessProfilesQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/businessProfiles`) : null, [firestore, tenantId]);
+    const scheduleProfilesQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/scheduleProfiles`) : null, [firestore, tenantId]);
 
     const { data: lifestyleProfilesData, isLoading: lifestyleProfilesLoading } = useCollection(lifestyleProfilesQuery);
     const { data: businessProfilesData, isLoading: businessProfilesLoading } = useCollection(businessProfilesQuery);
@@ -566,15 +570,15 @@ export default function FinancialFoundationPage() {
       scheduleProfiles: []
     });
     
-    const hasInitializedProfiles = useRef({ lifestyle: false, business: false, schedule: false });
+    const hasInitializedProfiles = useRef<{ [key: string]: string | null }>({ lifestyle: null, business: null, schedule: null });
 
     // Initialize Lifestyle Profiles
     useEffect(() => {
         if (lifestyleProfilesLoading || !firestore || !user || !tenantId) return;
 
         if (!lifestyleProfilesData || lifestyleProfilesData.length === 0) {
-            if (hasInitializedProfiles.current.lifestyle) return;
-            hasInitializedProfiles.current.lifestyle = true;
+            if (hasInitializedProfiles.current.lifestyle === tenantId) return;
+            hasInitializedProfiles.current.lifestyle = tenantId;
             const defaultProfileId = nanoid();
             const defaultProfile = {
                 id: defaultProfileId,
@@ -600,8 +604,8 @@ export default function FinancialFoundationPage() {
         if (businessProfilesLoading || !firestore || !user || !tenantId) return;
 
         if (!businessProfilesData || businessProfilesData.length === 0) {
-            if (hasInitializedProfiles.current.business) return;
-            hasInitializedProfiles.current.business = true;
+            if (hasInitializedProfiles.current.business === tenantId) return;
+            hasInitializedProfiles.current.business = tenantId;
             const defaultProfileId = nanoid();
             const defaultProfile = {
                 id: defaultProfileId,
@@ -625,8 +629,8 @@ export default function FinancialFoundationPage() {
     useEffect(() => {
         if (scheduleProfilesLoading || !firestore || !user || !tenantId) return;
         if (!scheduleProfilesData || scheduleProfilesData.length === 0) {
-            if (hasInitializedProfiles.current.schedule) return;
-            hasInitializedProfiles.current.schedule = true;
+            if (hasInitializedProfiles.current.schedule === tenantId) return;
+            hasInitializedProfiles.current.schedule = tenantId;
             const defaultProfileId = nanoid();
             const defaultProfile = {
                 id: defaultProfileId,
@@ -775,6 +779,36 @@ export default function FinancialFoundationPage() {
             return acc + category.bills.reduce((billAcc: number, bill: any) => billAcc + (bill.amount || 0), 0);
         }, 0);
     }, [activeBusinessProfile]);
+    
+    const handleDeleteProfile = (profileId: string) => {
+        if (!firestore || !tenantId) return;
+
+        const profileKey = `${activeTab}Profiles`;
+        const currentProfiles = profiles[profileKey as keyof typeof profiles] as any[];
+
+        if (currentProfiles.length <= 1) {
+            toast({
+                variant: 'destructive',
+                title: 'Cannot Delete',
+                description: 'You must have at least one profile per category.',
+            });
+            return;
+        }
+
+        const profileToDelete = currentProfiles.find((p) => p.id === profileId);
+        if (!profileToDelete) return;
+        
+        const profileDocRef = doc(firestore, `tenants/${tenantId}/${profileKey}`, profileId);
+        deleteDocumentNonBlocking(profileDocRef);
+
+        if (profileToDelete.isActive) {
+            const nextActiveProfile = currentProfiles.find((p) => p.id !== profileId);
+            if (nextActiveProfile) {
+                const nextActiveRef = doc(firestore, `tenants/${tenantId}/${profileKey}`, nextActiveProfile.id);
+                updateDocumentNonBlocking(nextActiveRef, { isActive: true });
+            }
+        }
+    };
 
 
   return (
@@ -816,6 +850,7 @@ export default function FinancialFoundationPage() {
                                   isEditing={isEditing}
                                   renamingProfileId={renamingProfileId}
                                   setRenamingProfileId={setRenamingProfileId}
+                                  onDeleteProfile={handleDeleteProfile}
                               />
                             <TmhrBreakdownCard lifestyleTotal={lifestyleTotal} businessTotal={businessTotal} totalHours={totalBillableHours}/>
                         </div>
@@ -842,3 +877,4 @@ export default function FinancialFoundationPage() {
     </div>
   );
 }
+
