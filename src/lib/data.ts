@@ -512,9 +512,22 @@ export type Discount = {
   limitOnePerCustomer?: boolean;
   usedByClientIds?: string[];
   automation?: {
-    trigger: 'none' | 'new_client' | 'loyalty';
+    trigger: 'none' | 'new_client' | 'loyalty' | 're_engagement' | 'birthday';
     appointmentThreshold?: number;
+    daysSinceLastVisit?: number;
   };
+};
+
+export type Campaign = {
+  id: string;
+  name: string;
+  subject?: string;
+  body: string;
+  targetAudience: 'all' | 'new' | 'loyal' | 'inactive_90';
+  discountId?: string;
+  status: 'draft' | 'sent';
+  sentAt?: string; // ISO date string
+  type: 'email' | 'sms';
 };
 
 
@@ -1188,6 +1201,7 @@ export { nanoid };
     
 
     
+
 
 
 
