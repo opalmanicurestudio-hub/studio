@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -280,29 +281,29 @@ const AddStaffForm = ({ services, consentForms }: { services: Service[], consent
                         <AccordionContent className="p-4 pt-0">
                              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4">
                                 <div className="space-y-2"><Label htmlFor="compliance.licenseNumber">License Number</Label><Input id="compliance.licenseNumber" placeholder="e.g., C-123456" {...register('compliance.licenseNumber')} /></div>
-                                <Controller name="compliance.licenseExpiry" control={control} render={({ field }) => ( <div className="space-y-2"><Label>License Expiry</Label><Popover><PopoverTrigger className={cn('w-full justify-start text-left font-normal', buttonVariants({ variant: 'outline' }), !field.value && "text-muted-foreground")}><CalendarIcon className="mr-2 h-4 w-4" />{field.value ? format(field.value, 'PPP') : <span>Pick a date</span>}</PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent></Popover></div> )}/>
+                                <Controller name="compliance.licenseExpiry" control={control} render={({ field }) => ( 
+                                    <div className="space-y-2">
+                                        <Label>License Expiry</Label>
+                                        <Input
+                                            type="date"
+                                            value={field.value ? format(field.value, 'yyyy-MM-dd') : ''}
+                                            onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined)}
+                                        />
+                                    </div> 
+                                )}/>
                                 <div className="space-y-2 md:col-span-2"><Label>Upload License Document</Label><Controller name="compliance.documentUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/></div>
                             </div>
                             <div className="space-y-2 mt-4">
                                 <Label>Assign Forms</Label>
-                                {assignedForms.length > 0 && (
+                                {assignedForms.length > 0 ? (
                                     <div className="space-y-2">
                                         {assignedForms.map(form => (
                                             <div key={form.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
-                                                <span className="text-sm font-medium">{form.title}</span>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    type="button"
-                                                    className="h-6 w-6 text-destructive"
-                                                    onClick={() => setValue('assignedFormIds', assignedFormIds.filter(id => id !== form.id), { shouldDirty: true })}
-                                                >
-                                                    <Trash2 className="h-4 w-4" />
-                                                </Button>
+                                                <p className="text-sm font-medium">{form.title}</p>
                                             </div>
                                         ))}
                                     </div>
-                                )}
+                                ) : <p className="text-xs text-center text-muted-foreground p-3 border rounded-md">No forms assigned.</p>}
                                 <Button variant="outline" className="w-full" type="button" onClick={() => setIsConsentFormDialogOpen(true)}>
                                     <PlusCircle className="mr-2 h-4 w-4" />
                                     Assign Consent Forms

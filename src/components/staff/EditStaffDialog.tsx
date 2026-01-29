@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -384,7 +385,16 @@ const EditStaffForm = ({ services, consentForms }: { services: Service[], consen
                                 <h4 className="font-semibold text-sm mb-2">Licensing</h4>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
                                     <div className="space-y-2"><Label htmlFor="compliance.licenseNumber">License Number</Label><Input id="compliance.licenseNumber" placeholder="e.g., C-123456" {...register('compliance.licenseNumber')} /></div>
-                                    <Controller name="compliance.licenseExpiry" control={control} render={({ field }) => ( <div className="space-y-2"><Label>License Expiry</Label><Popover><PopoverTrigger className={cn('w-full justify-start text-left font-normal', buttonVariants({ variant: 'outline' }), !field.value && "text-muted-foreground")}><CalendarIcon className="mr-2 h-4 w-4" />{field.value ? format(field.value, 'PPP') : <span>Pick a date</span>}</PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent></Popover></div> )}/>
+                                    <Controller name="compliance.licenseExpiry" control={control} render={({ field }) => ( 
+                                        <div className="space-y-2">
+                                            <Label>License Expiry</Label>
+                                            <Input
+                                                type="date"
+                                                value={field.value ? format(field.value, 'yyyy-MM-dd') : ''}
+                                                onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined)}
+                                            />
+                                        </div> 
+                                    )}/>
                                 </div>
                             </div>
 

@@ -350,29 +350,18 @@ export default function QuoteGeneratorPage() {
                                 </div>
                             </div>
                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                               <Popover>
-                                    <PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), "justify-start font-normal h-11")}>
-                                        <span className="flex items-center">
-                                            <CalendarIcon className="mr-2 h-4 w-4" />
-                                            {eventStartDate ? format(eventStartDate, "PPP") : "Start Date"}
-                                        </span>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0">
-                                    <Calendar mode="single" selected={eventStartDate} onSelect={setEventStartDate} initialFocus />
-                                    </PopoverContent>
-                                </Popover>
+                                <Input
+                                  type="date"
+                                  value={eventStartDate ? format(eventStartDate, 'yyyy-MM-dd') : ''}
+                                  onChange={(e) => setEventStartDate(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined)}
+                                />
                                 {isMultiDay && (
-                                     <Popover>
-                                        <PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), "justify-start font-normal h-11")}>
-                                            <span className="flex items-center">
-                                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                                {eventEndDate ? format(eventEndDate, "PPP") : "End Date"}
-                                            </span>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-auto p-0">
-                                        <Calendar mode="single" selected={eventEndDate} onSelect={setEventEndDate} initialFocus disabled={{ before: eventStartDate }}/>
-                                        </PopoverContent>
-                                    </Popover>
+                                    <Input
+                                        type="date"
+                                        value={eventEndDate ? format(eventEndDate, 'yyyy-MM-dd') : ''}
+                                        onChange={(e) => setEventEndDate(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined)}
+                                        min={eventStartDate ? format(eventStartDate, 'yyyy-MM-dd') : undefined}
+                                    />
                                 )}
                             </div>
                         </div>

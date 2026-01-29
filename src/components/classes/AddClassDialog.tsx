@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState } from 'react';
@@ -125,13 +126,11 @@ export const AddClassDialog: React.FC<AddClassDialogProps> = ({
                         render={({ field }) => (
                             <div className="space-y-2">
                                 <Label>Date</Label>
-                                <Popover>
-                                    <PopoverTrigger className={cn(buttonVariants({variant: 'outline'}), "w-full justify-start font-normal", !field.value && "text-muted-foreground")}>
-                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {field.value ? format(field.value, 'PPP') : 'Pick a date'}
-                                    </PopoverTrigger>
-                                    <PopoverContent><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent>
-                                </Popover>
+                                <Input
+                                    type="date"
+                                    value={field.value ? format(field.value, 'yyyy-MM-dd') : ''}
+                                    onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined)}
+                                />
                                  {errors.date && <p className="text-sm text-destructive">{errors.date.message}</p>}
                             </div>
                         )}

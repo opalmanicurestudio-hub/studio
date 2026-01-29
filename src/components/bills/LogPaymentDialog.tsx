@@ -85,17 +85,12 @@ const LogPaymentForm = ({ billInstance }: { billInstance: BillInstance & { defin
         render={({ field }) => (
           <div className="space-y-2">
             <Label htmlFor="payment-date">Payment Date</Label>
-            <Popover>
-              <PopoverTrigger id="payment-date" className={cn(buttonVariants({ variant: 'outline' }), 'w-full justify-start text-left font-normal', !field.value && 'text-muted-foreground')}>
-                <span className="flex items-center">
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {field.value ? format(field.value, 'PPP') : 'Pick a date'}
-                </span>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0">
-                <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
-              </PopoverContent>
-            </Popover>
+            <Input
+              id="payment-date"
+              type="date"
+              value={field.value ? format(field.value, 'yyyy-MM-dd') : ''}
+              onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined)}
+            />
             {errors.date && <p className="text-sm text-destructive">{errors.date.message}</p>}
           </div>
         )}

@@ -18,7 +18,7 @@ import { ScrollArea } from '../ui/scroll-area';
 import { type Order } from '@/lib/data';
 import { Calendar } from '../ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
-import { CalendarIcon } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2, DollarSign } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { buttonVariants } from '../ui/button';
@@ -131,17 +131,12 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
                         </div>
                          <div className="space-y-2">
                             <Label htmlFor={`expiry-${item.productId}`}>Expiration Date (Optional)</Label>
-                             <Popover>
-                                <PopoverTrigger asChild>
-                                    <Button id={`expiry-${item.productId}`} variant="outline" className={cn('w-full justify-start text-left font-normal', !item.expirationDate && "text-muted-foreground")}>
-                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {item.expirationDate ? format(item.expirationDate, 'PPP') : 'No expiration'}
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0">
-                                    <Calendar mode="single" selected={item.expirationDate} onSelect={(date) => handleItemChange(item.productId, 'expirationDate', date)} initialFocus />
-                                </PopoverContent>
-                            </Popover>
+                            <Input
+                                id={`expiry-${item.productId}`}
+                                type="date"
+                                value={item.expirationDate ? format(item.expirationDate, 'yyyy-MM-dd') : ''}
+                                onChange={(e) => handleItemChange(item.productId, 'expirationDate', e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined)}
+                            />
                         </div>
                     </div>
                 ))}
