@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState } from 'react';
@@ -55,6 +56,10 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({
             costPerUnit: p.costPerUnit || 0
         }));
         setItems(prev => [...prev, ...newItems.filter(newItem => !prev.find(item => item.productId === newItem.productId))]);
+
+        if (!supplier && selectedProducts.length > 0 && selectedProducts[0].supplier) {
+            setSupplier(selectedProducts[0].supplier);
+        }
     };
 
     const handleAddCustomItem = () => {
