@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -221,6 +222,8 @@ export default function NewCampaignPage() {
     const [isClientSelectorOpen, setIsClientSelectorOpen] = useState(false);
     const [isABTest, setIsABTest] = useState(false);
     const bodyTextareaRef = useRef<HTMLTextAreaElement>(null);
+    const [isTestSendDialogOpen, setIsTestSendDialogOpen] = useState(false);
+    const [testEmail, setTestEmail] = useState('');
 
 
     const { control, handleSubmit, register, watch, setValue, formState: { errors } } = useForm<CampaignFormData>({
@@ -234,6 +237,12 @@ export default function NewCampaignPage() {
     
     const campaignType = watch('type');
     const targetAudience = watch('targetAudience');
+
+    useEffect(() => {
+        if (isTestSendDialogOpen && user?.email && !testEmail) {
+            setTestEmail(user.email);
+        }
+    }, [isTestSendDialogOpen, user, testEmail]);
 
     const handleInsertPlaceholder = (placeholder: string) => {
         const textarea = bodyTextareaRef.current;
@@ -302,25 +311,26 @@ export default function NewCampaignPage() {
         }
     }
 
-    const handleSendTest = async (data: CampaignFormData) => {
-        if (!user?.email) {
+    const handleConfirmSendTest = async () => {
+        if (!testEmail || !/\S+@\S+\.\S+/.test(testEmail)) {
             toast({
                 variant: 'destructive',
-                title: 'Cannot Send Test',
-                description: 'Your email address is not available.',
+                title: 'Invalid Email',
+                description: 'Please enter a valid email address to send the test.',
             });
             return;
         }
-
+    
         setIsSendingTest(true);
-        // Simulate sending a test email
+        setIsTestSendDialogOpen(false);
+    
         await new Promise(resolve => setTimeout(resolve, 1500));
-
+    
         toast({
             title: 'Test Sent!',
-            description: `A test campaign has been sent to ${user.email}.`,
+            description: `A test campaign has been sent to ${testEmail}.`,
         });
-
+    
         setIsSendingTest(false);
     };
 
@@ -338,7 +348,7 @@ export default function NewCampaignPage() {
                             <Button type="button" variant="secondary" onClick={handleSubmit((data) => setPreviewData(data))} disabled={isSaving || isSending || isSendingTest}>
                                 <Eye className="mr-2 h-4 w-4" /> Preview
                             </Button>
-                             <Button type="button" variant="secondary" onClick={handleSubmit(handleSendTest)} disabled={isSaving || isSending || isSendingTest}>
+                             <Button type="button" variant="secondary" onClick={() => setIsTestSendDialogOpen(true)} disabled={isSaving || isSending || isSendingTest}>
                                 {isSendingTest ? <Loader className="mr-2 h-4 w-4 animate-spin" /> : <FlaskConical className="mr-2 h-4 w-4" />}
                                 Send Test
                             </Button>
@@ -520,6 +530,28 @@ export default function NewCampaignPage() {
                     setValue('targetClientIds', selectedIds, { shouldDirty: true });
                 }}
             />
+            <Dialog open={isTestSendDialogOpen} onOpenChange={setIsTestSendDialogOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Send Test Campaign</DialogTitle>
+                        <DialogDescription>Enter the email address to receive this test.</DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4 space-y-2">
+                        <Label htmlFor="test-email">Email Address</Label>
+                        <Input
+                            id="test-email"
+                            type="email"
+                            value={testEmail}
+                            onChange={(e) => setTestEmail(e.target.value)}
+                            placeholder="test@example.com"
+                        />
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsTestSendDialogOpen(false)}>Cancel</Button>
+                        <Button onClick={handleConfirmSendTest}>Send Test</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
