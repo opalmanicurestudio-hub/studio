@@ -25,7 +25,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { DollarSign, Percent, PlusCircle, Trash2, Users } from 'lucide-react';
+import { DollarSign, Percent, PlusCircle, Trash2, Users, AlertTriangle } from 'lucide-react';
 import { useForm, Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -33,11 +33,12 @@ import { type Discount, type Service } from '@/lib/data';
 import { format, parseISO } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { SelectServicesDialog } from '../services/SelectServicesDialog';
-import { Card, CardContent } from '../ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { cn } from '@/lib/utils';
 import { Separator } from '../ui/separator';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '../ui/scroll-area';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 
 const discountSchema = z.object({
   code: z.string().min(3, "Code must be at least 3 characters.").toUpperCase(),
@@ -49,7 +50,7 @@ const discountSchema = z.object({
   validFrom: z.date().optional(),
   validUntil: z.date().optional(),
   applicableServiceIds: z.array(z.string()).optional(),
-  limitOnePerCustomer: z.boolean().optional(),
+  limitOnePerCustomer: z.boolean().default(false),
 }).refine(data => data.type !== 'percentage' || (data.value >= 1 && data.value <= 100), {
   message: "Percentage must be between 1 and 100.",
   path: ["value"],
@@ -79,37 +80,141 @@ const ProfitabilityAnalysis = ({
 
     return (
         <div className="space-y-4">
-            <h4 className="font-medium text-sm">Profitability Analysis</h4>
-            <Card>
-                <CardContent className="p-4 space-y-3">
-                    {services.map(service => {
-                        const originalPrice = service.price;
-                        const discountedPrice = discountType === 'percentage'
-                            ? originalPrice * (1 - discountValue / 100)
-                            : originalPrice - discountValue;
-                        
-                        const newProfit = discountedPrice - service.cost;
-                        const newMargin = discountedPrice > 0 ? (newProfit / discountedPrice) * 100 : 0;
-                        
-                        return (
-                            <div key={service.id} className="text-xs space-y-2 p-2 bg-background rounded-md">
-                                <p className="font-semibold text-sm">{service.name}</p>
-                                <div className="flex justify-between">
-                                    <span>Original Price: <span className="font-mono">${originalPrice.toFixed(2)}</span></span>
-                                    <span>Profit: <span className="font-mono">${service.profit.toFixed(2)}</span> ({service.margin.toFixed(1)}%)</span>
-                                </div>
-                                 <div className="flex justify-between font-semibold text-primary">
-                                    <span>Discounted Price: <span className="font-mono">${discountedPrice.toFixed(2)}</span></span>
-                                    <span>New Profit: <span className={cn("font-mono", newProfit < 0 && "text-destructive")}>${newProfit.toFixed(2)}</span> ({newMargin.toFixed(1)}%)</span>
-                                </div>
-                            </div>
-                        )
-                    })}
-                </CardContent>
-            </Card>
+            <h4 className="font-medium text-sm">Profitability Analysis per Service</h4>
+            <Accordion type="multiple" className="w-full space-y-2">
+                {services.map(service => {
+                    const tiers = [
+                        { level: 'apprentice', price: service.pricingTiers?.find(t => t.level === 'apprentice')?.price || service.price * 0.8 },
+                        { level: 'junior', price: service.pricingTiers?.find(t => t.level === 'junior')?.price || service.price * 0.9 },
+                        { level: 'senior', price: service.pricingTiers?.find(t => t.level === 'senior')?.price || service.price },
+                        { level: 'master', price: service.pricingTiers?.find(t => t.level === 'master')?.price || service.price * 1.2 },
+                    ];
+
+                    return (
+                        <AccordionItem key={service.id} value={service.id} className="border rounded-md">
+                            <AccordionTrigger className="p-3 font-medium text-sm hover:no-underline">
+                                {service.name}
+                            </AccordionTrigger>
+                            <AccordionContent className="p-3 pt-0 text-xs space-y-2">
+                                {tiers.map(tier => {
+                                    const originalPrice = tier.price;
+                                    const discountedPrice = discountType === 'percentage'
+                                        ? originalPrice * (1 - discountValue / 100)
+                                        : originalPrice - discountValue;
+                                    
+                                    const newProfit = discountedPrice - service.cost;
+                                    const newMargin = discountedPrice > 0 ? (newProfit / discountedPrice) * 100 : 0;
+
+                                    return (
+                                        <div key={tier.level} className="text-xs space-y-2 p-2 bg-background rounded-md border">
+                                            <p className="font-semibold text-sm capitalize">{tier.level}</p>
+                                            <div className="flex justify-between">
+                                                <span>Original Price: <span className="font-mono">${originalPrice.toFixed(2)}</span></span>
+                                                <span>Profit: <span className="font-mono">${(originalPrice - service.cost).toFixed(2)}</span></span>
+                                            </div>
+                                            <div className="flex justify-between font-semibold text-primary">
+                                                <span>Discounted Price: <span className="font-mono">${discountedPrice.toFixed(2)}</span></span>
+                                                <span>New Profit: <span className={cn("font-mono", newProfit < 0 && "text-destructive")}>${newProfit.toFixed(2)}</span> ({newMargin.toFixed(1)}%)</span>
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </AccordionContent>
+                        </AccordionItem>
+                    )
+                })}
+            </Accordion>
         </div>
     )
-}
+};
+
+
+const PotentialImpactAnalysis = ({ 
+    discountType, 
+    discountValue,
+    usageLimit,
+    selectedServices,
+}: { 
+    discountType: 'percentage' | 'fixed', 
+    discountValue: number,
+    usageLimit: number,
+    selectedServices: Service[],
+}) => {
+    const impact = useMemo(() => {
+        if (!usageLimit || usageLimit <= 0) {
+            return { title: 'Per-Use Impact', loss: 0, profit: 0, isPerUse: true };
+        }
+        
+        let totalPotentialLoss = 0;
+        let totalPotentialProfit = 0;
+
+        if (selectedServices.length > 0) {
+            let totalOriginalPrice = 0;
+            let totalCost = 0;
+            selectedServices.forEach(service => {
+                const seniorPrice = service.pricingTiers?.find(t => t.level === 'senior')?.price || service.price;
+                totalOriginalPrice += seniorPrice;
+                totalCost += service.cost;
+            });
+            const avgOriginalPrice = totalOriginalPrice / selectedServices.length;
+            const avgCost = totalCost / selectedServices.length;
+            
+            const discountAmount = discountType === 'percentage' ? avgOriginalPrice * (discountValue / 100) : discountValue;
+            const profitPerUse = avgOriginalPrice - avgCost - discountAmount;
+            
+            totalPotentialProfit = profitPerUse * usageLimit;
+            totalPotentialLoss = discountAmount * usageLimit;
+
+        } else {
+            if (discountType === 'fixed') {
+                totalPotentialLoss = discountValue * usageLimit;
+                totalPotentialProfit = NaN; 
+            } else { 
+                totalPotentialLoss = NaN;
+                totalPotentialProfit = NaN;
+            }
+        }
+
+        return { title: 'Total Potential Impact', loss: totalPotentialLoss, profit: totalPotentialProfit, isPerUse: false };
+
+    }, [discountType, discountValue, usageLimit, selectedServices]);
+
+    if (!usageLimit || usageLimit <= 0) {
+        return null; 
+    }
+
+    return (
+        <div className="space-y-2">
+            <Label>Potential Financial Impact</Label>
+            <Card className="bg-muted/50">
+                <CardContent className="p-4 grid grid-cols-2 gap-4">
+                     <div className="text-center p-3 rounded-lg bg-background">
+                        <p className="text-xs text-muted-foreground">Est. Total Discount</p>
+                        {isNaN(impact.loss) ? (
+                             <p className="text-lg font-bold text-destructive">N/A*</p>
+                        ) : (
+                             <p className="text-lg font-bold text-destructive">-${impact.loss.toFixed(2)}</p>
+                        )}
+                    </div>
+                     <div className="text-center p-3 rounded-lg bg-background">
+                        <p className="text-xs text-muted-foreground">Est. Total Net Profit</p>
+                         {isNaN(impact.profit) ? (
+                            <p className="text-lg font-bold text-primary">N/A*</p>
+                        ) : (
+                            <p className={cn("text-lg font-bold", impact.profit >= 0 ? "text-primary" : "text-destructive")}>${impact.profit.toFixed(2)}</p>
+                        )}
+                    </div>
+                </CardContent>
+                {isNaN(impact.loss) && (
+                     <CardFooter className="p-2 pt-0">
+                        <p className="text-[10px] text-muted-foreground text-center w-full">* Cart-wide percentage discounts depend on the total value of each sale.</p>
+                     </CardFooter>
+                )}
+            </Card>
+        </div>
+    );
+};
+
 
 export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOpenChange, onSave, discountToEdit }) => {
     const { services: allServices } = useInventory();
@@ -128,6 +233,7 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
 
     const discountType = watch('type');
     const discountValue = watch('value');
+    const usageLimit = watch('usageLimit') || 0;
     const selectedServiceIds = watch('applicableServiceIds') || [];
 
     const selectedServices = useMemo(() => {
@@ -249,6 +355,14 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
             <Input id="usage-limit" type="number" placeholder="0 for unlimited" {...register('usageLimit')} />
             <p className="text-xs text-muted-foreground">Set to 0 for unlimited uses.</p>
         </div>
+
+         <PotentialImpactAnalysis 
+            discountType={discountType}
+            discountValue={discountValue}
+            usageLimit={usageLimit}
+            selectedServices={selectedServices}
+        />
+
         <div className="flex items-center justify-between">
             <Label htmlFor="limit-per-customer" className="flex items-center gap-2"><Users className="w-4 h-4 text-muted-foreground" />One use per customer</Label>
             <Controller name="limitOnePerCustomer" control={control} render={({ field }) => (<Switch id="limit-per-customer" checked={field.value} onCheckedChange={field.onChange} /> )}/>
