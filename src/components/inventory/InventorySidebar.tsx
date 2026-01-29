@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -75,7 +76,8 @@ export const InventorySidebar = ({
                 const purchaseDate = item.batches[0]?.receivedDate ? parseISO(item.batches[0].receivedDate) : new Date();
                 const monthsInService = differenceInMonths(new Date(), purchaseDate);
                 const accumulatedDepreciation = Math.min(monthlyDepreciation * monthsInService, purchaseCost);
-                equipVal += purchaseCost - accumulatedDepreciation;
+                const bookValue = purchaseCost - accumulatedDepreciation;
+                equipVal += bookValue;
             }
             if (item.isExperimentActive) {
                 activeExp.push(item);
