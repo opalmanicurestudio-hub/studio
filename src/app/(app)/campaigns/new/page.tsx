@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { ArrowLeft, Save, Send, Loader, Eye, Mail, MessageSquare, Wand2, HandHeart, Sparkles, PartyPopper, Search, User as UserIcon } from 'lucide-react';
+import { ArrowLeft, Save, Send, Loader, Eye, Mail, MessageSquare, Wand2, HandHeart, Sparkles, PartyPopper, Search, User as UserIcon, FlaskConical } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
@@ -34,8 +34,9 @@ const campaignSchema = z.object({
   name: z.string().min(3, "Campaign name must be at least 3 characters."),
   type: z.enum(['email', 'sms']),
   subject: z.string().optional(),
+  subjectB: z.string().optional(),
   body: z.string().min(10, "Message body is too short."),
-  targetAudience: z.enum(['all', 'new', 'loyal', 'inactive_90', 'specific']),
+  targetAudience: z.enum(['all', 'new', 'loyal', 'inactive_90', 'specific', 'birthday']),
   targetClientIds: z.array(z.string()).optional(),
   discountId: z.string().optional(),
   imageUrl: z.string().url().optional(),
@@ -66,7 +67,7 @@ const premadeCampaigns = [
   {
     name: "Birthday Special",
     icon: PartyPopper,
-    targetAudience: 'all', // This would ideally be a 'birthday' trigger
+    targetAudience: 'birthday', // This would ideally be a 'birthday' trigger
     type: 'email',
     subject: "Happy Birthday from all of us!",
     body: "Hi {{clientName}},\n\nWishing you a fantastic birthday! To celebrate, we're giving you a special gift of 20% off your next visit. Treat yourself!\n\nWarmly,\nThe Team",
@@ -107,7 +108,8 @@ const CampaignPreviewDialog = ({
                 <div className="p-4 bg-muted/50 border-b text-sm">
                   <p><strong>To:</strong> {sampleClientName} &lt;jane.doe@example.com&gt;</p>
                   <p><strong>From:</strong> Your Business &lt;hello@yourbusiness.com&gt;</p>
-                  <p><strong>Subject:</strong> {previewData.subject}</p>
+                  <p><strong>Subject (A):</strong> {previewData.subject}</p>
+                  {previewData.subjectB && <p><strong>Subject (B):</strong> {previewData.subjectB}</p>}
                 </div>
                 <div className="p-4">
                   {previewData.imageUrl && (
@@ -217,6 +219,8 @@ export default function NewCampaignPage() {
     const [isSending, setIsSending] = useState(false);
     const [previewData, setPreviewData] = useState<CampaignFormData | null>(null);
     const [isClientSelectorOpen, setIsClientSelectorOpen] = useState(false);
+    const [isABTest, setIsABTest] = useState(false);
+
 
     const { control, handleSubmit, register, watch, setValue, formState: { errors } } = useForm<CampaignFormData>({
         resolver: zodResolver(campaignSchema),
@@ -350,10 +354,22 @@ export default function NewCampaignPage() {
                             {campaignType === 'email' && (
                                 <>
                                     <div className="space-y-2">
-                                        <Label htmlFor="subject">Subject Line</Label>
+                                        <Label htmlFor="subject">Subject Line (Variant A)</Label>
                                         <Input id="subject" placeholder="e.g., A special treat, just for you!" {...register('subject')} />
                                         {errors.subject && <p className="text-sm text-destructive">{errors.subject.message}</p>}
                                     </div>
+
+                                    {isABTest ? (
+                                        <div className="space-y-2 p-4 border-l-2 border-primary bg-primary/5 rounded-r-lg">
+                                            <Label htmlFor="subjectB">Subject Line (Variant B)</Label>
+                                            <Input id="subjectB" placeholder="e.g., Your next favorite service is here..." {...register('subjectB')} />
+                                        </div>
+                                    ) : (
+                                        <Button type="button" variant="outline" size="sm" onClick={() => setIsABTest(true)}>
+                                            <FlaskConical className="mr-2 h-4 w-4" /> Create A/B Test
+                                        </Button>
+                                    )}
+
                                     <Controller
                                         name="imageUrl"
                                         control={control}
@@ -388,6 +404,7 @@ export default function NewCampaignPage() {
                                                     <SelectItem value="new">New Clients (first visit)</SelectItem>
                                                     <SelectItem value="loyal">Loyal Clients (5+ visits)</SelectItem>
                                                     <SelectItem value="inactive_90">Inactive (90+ days)</SelectItem>
+                                                    <SelectItem value="birthday">Birthday Month</SelectItem>
                                                     <SelectItem value="specific">Specific Clients</SelectItem>
                                                 </SelectContent>
                                             </Select>

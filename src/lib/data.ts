@@ -522,13 +522,19 @@ export type Campaign = {
   id: string;
   name: string;
   subject?: string;
+  subjectB?: string;
   body: string;
   imageUrl?: string;
-  targetAudience: 'all' | 'new' | 'loyal' | 'inactive_90';
+  targetAudience: 'all' | 'new' | 'loyal' | 'inactive_90' | 'specific' | 'birthday';
+  targetClientIds?: string[];
   discountId?: string;
   status: 'draft' | 'sent';
   sentAt?: string; // ISO date string
   type: 'email' | 'sms';
+  recipientCount?: number;
+  openRate?: number;
+  clickRate?: number;
+  generatedRevenue?: number;
 };
 
 
@@ -1202,6 +1208,7 @@ export { nanoid };
     
 
     
+
 
 
 

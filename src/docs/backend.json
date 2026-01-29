@@ -1,5 +1,4 @@
 
-
 {
   "entities": {
     "User": {
@@ -913,13 +912,14 @@
         "id": { "type": "string" },
         "name": { "type": "string" },
         "subject": { "type": "string" },
+        "subjectB": { "type": "string", "description": "An alternate subject line for A/B testing." },
         "body": { "type": "string" },
         "imageUrl": {
             "type": "string",
             "format": "uri",
             "description": "URL for an optional image to include in email campaigns."
         },
-        "targetAudience": { "type": "string", "enum": ["all", "new", "loyal", "inactive_90", "specific"] },
+        "targetAudience": { "type": "string", "enum": ["all", "new", "loyal", "inactive_90", "specific", "birthday"] },
         "targetClientIds": {
             "type": "array",
             "items": { "type": "string" },
@@ -928,9 +928,13 @@
         "discountId": { "type": "string" },
         "status": { "type": "string", "enum": ["draft", "sent"] },
         "sentAt": { "type": "string", "format": "date-time" },
-        "type": { "type": "string", "enum": ["email", "sms"] }
+        "type": { "type": "string", "enum": ["email", "sms"] },
+        "recipientCount": { "type": "number", "description": "The number of clients the campaign was sent to." },
+        "openRate": { "type": "number", "description": "The percentage of recipients who opened the email." },
+        "clickRate": { "type": "number", "description": "The percentage of recipients who clicked a link in the email." },
+        "generatedRevenue": { "type": "number", "description": "The total revenue generated from this campaign." }
       },
-      "required": ["id", "name", "subject", "body", "targetAudience", "status", "type"]
+      "required": ["id", "name", "type", "targetAudience", "status"]
     }
   },
   "auth": {
@@ -1081,13 +1085,3 @@
     }
   }
 }
-
-
-
-
-
-
-    
-
-
-

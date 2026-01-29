@@ -5,7 +5,7 @@ import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Megaphone, Mail, MessageSquare, Users, Star, UserPlus, Clock, MoreHorizontal, Send, Trash2, Eye, TrendingUp, DollarSign as DollarSignIcon } from 'lucide-react';
+import { PlusCircle, Megaphone, Mail, MessageSquare, Users, Star, UserPlus, Clock, MoreHorizontal, Send, Trash2, Eye, TrendingUp, DollarSign as DollarSignIcon, FlaskConical } from 'lucide-react';
 import { useCollection, useFirebase, useMemoFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
@@ -17,6 +17,7 @@ import Link from 'next/link';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/use-toast';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 const AudienceIcon = ({ audience }: { audience: Campaign['targetAudience'] }) => {
     switch (audience) {
@@ -25,6 +26,7 @@ const AudienceIcon = ({ audience }: { audience: Campaign['targetAudience'] }) =>
         case 'loyal': return <Star className="w-4 h-4 mr-2" />;
         case 'inactive_90': return <Clock className="w-4 h-4 mr-2" />;
         case 'specific': return <Users className="w-4 h-4 mr-2" />;
+        case 'birthday': return <Gift className="w-4 h-4 mr-2" />;
         default: return null;
     }
 }
@@ -35,18 +37,23 @@ const audienceText: Record<Campaign['targetAudience'], string> = {
     loyal: 'Loyal Clients',
     inactive_90: 'Inactive (90+ days)',
     specific: 'Specific Clients',
+    birthday: 'Birthday Month',
 };
 
 const CampaignCard = ({ campaign, onSend, onDelete }: { campaign: Campaign & { recipientCount?: number }, onSend: (id: string) => void, onDelete: (campaign: Campaign) => void }) => (
     <Card>
         <CardContent className="p-4 space-y-3">
             <div className="flex justify-between items-start gap-4">
-                <div>
+                <div className="flex items-center gap-2">
                     <p className="font-semibold">{campaign.name}</p>
-                    <p className="text-sm text-muted-foreground capitalize flex items-center gap-1.5">
-                        {campaign.type === 'email' ? <Mail className="w-3 h-3" /> : <MessageSquare className="w-3 h-3" />}
-                        {campaign.type}
-                    </p>
+                    {campaign.subjectB && (
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger><FlaskConical className="h-4 w-4 text-purple-500" /></TooltipTrigger>
+                                <TooltipContent><p>A/B Test</p></TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                    )}
                 </div>
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -62,6 +69,10 @@ const CampaignCard = ({ campaign, onSend, onDelete }: { campaign: Campaign & { r
                     </DropdownMenuContent>
                 </DropdownMenu>
             </div>
+             <p className="text-sm text-muted-foreground capitalize flex items-center gap-1.5">
+                {campaign.type === 'email' ? <Mail className="w-3 h-3" /> : <MessageSquare className="w-3 h-3" />}
+                {campaign.type}
+            </p>
             <div className="flex items-center text-sm">
                 <AudienceIcon audience={campaign.targetAudience} />
                 <span>{audienceText[campaign.targetAudience]} {campaign.targetAudience === 'specific' ? `(${campaign.targetClientIds?.length || 0})` : ''}</span>
@@ -194,7 +205,17 @@ export default function CampaignsPage() {
                         <TableBody>
                             {sortedCampaigns.map(campaign => (
                                 <TableRow key={campaign.id}>
-                                    <TableCell className="font-medium">{campaign.name}</TableCell>
+                                    <TableCell className="font-medium flex items-center gap-2">
+                                        {campaign.name}
+                                        {campaign.subjectB && (
+                                            <TooltipProvider>
+                                                <Tooltip>
+                                                    <TooltipTrigger><FlaskConical className="h-4 w-4 text-purple-500" /></TooltipTrigger>
+                                                    <TooltipContent><p>A/B Test</p></TooltipContent>
+                                                </Tooltip>
+                                            </TooltipProvider>
+                                        )}
+                                    </TableCell>
                                     <TableCell>
                                         <Badge variant="outline" className="capitalize flex items-center gap-1.5">
                                             {campaign.type === 'email' ? <Mail className="w-3 h-3" /> : <MessageSquare className="w-3 h-3" />}
