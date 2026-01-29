@@ -41,6 +41,7 @@ import { type ConsentForm } from '@/lib/data';
 import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
+import { useTenant } from '@/context/TenantContext';
 
 const ConsentCard = ({ form, onEdit, onPreview, onShare, onDelete }: { form: ConsentForm, onEdit: (form: ConsentForm) => void; onPreview: (form: ConsentForm) => void; onShare: (form: ConsentForm) => void; onDelete: (formId: string) => void; }) => {
 
@@ -93,8 +94,12 @@ const AddConsentCard = ({ onClick }: { onClick: () => void }) => (
 
 export default function ConsentsPage() {
   const { firestore } = useFirebase();
-  const tenantId = 'tenant-abc';
-  const consentFormsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/consentForms`), [firestore, tenantId]);
+  const { selectedTenant } = useTenant();
+  const tenantId = selectedTenant?.id;
+  const consentFormsQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, `tenants/${tenantId}/consentForms`)
+  }, [firestore, tenantId]);
   const { data: forms, isLoading } = useCollection<ConsentForm>(consentFormsQuery);
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -119,8 +124,9 @@ export default function ConsentsPage() {
   };
 
   const handleShareForm = (form: ConsentForm) => {
+    if (!tenantId) return;
     // In a real app, you'd have a base URL from your environment variables
-    const bookingLink = `https://clarityflow.app/book/consent/${form.id}`;
+    const bookingLink = `https://clarityflow.app/book/${tenantId}/consent/${form.id}`;
     navigator.clipboard.writeText(bookingLink);
     toast({
         title: "Link Copied!",
@@ -129,7 +135,7 @@ export default function ConsentsPage() {
   }
 
   const handleSaveForm = (savedForm: Partial<ConsentForm>) => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
     
     if (editingForm) {
       const formRef = doc(firestore, `tenants/${tenantId}/consentForms`, editingForm.id);
@@ -154,7 +160,7 @@ export default function ConsentsPage() {
   };
 
   const handleDeleteForm = (formId: string) => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
     const formRef = doc(firestore, `tenants/${tenantId}/consentForms`, formId);
     deleteDocumentNonBlocking(formRef);
     toast({

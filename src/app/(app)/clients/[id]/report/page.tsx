@@ -20,12 +20,14 @@ import { cn } from '@/lib/utils';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useFirebase, useCollection, useDoc, useMemoFirebase } from '@/firebase';
 import { collection, doc, query, where } from 'firebase/firestore';
+import { useTenant } from '@/context/TenantContext';
 
 const ClientReportPage = () => {
     const params = useParams<{ id: string }>();
     const { id: clientId } = params;
     const { firestore, isUserLoading } = useFirebase();
-    const tenantId = 'tenant-abc';
+    const { selectedTenant, isLoading: isTenantLoading } = useTenant();
+    const tenantId = selectedTenant?.id;
 
     const [aiSummary, setAiSummary] = useState<{ summary: string; talkingPoints: string[] } | null>(null);
     const [isLoadingAi, setIsLoadingAi] = useState(false);
@@ -33,7 +35,7 @@ const ClientReportPage = () => {
     const [generationDate, setGenerationDate] = useState<Date | null>(null);
 
     const clientsQuery = useMemoFirebase(() => {
-        if (!firestore) return null;
+        if (!firestore || !tenantId) return null;
         return collection(firestore, `tenants/${tenantId}/clients`);
     }, [firestore, tenantId]);
     const { data: allClients, isLoading: clientLoading } = useCollection<Client>(clientsQuery);
@@ -41,13 +43,13 @@ const ClientReportPage = () => {
     const client = useMemo(() => allClients?.find(c => c.id === clientId), [allClients, clientId]);
     
     const appointmentsQuery = useMemoFirebase(() => {
-        if (!firestore || !clientId) return null;
+        if (!firestore || !clientId || !tenantId) return null;
         return query(collection(firestore, `tenants/${tenantId}/appointments`), where('clientId', '==', clientId));
     }, [firestore, tenantId, clientId]);
     const { data: appointments, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
 
     const servicesQuery = useMemoFirebase(() => {
-        if (!firestore) return null;
+        if (!firestore || !tenantId) return null;
         return collection(firestore, `tenants/${tenantId}/services`);
     }, [firestore, tenantId]);
     const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
@@ -93,7 +95,7 @@ const ClientReportPage = () => {
         }
     };
     
-    const isPageLoading = isUserLoading || clientLoading || appointmentsLoading || servicesLoading;
+    const isPageLoading = isUserLoading || isTenantLoading || clientLoading || appointmentsLoading || servicesLoading;
 
     if (isPageLoading && !client) {
       return (

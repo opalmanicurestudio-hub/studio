@@ -59,6 +59,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet';
+import { useTenant } from '@/context/TenantContext';
 
 const statusConfig: {
   [key in QuoteType['status']]: {
@@ -259,13 +260,14 @@ export default function QuotesPage() {
     const { firestore, user } = useFirebase();
     const { toast } = useToast();
     const router = useRouter();
-    const tenantId = 'tenant-abc';
+    const { selectedTenant } = useTenant();
+    const tenantId = selectedTenant?.id;
     const isMobile = useIsMobile();
     
     const quotesQuery = useMemoFirebase(() => {
-        if (!user || !firestore) return null;
+        if (!user || !firestore || !tenantId) return null;
         return collection(firestore, 'tenants', tenantId, 'quotes');
-    }, [user, firestore]);
+    }, [user, firestore, tenantId]);
     
     const { data: quotes, isLoading } = useCollection<QuoteType>(quotesQuery);
     
@@ -302,14 +304,14 @@ export default function QuotesPage() {
     }, [quotes]);
 
     const handleStatusChange = (id: string, status: QuoteType['status']) => {
-        if (!firestore) return;
+        if (!firestore || !tenantId) return;
         const quoteRef = doc(firestore, 'tenants', tenantId, 'quotes', id);
         updateDocumentNonBlocking(quoteRef, { status });
         toast({ title: "Status Updated", description: `Quote status changed to ${status}.` });
     };
     
     const handleBookEvent = async (quote: QuoteType) => {
-        if (!firestore) return;
+        if (!firestore || !tenantId) return;
 
         const eventRef = collection(firestore, 'tenants', tenantId, 'events');
         

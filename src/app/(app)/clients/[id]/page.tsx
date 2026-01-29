@@ -48,6 +48,7 @@ import { nanoid } from 'nanoid';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { collection, doc, arrayUnion, query, where } from 'firebase/firestore';
 import type { Client, Appointment, Service, CustomFormula, Incident, Membership, Package, ConsentForm } from '@/lib/data';
+import { useTenant } from '@/context/TenantContext';
 
 
 type ClientPhoto = {
@@ -168,47 +169,48 @@ export default function ClientDetailPage() {
   const { id: clientId } = params;
 
   const { firestore, isUserLoading } = useFirebase();
-  const tenantId = 'tenant-abc';
+  const { selectedTenant, isLoading: isTenantLoading } = useTenant();
+  const tenantId = selectedTenant?.id;
   
   const clientDocRef = useMemoFirebase(() => {
-    if (!firestore || !clientId) return null;
+    if (!firestore || !clientId || !tenantId) return null;
     return doc(firestore, `tenants/${tenantId}/clients`, clientId);
   }, [firestore, tenantId, clientId]);
 
   const { data: client, isLoading: clientLoading, error: clientError } = useDoc<Client>(clientDocRef);
   
   const allClientsQuery = useMemoFirebase(() => {
-      if (!firestore) return null;
+      if (!firestore || !tenantId) return null;
       return collection(firestore, `tenants/${tenantId}/clients`);
   }, [firestore, tenantId]);
   const { data: allClients, isLoading: allClientsLoading } = useCollection<Client>(allClientsQuery);
   
   const appointmentsQuery = useMemoFirebase(() => {
-      if (!firestore || !clientId) return null;
+      if (!firestore || !clientId || !tenantId) return null;
       return query(collection(firestore, `tenants/${tenantId}/appointments`), where('clientId', '==', clientId));
   }, [firestore, tenantId, clientId]);
   const { data: clientAppointmentsData, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
   
   const servicesQuery = useMemoFirebase(() => {
-      if (!firestore) return null;
+      if (!firestore || !tenantId) return null;
       return collection(firestore, `tenants/${tenantId}/services`);
   }, [firestore, tenantId]);
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
   
   const staffQuery = useMemoFirebase(() => {
-      if (!firestore) return null;
+      if (!firestore || !tenantId) return null;
       return collection(firestore, `tenants/${tenantId}/staff`);
   }, [firestore, tenantId]);
   const { data: staff, isLoading: staffLoading } = useCollection<any>(staffQuery);
 
   const membershipsQuery = useMemoFirebase(() => {
-    if (!firestore) return null;
+    if (!firestore || !tenantId) return null;
     return collection(firestore, `tenants/${tenantId}/memberships`);
   }, [firestore, tenantId]);
   const { data: memberships } = useCollection<Membership>(membershipsQuery);
 
   const packagesQuery = useMemoFirebase(() => {
-    if (!firestore) return null;
+    if (!firestore || !tenantId) return null;
     return collection(firestore, `tenants/${tenantId}/packages`);
   }, [firestore, tenantId]);
   const { data: packages } = useCollection<Package>(packagesQuery);
@@ -220,7 +222,7 @@ export default function ClientDetailPage() {
   const { data: consentForms, isLoading: consentFormsLoading } = useCollection<ConsentForm>(consentFormsQuery);
 
   const signedConsentsQuery = useMemoFirebase(() => {
-    if (!firestore || !clientId) return null;
+    if (!firestore || !clientId || !tenantId) return null;
     return collection(firestore, `tenants/${tenantId}/clients/${clientId}/signedConsents`);
   }, [firestore, tenantId, clientId]);
   const { data: signedConsents, isLoading: signedConsentsLoading } = useCollection<any>(signedConsentsQuery);
@@ -276,7 +278,7 @@ export default function ClientDetailPage() {
       setIsCodeDirty(false);
   }, [client?.referralCode]);
 
-  const isLoading = isUserLoading || clientLoading || appointmentsLoading || servicesLoading || allClientsLoading || staffLoading || consentFormsLoading || signedConsentsLoading;
+  const isLoading = isUserLoading || isTenantLoading || clientLoading || appointmentsLoading || servicesLoading || allClientsLoading || staffLoading || consentFormsLoading || signedConsentsLoading;
 
   if (isLoading) {
       return (
@@ -311,6 +313,8 @@ export default function ClientDetailPage() {
   if (!client) {
     notFound();
   }
+
+  if (!tenantId) return null; // Should be covered by loading state
 
   const clientDocRefReal = doc(firestore, `tenants/${tenantId}/clients`, client.id);
 
@@ -878,4 +882,5 @@ export default function ClientDetailPage() {
     
 
     
+
 

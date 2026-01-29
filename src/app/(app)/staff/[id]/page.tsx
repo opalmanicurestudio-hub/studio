@@ -44,6 +44,7 @@ import { useFirebase, useCollection, useDoc, useMemoFirebase } from '@/firebase'
 import { collection, doc } from 'firebase/firestore';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { useTenant } from '@/context/TenantContext';
 
 type ClientPhoto = {
   url: string;
@@ -88,19 +89,23 @@ export default function StaffDetailPage() {
   const { id: staffId } = params;
 
   const { firestore, isUserLoading } = useFirebase();
-  const tenantId = 'tenant-abc';
+  const { selectedTenant, isLoading: isTenantLoading } = useTenant();
+  const tenantId = selectedTenant?.id;
   
   const staffDocRef = useMemoFirebase(() => {
-      if (!firestore || !staffId) return null;
+      if (!firestore || !staffId || !tenantId) return null;
       return doc(firestore, `tenants/${tenantId}/staff/${staffId}`);
   }, [firestore, tenantId, staffId]);
   const { data: staffMember, isLoading: staffLoading } = useDoc<Staff>(staffDocRef);
 
-  const servicesQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/services`) : null, [firestore, tenantId]);
+  const servicesQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, `tenants/${tenantId}/services`);
+  }, [firestore, tenantId]);
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
 
   const activityLogsQuery = useMemoFirebase(() => {
-      if (!firestore || !staffId) return null;
+      if (!firestore || !staffId || !tenantId) return null;
       return collection(firestore, `tenants/${tenantId}/activityLogs`);
   }, [firestore, tenantId, staffId]);
   const { data: allActivityLogs, isLoading: activityLogsLoading } = useCollection<ActivityLog>(activityLogsQuery);
@@ -123,7 +128,7 @@ export default function StaffDetailPage() {
     setIsAddAppointmentOpen(false);
   };
 
-  const isLoading = isUserLoading || staffLoading || servicesLoading || activityLogsLoading;
+  const isLoading = isUserLoading || isTenantLoading || staffLoading || servicesLoading || activityLogsLoading;
 
     const formattedSchedule = useMemo(() => {
         const availability = staffMember?.availability;

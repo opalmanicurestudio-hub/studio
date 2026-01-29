@@ -30,7 +30,7 @@ import {
 } from '@/components/ui/accordion';
 import { ArrowLeft, Save, PlusCircle, Trash2, Calculator, Info, DollarSign, Calendar as CalendarIcon, UserPlus, Car, Briefcase, Landlord, Utensils, Plane, Hotel, Loader } from 'lucide-react';
 import Link from 'next/link';
-import { clients as initialClients, services as initialServices, type Client, type Service, inventory as allInventory } from '@/lib/data';
+import { type Client, type Service, inventory as allInventory } from '@/lib/data';
 import { Textarea } from '@/components/ui/textarea';
 import { useInventory } from '@/context/InventoryContext';
 import { useToast } from '@/hooks/use-toast';
@@ -44,6 +44,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Slider } from '@/components/ui/slider';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
+import { useTenant } from '@/context/TenantContext';
 
 type LineItem = {
     id: string;
@@ -132,10 +133,12 @@ const ProfitAnalysisCard = ({
 };
 
 export default function QuoteGeneratorPage() {
-    const { clients, setClients: setAllClients } = useInventory();
+    const { clients, services } = useInventory();
     const [tmhr, setTmhr] = useState(0);
     const { toast } = useToast();
     const { firestore, user } = useFirebase();
+    const { selectedTenant } = useTenant();
+    const tenantId = selectedTenant?.id;
     const router = useRouter();
 
     // Event Details
@@ -203,7 +206,7 @@ export default function QuoteGeneratorPage() {
     };
 
     const handleSaveQuote = async () => {
-        if (!clientId || !eventName || !firestore || !user) {
+        if (!clientId || !eventName || !firestore || !user || !tenantId) {
             toast({
                 variant: 'destructive',
                 title: 'Missing Information',
@@ -228,7 +231,7 @@ export default function QuoteGeneratorPage() {
         };
 
         try {
-            const quotesRef = collection(firestore, 'tenants', 'tenant-abc', 'quotes');
+            const quotesRef = collection(firestore, 'tenants', tenantId, 'quotes');
             await addDocumentNonBlocking(quotesRef, quoteData);
             toast({
                 title: 'Quote Saved',
@@ -246,7 +249,7 @@ export default function QuoteGeneratorPage() {
     };
     
     const addServiceAsLineItem = (serviceId: string) => {
-        const service = initialServices.find(s => s.id === serviceId);
+        const service = services.find(s => s.id === serviceId);
         if (service && !lineItems.some(item => item.id === service.id)) {
             const newItem: LineItem = {
                 id: service.id,
@@ -409,7 +412,7 @@ export default function QuoteGeneratorPage() {
                                     <SelectValue placeholder="Add from Library..." />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {initialServices.map(s => <SelectItem key={s.id} value={s.id} disabled={lineItems.some(li => li.id === s.id)}>{s.name}</SelectItem>)}
+                                    {services.map(s => <SelectItem key={s.id} value={s.id} disabled={lineItems.some(li => li.id === s.id)}>{s.name}</SelectItem>)}
                                 </SelectContent>
                             </Select>
                         </div>
