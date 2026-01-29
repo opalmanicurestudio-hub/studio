@@ -1,8 +1,7 @@
 
-
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import {
   Sidebar,
   SidebarHeader,
@@ -42,6 +41,7 @@ import {
   HardHat,
   Percent,
   Megaphone,
+  Star,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -96,17 +96,37 @@ const moneyNavItems = [
 
 const marketingNavItems = [
     { href: '/campaigns', icon: Megaphone, label: 'Campaigns' },
-    { href: '/discounts', icon: Percent, label: 'Discounts' },
+    { href: '/discounts?tab=codes', icon: Percent, label: 'Discounts' },
+    { href: '/discounts?tab=automations', icon: Star, label: 'Loyalty' },
 ];
 
 export function AppSidebar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { toggleSidebar } = useSidebar();
 
   const isNavItemActive = (href: string) => {
-    if (href === '/') {
-        return pathname === href;
+    const currentTab = searchParams.get('tab');
+    const [hrefPath, hrefQuery] = href.split('?');
+
+    // If path doesn't match, it's not active
+    if (pathname !== hrefPath) {
+        return false;
     }
+
+    // If href has a query string, we need to match the tab
+    if (href.includes('?')) {
+        const hrefParams = new URLSearchParams(hrefQuery);
+        const hrefTab = hrefParams.get('tab');
+        return currentTab === hrefTab;
+    }
+
+    // For base /discounts link, it should be active if tab is 'codes' or not present.
+    if (hrefPath === '/discounts') {
+        return !currentTab || currentTab === 'codes';
+    }
+
+    // Default behavior for other links
     return pathname.startsWith(href);
   }
 
@@ -233,3 +253,5 @@ export function AppSidebar() {
     </Sidebar>
   );
 }
+
+    

@@ -1,11 +1,11 @@
 
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, Search, DollarSign, Percent, Repeat, BarChart, Star, TicketIcon } from 'lucide-react';
+import { PlusCircle, Search, DollarSign, Percent, Repeat, BarChart, Star, TicketIcon, Gift } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useInventory } from '@/context/InventoryContext';
 import { AddDiscountDialog } from '@/components/discounts/AddDiscountDialog';
@@ -16,6 +16,8 @@ import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, deleteD
 import { useTenant } from '@/context/TenantContext';
 import { collection, doc } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 const EmptyState = ({ onAdd }: { onAdd: () => void }) => (
     <div className="text-center py-20 px-6 border-2 border-dashed rounded-lg">
@@ -30,18 +32,52 @@ const EmptyState = ({ onAdd }: { onAdd: () => void }) => (
     </div>
 );
 
+const AutomationCard = ({ icon, title, description, onSetup }: { icon: React.ReactNode, title: string, description: string, onSetup: () => void }) => (
+    <Card>
+        <CardHeader>
+            <div className="flex items-center gap-4">
+                <div className="p-3 bg-primary/10 rounded-lg">{icon}</div>
+                <CardTitle>{title}</CardTitle>
+            </div>
+        </CardHeader>
+        <CardContent>
+            <p className="text-sm text-muted-foreground">{description}</p>
+        </CardContent>
+        <CardFooter>
+            <Button className="w-full" onClick={onSetup}>Set Up</Button>
+        </CardFooter>
+    </Card>
+);
+
 export default function DiscountsPage() {
     const { discounts, isLoading, transactions, appointments } = useInventory();
     const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
     const tenantId = selectedTenant?.id;
     const { toast } = useToast();
+    const router = useRouter();
+    const searchParams = useSearchParams();
+
+    const defaultTab = searchParams.get('tab') === 'automations' ? 'automations' : 'codes';
 
     const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
     const [editingDiscount, setEditingDiscount] = useState<Discount | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
+    const [activeTab, setActiveTab] = useState(defaultTab);
+    const [initialAutomationTrigger, setInitialAutomationTrigger] = useState<'none' | 'new_client' | 'loyalty' | 're_engagement' | 'birthday'>('none');
+
+    const handleTabChange = (value: string) => {
+        setActiveTab(value);
+        router.push(`/discounts?tab=${value}`, { scroll: false });
+    };
 
     const handleAdd = () => {
+        setEditingDiscount(null);
+        setIsAddDialogOpen(true);
+    };
+    
+    const handleSetupAutomation = (trigger: 'loyalty' | 're_engagement' | 'birthday') => {
+        setInitialAutomationTrigger(trigger);
         setEditingDiscount(null);
         setIsAddDialogOpen(true);
     };
@@ -104,7 +140,6 @@ export default function DiscountsPage() {
         const discountsApplied = discountedTransactions.reduce((acc, t) => acc + (t.discountAmount || 0), 0);
         const grossSales = netSales + discountsApplied;
     
-        // --- Promo Effectiveness (Retention) ---
         const uniqueDiscountedClientIds = new Set(discountedTransactions.map(t => t.clientId).filter((id): id is string => !!id));
         
         let retainedClients = 0;
@@ -128,7 +163,6 @@ export default function DiscountsPage() {
           ? (retainedClients / uniqueDiscountedClientIds.size) * 100 
           : 0;
     
-        // Find most popular code
         const codeCounts = discountedTransactions.reduce((acc, t) => {
             if(t.appliedDiscountCode) {
                 acc[t.appliedDiscountCode] = (acc[t.appliedDiscountCode] || 0) + 1;
@@ -160,16 +194,16 @@ export default function DiscountsPage() {
 
     return (
         <div className="flex min-h-screen w-full flex-col">
-            <AppHeader title="Discounts" />
+            <AppHeader title="Discounts & Automations" />
             <main className="flex-1 p-4 md:p-8">
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-8">
                     <div>
-                        <h1 className="text-3xl font-bold">Discount Codes</h1>
+                        <h1 className="text-3xl font-bold">Discounts & Automations</h1>
                         <p className="text-muted-foreground mt-1">
-                            Create and manage promotional codes for your services and products.
+                            Create promotional codes and set up automated marketing triggers.
                         </p>
                     </div>
-                    <Button onClick={handleAdd}>
+                     <Button onClick={handleAdd}>
                         <PlusCircle className="mr-2 h-4 w-4" /> Add New Discount
                     </Button>
                 </div>
@@ -236,43 +270,80 @@ export default function DiscountsPage() {
                         </CardContent>
                     </Card>
                 </div>
-
-
-                <Card>
-                    <CardHeader>
-                         <div className="relative w-full max-w-sm">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input 
-                                placeholder="Search by code or description..." 
-                                className="pl-9"
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
+                
+                <Tabs value={activeTab} onValueChange={handleTabChange}>
+                    <TabsList>
+                        <TabsTrigger value="codes">Discount Codes</TabsTrigger>
+                        <TabsTrigger value="automations">Automations</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="codes" className="mt-6">
+                        <Card>
+                            <CardHeader>
+                                 <div className="relative w-full max-w-sm">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                    <Input 
+                                        placeholder="Search by code or description..." 
+                                        className="pl-9"
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                    />
+                                </div>
+                            </CardHeader>
+                            <CardContent>
+                                {isLoading ? (
+                                    <p>Loading...</p>
+                                ) : filteredDiscounts.length > 0 ? (
+                                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                        {filteredDiscounts.map(discount => (
+                                            <DiscountCard key={discount.id} discount={discount} onEdit={handleEdit} onDelete={handleDelete} />
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <EmptyState onAdd={handleAdd} />
+                                )}
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+                    <TabsContent value="automations" className="mt-6">
+                        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <AutomationCard 
+                                icon={<Star className="w-6 h-6 text-primary" />}
+                                title="Loyalty Program"
+                                description="Automatically reward clients after they complete a certain number of appointments."
+                                onSetup={() => handleSetupAutomation('loyalty')}
+                            />
+                            <AutomationCard 
+                                icon={<Repeat className="w-6 h-6 text-primary" />}
+                                title="Re-engagement"
+                                description="Win back clients who haven't visited in a while with a special offer."
+                                onSetup={() => handleSetupAutomation('re_engagement')}
+                            />
+                            <AutomationCard 
+                                icon={<Gift className="w-6 h-6 text-primary" />}
+                                title="Birthday Special"
+                                description="Delight clients by automatically sending them a birthday gift or discount."
+                                onSetup={() => handleSetupAutomation('birthday')}
                             />
                         </div>
-                    </CardHeader>
-                    <CardContent>
-                        {isLoading ? (
-                            <p>Loading...</p>
-                        ) : filteredDiscounts.length > 0 ? (
-                            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                {filteredDiscounts.map(discount => (
-                                    <DiscountCard key={discount.id} discount={discount} onEdit={handleEdit} onDelete={handleDelete} />
-                                ))}
-                            </div>
-                        ) : (
-                            <EmptyState onAdd={handleAdd} />
-                        )}
-                    </CardContent>
-                </Card>
-
+                    </TabsContent>
+                </Tabs>
                  <AddDiscountDialog
                     open={isAddDialogOpen}
-                    onOpenChange={setIsAddDialogOpen}
+                    onOpenChange={(isOpen) => {
+                        setIsAddDialogOpen(isOpen);
+                        if (!isOpen) {
+                            setInitialAutomationTrigger('none');
+                        }
+                    }}
                     onSave={handleSave}
                     discountToEdit={editingDiscount}
+                    initialTrigger={initialAutomationTrigger}
                 />
             </main>
         </div>
     )
+
+    
+}
 
     

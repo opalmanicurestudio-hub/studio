@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
@@ -69,6 +68,7 @@ interface AddDiscountDialogProps {
   onOpenChange: (open: boolean) => void;
   onSave: (data: Partial<Discount>) => void;
   discountToEdit: Discount | null;
+  initialTrigger?: 'none' | 'new_client' | 'loyalty' | 're_engagement' | 'birthday';
 }
 
 const ProfitabilityAnalysis = ({ 
@@ -222,7 +222,7 @@ const PotentialImpactAnalysis = ({
 };
 
 
-export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOpenChange, onSave, discountToEdit }) => {
+export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOpenChange, onSave, discountToEdit, initialTrigger = 'none' }) => {
     const { services: allServices } = useInventory();
     const [isServiceSelectorOpen, setIsServiceSelectorOpen] = useState(false);
     const isMobile = useIsMobile();
@@ -235,7 +235,7 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
             applicableServiceIds: [],
             limitOnePerCustomer: false,
             automation: {
-                trigger: 'none',
+                trigger: initialTrigger,
             }
         }
     });
@@ -274,11 +274,11 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
                 applicableServiceIds: [],
                 limitOnePerCustomer: false,
                 automation: {
-                    trigger: 'none'
+                    trigger: initialTrigger || 'none'
                 }
             });
         }
-    }, [discountToEdit, reset, open]);
+    }, [discountToEdit, reset, open, initialTrigger]);
     
     const onSubmit = (data: DiscountFormData) => {
         onSave({
@@ -394,7 +394,7 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
         
         <Separator />
 
-        <Accordion type="single" collapsible>
+        <Accordion type="single" collapsible defaultValue={initialTrigger !== 'none' ? 'automation' : undefined}>
             <AccordionItem value="automation" className="border-0">
                 <AccordionTrigger className="p-0 hover:no-underline font-medium text-base">Automation</AccordionTrigger>
                  <AccordionContent className="pt-4 space-y-4">
@@ -502,3 +502,5 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
         </>
     );
 };
+
+    
