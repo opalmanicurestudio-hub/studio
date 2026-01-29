@@ -81,7 +81,7 @@ import { useTenant } from '@/context/TenantContext';
 import { Html5Qrcode } from 'html5-qrcode';
 import { ProductCard } from '@/components/inventory/ProductCard';
 import { EditEquipmentDialog } from '@/components/inventory/EditEquipmentDialog';
-import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 
 const OrderCard = ({ order, onSelect, onTrack, onReceive }: { order: Order, onSelect: (order: Order) => void, onTrack: (e: React.MouseEvent, url?: string) => void, onReceive: (order: Order) => void }) => {
@@ -1158,7 +1158,7 @@ export default function InventoryPage() {
                   inventory={inventory || []}
                   stockCorrections={stockCorrections || []}
                   onSpoilageConfirm={handleSpoilageConfirm} 
-                  onLogOverheadUse={handleLogOverheadUse} 
+                  onLogOverheadUse={handleOpenOverheadLogUse} 
                 />
             </div>
 
@@ -1182,7 +1182,7 @@ export default function InventoryPage() {
                                       inventory={inventory || []}
                                       stockCorrections={stockCorrections || []}
                                       onSpoilageConfirm={handleSpoilageConfirm}
-                                      onLogOverheadUse={handleLogOverheadUse}
+                                      onLogOverheadUse={handleLogUseClick}
                                      />
                                 </div>
                             </ScrollArea>
@@ -1488,6 +1488,3 @@ export default function InventoryPage() {
     </ClientOnly>
   );
 }
-
-
-
