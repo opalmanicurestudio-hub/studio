@@ -787,6 +787,11 @@ export default function InventoryPage() {
     setLogUseDialogType('overhead');
     setIsLogUseOpen(true);
   }
+
+  const handleOpenWriteOff = (item: InventoryItem) => {
+    setSelectedProduct(item);
+    setIsWriteOffOpen(true);
+  };
   
   const handleLogUseConfirm = (productId: string, quantity: number, notes: string): { success: boolean, message: string } => {
     if (!firestore || !tenantId) return { success: false, message: 'Firestore not available' };
