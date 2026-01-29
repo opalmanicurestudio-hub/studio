@@ -10,6 +10,14 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -27,6 +35,8 @@ import { SelectServicesDialog } from '../services/SelectServicesDialog';
 import { Card, CardContent } from '../ui/card';
 import { cn } from '@/lib/utils';
 import { Separator } from '../ui/separator';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { ScrollArea } from '../ui/scroll-area';
 
 const discountSchema = z.object({
   code: z.string().min(3, "Code must be at least 3 characters.").toUpperCase(),
@@ -102,6 +112,7 @@ const ProfitabilityAnalysis = ({
 export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOpenChange, onSave, discountToEdit }) => {
     const { services: allServices } = useInventory();
     const [isServiceSelectorOpen, setIsServiceSelectorOpen] = useState(false);
+    const isMobile = useIsMobile();
 
     const { control, handleSubmit, register, watch, reset, setValue, formState: { errors } } = useForm<DiscountFormData>({
         resolver: zodResolver(discountSchema),
@@ -149,107 +160,126 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
             validFrom: data.validFrom?.toISOString(),
             validUntil: data.validUntil?.toISOString(),
         });
+        onOpenChange(false);
     };
 
     const removeService = (id: string) => {
         setValue('applicableServiceIds', selectedServiceIds.filter(serviceId => serviceId !== id), { shouldDirty: true });
     };
 
-    return (
-        <>
-            <Dialog open={open} onOpenChange={onOpenChange}>
-                <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                        <DialogTitle>{discountToEdit ? 'Edit Discount' : 'Create New Discount'}</DialogTitle>
-                        <DialogDescription>
-                            Fill in the details for your promotional code.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <form id="discount-form" onSubmit={handleSubmit(onSubmit)}>
-                        <div className="grid gap-6 py-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="code">Discount Code</Label>
-                                <Input id="code" placeholder="e.g., SUMMER20" {...register('code')} />
-                                {errors.code && <p className="text-sm text-destructive">{errors.code.message}</p>}
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="description">Description (Internal)</Label>
-                                <Textarea id="description" placeholder="e.g., Summer sale promotion" {...register('description')} />
-                            </div>
-                            <Controller
-                                name="type"
-                                control={control}
-                                render={({ field }) => (
-                                    <div className="space-y-2">
-                                    <Label>Type</Label>
-                                    <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
-                                        <div><RadioGroupItem value="percentage" id="percentage" className="peer sr-only" /><Label htmlFor="percentage" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-3 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">% Percentage</Label></div>
-                                        <div><RadioGroupItem value="fixed" id="fixed" className="peer sr-only" /><Label htmlFor="fixed" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-3 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">$ Fixed Amount</Label></div>
-                                    </RadioGroup>
-                                    </div>
-                                )}
-                            />
-                            <div className="space-y-2">
-                                <Label htmlFor="value">Value</Label>
-                                <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground">
-                                        {discountType === 'percentage' ? <Percent /> : <DollarSign />}
-                                    </span>
-                                    <Input id="value" type="number" placeholder={discountType === 'percentage' ? '15' : '10.00'} className="pl-8" {...register('value')} />
-                                </div>
-                                {errors.value && <p className="text-sm text-destructive">{errors.value.message}</p>}
-                            </div>
+    const formId = "discount-form";
+    const title = discountToEdit ? 'Edit Discount' : 'Create New Discount';
+    const description = "Fill in the details for your promotional code.";
 
-                            <Separator />
+    const formContent = (
+      <div className="grid gap-6 py-4">
+        <div className="space-y-2">
+            <Label htmlFor="code">Discount Code</Label>
+            <Input id="code" placeholder="e.g., SUMMER20" {...register('code')} />
+            {errors.code && <p className="text-sm text-destructive">{errors.code.message}</p>}
+        </div>
+        <div className="space-y-2">
+            <Label htmlFor="description">Description (Internal)</Label>
+            <Textarea id="description" placeholder="e.g., Summer sale promotion" {...register('description')} />
+        </div>
+        <Controller
+            name="type"
+            control={control}
+            render={({ field }) => (
+                <div className="space-y-2">
+                <Label>Type</Label>
+                <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
+                    <div><RadioGroupItem value="percentage" id="percentage" className="peer sr-only" /><Label htmlFor="percentage" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-3 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">% Percentage</Label></div>
+                    <div><RadioGroupItem value="fixed" id="fixed" className="peer sr-only" /><Label htmlFor="fixed" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-3 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">$ Fixed Amount</Label></div>
+                </RadioGroup>
+                </div>
+            )}
+        />
+        <div className="space-y-2">
+            <Label htmlFor="value">Value</Label>
+            <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground">
+                    {discountType === 'percentage' ? <Percent /> : <DollarSign />}
+                </span>
+                <Input id="value" type="number" placeholder={discountType === 'percentage' ? '15' : '10.00'} className="pl-8" {...register('value')} />
+            </div>
+            {errors.value && <p className="text-sm text-destructive">{errors.value.message}</p>}
+        </div>
 
-                            <div className="space-y-2">
-                                <Label>Applicability</Label>
-                                <p className="text-xs text-muted-foreground">
-                                    Apply this discount to specific services, or leave empty to apply to the entire cart.
-                                </p>
-                                {selectedServices.length > 0 && (
-                                    <Card>
-                                        <CardContent className="p-2 space-y-2">
-                                            {selectedServices.map(service => (
-                                                <div key={service.id} className="flex justify-between items-center bg-muted/50 p-2 rounded-md">
-                                                    <span className="text-sm font-medium">{service.name}</span>
-                                                    <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeService(service.id)} type="button">
-                                                        <Trash2 className="h-4 w-4"/>
-                                                    </Button>
-                                                </div>
-                                            ))}
-                                        </CardContent>
-                                    </Card>
-                                )}
-                                <Button variant="outline" type="button" className="w-full" onClick={() => setIsServiceSelectorOpen(true)}>
-                                    <PlusCircle className="mr-2 h-4 w-4"/>
-                                    {selectedServices.length > 0 ? 'Edit Services' : 'Select Services'}
+        <Separator />
+
+        <div className="space-y-2">
+            <Label>Applicability</Label>
+            <p className="text-xs text-muted-foreground">
+                Apply this discount to specific services, or leave empty to apply to the entire cart.
+            </p>
+            {selectedServices.length > 0 && (
+                <Card>
+                    <CardContent className="p-2 space-y-2">
+                        {selectedServices.map(service => (
+                            <div key={service.id} className="flex justify-between items-center bg-muted/50 p-2 rounded-md">
+                                <span className="text-sm font-medium">{service.name}</span>
+                                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeService(service.id)} type="button">
+                                    <Trash2 className="h-4 w-4"/>
                                 </Button>
                             </div>
+                        ))}
+                    </CardContent>
+                </Card>
+            )}
+            <Button variant="outline" type="button" className="w-full" onClick={() => setIsServiceSelectorOpen(true)}>
+                <PlusCircle className="mr-2 h-4 w-4"/>
+                {selectedServices.length > 0 ? 'Edit Services' : 'Select Services'}
+            </Button>
+        </div>
 
-                            {selectedServices.length > 0 && (
-                                <ProfitabilityAnalysis services={selectedServices} discountType={discountType} discountValue={discountValue} />
-                            )}
-                            
-                            <Separator />
+        {selectedServices.length > 0 && (
+            <ProfitabilityAnalysis services={selectedServices} discountType={discountType} discountValue={discountValue} />
+        )}
+        
+        <Separator />
 
-                            <div className="space-y-2">
-                                <Label htmlFor="usage-limit">Usage Limit</Label>
-                                <Input id="usage-limit" type="number" placeholder="0 for unlimited" {...register('usageLimit')} />
-                                <p className="text-xs text-muted-foreground">Set to 0 for unlimited uses.</p>
+        <div className="space-y-2">
+            <Label htmlFor="usage-limit">Usage Limit</Label>
+            <Input id="usage-limit" type="number" placeholder="0 for unlimited" {...register('usageLimit')} />
+            <p className="text-xs text-muted-foreground">Set to 0 for unlimited uses.</p>
+        </div>
+        <div className="flex items-center justify-between">
+            <Label htmlFor="is-active">Active</Label>
+            <Controller name="isActive" control={control} render={({ field }) => (<Switch id="is-active" checked={field.value} onCheckedChange={field.onChange} /> )}/>
+        </div>
+      </div>
+    );
+
+    const DialogComponent = isMobile ? Sheet : Dialog;
+    const ContentComponent = isMobile ? SheetContent : DialogContent;
+
+    return (
+        <>
+            <DialogComponent open={open} onOpenChange={onOpenChange}>
+                <ContentComponent
+                    className={isMobile ? "h-[90vh] flex flex-col p-0" : "sm:max-w-md"}
+                    side={isMobile ? "bottom" : undefined}
+                >
+                    <form id={formId} onSubmit={handleSubmit(onSubmit)} className="flex-1 flex flex-col min-h-0">
+                        <DialogHeader className={cn("p-6 pb-4 flex-shrink-0", isMobile && "p-4 border-b text-left")}>
+                            <DialogTitle>{title}</DialogTitle>
+                            <DialogDescription>{description}</DialogDescription>
+                        </DialogHeader>
+                        <ScrollArea className="flex-1">
+                            <div className={isMobile ? "p-4" : "p-6 pt-0"}>
+                                {formContent}
                             </div>
-                            <div className="flex items-center justify-between">
-                                <Label htmlFor="is-active">Active</Label>
-                                <Controller name="isActive" control={control} render={({ field }) => (<Switch id="is-active" checked={field.value} onCheckedChange={field.onChange} /> )}/>
+                        </ScrollArea>
+                        <DialogFooter className={cn("flex-shrink-0", isMobile ? "p-4 border-t" : "p-6 pt-4")}>
+                           <div className={cn("flex w-full", isMobile ? "grid grid-cols-2 gap-2" : "justify-end gap-2")}>
+                                <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>Cancel</Button>
+                                <Button type="submit">Save Discount</Button>
                             </div>
-                        </div>
+                        </DialogFooter>
                     </form>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                        <Button type="submit" form="discount-form">Save Discount</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+                </ContentComponent>
+            </DialogComponent>
 
             <SelectServicesDialog
                 open={isServiceSelectorOpen}
