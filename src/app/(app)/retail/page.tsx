@@ -663,16 +663,9 @@ export default function RetailPage() {
     const service = (services || []).find(s => s.id === liveAppointments[0]?.serviceId);
     if (promoCode === 'NEWCLIENT15' && selectedClient && service && selectedClient.lifetimeValue < (service?.price || 0)) {
         setDiscount(15);
-        toast({
-            title: "Discount Applied!",
-            description: "$15.00 new client discount has been applied.",
-        })
+        toast({ title: "Discount Applied!", description: "$15.00 new client discount has been applied." })
     } else {
-        toast({
-            variant: "destructive",
-            title: "Invalid Code",
-            description: "This promo code is not valid for this client or appointment.",
-        })
+        toast({ variant: "destructive", title: "Invalid Code", description: "This promo code is not valid for this client or appointment." })
     }
   }
   
@@ -1123,8 +1116,13 @@ export default function RetailPage() {
                             {(retailProducts || []).map(product => (
                                 <Card key={product.id} onClick={() => addToCart(product, 'product')} className="cursor-pointer hover:shadow-lg transition-shadow">
                                     <CardContent className="p-2 space-y-2">
-                                        <div className="aspect-square bg-muted rounded-md overflow-hidden">
-                                            <Image src={product.imageUrl || `https://picsum.photos/seed/inv${product.id}/200/200`} alt={product.name} width={200} height={200} className="object-cover h-full w-full" />
+                                        <div className="relative aspect-square bg-muted rounded-md overflow-hidden">
+                                            <Image 
+                                                src={product.imageUrl || `https://picsum.photos/seed/inv${product.id}/200/200`} 
+                                                alt={product.name} 
+                                                fill 
+                                                className="object-cover"
+                                            />
                                         </div>
                                         <h3 className="text-sm font-medium leading-tight truncate">{product.name}</h3>
                                         <p className="text-sm font-semibold">${(product.msrp || 0).toFixed(2)}</p>
