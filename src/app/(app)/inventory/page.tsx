@@ -1393,5 +1393,3 @@ export default function InventoryPage() {
     </ClientOnly>
   );
 }
-
-    
