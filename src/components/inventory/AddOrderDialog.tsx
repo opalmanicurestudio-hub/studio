@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState } from 'react';
@@ -79,12 +80,17 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({
     }
 
     const handleSave = () => {
+        let finalTrackingUrl = trackingUrl;
+        if (finalTrackingUrl && !/^https?:\/\//i.test(finalTrackingUrl)) {
+            finalTrackingUrl = `https://${finalTrackingUrl}`;
+        }
+
         const newOrder: Omit<Order, 'id'> = {
             supplier,
             orderDate: (orderDate || new Date()).toISOString(),
             status: 'Placed',
             trackingNumber,
-            trackingUrl,
+            trackingUrl: finalTrackingUrl,
             notes,
             items: items,
             invoiceUrl,

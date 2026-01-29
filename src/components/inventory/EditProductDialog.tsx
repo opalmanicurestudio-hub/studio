@@ -47,6 +47,7 @@ import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { BrowseConsentFormsDialog } from '../services/BrowseConsentFormsDialog';
 import { Switch } from '../ui/switch';
 import { useInventory } from '@/context/InventoryContext';
+import { SelectAddOnsDialog as NewSelectAddonsDialog } from '../services/SelectAddOnsDialog';
 import { cn } from '@/lib/utils';
 import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
 import { format, parseISO } from 'date-fns';
@@ -80,7 +81,7 @@ const editProductSchema = z.object({
 
   supplier: z.string().optional(),
   sku: z.string().optional(),
-  purchaseLink: z.string().url({ message: "Please enter a valid URL." }).optional().or(z.literal('')),
+  purchaseLink: z.string().optional(),
   reorderPoint: z.coerce.number().optional(),
   primaryLocationId: z.string().optional(),
   expirationDate: z.date().optional(),
@@ -145,7 +146,7 @@ const Step1_BasicDetails = ({
     </div>
     <div className="space-y-2">
       <Label>Product Image</Label>
-       <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} /> )}/>
+       <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/>
     </div>
      <div className="space-y-2">
       <Label htmlFor="internal-notes-edit">Internal Notes</Label>
@@ -365,12 +366,17 @@ export const EditProductDialog: React.FC<EditProductDialogProps> = ({
         };
     }
 
+    let finalPurchaseLink = data.purchaseLink;
+    if (finalPurchaseLink && !/^https?:\/\//i.test(finalPurchaseLink)) {
+        finalPurchaseLink = `https://${finalPurchaseLink}`;
+    }
+
     const updatedProduct: InventoryItem = {
         ...product,
         ...data,
         costPerUnit: costPerUnit,
         batches: updatedBatches,
-        supplierUrl: data.purchaseLink,
+        supplierUrl: finalPurchaseLink,
     };
     onProductUpdated(updatedProduct);
     onOpenChange(false);
@@ -391,10 +397,10 @@ export const EditProductDialog: React.FC<EditProductDialogProps> = ({
   };
 
   const handleBack = (e: React.MouseEvent<HTMLButtonElement>) => {
-      e.preventDefault();
-      if(step > 1) {
-          setStep(step - 1);
-      }
+    e.preventDefault();
+    if (step > 1) {
+      setStep(step - 1);
+    }
   };
 
   const getStepContent = () => {

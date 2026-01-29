@@ -34,7 +34,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { type InventoryItem, type Location } from '@/lib/data';
+import { type InventoryItem, type Location, type ConsentForm, type Resource } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -42,12 +42,12 @@ import { z } from 'zod';
 import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2 } from 'lucide-react';
 import { type Service } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
-import { SelectEquipmentDialog } from '../services/SelectEquipmentDialog';
+import { SelectResourcesDialog } from './SelectResourcesDialog';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { BrowseConsentFormsDialog } from '../services/BrowseConsentFormsDialog';
 import { Switch } from '../ui/switch';
 import { useInventory } from '@/context/InventoryContext';
-import { SelectResourcesDialog } from './SelectResourcesDialog';
+import { SelectResourcesDialog as NewSelectResourcesDialog } from '../services/SelectResourcesDialog';
 import { cn } from '@/lib/utils';
 import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
 import { format, parseISO } from 'date-fns';
@@ -80,7 +80,7 @@ const productSchema = z.object({
 
   supplier: z.string().optional(),
   sku: z.string().optional(),
-  purchaseLink: z.string().optional(),
+  purchaseLink: z.string().url({ message: "Please enter a valid URL." }).optional().or(z.literal('')),
   reorderPoint: z.coerce.number().optional(),
   initialStock: z.coerce.number().min(1, 'Initial stock is required'),
   expirationDate: z.date().optional(),
@@ -339,8 +339,16 @@ export const AddProductDialog: React.FC<{
     }
   }, [open, initialType, methods]);
 
+  const { watch, trigger, handleSubmit } = methods;
+  
   const onSubmit = (data: ProductFormData) => {
     const costPerUnit = (data.numUnits || 1) > 0 ? ((data.totalPurchaseCost || 0) + (data.shippingCost || 0) + (data.taxCost || 0) - (data.discounts || 0)) / (data.numUnits || 1) : 0;
+    
+    let finalPurchaseLink = data.purchaseLink;
+    if (finalPurchaseLink && !/^https?:\/\//i.test(finalPurchaseLink)) {
+        finalPurchaseLink = `https://${finalPurchaseLink}`;
+    }
+
     const newProduct: InventoryItem = {
         id: `prod-${Date.now()}`,
         name: data.name,
@@ -348,7 +356,7 @@ export const AddProductDialog: React.FC<{
         category: data.category,
         totalStock: data.initialStock || 0,
         supplier: data.supplier || '',
-        supplierUrl: data.purchaseLink,
+        supplierUrl: finalPurchaseLink,
         costPerUnit: costPerUnit,
         reorderPoint: data.reorderPoint,
         imageUrl: data.imageUrl,
@@ -357,6 +365,10 @@ export const AddProductDialog: React.FC<{
         size: data.containerSize,
         unit: data.containerUnit as any,
         estimatedUses: data.usesPerContainer,
+        msrp: data.msrp,
+        markdownPrice: data.markdownPrice,
+        restockingMarkup: data.restockingMarkup,
+        internalNotes: data.internalNotes,
         batches: [{
             id: `batch-${Date.now()}`,
             stock: data.initialStock || 0,
@@ -379,7 +391,7 @@ export const AddProductDialog: React.FC<{
         fieldsToValidate.push('initialStock');
         }
         
-        const isValid = fieldsToValidate.length > 0 ? await methods.trigger(fieldsToValidate) : true;
+        const isValid = fieldsToValidate.length > 0 ? await trigger(fieldsToValidate) : true;
         
         if (isValid && step < totalSteps) {
         setStep(step + 1);
@@ -418,7 +430,7 @@ export const AddProductDialog: React.FC<{
 
   const formBody = (
      <FormProvider {...methods}>
-      <form id={formId} onSubmit={methods.handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+      <form id={formId} onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
         <DialogHeader className={isMobile ? "p-4 border-b text-left" : "p-6 pb-4"}>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>

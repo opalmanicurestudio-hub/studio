@@ -108,13 +108,13 @@ const editStaffSchema = z.object({
   avatarUrl: z.string().optional(),
   bio: z.string().optional(),
   specialties: z.string().optional(),
-  instagramUrl: z.string().url({ message: "Please enter a valid URL." }).optional().or(z.literal('')),
-  facebookUrl: z.string().url({ message: "Please enter a valid URL." }).optional().or(z.literal('')),
-  tiktokUrl: z.string().url({ message: "Please enter a valid URL." }).optional().or(z.literal('')),
-  twitterUrl: z.string().url({ message: "Please enter a valid URL." }).optional().or(z.literal('')),
-  pinterestUrl: z.string().url({ message: "Please enter a valid URL." }).optional().or(z.literal('')),
-  youtubeUrl: z.string().url({ message: "Please enter a valid URL." }).optional().or(z.literal('')),
-  portfolioUrl: z.string().url({ message: "Please enter a valid URL." }).optional().or(z.literal('')),
+  instagramUrl: z.string().optional(),
+  facebookUrl: z.string().optional(),
+  tiktokUrl: z.string().optional(),
+  twitterUrl: z.string().optional(),
+  pinterestUrl: z.string().optional(),
+  youtubeUrl: z.string().optional(),
+  portfolioUrl: z.string().optional(),
   role: z.enum(['admin', 'staff']),
   skillLevel: z.enum(['junior', 'senior', 'master']),
   payStructure: z.enum(['commission', 'hourly', 'salary']),
@@ -281,13 +281,6 @@ const EditStaffForm = ({ services, consentForms }: { services: Service[], consen
                                         <Input id="portfolioUrl" placeholder="https://your-portfolio.com" {...register('portfolioUrl')} className="pl-9" />
                                     </div>
                                 </div>
-                                {errors.instagramUrl && <p className="text-sm text-destructive">{errors.instagramUrl.message}</p>}
-                                {errors.facebookUrl && <p className="text-sm text-destructive">{errors.facebookUrl.message}</p>}
-                                {errors.tiktokUrl && <p className="text-sm text-destructive">{errors.tiktokUrl.message}</p>}
-                                {errors.twitterUrl && <p className="text-sm text-destructive">{errors.twitterUrl.message}</p>}
-                                {errors.pinterestUrl && <p className="text-sm text-destructive">{errors.pinterestUrl.message}</p>}
-                                {errors.youtubeUrl && <p className="text-sm text-destructive">{errors.youtubeUrl.message}</p>}
-                                {errors.portfolioUrl && <p className="text-sm text-destructive">{errors.portfolioUrl.message}</p>}
                             </div>
                         </AccordionContent>
                     </AccordionItem>
@@ -505,6 +498,14 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
 
   const handleSave = (data: EditStaffFormData) => {
     if (!staffMember) return;
+    
+    const formatUrl = (url?: string) => {
+        if (url && !/^(https?:\/\/)/i.test(url)) {
+            return `https://${url}`;
+        }
+        return url;
+    };
+
     const staffDataToSave: Staff = {
         ...staffMember,
         ...data,
@@ -517,6 +518,13 @@ export const EditStaffDialog: React.FC<EditStaffDialogProps> = ({
         services: data.services || [],
         documents: data.documents || [],
         assignedFormIds: data.assignedFormIds || [],
+        instagramUrl: formatUrl(data.instagramUrl),
+        facebookUrl: formatUrl(data.facebookUrl),
+        tiktokUrl: formatUrl(data.tiktokUrl),
+        twitterUrl: formatUrl(data.twitterUrl),
+        pinterestUrl: formatUrl(data.pinterestUrl),
+        youtubeUrl: formatUrl(data.youtubeUrl),
+        portfolioUrl: formatUrl(data.portfolioUrl),
         compliance: data.compliance?.licenseExpiry 
             ? { ...data.compliance, licenseExpiry: data.compliance.licenseExpiry.toISOString() }
             : undefined
