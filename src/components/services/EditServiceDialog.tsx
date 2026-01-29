@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -74,9 +75,18 @@ const serviceSchema = z.object({
   depositAmount: z.coerce.number().optional(),
   
   pricingTiers: z.object({
-    junior: z.coerce.number().min(0, 'Price must be 0 or more.'),
-    senior: z.coerce.number().min(0, 'Price must be 0 or more.'),
-    master: z.coerce.number().min(0, 'Price must be 0 or more.'),
+    junior: z.object({
+        price: z.coerce.number().min(0, 'Price must be 0 or more.'),
+        duration: z.coerce.number().min(1, 'Duration must be at least 1 minute.'),
+    }),
+    senior: z.object({
+        price: z.coerce.number().min(0, 'Price must be 0 or more.'),
+        duration: z.coerce.number().min(1, 'Duration must be at least 1 minute.'),
+    }),
+    master: z.object({
+        price: z.coerce.number().min(0, 'Price must be 0 or more.'),
+        duration: z.coerce.number().min(1, 'Duration must be at least 1 minute.'),
+    }),
   }),
   confirmationMessage: z.string().optional(),
   requiredFormIds: z.array(z.string()).optional(),
@@ -145,7 +155,7 @@ const Step1_BasicDetails = ({
 
     <div className="grid grid-cols-3 gap-4">
         <div className="space-y-2">
-            <Label htmlFor="duration-edit">Duration (min)</Label>
+            <Label htmlFor="duration-edit">Default Duration (min)</Label>
             <Input id="duration-edit" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>
             {errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}
         </div>
@@ -281,7 +291,7 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
     const { control, watch, register, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
     const isAddon = watch('isAddon');
     const depositType = watch('depositType');
-    const [juniorPrice, seniorPrice, masterPrice] = watch(['pricingTiers.junior', 'pricingTiers.senior', 'pricingTiers.master']);
+    const [juniorPrice, seniorPrice, masterPrice] = watch(['pricingTiers.junior.price', 'pricingTiers.senior.price', 'pricingTiers.master.price']);
 
     const tiers = useMemo(() => [
         { level: 'junior', price: juniorPrice || 0 },
@@ -301,22 +311,25 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
             <CardHeader><CardTitle>Pricing & Booking</CardTitle></CardHeader>
             <CardContent className="space-y-6">
                 <div className="space-y-4">
-                    <Label>Pricing Tiers</Label>
+                    <Label>Pricing & Duration Tiers</Label>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="junior-price-edit">Junior</Label>
-                            <Input id="junior-price-edit" type="number" placeholder="0.00" {...register('pricingTiers.junior', { valueAsNumber: true })} />
+                        <div className="space-y-2 p-3 border rounded-lg">
+                            <Label htmlFor="junior-price-edit" className="font-semibold">Junior</Label>
+                            <Input id="junior-price-edit" type="number" placeholder="Price" {...register('pricingTiers.junior.price', { valueAsNumber: true })} />
+                            <Input id="junior-duration-edit" type="number" placeholder="Duration (min)" {...register('pricingTiers.junior.duration', { valueAsNumber: true })} />
                         </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="senior-price-edit">Senior</Label>
-                            <Input id="senior-price-edit" type="number" placeholder="0.00" {...register('pricingTiers.senior', { valueAsNumber: true })} />
+                        <div className="space-y-2 p-3 border rounded-lg">
+                            <Label htmlFor="senior-price-edit" className="font-semibold">Senior</Label>
+                            <Input id="senior-price-edit" type="number" placeholder="Price" {...register('pricingTiers.senior.price', { valueAsNumber: true })} />
+                             <Input id="senior-duration-edit" type="number" placeholder="Duration (min)" {...register('pricingTiers.senior.duration', { valueAsNumber: true })} />
                         </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="master-price-edit">Master</Label>
-                            <Input id="master-price-edit" type="number" placeholder="0.00" {...register('pricingTiers.master', { valueAsNumber: true })} />
+                        <div className="space-y-2 p-3 border rounded-lg">
+                            <Label htmlFor="master-price-edit" className="font-semibold">Master</Label>
+                            <Input id="master-price-edit" type="number" placeholder="Price" {...register('pricingTiers.master.price', { valueAsNumber: true })} />
+                             <Input id="master-duration-edit" type="number" placeholder="Duration (min)" {...register('pricingTiers.master.duration', { valueAsNumber: true })} />
                         </div>
                     </div>
-                     {errors.pricingTiers && <p className="text-sm text-destructive">{errors.pricingTiers?.junior?.message || errors.pricingTiers?.senior?.message || errors.pricingTiers?.master?.message}</p>}
+                     {errors.pricingTiers && <p className="text-sm text-destructive">{errors.pricingTiers?.junior?.price?.message || errors.pricingTiers?.senior?.price?.message || errors.pricingTiers?.master?.price?.message}</p>}
                 </div>
 
                 <Card className="bg-muted/50"><CardContent className="p-4 space-y-4">
@@ -437,7 +450,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
     resources,
 }) => {
   const [step, setStep] = useState(1);
-  const totalSteps = 4;
+  const totalSteps = 3;
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const isMobile = useIsMobile();
   
@@ -460,9 +473,18 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
             description: service.description || undefined,
             imageUrl: service.imageUrl || undefined,
             pricingTiers: {
-                junior: service.pricingTiers?.find(t => t.level === 'junior')?.price || 0,
-                senior: service.pricingTiers?.find(t => t.level === 'senior')?.price || service.price || 0,
-                master: service.pricingTiers?.find(t => t.level === 'master')?.price || 0,
+                junior: {
+                    price: service.pricingTiers?.find(t => t.level === 'junior')?.price || 0,
+                    duration: service.pricingTiers?.find(t => t.level === 'junior')?.duration || service.duration,
+                },
+                senior: {
+                    price: service.pricingTiers?.find(t => t.level === 'senior')?.price || service.price || 0,
+                    duration: service.pricingTiers?.find(t => t.level === 'senior')?.duration || service.duration,
+                },
+                master: {
+                    price: service.pricingTiers?.find(t => t.level === 'master')?.price || 0,
+                    duration: service.pricingTiers?.find(t => t.level === 'master')?.duration || service.duration,
+                },
             },
             products: service.products || [],
             requiredResourceIds: service.requiredResourceIds || [],
@@ -534,7 +556,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
   }
 
   const onSubmit = (data: ServiceFormData) => {
-      const finalPrice = data.pricingTiers.senior || 0;
+      const finalPrice = data.pricingTiers.senior.price || 0;
       const netProfit = finalPrice - breakEvenCost;
       const margin = finalPrice > 0 ? (netProfit / finalPrice) * 100 : 0;
       
@@ -545,10 +567,11 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
         cost: breakEvenCost,
         profit: netProfit,
         margin: margin,
+        duration: data.pricingTiers.senior.duration,
         pricingTiers: [
-            { level: 'junior', price: data.pricingTiers.junior },
-            { level: 'senior', price: data.pricingTiers.senior },
-            { level: 'master', price: data.pricingTiers.master },
+            { level: 'junior', price: data.pricingTiers.junior.price, duration: data.pricingTiers.junior.duration },
+            { level: 'senior', price: data.pricingTiers.senior.price, duration: data.pricingTiers.senior.duration },
+            { level: 'master', price: data.pricingTiers.master.price, duration: data.pricingTiers.master.duration },
         ],
       };
       
@@ -556,23 +579,29 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
       handleOpenChange(false);
   };
   
-  const handleNext = async () => {
-    const fieldsToValidate: (keyof ServiceFormData)[] = [];
-    if (step === 1) {
-      fieldsToValidate.push('name', 'category', 'duration');
-    }
-     if (step === 3) {
-      fieldsToValidate.push('pricingTiers');
-    }
-    
-    const isValid = fieldsToValidate.length > 0 ? await trigger(fieldsToValidate) : true;
-    
-    if (isValid && step < totalSteps) {
-      setStep(step + 1);
-    }
-  };
+    const handleNext = async (e: React.MouseEvent<HTMLButtonElement>) => {
+        e.preventDefault();
+        const fieldsToValidate: (keyof ServiceFormData)[] = [];
+        if (step === 1) {
+            fieldsToValidate.push('name', 'category', 'duration');
+        }
+         if (step === 3) {
+            fieldsToValidate.push('pricingTiers');
+        }
+        
+        const isValid = fieldsToValidate.length > 0 ? await trigger(fieldsToValidate) : true;
+        
+        if (isValid && step < totalSteps) {
+            setStep(step + 1);
+        }
+    };
 
-  const handleBack = () => step > 1 && setStep(step - 1);
+    const handleBack = (e: React.MouseEvent<HTMLButtonElement>) => {
+        e.preventDefault();
+        if (step > 1) {
+            setStep(step - 1);
+        }
+    };
 
   const getStepContent = () => {
       switch(step) {
@@ -590,7 +619,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
 
   const formBody = (
     <FormProvider {...methods}>
-      <form id={formId} onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+      <form id={formId} onSubmit={methods.handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
         <DialogHeader className={isMobile ? "p-4 border-b text-left" : "p-6 pb-4"}>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
@@ -636,3 +665,5 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
     </Dialog>
   );
 };
+
+    

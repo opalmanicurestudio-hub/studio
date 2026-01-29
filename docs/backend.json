@@ -244,33 +244,27 @@
       "type": "object",
       "description": "Represents a service offered by a tenant.",
       "properties": {
-        "id": {
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        },
-        "description": {
-          "type": "string"
-        },
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number", "description": "The base or default price for the service." },
+        "description": { "type": "string" },
         "imageUrl": {
           "type": "string",
           "format": "uri",
           "description": "URL for the primary service image."
         },
-        "durationMinutes": {
-          "type": "number"
-        },
+        "durationMinutes": { "type": "number", "description": "The base or default duration for the service in minutes." },
         "pricingTiers": {
             "type": "array",
-            "description": "Tiered pricing based on stylist skill level.",
+            "description": "Tiered pricing and duration based on stylist skill level.",
             "items": {
                 "type": "object",
                 "properties": {
                     "level": { "type": "string", "enum": ["junior", "senior", "master"] },
-                    "price": { "type": "number" }
+                    "price": { "type": "number" },
+                    "durationMinutes": { "type": "number" }
                 },
-                "required": ["level", "price"]
+                "required": ["level", "price", "durationMinutes"]
             }
         },
         "category": { "type": "string", "description": "The category of the service (e.g., nails, hair)." },
@@ -299,8 +293,7 @@
       },
       "required": [
         "id",
-        "name",
-        "durationMinutes"
+        "name"
       ]
     },
     "Resource": {
@@ -972,3 +965,5 @@
 
 
 
+
+    
