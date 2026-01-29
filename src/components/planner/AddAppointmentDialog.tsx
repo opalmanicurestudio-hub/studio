@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -106,7 +107,7 @@ const AddAppointmentForm = ({
     initialClientId,
     appointmentToRebook,
 }: Omit<AddAppointmentDialogProps, 'open' | 'onOpenChange' | 'initialStartTime' | 'initialStaffId'>) => {
-    const { register, handleSubmit, control, watch, formState: { errors } } = useForm({
+    const { register, handleSubmit, control, watch, formState: { errors }, setValue } = useForm({
         defaultValues: {
             clientId: appointmentToRebook ? appointmentToRebook.clientId : initialClientId || '',
             serviceId: appointmentToRebook ? appointmentToRebook.serviceId : '',
@@ -138,6 +139,14 @@ const AddAppointmentForm = ({
     const selectedStaff = useMemo(() => staff.find(s => s.id === staffId), [staff, staffId]);
     const selectedAddOns = useMemo(() => services.filter(s => addOnIds.includes(s.id)), [services, addOnIds]);
     
+    const handleAddOnsChange = (newAddOns: Service[]) => {
+        setValue('addOnIds', newAddOns.map(s => s.id));
+    };
+
+    const removeAddOn = (addOnId: string) => {
+        setValue('addOnIds', addOnIds.filter(id => id !== addOnId));
+    };
+
     const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
     const weekStart = useMemo(() => startOfWeek(date, { weekStartsOn: 0 }), [date]);
     const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
@@ -371,7 +380,7 @@ const AddAppointmentForm = ({
                     <div className="space-y-4">
                         <h3 className="text-lg font-medium">Add-on Services</h3>
                         {selectedAddOns.length > 0 ? (
-                            <Card><CardContent className="p-2 space-y-2">{selectedAddOns.map(item => (<div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50"><span className="text-sm font-medium">{item.name}</span><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => setSelectedAddOns(prev => prev.filter(a => a.id !== item.id))}><Trash2 className="h-4 w-4" /></Button></div>))}</CardContent></Card>
+                            <Card><CardContent className="p-2 space-y-2">{selectedAddOns.map(item => (<div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50"><span className="text-sm font-medium">{item.name}</span><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}</CardContent></Card>
                         ) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No add-ons selected.</CardContent></Card>)}
                         <Button variant="outline" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button>
                     </div>
@@ -451,7 +460,13 @@ const AddAppointmentForm = ({
                     </div>
                 </div>
             </form>
-            <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} allAddOns={services.filter(s => s.type === 'addon')} initialSelected={selectedAddOns} onSelect={setSelectedAddOns} />
+            <SelectAddOnsDialog 
+                open={isAddOnSelectorOpen} 
+                onOpenChange={setIsAddOnSelectorOpen} 
+                allAddOns={services.filter(s => s.type === 'addon')} 
+                initialSelected={selectedAddOns} 
+                onSelect={handleAddOnsChange} 
+            />
             <AlertDialog open={showConfirmation} onOpenChange={setShowConfirmation}>
                 <AlertDialogContent>
                     <AlertDialogHeader><AlertDialogTitle>Confirm Double Booking</AlertDialogTitle><AlertDialogDescription>This time slot overlaps with an existing appointment. Are you sure you want to proceed?</AlertDialogDescription></AlertDialogHeader>
