@@ -174,7 +174,7 @@ const InventoryReportPage = () => {
                                 <div className="text-2xl font-bold text-primary print:text-black">${stats.totalValue.toFixed(2)}</div>
                             </div>
                             <div className="p-3 bg-muted/50 rounded-lg text-center print:bg-transparent">
-                                <div className="text-sm text-muted-foreground flex items-center justify-center gap-2 print:text-black"><Package className="w-4 h-4"/>Professional</div>
+                                <div className="text-sm text-muted-foreground flex items-center justify-center gap-2 print:text-black"><Package className="w-4 h-4"/> Professional</div>
                                 <div className="text-lg font-bold">${stats.professionalValue.toFixed(2)}</div>
                             </div>
                             <div className="p-3 bg-muted/50 rounded-lg text-center print:bg-transparent">
