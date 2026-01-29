@@ -503,7 +503,7 @@ export default function WalkInPage() {
                             </div>
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="preferences">Preferences or Special Needs (Optional)</Label>
+                            <Label htmlFor="preferences">Notes, Special Requests, or Accommodations (Optional)</Label>
                             <Textarea id="preferences" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g., preference for a quiet environment, allergy to certain scents..." />
                         </div>
                     </CardContent>

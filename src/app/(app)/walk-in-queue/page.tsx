@@ -6,7 +6,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { User, Users, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal, Printer, UserPlus, ArrowUp, ArrowDown, DollarSign, Bell, Lock, Building, HardHat, TrendingUp, UserX, SlidersHorizontal } from 'lucide-react';
+import { User, Users, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal, Printer, UserPlus, ArrowUp, ArrowDown, DollarSign, Bell, Lock, Building, HardHat, TrendingUp, UserX, SlidersHorizontal, MessageSquare } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import { useCollection, useFirebase, updateDocumentNonBlocking, useMemoFirebase, setDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc, getDocs, query, where } from 'firebase/firestore';
@@ -263,6 +263,12 @@ const WaitingCustomerCard = ({ walkIn, services, resources, onPrintTicket, onOpe
                             </div>
                         </div>
                     )}
+                    {walkIn.notes && (
+                        <div className="mt-2 flex items-start gap-2 text-sm text-muted-foreground">
+                            <MessageSquare className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                            <p className="italic">{walkIn.notes}</p>
+                        </div>
+                    )}
                 </div>
             </CardContent>
         </Card>
@@ -387,6 +393,12 @@ const ServicingCustomerCard = ({ walkIn, services, resources, staff, onStatusCha
                     <ul className="list-disc list-inside text-sm text-muted-foreground">
                         {walkInServices.map(s => <li key={s.id}>{s.name}</li>)}
                     </ul>
+                     {walkIn.notes && (
+                        <div className="mt-2 flex items-start gap-2 text-sm text-muted-foreground">
+                            <MessageSquare className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                            <p className="italic">{walkIn.notes}</p>
+                        </div>
+                    )}
                 </div>
                  <div className="mt-4 border-t pt-4 flex justify-end gap-2">
                     <Button variant="outline" size="sm" onClick={() => onStatusChange(walkIn.id, assignedStaff?.id || '', 'skipped')}>Mark as Skipped</Button>
@@ -444,6 +456,12 @@ const ReadyForCheckoutCard = ({ walkIn, services, resources, staff, onCheckoutCl
                                     </TooltipProvider>
                                 ))}
                             </div>
+                        </div>
+                    )}
+                     {walkIn.notes && (
+                        <div className="mt-2 flex items-start gap-2 text-sm text-muted-foreground">
+                            <MessageSquare className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                            <p className="italic">{walkIn.notes}</p>
                         </div>
                     )}
                 </div>
@@ -1621,4 +1639,5 @@ export default function WalkInQueuePage() {
     </>
   );
 }
+
 
