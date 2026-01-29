@@ -39,10 +39,10 @@ export type Transaction = {
   paymentMethodIdentifier?: string;
   hasReceipt: boolean;
   receiptUrl?: string;
-  relatedBillInstanceId?: string; // Link to a bill instance
-  relatedEventId?: string; // Link to an event
-  relatedOrderId?: string; // Link to a purchase order
-  reversalOf?: string; // ID of the transaction this entry is reversing
+  relatedBillInstanceId?: string;
+  relatedEventId?: string;
+  relatedOrderId?: string;
+  reversalOf?: string;
   staffId?: string;
   tipAmount?: number;
   appointmentId?: string;

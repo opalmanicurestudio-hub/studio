@@ -566,7 +566,10 @@
         "paymentMethodIdentifier": {
           "type": "string",
           "description": "An identifier for the payment method (e.g., last 4 digits of a card)."
-        }
+        },
+        "shippingCost": { "type": "number" },
+        "taxCost": { "type": "number" },
+        "discounts": { "type": "number" }
       },
       "required": ["id", "supplier", "orderDate", "status", "items"]
     },
@@ -736,6 +739,10 @@
         "reversalOf": {
             "type": "string",
             "description": "The ID of the transaction this entry is reversing."
+        },
+        "relatedBillInstanceId": {
+            "type": "string",
+            "description": "The ID of the bill instance this payment is for."
         }
       },
       "required": ["id", "date", "description", "type", "context", "category", "amount", "paymentMethod"]
@@ -961,6 +968,7 @@
     }
   }
 }
+
 
 
 
