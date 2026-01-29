@@ -892,6 +892,23 @@
         }
       },
       "required": ["id", "code", "type", "value"]
+    },
+    "Campaign": {
+      "title": "Campaign",
+      "description": "Represents a marketing campaign to be sent to a specific client audience.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "subject": { "type": "string" },
+        "body": { "type": "string" },
+        "targetAudience": { "type": "string", "enum": ["all", "new", "loyal", "inactive_90"] },
+        "discountId": { "type": "string" },
+        "status": { "type": "string", "enum": ["draft", "sent"] },
+        "sentAt": { "type": "string", "format": "date-time" },
+        "type": { "type": "string", "enum": ["email", "sms"] }
+      },
+      "required": ["id", "name", "subject", "body", "targetAudience", "status", "type"]
     }
   },
   "auth": {
@@ -1033,6 +1050,12 @@
         "$ref": "#/entities/Discount"
       },
       "description": "Stores discount codes for a specific tenant."
+    },
+    "/tenants/{tenantId}/campaigns/{campaignId}": {
+      "schema": {
+        "$ref": "#/entities/Campaign"
+      },
+      "description": "Stores marketing campaigns for a tenant."
     }
   }
 }

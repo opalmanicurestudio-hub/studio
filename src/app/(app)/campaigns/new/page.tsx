@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState } from 'react';
@@ -44,6 +45,7 @@ export default function NewCampaignPage() {
     const { toast } = useToast();
     const { discounts } = useInventory();
     const [isSaving, setIsSaving] = useState(false);
+    const [isSending, setIsSending] = useState(false);
 
     const { control, handleSubmit, register, watch, formState: { errors } } = useForm<CampaignFormData>({
         resolver: zodResolver(campaignSchema),
@@ -55,24 +57,29 @@ export default function NewCampaignPage() {
     
     const campaignType = watch('type');
 
-    const onSubmit = async (data: CampaignFormData) => {
+    const processSubmit = async (data: CampaignFormData, status: 'draft' | 'sent') => {
         if (!firestore || !selectedTenant) return;
-        setIsSaving(true);
-        
-        const newCampaign: Omit<Campaign, 'id'> = {
+
+        if (status === 'draft') setIsSaving(true);
+        else setIsSending(true);
+
+        const newCampaign: Omit<Campaign, 'id' | 'sentAt'> = {
             ...data,
-            status: 'draft',
+            status,
         };
+
+        const finalCampaign = {
+            ...newCampaign,
+            id: nanoid(),
+            sentAt: status === 'sent' ? new Date().toISOString() : undefined,
+        }
         
         try {
-            await addDocumentNonBlocking(collection(firestore, 'tenants', selectedTenant.id, 'campaigns'), {
-              ...newCampaign,
-              id: nanoid(),
-            });
+            await addDocumentNonBlocking(collection(firestore, 'tenants', selectedTenant.id, 'campaigns'), finalCampaign);
 
             toast({
-                title: "Campaign Saved!",
-                description: `${data.name} has been saved as a draft.`
+                title: status === 'draft' ? "Campaign Saved!" : "Campaign Sent!",
+                description: `${data.name} has been ${status === 'draft' ? 'saved as a draft' : 'sent'}.`
             });
             router.push('/campaigns');
         } catch (error) {
@@ -83,7 +90,8 @@ export default function NewCampaignPage() {
                 description: "There was a problem saving your campaign."
             });
         } finally {
-            setIsSaving(false);
+            if (status === 'draft') setIsSaving(false);
+            else setIsSending(false);
         }
     }
 
@@ -91,7 +99,7 @@ export default function NewCampaignPage() {
         <div className="flex min-h-screen w-full flex-col">
             <AppHeader title="New Campaign" />
             <main className="flex-1 p-4 md:p-8">
-                <form onSubmit={handleSubmit(onSubmit)}>
+                <form>
                     <div className="flex items-center justify-between gap-4 mb-8">
                         <Button variant="outline" asChild>
                             <Link href="/campaigns">
@@ -99,10 +107,16 @@ export default function NewCampaignPage() {
                                 Back to Campaigns
                             </Link>
                         </Button>
-                        <Button type="submit" disabled={isSaving}>
-                            {isSaving ? <Loader className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                            Save as Draft
-                        </Button>
+                        <div className="flex items-center gap-2">
+                             <Button type="button" variant="outline" onClick={handleSubmit((data) => processSubmit(data, 'draft'))} disabled={isSaving || isSending}>
+                                {isSaving ? <Loader className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                                Save as Draft
+                            </Button>
+                            <Button type="button" onClick={handleSubmit((data) => processSubmit(data, 'sent'))} disabled={isSaving || isSending}>
+                                {isSending ? <Loader className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                                Save and Send
+                            </Button>
+                        </div>
                     </div>
 
                     <Card>

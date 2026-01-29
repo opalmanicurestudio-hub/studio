@@ -1,18 +1,22 @@
+
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Megaphone, Mail, MessageSquare, Users, Star, UserPlus, Clock } from 'lucide-react';
-import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
-import { collection } from 'firebase/firestore';
+import { PlusCircle, Megaphone, Mail, MessageSquare, Users, Star, UserPlus, Clock, MoreHorizontal, Send, Trash2 } from 'lucide-react';
+import { useCollection, useFirebase, useMemoFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
+import { collection, doc } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { type Campaign } from '@/lib/data';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import Link from 'next/link';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { useToast } from '@/hooks/use-toast';
 
 const AudienceIcon = ({ audience }: { audience: Campaign['targetAudience']}) => {
     switch (audience) {
@@ -34,6 +38,9 @@ const audienceText = {
 export default function CampaignsPage() {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
+  const { toast } = useToast();
+  const [campaignToDelete, setCampaignToDelete] = useState<Campaign | null>(null);
+
   const campaignsQuery = useMemoFirebase(() => 
     firestore && selectedTenant
       ? collection(firestore, 'tenants', selectedTenant.id, 'campaigns')
@@ -41,6 +48,28 @@ export default function CampaignsPage() {
   , [firestore, selectedTenant]);
 
   const { data: campaigns, isLoading } = useCollection<Campaign>(campaignsQuery);
+
+  const handleSendCampaign = (campaignId: string) => {
+    if (!firestore || !selectedTenant) return;
+    const campaignRef = doc(firestore, 'tenants', selectedTenant.id, 'campaigns', campaignId);
+    updateDocumentNonBlocking(campaignRef, {
+        status: 'sent',
+        sentAt: new Date().toISOString(),
+    });
+    toast({ title: "Campaign Sent!", description: "Your campaign is on its way." });
+  };
+
+  const handleDeleteClick = (campaign: Campaign) => {
+    setCampaignToDelete(campaign);
+  };
+
+  const confirmDelete = () => {
+    if (!campaignToDelete || !firestore || !selectedTenant) return;
+    const campaignRef = doc(firestore, 'tenants', selectedTenant.id, 'campaigns', campaignToDelete.id);
+    deleteDocumentNonBlocking(campaignRef);
+    toast({ title: "Campaign Deleted" });
+    setCampaignToDelete(null);
+  };
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -77,6 +106,7 @@ export default function CampaignsPage() {
                         <TableHead>Audience</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Sent At</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -99,6 +129,21 @@ export default function CampaignsPage() {
                                 <Badge variant={campaign.status === 'sent' ? 'default' : 'secondary'} className="capitalize">{campaign.status}</Badge>
                             </TableCell>
                             <TableCell>{campaign.sentAt ? format(new Date(campaign.sentAt), 'PPp') : 'Not sent'}</TableCell>
+                            <TableCell className="text-right">
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent>
+                                        <DropdownMenuItem onClick={() => handleSendCampaign(campaign.id)} disabled={campaign.status === 'sent'}>
+                                            <Send className="mr-2 h-4 w-4" /> Send Now
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem className="text-destructive" onClick={() => handleDeleteClick(campaign)}>
+                                            <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                        </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            </TableCell>
                         </TableRow>
                     ))}
                 </TableBody>
@@ -115,6 +160,25 @@ export default function CampaignsPage() {
           </CardContent>
         </Card>
       </main>
+      <AlertDialog open={!!campaignToDelete} onOpenChange={() => setCampaignToDelete(null)}>
+        <AlertDialogContent>
+            <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+                This will permanently delete the "{campaignToDelete?.name}" campaign. This action cannot be undone.
+            </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+                onClick={confirmDelete}
+                className={buttonVariants({ variant: "destructive" })}
+            >
+                Delete
+            </AlertDialogAction>
+            </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
