@@ -60,35 +60,33 @@ const InventoryReportPage = () => {
         let equipmentValue = 0;
 
         inventory.forEach(item => {
-            let itemTotalValue = (item.totalStock || 0) * (item.costPerUnit || 0);
-
-            const costPerUnit = item.costPerUnit || 0;
-            if (costPerUnit > 0) {
-                if (item.costingMethod === 'size' && item.size && item.size > 0 && item.partialContainerSize) {
-                    const costPerBaseUnit = costPerUnit / item.size;
-                    itemTotalValue += item.partialContainerSize * costPerBaseUnit;
-                } else if (item.costingMethod === 'uses' && item.estimatedUses && item.estimatedUses > 0 && item.partialContainerUses) {
-                    const costPerBaseUnit = costPerUnit / item.estimatedUses;
-                    itemTotalValue += item.partialContainerUses * costPerBaseUnit;
+            let itemTotalValue = 0;
+            if (item.type === 'equipment') {
+                const purchaseCost = item.costPerUnit || 0;
+                const lifespanMonths = (item.lifespanYears || 5) * 12;
+                const monthlyDepreciation = lifespanMonths > 0 ? purchaseCost / lifespanMonths : 0;
+                const purchaseDate = item.batches[0]?.receivedDate ? parseISO(item.batches[0].receivedDate) : new Date();
+                const monthsInService = differenceInMonths(new Date(), purchaseDate);
+                const accumulatedDepreciation = Math.min(monthlyDepreciation * monthsInService, purchaseCost);
+                itemTotalValue = purchaseCost - accumulatedDepreciation;
+                equipmentValue += itemTotalValue;
+            } else {
+                itemTotalValue = (item.totalStock || 0) * (item.costPerUnit || 0);
+                const costPerUnit = item.costPerUnit || 0;
+                if (costPerUnit > 0) {
+                    if (item.costingMethod === 'size' && item.size && item.size > 0 && item.partialContainerSize) {
+                        const costPerBaseUnit = costPerUnit / item.size;
+                        itemTotalValue += item.partialContainerSize * costPerBaseUnit;
+                    } else if (item.costingMethod === 'uses' && item.estimatedUses && item.estimatedUses > 0 && item.partialContainerUses) {
+                        const costPerBaseUnit = costPerUnit / item.estimatedUses;
+                        itemTotalValue += item.partialContainerUses * costPerBaseUnit;
+                    }
                 }
-            }
-            
-            switch (item.type) {
-                case 'professional': professionalValue += itemTotalValue; break;
-                case 'retail': retailValue += itemTotalValue; break;
-                case 'overhead': overheadValue += itemTotalValue; break;
-                case 'equipment': {
-                    const purchaseCost = item.costPerUnit || 0;
-                    const lifespanMonths = (item.lifespanYears || 5) * 12;
-                    const monthlyDepreciation = lifespanMonths > 0 ? purchaseCost / lifespanMonths : 0;
-                    
-                    const purchaseDate = item.batches[0]?.receivedDate ? parseISO(item.batches[0].receivedDate) : new Date();
-                    const monthsInService = differenceInMonths(new Date(), purchaseDate);
-                    
-                    const accumulatedDepreciation = Math.min(monthlyDepreciation * monthsInService, purchaseCost);
-                    const bookValue = purchaseCost - accumulatedDepreciation;
-                    equipmentValue += bookValue;
-                    break;
+                
+                switch (item.type) {
+                    case 'professional': professionalValue += itemTotalValue; break;
+                    case 'retail': retailValue += itemTotalValue; break;
+                    case 'overhead': overheadValue += itemTotalValue; break;
                 }
             }
         });
@@ -239,15 +237,53 @@ const InventoryReportPage = () => {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {inventory.map(item => (
-                                        <TableRow key={item.id}>
-                                            <TableCell>{item.name}</TableCell>
-                                            <TableCell><Badge variant="outline">{item.category}</Badge></TableCell>
-                                            <TableCell className="text-right font-mono">{item.totalStock}</TableCell>
-                                            <TableCell className="text-right font-mono">${(item.costPerUnit || 0).toFixed(2)}</TableCell>
-                                            <TableCell className="text-right font-mono">${((item.totalStock || 0) * (item.costPerUnit || 0)).toFixed(2)}</TableCell>
-                                        </TableRow>
-                                    ))}
+                                    {inventory.map(item => {
+                                        let stockDisplay;
+                                        if ((item.costingMethod === 'size' && typeof item.partialContainerSize === 'number') || (item.costingMethod === 'uses' && typeof item.partialContainerUses === 'number')) {
+                                            const partialValue = item.costingMethod === 'size' ? `${item.partialContainerSize.toFixed(0)} ${item.unit || 'unit'}` : `${item.partialContainerUses} ${item.useUnit || 'uses'}`;
+                                            stockDisplay = (
+                                                <div className="text-right">
+                                                    <p className="font-mono">{item.totalStock} full</p>
+                                                    <p className="text-xs font-mono text-muted-foreground"> + {partialValue} in use</p>
+                                                </div>
+                                            );
+                                        } else {
+                                            stockDisplay = <div className="text-right font-mono">{item.totalStock}</div>;
+                                        }
+
+                                        let itemTotalValue = 0;
+                                        if (item.type === 'equipment') {
+                                            const purchaseCost = item.costPerUnit || 0;
+                                            const lifespanMonths = (item.lifespanYears || 5) * 12;
+                                            const monthlyDepreciation = lifespanMonths > 0 ? purchaseCost / lifespanMonths : 0;
+                                            const purchaseDate = item.batches[0]?.receivedDate ? parseISO(item.batches[0].receivedDate) : new Date();
+                                            const monthsInService = differenceInMonths(new Date(), purchaseDate);
+                                            const accumulatedDepreciation = Math.min(monthlyDepreciation * monthsInService, purchaseCost);
+                                            itemTotalValue = purchaseCost - accumulatedDepreciation;
+                                        } else {
+                                            itemTotalValue = (item.totalStock || 0) * (item.costPerUnit || 0);
+                                            const costPerUnit = item.costPerUnit || 0;
+                                            if (costPerUnit > 0) {
+                                                if (item.costingMethod === 'size' && item.size && item.size > 0 && item.partialContainerSize) {
+                                                    const costPerBaseUnit = costPerUnit / item.size;
+                                                    itemTotalValue += item.partialContainerSize * costPerBaseUnit;
+                                                } else if (item.costingMethod === 'uses' && item.estimatedUses && item.estimatedUses > 0 && item.partialContainerUses) {
+                                                    const costPerBaseUnit = costPerUnit / item.estimatedUses;
+                                                    itemTotalValue += item.partialContainerUses * costPerBaseUnit;
+                                                }
+                                            }
+                                        }
+
+                                        return (
+                                            <TableRow key={item.id}>
+                                                <TableCell>{item.name}</TableCell>
+                                                <TableCell><Badge variant="outline">{item.category}</Badge></TableCell>
+                                                <TableCell>{stockDisplay}</TableCell>
+                                                <TableCell className="text-right font-mono">${(item.costPerUnit || 0).toFixed(2)}</TableCell>
+                                                <TableCell className="text-right font-mono">${itemTotalValue.toFixed(2)}</TableCell>
+                                            </TableRow>
+                                        );
+                                    })}
                                 </TableBody>
                             </Table>
                         </CardContent>
