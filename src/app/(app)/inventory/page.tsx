@@ -794,6 +794,61 @@ export default function InventoryPage() {
     setSelectedProduct(item);
     setIsWriteOffOpen(true);
   };
+
+  const handleWriteOffConfirm = (productId: string, batchId: string, quantity: number, reason: string): { success: boolean, message: string } => {
+    if (!firestore || !tenantId || !inventory) return { success: false, message: 'Firestore not available' };
+
+    const product = inventory.find(p => p.id === productId);
+    if (!product) return { success: false, message: 'Product not found.' };
+
+    const batchToIndex = product.batches.findIndex(b => b.id === batchId);
+    if (batchToIndex === -1) return { success: false, message: 'Batch not found.' };
+
+    const batchToUpdate = product.batches[batchToIndex];
+    if (batchToUpdate.stock < quantity) {
+      return { success: false, message: `Cannot write off more than available stock (${batchToUpdate.stock}).` };
+    }
+
+    const lossAmount = quantity * batchToUpdate.costPerUnit;
+
+    const productRef = doc(firestore, `tenants/${tenantId}/inventory`, productId);
+    const updatedBatches = [...product.batches];
+    updatedBatches[batchToIndex] = { ...batchToUpdate, stock: batchToUpdate.stock - quantity };
+    const newTotalStock = updatedBatches.reduce((acc, b) => acc + b.stock, 0);
+    const updatedData = {
+      batches: updatedBatches,
+      totalStock: newTotalStock
+    };
+    updateDocumentNonBlocking(productRef, updatedData);
+    
+    const stockCorrection: Omit<StockCorrection, 'id'> = {
+      productId: productId,
+      date: new Date().toISOString(),
+      change: -quantity,
+      unit: product.unit || 'units',
+      reason: `Write-off: ${reason}`,
+    };
+    addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), stockCorrection);
+
+    const transaction: Omit<Transaction, 'id' | 'date'> = {
+      description: `Write-off: ${quantity} x ${product.name}`,
+      clientOrVendor: 'Internal',
+      type: 'expense',
+      context: 'Business',
+      category: 'Spoilage',
+      amount: lossAmount,
+      paymentMethod: 'Internal',
+      hasReceipt: false,
+    };
+    addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/transactions`), { ...transaction, date: new Date().toISOString() });
+
+    toast({
+        title: "Item Written Off",
+        description: `${quantity} unit(s) of ${product.name} have been written off with a loss of $${lossAmount.toFixed(2)}.`,
+    });
+
+    return { success: true, message: "Write-off successful." };
+  };
   
   const handleLogUseConfirm = (productId: string, quantity: number, notes: string): { success: boolean, message: string } => {
     if (!firestore || !tenantId || !inventory) return { success: false, message: 'Firestore not available' };
@@ -1324,7 +1379,7 @@ export default function InventoryPage() {
             open={isWriteOffOpen}
             onOpenChange={setIsWriteOffOpen}
             product={selectedProduct}
-            onConfirm={() => { return {success: false, message: ''}}}
+            onConfirm={handleWriteOffConfirm}
         />
       )}
       
@@ -1394,5 +1449,3 @@ export default function InventoryPage() {
     </ClientOnly>
   );
 }
-
-    
