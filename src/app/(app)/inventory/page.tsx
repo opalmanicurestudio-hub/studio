@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
@@ -81,7 +80,14 @@ import { useTenant } from '@/context/TenantContext';
 import { Html5Qrcode } from 'html5-qrcode';
 import { ProductCard } from '@/components/inventory/ProductCard';
 import { EditEquipmentDialog } from '@/components/inventory/EditEquipmentDialog';
-import { RadioGroup } from '@/components/ui/radio-group';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 
 const OrderCard = ({ order, onSelect, onTrack, onReceive }: { order: Order, onSelect: (order: Order) => void, onTrack: (e: React.MouseEvent, url?: string) => void, onReceive: (order: Order) => void }) => {
@@ -324,6 +330,24 @@ const OrdersTab = ({ orders, inventory, isLoading, onAddOrder, onUpdateOrder, on
     const { selectedTenant } = useTenant();
     const tenantId = selectedTenant?.id;
     
+    const [searchTerm, setSearchTerm] = useState('');
+    const [statusFilter, setStatusFilter] = useState('all');
+
+    const filteredOrders = useMemo(() => {
+        if (!orders) return [];
+        return orders.filter(order => {
+            const searchTermLower = searchTerm.toLowerCase();
+            const searchTermMatch = searchTerm === '' ||
+                order.supplier.toLowerCase().includes(searchTermLower) ||
+                order.id.toLowerCase().includes(searchTermLower) ||
+                order.items.some(item => item.productName.toLowerCase().includes(searchTermLower));
+
+            const statusMatch = statusFilter === 'all' || order.status === statusFilter;
+
+            return searchTermMatch && statusMatch;
+        }).sort((a,b) => parseISO(b.orderDate).getTime() - parseISO(a.orderDate).getTime());
+    }, [orders, searchTerm, statusFilter]);
+    
     const openTrackingUrl = (e: React.MouseEvent, url?: string) => {
         e.stopPropagation();
         if (!url) return;
@@ -436,12 +460,43 @@ const OrdersTab = ({ orders, inventory, isLoading, onAddOrder, onUpdateOrder, on
                         </div>
                         <Button onClick={() => setIsAddOrderOpen(true)} className="w-full sm:w-auto"><PlusCircle className="mr-2 h-4 w-4"/>New Order</Button>
                     </div>
+                     <div className="mt-4 flex flex-col sm:flex-row items-center gap-4">
+                        <div className="relative w-full flex-1">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                placeholder="Search by supplier, ID, or product..."
+                                className="pl-9"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
+                        </div>
+                        <Select value={statusFilter} onValueChange={setStatusFilter}>
+                            <SelectTrigger className="w-full sm:w-[180px]">
+                                <SelectValue placeholder="Filter by status" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All Statuses</SelectItem>
+                                <SelectItem value="Draft">Draft</SelectItem>
+                                <SelectItem value="Placed">Placed</SelectItem>
+                                <SelectItem value="Shipped">Shipped</SelectItem>
+                                <SelectItem value="Partially Received">Partially Received</SelectItem>
+                                <SelectItem value="Received">Received</SelectItem>
+                                <SelectItem value="Cancelled">Cancelled</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
                 </CardHeader>
                 <CardContent>
                      {isLoading ? <p>Loading orders...</p> : orders.length > 0 ? (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {orders.map(order => <OrderCard key={order.id} order={order} onSelect={setSelectedOrder} onTrack={openTrackingUrl} onReceive={setOrderToReceive} />)}
-                        </div>
+                        filteredOrders.length > 0 ? (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {filteredOrders.map(order => <OrderCard key={order.id} order={order} onSelect={setSelectedOrder} onTrack={openTrackingUrl} onReceive={setOrderToReceive} />)}
+                          </div>
+                        ) : (
+                            <div className="text-center py-10 px-6 border-2 border-dashed rounded-lg">
+                                <p className="text-muted-foreground">No orders found matching your filters.</p>
+                            </div>
+                        )
                     ) : (
                          <div className="text-center py-10 px-6 border-2 border-dashed rounded-lg">
                             <Truck className="mx-auto h-12 w-12 text-muted-foreground" />
@@ -1158,7 +1213,7 @@ export default function InventoryPage() {
                   inventory={inventory || []}
                   stockCorrections={stockCorrections || []}
                   onSpoilageConfirm={handleSpoilageConfirm} 
-                  onLogOverheadUse={handleOpenOverheadLogUse} 
+                  onLogOverheadUse={handleOpenLogUse} 
                 />
             </div>
 
@@ -1489,3 +1544,5 @@ export default function InventoryPage() {
   );
 }
 
+
+    
