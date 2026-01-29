@@ -78,8 +78,8 @@ import { useCollection, useFirebase, useMemoFirebase, addDocumentNonBlocking, de
 import { collection, doc } from 'firebase/firestore';
 import { AddTransactionDialog } from '@/components/ledger/AddTransactionDialog';
 import { useToast } from '@/hooks/use-toast';
-import { transactions as mockTransactions } from '@/lib/financial-data';
 import { PrintableReport } from '@/components/ledger/PrintableReport';
+import { useTenant } from '@/context/TenantContext';
 
 
 const TransactionIcon = ({ type }: { type: Transaction['type'] }) => {
@@ -341,7 +341,8 @@ const TransactionCard = ({ transaction, onRevertClick }: { transaction: Transact
 
 export default function LedgerPage() {
   const { firestore, user, isUserLoading } = useFirebase();
-  const tenantId = 'tenant-abc';
+  const { selectedTenant, isLoading: isTenantLoading } = useTenant();
+  const tenantId = selectedTenant?.id;
   const { toast } = useToast();
   const reportRef = useRef<HTMLDivElement>(null);
 
@@ -356,15 +357,15 @@ export default function LedgerPage() {
   const [transactionToRevert, setTransactionToRevert] = useState<Transaction | null>(null);
 
   const transactionsQuery = useMemoFirebase(() => {
-    if (isUserLoading || !user || !firestore) {
+    if (!user || !firestore || !tenantId) {
       return null;
     }
     return collection(firestore, 'tenants', tenantId, 'transactions');
-  }, [firestore, user, isUserLoading, tenantId]);
+  }, [firestore, user, tenantId]);
 
   const { data: fetchedTransactions, isLoading: areTransactionsLoading } = useCollection<Transaction>(transactionsQuery);
 
-  const transactions = useMemo(() => (fetchedTransactions && fetchedTransactions.length > 0) ? fetchedTransactions : mockTransactions, [fetchedTransactions]);
+  const transactions = useMemo(() => fetchedTransactions || [], [fetchedTransactions]);
 
 
   const filteredTransactions = useMemo(() => {
@@ -409,7 +410,7 @@ export default function LedgerPage() {
   }, [filteredTransactions]);
 
   const addTransaction = (data: Omit<Transaction, 'id'>) => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
     const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
     addDocumentNonBlocking(transactionsRef, data);
     toast({
@@ -448,7 +449,7 @@ export default function LedgerPage() {
     window.print();
   };
   
-  const isLoading = areTransactionsLoading;
+  const isLoading = areTransactionsLoading || isUserLoading || isTenantLoading;
 
   return (
     <>
