@@ -109,6 +109,18 @@
         "smsNotificationMessage": {
             "type": "string",
             "description": "Customizable SMS message for walk-in notifications."
+        },
+        "twilioAccountSid": {
+          "type": "string",
+          "description": "The Account SID for the tenant's Twilio account."
+        },
+        "twilioAuthToken": {
+          "type": "string",
+          "description": "The Auth Token for the tenant's Twilio account."
+        },
+        "twilioPhoneNumber": {
+          "type": "string",
+          "description": "The Twilio phone number used for sending SMS messages."
         }
       },
       "required": [
@@ -902,13 +914,27 @@
         "name": { "type": "string" },
         "subject": { "type": "string" },
         "body": { "type": "string" },
-        "targetAudience": { "type": "string", "enum": ["all", "new", "loyal", "inactive_90"] },
+        "imageUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL for an optional image to include in email campaigns."
+        },
+        "targetAudience": { "type": "string", "enum": ["all", "new", "loyal", "inactive_90", "specific"] },
+        "targetClientIds": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "A list of specific client IDs to target if audience is 'specific'."
+        },
         "discountId": { "type": "string" },
         "status": { "type": "string", "enum": ["draft", "sent"] },
         "sentAt": { "type": "string", "format": "date-time" },
-        "type": { "type": "string", "enum": ["email", "sms"] }
+        "type": { "type": "string", "enum": ["email", "sms"] },
+        "recipientCount": { "type": "number", "description": "The number of clients the campaign was sent to." },
+        "openRate": { "type": "number", "description": "The percentage of recipients who opened the email." },
+        "clickRate": { "type": "number", "description": "The percentage of recipients who clicked a link in the email." },
+        "generatedRevenue": { "type": "number", "description": "The total revenue generated from this campaign." }
       },
-      "required": ["id", "name", "subject", "body", "targetAudience", "status", "type"]
+      "required": ["id", "name", "type", "targetAudience", "status"]
     }
   },
   "auth": {
@@ -1066,4 +1092,7 @@
 
 
     
+
+
+
 
