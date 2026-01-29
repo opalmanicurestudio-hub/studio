@@ -42,7 +42,8 @@ import {
   Link as LinkIcon,
   Car,
   Building,
-  HardHat
+  HardHat,
+  Gift,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -317,6 +318,25 @@ export function AppointmentCard({
   const isMobile = useIsMobile();
   const { toast } = useToast();
   const { inventory } = useInventory();
+  
+  const isBirthday = useMemo(() => {
+    if (!client?.birthday) return false;
+    try {
+        const appointmentDate = typeof appointment.startTime === 'string' 
+            ? parseISO(appointment.startTime) 
+            : appointment.startTime;
+        
+        const birthdayDate = parseISO(client.birthday);
+        
+        const appointmentMonthDay = format(appointmentDate, 'MM-dd');
+        const birthdayMonthDay = format(birthdayDate, 'MM-dd');
+
+        return appointmentMonthDay === birthdayMonthDay;
+    } catch (e) {
+        console.error("Error parsing birthday date:", client.birthday, e);
+        return false;
+    }
+  }, [client?.birthday, appointment.startTime]);
 
   const handleShareLink = () => {
     if (!appointment.checkInToken) {
@@ -477,6 +497,18 @@ export function AppointmentCard({
             <div className='flex-1 min-w-0'>
                 <p className="font-semibold text-xs leading-tight truncate flex items-center gap-1.5">
                   {appointment.isWalkIn && <Users className="h-3 w-3 text-muted-foreground" />}
+                  {isBirthday && (
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger>
+                                <Gift className="h-4 w-4 text-pink-500" />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p>It's {client.name.split(' ')[0]}'s Birthday!</p>
+                            </TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
+                  )}
                   {client.name}
                 </p>
                 <p className="text-[11px] text-muted-foreground truncate">{serviceNameDisplay}</p>
@@ -686,3 +718,4 @@ export function AppointmentCard({
     </div>
   );
 }
+
