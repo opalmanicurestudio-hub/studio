@@ -72,7 +72,7 @@ import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 
@@ -570,7 +570,10 @@ export default function FinancialFoundationPage() {
 
     // Initialize Lifestyle Profiles
     useEffect(() => {
-        if (!lifestyleProfilesLoading && (!lifestyleProfilesData || lifestyleProfilesData.length === 0) && firestore && user && tenantId && !hasInitializedProfiles.current.lifestyle) {
+        if (lifestyleProfilesLoading || !firestore || !user || !tenantId) return;
+
+        if (!lifestyleProfilesData || lifestyleProfilesData.length === 0) {
+            if (hasInitializedProfiles.current.lifestyle) return;
             hasInitializedProfiles.current.lifestyle = true;
             const defaultProfileId = nanoid();
             const defaultProfile = {
@@ -581,12 +584,23 @@ export default function FinancialFoundationPage() {
             };
             const profileDocRef = doc(firestore, `tenants/${tenantId}/lifestyleProfiles/${defaultProfileId}`);
             setDocumentNonBlocking(profileDocRef, defaultProfile, {});
+        } else {
+             // If data exists, ensure at least one profile is active.
+            const hasActiveProfile = lifestyleProfilesData.some(p => p.isActive);
+            if (!hasActiveProfile && lifestyleProfilesData.length > 0) {
+                const firstProfile = lifestyleProfilesData[0];
+                const profileDocRef = doc(firestore, `tenants/${tenantId}/lifestyleProfiles/${firstProfile.id}`);
+                updateDocumentNonBlocking(profileDocRef, { isActive: true });
+            }
         }
     }, [lifestyleProfilesLoading, lifestyleProfilesData, firestore, user, tenantId]);
 
     // Initialize Business Profiles
     useEffect(() => {
-        if (!businessProfilesLoading && (!businessProfilesData || businessProfilesData.length === 0) && firestore && user && tenantId && !hasInitializedProfiles.current.business) {
+        if (businessProfilesLoading || !firestore || !user || !tenantId) return;
+
+        if (!businessProfilesData || businessProfilesData.length === 0) {
+            if (hasInitializedProfiles.current.business) return;
             hasInitializedProfiles.current.business = true;
             const defaultProfileId = nanoid();
             const defaultProfile = {
@@ -597,12 +611,21 @@ export default function FinancialFoundationPage() {
             };
             const profileDocRef = doc(firestore, `tenants/${tenantId}/businessProfiles/${defaultProfileId}`);
             setDocumentNonBlocking(profileDocRef, defaultProfile, {});
+        } else {
+             const hasActiveProfile = businessProfilesData.some(p => p.isActive);
+            if (!hasActiveProfile && businessProfilesData.length > 0) {
+                const firstProfile = businessProfilesData[0];
+                const profileDocRef = doc(firestore, `tenants/${tenantId}/businessProfiles/${firstProfile.id}`);
+                updateDocumentNonBlocking(profileDocRef, { isActive: true });
+            }
         }
     }, [businessProfilesLoading, businessProfilesData, firestore, user, tenantId]);
 
     // Initialize Schedule Profiles
     useEffect(() => {
-        if (!scheduleProfilesLoading && (!scheduleProfilesData || scheduleProfilesData.length === 0) && firestore && user && tenantId && !hasInitializedProfiles.current.schedule) {
+        if (scheduleProfilesLoading || !firestore || !user || !tenantId) return;
+        if (!scheduleProfilesData || scheduleProfilesData.length === 0) {
+            if (hasInitializedProfiles.current.schedule) return;
             hasInitializedProfiles.current.schedule = true;
             const defaultProfileId = nanoid();
             const defaultProfile = {
@@ -625,6 +648,13 @@ export default function FinancialFoundationPage() {
             };
             const profileDocRef = doc(firestore, `tenants/${tenantId}/scheduleProfiles/${defaultProfileId}`);
             setDocumentNonBlocking(profileDocRef, defaultProfile, {});
+        } else {
+            const hasActiveProfile = scheduleProfilesData.some(p => p.isActive);
+            if (!hasActiveProfile && scheduleProfilesData.length > 0) {
+                const firstProfile = scheduleProfilesData[0];
+                const profileDocRef = doc(firestore, `tenants/${tenantId}/scheduleProfiles/${firstProfile.id}`);
+                updateDocumentNonBlocking(profileDocRef, { isActive: true });
+            }
         }
     }, [scheduleProfilesLoading, scheduleProfilesData, firestore, user, tenantId]);
 
