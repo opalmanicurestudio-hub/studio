@@ -73,6 +73,8 @@ export type CheckoutData = {
         type: 'membership' | 'package';
         id: string;
     } | null;
+    appliedDiscountId?: string;
+    discountAmount?: number;
 };
 
 interface CompleteAppointmentDialogProps {
@@ -323,7 +325,17 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         toast({ title: 'Discount Applied!', description: `You saved $${discountValue.toFixed(2)}.` });
     }
   }
-  
+
+  const involvedStaff = useMemo(() => {
+      const staffIds = new Set(Object.values(serviceStaffOverrides));
+      return staff.filter(s => staffIds.has(s.id));
+  }, [serviceStaffOverrides, staff]);
+
+  const remainingTip = useMemo(() => {
+    const allocated = Object.values(tipAllocations).reduce((sum, val) => sum + val, 0);
+    return tipAmount - allocated;
+  }, [tipAmount, tipAllocations]);
+
   const handleStaffOverride = (serviceId: string, staffId: string) => {
     setServiceStaffOverrides(prev => ({ ...prev, [serviceId]: staffId }));
   };
@@ -349,14 +361,6 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
       }
 
       setTipAllocations(newAllocations);
-  };
-
-  const handleKeepTheChange = () => {
-    if (changeDue > 0) {
-        setTipAmount(prevTip => prevTip + changeDue);
-        setAmountTendered(grandTotal + changeDue); 
-        toast({ title: "Tip Added!", description: `$${changeDue.toFixed(2)} has been added as a tip.` });
-    }
   };
 
   const handleQuantityChange = (productId: string, newQuantity: number) => {
@@ -558,6 +562,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
       absorbedCost,
       tipAmount,
       redeemedOffer,
+      appliedDiscountCode: discount > 0 ? promoCode : undefined,
+      discountAmount: totalDiscount
     };
     
     setCheckoutData(dataForCheckout);
@@ -616,14 +622,6 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
 
   const handleDenominationClick = (amount: number) => {
     setAmountTendered(prev => prev + amount);
-  };
-  
-  const handleKeepTheChange = () => {
-    if (changeDue > 0) {
-        setTipAmount(prevTip => prevTip + changeDue);
-        setAmountTendered(grandTotal + changeDue); 
-        toast({ title: "Tip Added!", description: `$${changeDue.toFixed(2)} has been added as a tip.` });
-    }
   };
   
   const actualServiceDuration = useMemo(() => {
@@ -750,7 +748,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                 <Separator />
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <h4 className="font-medium">Product Formula</h4>
-                    {client.customFormulas && client.customFormulas.length > 0 && (
+                    {(client.customFormulas && client.customFormulas.length > 0) && (
                       <div className="w-full sm:w-auto sm:min-w-[200px]">
                           <Select onValueChange={handleApplyClientFormula} defaultValue="default">
                               <SelectTrigger className="h-8 text-xs">
@@ -1022,57 +1020,13 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
       </div>
   );
 
-  if (isMobile) {
-    return (
-        <>
-            <Sheet open={open} onOpenChange={onOpenChange}>
-                <SheetContent side="bottom" className="w-full h-full p-0 flex flex-col sm:max-w-full">
-                     {view === 'checkout' ? (
-                        <>
-                            <SheetHeader className="p-6 pb-4 border-b">
-                                <SheetTitle>Complete Appointment & Checkout</SheetTitle>
-                            </SheetHeader>
-                            <div className="flex-1 min-h-0 overflow-y-auto">
-                                {FormContent}
-                            </div>
-                            <SheetFooter className="p-4 border-t bg-background flex-col sm:flex-col sm:space-x-0 gap-2">
-                                {onSendToFrontDesk && <Button variant="secondary" onClick={handleSendToFrontDesk}>Send to Front Desk</Button>}
-                                <Button onClick={handleFinalizeAndShowRebook} disabled={warnings.length > 0} size="lg">
-                                    Finalize & Record Sale
-                                </Button>
-                            </SheetFooter>
-                        </>
-                    ) : (
-                         <div className="flex flex-col items-center justify-center text-center p-8 space-y-4 flex-1">
-                            <CheckCircle className="w-16 h-16 mx-auto text-green-500" />
-                            <h2 className="text-2xl font-bold">Checkout Complete!</h2>
-                            <p className="text-muted-foreground">Book their next appointment?</p>
-                            <div className="grid grid-cols-2 gap-2 pt-4 w-full max-w-sm">
-                                <Button variant="outline" onClick={() => handleRebookClick(2)} disabled={isSubmitting}>2 Weeks</Button>
-                                <Button variant="outline" onClick={() => handleRebookClick(4)} disabled={isSubmitting}>4 Weeks</Button>
-                                <Button variant="outline" onClick={() => handleRebookClick(6)} disabled={isSubmitting}>6 Weeks</Button>
-                                <Button variant="outline" onClick={() => handleRebookClick(8)} disabled={isSubmitting}>8 Weeks</Button>
-                            </div>
-                            <div className="flex flex-col sm:flex-row justify-center gap-2 pt-2 w-full max-w-sm">
-                                <Button onClick={() => handleRebookClick()} className="w-full" disabled={isSubmitting}>Custom Date</Button>
-                                <Button variant="ghost" onClick={handleConfirmAndClose} className="w-full" disabled={isSubmitting}>No, Thanks</Button>
-                            </div>
-                             {isSubmitting && <p className="text-sm text-muted-foreground animate-pulse">Processing...</p>}
-                        </div>
-                    )}
-                </SheetContent>
-            </Sheet>
-            <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={setSelectedAddOns} allAddOns={services.filter(s => s.type === 'addon')} initialSelected={selectedAddOns}/>
-            <BrowseProductsDialog open={isProductBrowserOpen} onOpenChange={setIsProductBrowserOpen} onSelect={handleAddProduct} allProducts={inventory.filter(i => i.type === 'professional')} initialSelected={[]}/>
-            <BrowseProductsDialog open={isRetailBrowserOpen} onOpenChange={setIsRetailBrowserOpen} onSelect={handleAddRetail} allProducts={inventory.filter(i => i.type === 'retail')} initialSelected={retailItems}/>
-        </>
-    );
-  }
+  const DialogComponent = isMobile ? Sheet : Dialog;
+  const ContentComponent = isMobile ? SheetContent : DialogContent;
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col p-0">
+      <DialogComponent open={open} onOpenChange={onOpenChange}>
+        <ContentComponent className={cn(isMobile ? "h-full flex flex-col p-0" : "sm:max-w-4xl max-h-[90vh] flex flex-col p-0")}>
           {view === 'checkout' ? (
             <>
               <DialogHeader className="p-6 pb-4 border-b flex-shrink-0">
@@ -1096,7 +1050,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
               </DialogFooter>
             </>
           ) : (
-            <div className="flex flex-col items-center justify-center text-center p-8 space-y-4">
+            <div className="flex flex-col items-center justify-center text-center p-8 space-y-4 flex-1">
                 <CheckCircle className="w-16 h-16 mx-auto text-green-500" />
                 <h2 className="text-2xl font-bold">Checkout Complete!</h2>
                 <p className="text-muted-foreground">Book their next appointment?</p>
@@ -1113,8 +1067,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                 {isSubmitting && <p className="text-sm text-muted-foreground animate-pulse">Processing...</p>}
             </div>
           )}
-        </DialogContent>
-      </Dialog>
+        </ContentComponent>
+      </DialogComponent>
       <SelectAddOnsDialog
         open={isAddOnSelectorOpen}
         onOpenChange={setIsAddOnSelectorOpen}
