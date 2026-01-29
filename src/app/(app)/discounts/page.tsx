@@ -5,7 +5,7 @@ import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, Search, DollarSign, Percent, Repeat, BarChart } from 'lucide-react';
+import { PlusCircle, Search, DollarSign, Percent, Repeat, BarChart, Star, TicketIcon } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useInventory } from '@/context/InventoryContext';
 import { AddDiscountDialog } from '@/components/discounts/AddDiscountDialog';
@@ -89,6 +89,7 @@ export default function DiscountsPage() {
             discountsApplied: 0,
             promoEffectiveness: 0,
             mostPopularCode: 'N/A',
+            totalRedemptions: 0,
           };
         }
 
@@ -97,6 +98,7 @@ export default function DiscountsPage() {
         );
     
         const discountedTransactions = incomeTransactions.filter(t => t.discountAmount && t.discountAmount > 0);
+        const totalRedemptions = discountedTransactions.length;
 
         const netSales = discountedTransactions.reduce((acc, t) => acc + t.amount, 0);
         const discountsApplied = discountedTransactions.reduce((acc, t) => acc + (t.discountAmount || 0), 0);
@@ -144,6 +146,7 @@ export default function DiscountsPage() {
           discountsApplied,
           promoEffectiveness,
           mostPopularCode,
+          totalRedemptions,
         };
       }, [transactions, discounts, appointments]);
     
@@ -171,7 +174,7 @@ export default function DiscountsPage() {
                     </Button>
                 </div>
                 
-                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">Gross Sales</CardTitle>
@@ -179,7 +182,7 @@ export default function DiscountsPage() {
                         </CardHeader>
                         <CardContent>
                         <div className="text-2xl font-bold">${kpiData.grossSales.toFixed(2)}</div>
-                        <p className="text-xs text-muted-foreground">Total revenue before discounts.</p>
+                        <p className="text-xs text-muted-foreground">Revenue from discounted sales, before discount.</p>
                         </CardContent>
                     </Card>
                     <Card>
@@ -189,7 +192,7 @@ export default function DiscountsPage() {
                         </CardHeader>
                         <CardContent>
                         <div className="text-2xl font-bold text-destructive">-${kpiData.discountsApplied.toFixed(2)}</div>
-                        <p className="text-xs text-muted-foreground">Most used: <strong>{kpiData.mostPopularCode}</strong></p>
+                        <p className="text-xs text-muted-foreground">Total value of all discounts given.</p>
                         </CardContent>
                     </Card>
                     <Card>
@@ -199,7 +202,27 @@ export default function DiscountsPage() {
                         </CardHeader>
                         <CardContent>
                         <div className="text-2xl font-bold text-primary">${kpiData.netSales.toFixed(2)}</div>
-                        <p className="text-xs text-muted-foreground">Total revenue after discounts.</p>
+                        <p className="text-xs text-muted-foreground">Actual revenue from discounted sales.</p>
+                        </CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Total Redemptions</CardTitle>
+                        <TicketIcon className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                        <div className="text-2xl font-bold">{kpiData.totalRedemptions}</div>
+                        <p className="text-xs text-muted-foreground">Total times any discount was used.</p>
+                        </CardContent>
+                    </Card>
+                     <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Most Popular Code</CardTitle>
+                        <Star className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                        <div className="text-2xl font-bold">{kpiData.mostPopularCode}</div>
+                        <p className="text-xs text-muted-foreground">The most frequently used code.</p>
                         </CardContent>
                     </Card>
                     <Card>
@@ -251,4 +274,5 @@ export default function DiscountsPage() {
             </main>
         </div>
     )
-}
+
+    
