@@ -324,11 +324,12 @@ export default function NewCampaignPage() {
         setIsSendingTest(true);
         setIsTestSendDialogOpen(false);
     
+        // This is a simulation, as we don't have a mailer service integrated.
         await new Promise(resolve => setTimeout(resolve, 1500));
     
         toast({
-            title: 'Test Sent!',
-            description: `A test campaign has been sent to ${testEmail}.`,
+            title: 'Test "Sent"!',
+            description: `A test campaign would be sent to ${testEmail}. This is a simulation.`,
         });
     
         setIsSendingTest(false);
@@ -555,3 +556,5 @@ export default function NewCampaignPage() {
         </div>
     );
 }
+
+    
