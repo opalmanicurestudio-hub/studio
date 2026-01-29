@@ -914,6 +914,11 @@
         "name": { "type": "string" },
         "subject": { "type": "string" },
         "body": { "type": "string" },
+        "imageUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL for an optional image to include in email campaigns."
+        },
         "targetAudience": { "type": "string", "enum": ["all", "new", "loyal", "inactive_90"] },
         "discountId": { "type": "string" },
         "status": { "type": "string", "enum": ["draft", "sent"] },
@@ -1078,4 +1083,5 @@
 
 
     
+
 

@@ -523,6 +523,7 @@ export type Campaign = {
   name: string;
   subject?: string;
   body: string;
+  imageUrl?: string;
   targetAudience: 'all' | 'new' | 'loyal' | 'inactive_90';
   discountId?: string;
   status: 'draft' | 'sent';
@@ -1201,6 +1202,7 @@ export { nanoid };
     
 
     
+
 
 
 

@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { ArrowLeft, Save, Send, Loader } from 'lucide-react';
+import { ArrowLeft, Save, Send, Loader, Eye, Mail, MessageSquare } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
@@ -23,6 +23,8 @@ import { collection } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { nanoid } from 'nanoid';
 import { type Campaign } from '@/lib/data';
+import { ImageUpload } from '@/components/shared/ImageUpload';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 const campaignSchema = z.object({
   name: z.string().min(3, "Campaign name must be at least 3 characters."),
@@ -31,12 +33,63 @@ const campaignSchema = z.object({
   body: z.string().min(10, "Message body is too short."),
   targetAudience: z.enum(['all', 'new', 'loyal', 'inactive_90']),
   discountId: z.string().optional(),
+  imageUrl: z.string().url().optional(),
 }).refine(data => data.type !== 'email' || (data.subject && data.subject.length > 0), {
     message: "Subject is required for email campaigns.",
     path: ["subject"],
 });
 
 type CampaignFormData = z.infer<typeof campaignSchema>;
+
+const CampaignPreviewDialog = ({
+  previewData,
+  onOpenChange,
+}: {
+  previewData: CampaignFormData | null;
+  onOpenChange: (open: boolean) => void;
+}) => {
+  if (!previewData) return null;
+
+  const sampleClientName = 'Jane Doe';
+  const bodyWithPlaceholders = previewData.body.replace('{{clientName}}', sampleClientName);
+
+  return (
+    <Dialog open={!!previewData} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>Campaign Preview</DialogTitle>
+        </DialogHeader>
+        {previewData.type === 'email' ? (
+          <div className="border rounded-lg overflow-hidden bg-background">
+            <div className="p-4 bg-muted/50 border-b text-sm">
+              <p><strong>To:</strong> {sampleClientName} &lt;jane.doe@example.com&gt;</p>
+              <p><strong>From:</strong> Your Business &lt;hello@yourbusiness.com&gt;</p>
+              <p><strong>Subject:</strong> {previewData.subject}</p>
+            </div>
+            <div className="p-4">
+              {previewData.imageUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={previewData.imageUrl} alt="Campaign visual" className="w-full h-auto rounded-md mb-4" />
+              )}
+              <div className="prose prose-sm dark:prose-invert max-w-full" dangerouslySetInnerHTML={{ __html: bodyWithPlaceholders.replace(/\n/g, '<br />') }} />
+            </div>
+          </div>
+        ) : (
+          <div className="flex justify-center p-4">
+            <div className="w-[320px] h-[580px] bg-muted rounded-3xl border-8 border-foreground p-4 flex flex-col">
+              <div className="flex-1 bg-background rounded-lg p-3 overflow-y-auto flex flex-col justify-end">
+                 <div className="bg-primary text-primary-foreground p-2 rounded-lg ml-auto max-w-[80%]">
+                  <p className="text-sm whitespace-pre-wrap">{bodyWithPlaceholders}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 
 export default function NewCampaignPage() {
     const { firestore } = useFirebase();
@@ -46,6 +99,7 @@ export default function NewCampaignPage() {
     const { discounts } = useInventory();
     const [isSaving, setIsSaving] = useState(false);
     const [isSending, setIsSending] = useState(false);
+    const [previewData, setPreviewData] = useState<CampaignFormData | null>(null);
 
     const { control, handleSubmit, register, watch, formState: { errors } } = useForm<CampaignFormData>({
         resolver: zodResolver(campaignSchema),
@@ -106,6 +160,9 @@ export default function NewCampaignPage() {
                                 {isSaving ? <Loader className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                                 Save Draft
                             </Button>
+                            <Button type="button" variant="secondary" onClick={handleSubmit((data) => setPreviewData(data))}>
+                                <Eye className="mr-2 h-4 w-4" /> Preview
+                            </Button>
                             <Button type="button" onClick={handleSubmit((data) => processSubmit(data, 'sent'))} disabled={isSaving || isSending} className="flex-1 sm:flex-auto">
                                 {isSending ? <Loader className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
                                 Send
@@ -138,19 +195,31 @@ export default function NewCampaignPage() {
                                     <div className="space-y-2">
                                         <Label>Campaign Type</Label>
                                         <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-4">
-                                            <div><RadioGroupItem value="email" id="email" className="peer sr-only" /><Label htmlFor="email" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Email</Label></div>
-                                            <div><RadioGroupItem value="sms" id="sms" className="peer sr-only" /><Label htmlFor="sms" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">SMS</Label></div>
+                                            <div><RadioGroupItem value="email" id="email" className="peer sr-only" /><Label htmlFor="email" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary"><Mail className="w-6 h-6 mb-2"/>Email</Label></div>
+                                            <div><RadioGroupItem value="sms" id="sms" className="peer sr-only" /><Label htmlFor="sms" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary"><MessageSquare className="w-6 h-6 mb-2"/>SMS</Label></div>
                                         </RadioGroup>
                                     </div>
                                 )}
                             />
 
                             {campaignType === 'email' && (
-                                <div className="space-y-2">
-                                    <Label htmlFor="subject">Subject Line</Label>
-                                    <Input id="subject" placeholder="e.g., A special treat, just for you!" {...register('subject')} />
-                                    {errors.subject && <p className="text-sm text-destructive">{errors.subject.message}</p>}
-                                </div>
+                                <>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="subject">Subject Line</Label>
+                                        <Input id="subject" placeholder="e.g., A special treat, just for you!" {...register('subject')} />
+                                        {errors.subject && <p className="text-sm text-destructive">{errors.subject.message}</p>}
+                                    </div>
+                                    <Controller
+                                        name="imageUrl"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <div className="space-y-2">
+                                                <Label>Header Image (Optional)</Label>
+                                                <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} />
+                                            </div>
+                                        )}
+                                    />
+                                </>
                             )}
 
                             <div className="space-y-2">
@@ -203,6 +272,10 @@ export default function NewCampaignPage() {
                     </Card>
                 </form>
             </main>
+             <CampaignPreviewDialog 
+                previewData={previewData}
+                onOpenChange={(open) => !open && setPreviewData(null)}
+            />
         </div>
     );
 }
