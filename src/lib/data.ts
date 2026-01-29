@@ -44,7 +44,7 @@ export type Staff = {
   email: string;
   phone?: string;
   role: 'admin' | 'staff';
-  skillLevel?: 'junior' | 'senior' | 'master';
+  skillLevel?: 'apprentice' | 'junior' | 'senior' | 'master';
   avatarUrl: string;
   payStructure: 'commission' | 'hourly' | 'salary';
   commissionRate: number; // as a percentage, e.g., 40 for 40%
@@ -186,7 +186,7 @@ export type Service = {
   padBefore?: number;
   padAfter?: number;
   pricingTiers?: {
-      level: 'junior' | 'senior' | 'master';
+      level: 'apprentice' | 'junior' | 'senior' | 'master';
       price: number;
       duration: number;
   }[];
@@ -642,6 +642,7 @@ export const services: Service[] = [
     padBefore: 10,
     padAfter: 5,
     pricingTiers: [
+        { level: 'apprentice', price: 25.00, duration: 60 },
         { level: 'junior', price: 35.00, duration: 50 },
         { level: 'senior', price: 45.00, duration: 45 },
         { level: 'master', price: 55.00, duration: 40 },
@@ -674,6 +675,7 @@ export const services: Service[] = [
     duration: 60,
     padAfter: 15,
     pricingTiers: [
+        { level: 'apprentice', price: 50, duration: 90 },
         { level: 'junior', price: 65.00, duration: 75 },
         { level: 'senior', price: 85.00, duration: 60 },
         { level: 'master', price: 105.00, duration: 60 },
@@ -699,6 +701,7 @@ export const services: Service[] = [
     duration: 120,
     padAfter: 30,
     pricingTiers: [
+        { level: 'apprentice', price: 150, duration: 180 },
         { level: 'junior', price: 200.00, duration: 150 },
         { level: 'senior', price: 250.00, duration: 120 },
         { level: 'master', price: 300.00, duration: 120 },
@@ -723,6 +726,7 @@ export const services: Service[] = [
     category: 'Skincare', 
     duration: 75,
     pricingTiers: [
+        { level: 'apprentice', price: 80, duration: 90 },
         { level: 'junior', price: 100.00, duration: 90 },
         { level: 'senior', price: 120.00, duration: 75 },
         { level: 'master', price: 140.00, duration: 70 },
@@ -745,6 +749,7 @@ export const services: Service[] = [
     duration: 180,
     padAfter: 30,
     pricingTiers: [
+        { level: 'apprentice', price: 250, duration: 240 },
         { level: 'junior', price: 300.00, duration: 210 },
         { level: 'senior', price: 350.00, duration: 180 },
         { level: 'master', price: 425.00, duration: 170 },
@@ -767,6 +772,7 @@ export const services: Service[] = [
     duration: 45,
     padAfter: 10,
     pricingTiers: [
+        { level: 'apprentice', price: 30, duration: 60 },
         { level: 'junior', price: 40.00, duration: 50 },
         { level: 'senior', price: 50.00, duration: 45 },
         { level: 'master', price: 65.00, duration: 40 },
@@ -790,6 +796,7 @@ export const services: Service[] = [
     padBefore: 10,
     padAfter: 10,
     pricingTiers: [
+        { level: 'apprentice', price: 65, duration: 120 },
         { level: 'junior', price: 80.00, duration: 100 },
         { level: 'senior', price: 95.00, duration: 90 },
         { level: 'master', price: 110.00, duration: 80 },
@@ -813,6 +820,7 @@ export const services: Service[] = [
     category: 'Skincare', 
     duration: 15,
     pricingTiers: [
+        { level: 'apprentice', price: 15, duration: 25 },
         { level: 'junior', price: 20.00, duration: 20 },
         { level: 'senior', price: 25.00, duration: 15 },
         { level: 'master', price: 30.00, duration: 15 },
@@ -834,6 +842,7 @@ export const services: Service[] = [
     duration: 90,
     padAfter: 20,
     pricingTiers: [
+        { level: 'apprentice', price: 80, duration: 120 },
         { level: 'junior', price: 100.00, duration: 100 },
         { level: 'senior', price: 120.00, duration: 90 },
         { level: 'master', price: 140.00, duration: 80 },
@@ -855,6 +864,7 @@ export const services: Service[] = [
     category: 'Hair', 
     duration: 45,
     pricingTiers: [
+        { level: 'apprentice', price: 45, duration: 60 },
         { level: 'junior', price: 60.00, duration: 50 },
         { level: 'senior', price: 75.00, duration: 45 },
         { level: 'master', price: 90.00, duration: 40 },
@@ -876,6 +886,7 @@ export const services: Service[] = [
     category: 'Hair', 
     duration: 45,
     pricingTiers: [
+        { level: 'apprentice', price: 40, duration: 60 },
         { level: 'junior', price: 50.00, duration: 55 },
         { level: 'senior', price: 60.00, duration: 45 },
         { level: 'master', price: 75.00, duration: 40 },
@@ -897,6 +908,7 @@ export const services: Service[] = [
     category: 'Hair', 
     duration: 60,
     pricingTiers: [
+        { level: 'apprentice', price: 60, duration: 90 },
         { level: 'junior', price: 75.00, duration: 75 },
         { level: 'senior', price: 90.00, duration: 60 },
         { level: 'master', price: 110.00, duration: 50 },
