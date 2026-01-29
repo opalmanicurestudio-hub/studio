@@ -919,7 +919,12 @@
             "format": "uri",
             "description": "URL for an optional image to include in email campaigns."
         },
-        "targetAudience": { "type": "string", "enum": ["all", "new", "loyal", "inactive_90"] },
+        "targetAudience": { "type": "string", "enum": ["all", "new", "loyal", "inactive_90", "specific"] },
+        "targetClientIds": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "A list of specific client IDs to target if audience is 'specific'."
+        },
         "discountId": { "type": "string" },
         "status": { "type": "string", "enum": ["draft", "sent"] },
         "sentAt": { "type": "string", "format": "date-time" },
@@ -1083,5 +1088,6 @@
 
 
     
+
 
 

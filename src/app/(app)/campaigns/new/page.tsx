@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -13,26 +13,30 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { ArrowLeft, Save, Send, Loader, Eye, Mail, MessageSquare, Wand2, HandHeart, Sparkles, PartyPopper } from 'lucide-react';
+import { ArrowLeft, Save, Send, Loader, Eye, Mail, MessageSquare, Wand2, HandHeart, Sparkles, PartyPopper, Search, User as UserIcon } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { useInventory } from '@/context/InventoryContext';
-import { useFirebase, addDocumentNonBlocking } from '@/firebase';
+import { useFirebase, addDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
 import { collection } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { nanoid } from 'nanoid';
-import { type Campaign } from '@/lib/data';
+import { type Campaign, type Client } from '@/lib/data';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+
 
 const campaignSchema = z.object({
   name: z.string().min(3, "Campaign name must be at least 3 characters."),
   type: z.enum(['email', 'sms']),
   subject: z.string().optional(),
   body: z.string().min(10, "Message body is too short."),
-  targetAudience: z.enum(['all', 'new', 'loyal', 'inactive_90']),
+  targetAudience: z.enum(['all', 'new', 'loyal', 'inactive_90', 'specific']),
+  targetClientIds: z.array(z.string()).optional(),
   discountId: z.string().optional(),
   imageUrl: z.string().url().optional(),
 }).refine(data => data.type !== 'email' || (data.subject && data.subject.length > 0), {
@@ -131,26 +135,100 @@ const CampaignPreviewDialog = ({
   );
 };
 
+const ClientSelectorDialog = ({
+    open,
+    onOpenChange,
+    allClients,
+    initialSelectedIds,
+    onConfirm
+}: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    allClients: Client[];
+    initialSelectedIds: string[];
+    onConfirm: (selectedIds: string[]) => void;
+}) => {
+    const [selectedIds, setSelectedIds] = useState(new Set(initialSelectedIds));
+    const [searchTerm, setSearchTerm] = useState('');
+
+    useEffect(() => {
+        if (open) {
+            setSelectedIds(new Set(initialSelectedIds));
+        }
+    }, [open, initialSelectedIds]);
+    
+    const filteredClients = allClients.filter(c => c.name.toLowerCase().includes(searchTerm.toLowerCase()));
+
+    const handleToggle = (clientId: string) => {
+        const newSet = new Set(selectedIds);
+        if (newSet.has(clientId)) {
+            newSet.delete(clientId);
+        } else {
+            newSet.add(clientId);
+        }
+        setSelectedIds(newSet);
+    }
+    
+    const handleConfirm = () => {
+        onConfirm(Array.from(selectedIds));
+        onOpenChange(false);
+    }
+    
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="max-w-lg">
+                <DialogHeader>
+                    <DialogTitle>Select Clients</DialogTitle>
+                    <DialogDescription>Choose specific clients to receive this campaign.</DialogDescription>
+                </DialogHeader>
+                <div className="py-4 space-y-4">
+                    <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input placeholder="Search clients..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-9" />
+                    </div>
+                    <ScrollArea className="h-72">
+                        <div className="space-y-2 pr-4">
+                            {filteredClients.map(client => (
+                                <div key={client.id} className="flex items-center space-x-3 p-2 rounded-md hover:bg-muted">
+                                    <Checkbox id={`client-${client.id}`} checked={selectedIds.has(client.id)} onCheckedChange={() => handleToggle(client.id)} />
+                                    <Avatar className="h-8 w-8"><AvatarImage src={client.avatarUrl} /><AvatarFallback>{client.name.charAt(0)}</AvatarFallback></Avatar>
+                                    <label htmlFor={`client-${client.id}`} className="text-sm font-medium">{client.name}</label>
+                                </div>
+                            ))}
+                        </div>
+                    </ScrollArea>
+                </div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                    <Button onClick={handleConfirm}>Confirm ({selectedIds.size})</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    )
+}
 
 export default function NewCampaignPage() {
     const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
     const router = useRouter();
     const { toast } = useToast();
-    const { discounts } = useInventory();
+    const { discounts, clients } = useInventory();
     const [isSaving, setIsSaving] = useState(false);
     const [isSending, setIsSending] = useState(false);
     const [previewData, setPreviewData] = useState<CampaignFormData | null>(null);
+    const [isClientSelectorOpen, setIsClientSelectorOpen] = useState(false);
 
     const { control, handleSubmit, register, watch, setValue, formState: { errors } } = useForm<CampaignFormData>({
         resolver: zodResolver(campaignSchema),
         defaultValues: {
             type: 'email',
             targetAudience: 'all',
+            targetClientIds: [],
         }
     });
     
     const campaignType = watch('type');
+    const targetAudience = watch('targetAudience');
     
     const handleTemplateSelect = (templateName: string) => {
         const template = premadeCampaigns.find(t => t.name === templateName);
@@ -310,6 +388,7 @@ export default function NewCampaignPage() {
                                                     <SelectItem value="new">New Clients (first visit)</SelectItem>
                                                     <SelectItem value="loyal">Loyal Clients (5+ visits)</SelectItem>
                                                     <SelectItem value="inactive_90">Inactive (90+ days)</SelectItem>
+                                                    <SelectItem value="specific">Specific Clients</SelectItem>
                                                 </SelectContent>
                                             </Select>
                                         </div>
@@ -335,6 +414,15 @@ export default function NewCampaignPage() {
                                     )}
                                 />
                             </div>
+                             {targetAudience === 'specific' && (
+                                <div className="space-y-2">
+                                    <Label>Selected Clients</Label>
+                                    <Button type="button" variant="outline" className="w-full justify-start" onClick={() => setIsClientSelectorOpen(true)}>
+                                        <UserIcon className="mr-2 h-4 w-4" />
+                                        Select Clients ({watch('targetClientIds')?.length || 0} selected)
+                                    </Button>
+                                </div>
+                            )}
                         </CardContent>
                     </Card>
                 </form>
@@ -342,6 +430,15 @@ export default function NewCampaignPage() {
              <CampaignPreviewDialog 
                 previewData={previewData}
                 onOpenChange={(open) => !open && setPreviewData(null)}
+            />
+            <ClientSelectorDialog
+                open={isClientSelectorOpen}
+                onOpenChange={setIsClientSelectorOpen}
+                allClients={clients || []}
+                initialSelectedIds={watch('targetClientIds') || []}
+                onConfirm={(selectedIds) => {
+                    setValue('targetClientIds', selectedIds, { shouldDirty: true });
+                }}
             />
         </div>
     );

@@ -18,21 +18,23 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/use-toast';
 
-const AudienceIcon = ({ audience }: { audience: Campaign['targetAudience']}) => {
+const AudienceIcon = ({ audience, clientCount }: { audience: Campaign['targetAudience'], clientCount?: number }) => {
     switch (audience) {
         case 'all': return <Users className="w-4 h-4 mr-2" />;
         case 'new': return <UserPlus className="w-4 h-4 mr-2" />;
         case 'loyal': return <Star className="w-4 h-4 mr-2" />;
         case 'inactive_90': return <Clock className="w-4 h-4 mr-2" />;
+        case 'specific': return <Users className="w-4 h-4 mr-2" />;
         default: return null;
     }
 }
 
-const audienceText = {
+const audienceText: Record<Campaign['targetAudience'], string> = {
     all: 'All Clients',
     new: 'New Clients',
     loyal: 'Loyal Clients',
     inactive_90: 'Inactive (90+ days)',
+    specific: 'Specific Clients',
 };
 
 const CampaignCard = ({ campaign, onSend, onDelete }: { campaign: Campaign, onSend: (id: string) => void, onDelete: (campaign: Campaign) => void }) => (
@@ -61,8 +63,8 @@ const CampaignCard = ({ campaign, onSend, onDelete }: { campaign: Campaign, onSe
                 </DropdownMenu>
             </div>
             <div className="flex items-center text-sm">
-                <AudienceIcon audience={campaign.targetAudience} />
-                <span>{audienceText[campaign.targetAudience]}</span>
+                <AudienceIcon audience={campaign.targetAudience} clientCount={campaign.targetClientIds?.length}/>
+                <span>{audienceText[campaign.targetAudience]} {campaign.targetAudience === 'specific' ? `(${campaign.targetClientIds?.length || 0})` : ''}</span>
             </div>
              <div className="flex items-center justify-between text-sm pt-3 border-t">
                 <Badge variant={campaign.status === 'sent' ? 'default' : 'secondary'} className="capitalize">{campaign.status}</Badge>
@@ -111,8 +113,8 @@ export default function CampaignsPage() {
   const sortedCampaigns = useMemo(() => {
     if (!campaigns) return [];
     return [...campaigns].sort((a,b) => {
-        const aDate = a.sentAt ? new Date(a.sentAt).getTime() : new Date(a.id.substring(0,8)).getTime();
-        const bDate = b.sentAt ? new Date(b.sentAt).getTime() : new Date(b.id.substring(0,8)).getTime();
+        const aDate = a.sentAt ? new Date(a.sentAt).getTime() : (a as any).createdAt ? new Date((a as any).createdAt).getTime() : 0;
+        const bDate = b.sentAt ? new Date(b.sentAt).getTime() : (b as any).createdAt ? new Date((b as any).createdAt).getTime() : 0;
         return bDate - aDate;
     })
   }, [campaigns]);
@@ -169,8 +171,8 @@ export default function CampaignsPage() {
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex items-center">
-                                            <AudienceIcon audience={campaign.targetAudience} />
-                                            <span>{audienceText[campaign.targetAudience]}</span>
+                                            <AudienceIcon audience={campaign.targetAudience} clientCount={campaign.targetClientIds?.length} />
+                                            <span>{audienceText[campaign.targetAudience]} {campaign.targetAudience === 'specific' ? `(${campaign.targetClientIds?.length || 0})` : ''}</span>
                                         </div>
                                     </TableCell>
                                     <TableCell>
