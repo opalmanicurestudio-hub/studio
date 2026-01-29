@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -322,6 +322,7 @@ const InventoryReportPage = () => {
                                         <TableHead className="text-right">Sell-Through</TableHead>
                                         <TableHead className="text-right">Revenue</TableHead>
                                         <TableHead className="text-right">Profit/Unit</TableHead>
+                                        <TableHead className="text-right">Margin</TableHead>
                                         <TableHead className="text-right">Total Profit</TableHead>
                                     </TableRow>
                                 </TableHeader>
@@ -333,6 +334,7 @@ const InventoryReportPage = () => {
                                             <TableCell className="text-right font-mono">{item.sellThroughRate.toFixed(1)}%</TableCell>
                                             <TableCell className="text-right font-mono">${item.totalRevenue.toFixed(2)}</TableCell>
                                             <TableCell className="text-right font-mono text-green-500">${item.profitPerUnit.toFixed(2)}</TableCell>
+                                            <TableCell className="text-right font-mono font-semibold">{item.profitMargin.toFixed(1)}%</TableCell>
                                             <TableCell className="text-right font-mono font-bold">${item.totalProfit.toFixed(2)}</TableCell>
                                         </TableRow>
                                     ))}
