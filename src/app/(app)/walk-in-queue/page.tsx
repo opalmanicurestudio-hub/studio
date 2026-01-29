@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -35,6 +36,7 @@ import { Tooltip, TooltipProvider, TooltipContent, TooltipTrigger } from '@/comp
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { useTenant } from '@/context/TenantContext';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 const Timer = ({ startTime }: { startTime: string }) => {
     const [elapsed, setElapsed] = useState('');
@@ -1417,98 +1419,114 @@ export default function WalkInQueuePage() {
                     <CardTitle>Waiting Queue ({waitingQueue.length})</CardTitle>
                     <CardDescription>Customers waiting to be notified.</CardDescription>
                 </CardHeader>
-                 <CardContent className="space-y-4 flex-1 overflow-y-auto p-6">
-                    <Button onClick={handleNotifyNext} disabled={!canNotifyNext} className="w-full">
-                        <Bell className="mr-2 h-4 w-4" />
-                        Notify Next Client
-                    </Button>
-                    {waitingQueue.length > 0 ? (
-                        waitingQueue.map((walkIn, index) => (
-                            <WaitingCustomerCard key={walkIn.id} walkIn={walkIn} services={services || []} resources={resources || []} onPrintTicket={setTicketToPrint} onOpenAssignDialog={setWalkInToAssign} queuePosition={index + 1} estimatedWaitTime={index === 0 ? estimatedWaitTime : null} />
-                        ))
-                    ) : (
-                        <div className="text-center py-16 px-6 text-muted-foreground">
-                            <CheckCircle className="w-12 h-12 mx-auto mb-4" />
-                            <h3 className="font-semibold text-lg text-foreground">All Caught Up!</h3>
-                            <p>There are no customers in the walk-in queue.</p>
+                <CardContent className="flex-1 p-0 flex flex-col">
+                    <ScrollArea className="h-full">
+                        <div className="p-6 space-y-4">
+                            <Button onClick={handleNotifyNext} disabled={!canNotifyNext} className="w-full">
+                                <Bell className="mr-2 h-4 w-4" />
+                                Notify Next Client
+                            </Button>
+                            {waitingQueue.length > 0 ? (
+                                waitingQueue.map((walkIn, index) => (
+                                    <WaitingCustomerCard key={walkIn.id} walkIn={walkIn} services={services || []} resources={resources || []} onPrintTicket={setTicketToPrint} onOpenAssignDialog={setWalkInToAssign} queuePosition={index + 1} estimatedWaitTime={index === 0 ? estimatedWaitTime : null} />
+                                ))
+                            ) : (
+                                <div className="text-center py-16 px-6 text-muted-foreground">
+                                    <CheckCircle className="w-12 h-12 mx-auto mb-4" />
+                                    <h3 className="font-semibold text-lg text-foreground">All Caught Up!</h3>
+                                    <p>There are no customers in the walk-in queue.</p>
+                                </div>
+                            )}
                         </div>
-                    )}
+                    </ScrollArea>
                 </CardContent>
             </Card>
-             <Card className="flex flex-col h-full">
+            <Card className="flex flex-col h-full">
                 <CardHeader>
                     <CardTitle>Notified ({notifiedQueue.length})</CardTitle>
                     <CardDescription>Clients who have been notified.</CardDescription>
                 </CardHeader>
-                 <CardContent className="space-y-4 flex-1 overflow-y-auto p-6">
-                    {notifiedQueue.length > 0 ? (
-                        notifiedQueue.map(walkIn => (
-                            <NotifiedCustomerCard 
-                                key={walkIn.id}
-                                walkIn={walkIn}
-                                onStartService={handleStartServiceFromNotified}
-                                onSkip={() => handleWalkInStatusChange(walkIn.id, '', 'skipped')}
-                                skipTimeMinutes={5}
-                            />
-                        ))
-                    ) : (
-                        <div className="text-center py-16 px-6 text-muted-foreground">
-                            <p>No clients currently notified.</p>
+                <CardContent className="flex-1 p-0 flex flex-col">
+                    <ScrollArea className="h-full">
+                        <div className="p-6 space-y-4">
+                            {notifiedQueue.length > 0 ? (
+                                notifiedQueue.map(walkIn => (
+                                    <NotifiedCustomerCard 
+                                        key={walkIn.id}
+                                        walkIn={walkIn}
+                                        onStartService={handleStartServiceFromNotified}
+                                        onSkip={() => handleWalkInStatusChange(walkIn.id, '', 'skipped')}
+                                        skipTimeMinutes={5}
+                                    />
+                                ))
+                            ) : (
+                                <div className="text-center py-16 px-6 text-muted-foreground">
+                                    <p>No clients currently notified.</p>
+                                </div>
+                            )}
                         </div>
-                    )}
+                    </ScrollArea>
                 </CardContent>
             </Card>
-             <Card className="flex flex-col h-full">
+            <Card className="flex flex-col h-full">
                 <CardHeader>
                     <CardTitle>In-Progress ({servicingQueue.length})</CardTitle>
                     <CardDescription>Customers currently being serviced.</CardDescription>
                 </CardHeader>
-                 <CardContent className="space-y-4 flex-1 overflow-y-auto p-6">
-                    {servicingQueue.length > 0 ? (
-                        servicingQueue.map(walkIn => (
-                            <ServicingCustomerCard 
-                                key={walkIn.id} 
-                                walkIn={walkIn} 
-                                services={services || []} 
-                                resources={resources || []}
-                                staff={staff || []}
-                                onStatusChange={handleWalkInStatusChange}
-                                onPrintTicket={setTicketToPrint}
-                                onFinishService={handleFinishService}
-                            />
-                        ))
-                    ) : (
-                        <div className="text-center py-16 px-6 text-muted-foreground">
-                            <Coffee className="w-12 h-12 mx-auto mb-4" />
-                            <h3 className="font-semibold text-lg text-foreground">No Active Clients</h3>
-                            <p>All staff members are currently available.</p>
+                <CardContent className="flex-1 p-0 flex flex-col">
+                    <ScrollArea className="h-full">
+                        <div className="p-6 space-y-4">
+                            {servicingQueue.length > 0 ? (
+                                servicingQueue.map(walkIn => (
+                                    <ServicingCustomerCard 
+                                        key={walkIn.id} 
+                                        walkIn={walkIn} 
+                                        services={services || []} 
+                                        resources={resources || []}
+                                        staff={staff || []}
+                                        onStatusChange={handleWalkInStatusChange}
+                                        onPrintTicket={setTicketToPrint}
+                                        onFinishService={handleFinishService}
+                                    />
+                                ))
+                            ) : (
+                                <div className="text-center py-16 px-6 text-muted-foreground">
+                                    <Coffee className="w-12 h-12 mx-auto mb-4" />
+                                    <h3 className="font-semibold text-lg text-foreground">No Active Clients</h3>
+                                    <p>All staff members are currently available.</p>
+                                </div>
+                            )}
                         </div>
-                    )}
+                    </ScrollArea>
                 </CardContent>
             </Card>
-             <Card className="flex flex-col h-full">
+            <Card className="flex flex-col h-full">
                 <CardHeader>
                     <CardTitle>Ready for Checkout ({readyForCheckoutQueue.length})</CardTitle>
                     <CardDescription>Clients who have finished their service.</CardDescription>
                 </CardHeader>
-                 <CardContent className="space-y-4 flex-1 overflow-y-auto p-6">
-                    {readyForCheckoutQueue.length > 0 ? (
-                        readyForCheckoutQueue.map(walkIn => (
-                            <ReadyForCheckoutCard 
-                                key={walkIn.id} 
-                                walkIn={walkIn} 
-                                services={services || []} 
-                                resources={resources || []}
-                                staff={staff || []}
-                                onCheckoutClick={handleCompleteClick}
-                            />
-                        ))
-                    ) : (
-                        <div className="text-center py-16 px-6 text-muted-foreground">
-                            <CheckCircle className="w-12 h-12 mx-auto mb-4" />
-                            <p>No clients are waiting for checkout.</p>
+                 <CardContent className="flex-1 p-0 flex flex-col">
+                    <ScrollArea className="h-full">
+                        <div className="p-6 space-y-4">
+                            {readyForCheckoutQueue.length > 0 ? (
+                                readyForCheckoutQueue.map(walkIn => (
+                                    <ReadyForCheckoutCard 
+                                        key={walkIn.id} 
+                                        walkIn={walkIn} 
+                                        services={services || []} 
+                                        resources={resources || []}
+                                        staff={staff || []}
+                                        onCheckoutClick={handleCompleteClick}
+                                    />
+                                ))
+                            ) : (
+                                <div className="text-center py-16 px-6 text-muted-foreground">
+                                    <CheckCircle className="w-12 h-12 mx-auto mb-4" />
+                                    <p>No clients are waiting for checkout.</p>
+                                </div>
+                            )}
                         </div>
-                    )}
+                    </ScrollArea>
                 </CardContent>
             </Card>
         </div>
@@ -1603,3 +1621,4 @@ export default function WalkInQueuePage() {
     </>
   );
 }
+
