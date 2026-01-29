@@ -40,7 +40,8 @@ import {
   BookText,
   Hammer,
   HardHat,
-  Percent
+  Percent,
+  Megaphone,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -91,8 +92,12 @@ const moneyNavItems = [
     { href: '/ledger', icon: BookOpen, label: 'Ledger' },
     { href: '/bills', icon: Landmark, label: 'Bills' },
     { href: '/payday', icon: DollarSign, label: 'Payday' },
+];
+
+const marketingNavItems = [
+    { href: '/campaigns', icon: Megaphone, label: 'Campaigns' },
     { href: '/discounts', icon: Percent, label: 'Discounts' },
-]
+];
 
 export function AppSidebar() {
   const pathname = usePathname();
@@ -160,6 +165,26 @@ export function AppSidebar() {
             <SidebarGroupLabel>Money</SidebarGroupLabel>
             <SidebarMenu>
                 {moneyNavItems.map((item) => (
+                    <SidebarMenuItem key={item.href}>
+                    <SidebarMenuButton
+                        asChild
+                        isActive={isNavItemActive(item.href)}
+                        tooltip={item.label}
+                    >
+                        <Link href={item.href}>
+                        <item.icon />
+                        <span>{item.label}</span>
+                        </Link>
+                    </SidebarMenuButton>
+                    </SidebarMenuItem>
+                ))}
+            </SidebarMenu>
+        </SidebarGroup>
+         <SidebarSeparator />
+         <SidebarGroup>
+            <SidebarGroupLabel>Marketing</SidebarGroupLabel>
+            <SidebarMenu>
+                {marketingNavItems.map((item) => (
                     <SidebarMenuItem key={item.href}>
                     <SidebarMenuButton
                         asChild

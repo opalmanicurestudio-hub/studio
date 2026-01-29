@@ -864,9 +864,51 @@
             "type": "array",
             "items": { "type": "string" },
             "description": "A list of service IDs this discount applies to. If empty, it applies to the entire sale."
+        },
+        "limitOnePerCustomer": {
+            "type": "boolean"
+        },
+        "usedByClientIds": {
+            "type": "array",
+            "items": { "type": "string" }
+        },
+        "automation": {
+            "type": "object",
+            "properties": {
+                "trigger": {
+                    "type": "string",
+                    "enum": ["none", "new_client", "loyalty", "re_engagement", "birthday"],
+                    "description": "The event that triggers this automation."
+                },
+                "appointmentThreshold": {
+                    "type": "number",
+                    "description": "Number of appointments to trigger loyalty discount."
+                },
+                "daysSinceLastVisit": {
+                    "type": "number",
+                    "description": "Number of days of inactivity to trigger re-engagement discount."
+                }
+            }
         }
       },
       "required": ["id", "code", "type", "value"]
+    },
+    "Campaign": {
+      "title": "Campaign",
+      "description": "Represents a marketing campaign to be sent to a specific client audience.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "subject": { "type": "string" },
+        "body": { "type": "string" },
+        "targetAudience": { "type": "string", "enum": ["all", "new", "loyal", "inactive_90"] },
+        "discountId": { "type": "string" },
+        "status": { "type": "string", "enum": ["draft", "sent"] },
+        "sentAt": { "type": "string", "format": "date-time" },
+        "type": { "type": "string", "enum": ["email", "sms"] }
+      },
+      "required": ["id", "name", "subject", "body", "targetAudience", "status", "type"]
     }
   },
   "auth": {
@@ -1008,10 +1050,20 @@
         "$ref": "#/entities/Discount"
       },
       "description": "Stores discount codes for a specific tenant."
+    },
+    "/tenants/{tenantId}/campaigns/{campaignId}": {
+      "schema": {
+        "$ref": "#/entities/Campaign"
+      },
+      "description": "Stores marketing campaigns for a tenant."
     }
   }
 }
 
 
 
+
+
+
+    
 
