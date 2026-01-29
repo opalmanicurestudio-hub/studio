@@ -24,6 +24,7 @@ import {
     type Service,
     type Order,
     type Batch,
+    type SpoilageItem,
 } from '@/lib/data';
 import {
   DropdownMenu,
@@ -49,7 +50,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { ManageSpoilageDialog, type SpoilageItem } from '@/components/inventory/ManageSpoilageDialog';
+import { ManageSpoilageDialog } from '@/components/inventory/ManageSpoilageDialog';
 import { InventorySidebar } from '@/components/inventory/InventorySidebar';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -794,7 +795,7 @@ export default function InventoryPage() {
   };
   
   const handleLogUseConfirm = (productId: string, quantity: number, notes: string): { success: boolean, message: string } => {
-    if (!firestore || !tenantId) return { success: false, message: 'Firestore not available' };
+    if (!firestore || !tenantId || !inventory) return { success: false, message: 'Firestore not available' };
     
     const product = inventory.find((p: InventoryItem) => p.id === productId);
     if (!product) return { success: false, message: 'Product not found' };
@@ -840,7 +841,9 @@ export default function InventoryPage() {
         unit = product.unit || 'units';
     }
 
-    if (updateData.totalStock < 0 || (updateData.partialContainerUses && updateData.partialContainerUses < 0) || (updateData.partialContainerSize && updateData.partialContainerSize < 0)) {
+    if ((updateData.totalStock !== undefined && updateData.totalStock < 0) || 
+        (updateData.partialContainerUses !== undefined && updateData.partialContainerUses < 0) || 
+        (updateData.partialContainerSize !== undefined && updateData.partialContainerSize < 0)) {
         return { success: false, message: `Insufficient stock for ${product.name}.`};
     }
     
@@ -856,6 +859,77 @@ export default function InventoryPage() {
     addDocumentNonBlocking(stockCorrectionsRef, newCorrection);
     
     return { success: true, message: `${quantity} ${unit} of ${product.name} logged.` };
+  };
+
+  const handleLogOverheadUse = (productId: string) => {
+    handleLogUseConfirm(productId, 1, 'Manual Overhead Use');
+  };
+  
+  const handleSpoilageConfirm = (items: SpoilageItem[]) => {
+    if (!firestore || !tenantId || !inventory) return;
+
+    const batch = writeBatch(firestore);
+    let totalLoss = 0;
+
+    items.forEach(item => {
+        const product = inventory.find(p => p.id === item.productId);
+        if (product) {
+            const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.productId);
+            const updatedBatches = product.batches.map(b => {
+                if (b.id === item.batchId) {
+                    return { ...b, stock: 0 };
+                }
+                return b;
+            });
+
+            const newTotalStock = updatedBatches.reduce((acc, b) => acc + b.stock, 0);
+
+            batch.update(productRef, {
+                batches: updatedBatches,
+                totalStock: newTotalStock,
+            });
+            
+            const stockCorrection: Omit<StockCorrection, 'id'> = {
+                productId: item.productId,
+                date: new Date().toISOString(),
+                change: -item.stock,
+                unit: product.unit || 'units',
+                reason: 'Spoilage - Expired',
+            };
+            const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
+            batch.set(scRef, stockCorrection);
+            
+            const lossAmount = item.stock * item.costPerUnit;
+            totalLoss += lossAmount;
+            
+            const transaction: Omit<Transaction, 'id' | 'date'> = {
+                description: `Spoilage: ${item.stock} x ${item.productName}`,
+                clientOrVendor: 'Internal',
+                type: 'expense',
+                context: 'Business',
+                category: 'Spoilage',
+                amount: lossAmount,
+                paymentMethod: 'Internal',
+                hasReceipt: false,
+            };
+            const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+            batch.set(txnRef, {...transaction, date: new Date().toISOString() });
+        }
+    });
+
+    batch.commit().then(() => {
+        toast({
+            title: "Spoilage Written Off",
+            description: `${items.length} item(s) written off with a total loss of $${totalLoss.toFixed(2)}.`,
+        });
+    }).catch((error) => {
+        console.error("Error writing off spoilage:", error);
+        toast({
+            variant: "destructive",
+            title: "Error",
+            description: "Failed to write off spoilage.",
+        });
+    });
   };
   
   const handleToggleExperiment = (item: InventoryItem) => {
@@ -974,7 +1048,7 @@ export default function InventoryPage() {
     }
   }, [isScannerOpen, handleScan, toast]);
   
-  const hasInventory = inventory.length > 0;
+  const hasInventory = inventory && inventory.length > 0;
   const hasFilteredInventory = filteredInventory.length > 0;
 
   return (
@@ -986,10 +1060,10 @@ export default function InventoryPage() {
         <div className="grid lg:grid-cols-4 gap-8">
             <div className="hidden lg:block lg:col-span-1">
                 <InventorySidebar
-                  inventory={inventory}
-                  stockCorrections={stockCorrections}
-                  onSpoilageConfirm={() => {}} 
-                  onLogOverheadUse={() => {}} 
+                  inventory={inventory || []}
+                  stockCorrections={stockCorrections || []}
+                  onSpoilageConfirm={handleSpoilageConfirm} 
+                  onLogOverheadUse={handleLogOverheadUse} 
                 />
             </div>
 
@@ -1010,10 +1084,10 @@ export default function InventoryPage() {
                             <ScrollArea className="flex-1">
                                 <div className="p-4">
                                      <InventorySidebar
-                                      inventory={inventory}
-                                      stockCorrections={stockCorrections}
-                                      onSpoilageConfirm={() => {}}
-                                      onLogOverheadUse={() => {}}
+                                      inventory={inventory || []}
+                                      stockCorrections={stockCorrections || []}
+                                      onSpoilageConfirm={handleSpoilageConfirm}
+                                      onLogOverheadUse={handleLogOverheadUse}
                                      />
                                 </div>
                             </ScrollArea>
@@ -1168,9 +1242,9 @@ export default function InventoryPage() {
                 </TabsContent>
                 <TabsContent value="locations" className="mt-6">
                         <Locations 
-                            locations={locations}
-                            locationTypes={locationTypes}
-                            inventory={inventory}
+                            locations={locations || []}
+                            locationTypes={locationTypes || []}
+                            inventory={inventory || []}
                             setLocations={() => {}}
                             onAddLocation={handleOpenAddLocation}
                             onEditLocation={handleOpenEditLocation}
@@ -1188,7 +1262,7 @@ export default function InventoryPage() {
         categories={productCategories}
         onNewCategory={onNewCategory}
         onProductAdded={handleProductAdded}
-        locations={locations}
+        locations={locations || []}
         onAddLocationClick={handleOpenAddLocation}
       />
       
@@ -1198,7 +1272,7 @@ export default function InventoryPage() {
         onEquipmentAdded={handleEquipmentAdded}
         equipmentCategories={productCategories.filter(c => c === 'Tools')}
         onNewCategory={onNewCategory}
-        locations={locations}
+        locations={locations || []}
       />
       
       <AddOverheadDialog
@@ -1207,7 +1281,7 @@ export default function InventoryPage() {
         onOverheadAdded={handleOverheadAdded}
         categories={productCategories.filter(c => c === 'Cleaning')}
         onNewCategory={onNewCategory}
-        locations={locations}
+        locations={locations || []}
       />
 
         {editingItem && editingItem.type === 'equipment' && (
@@ -1218,7 +1292,7 @@ export default function InventoryPage() {
                 onEquipmentUpdated={handleUpdateItem}
                 equipmentCategories={productCategories}
                 onNewCategory={onNewCategory}
-                locations={locations}
+                locations={locations || []}
             />
         )}
         
@@ -1230,7 +1304,7 @@ export default function InventoryPage() {
                 onProductUpdated={handleUpdateItem}
                 categories={productCategories}
                 onNewCategory={onNewCategory}
-                locations={locations}
+                locations={locations || []}
                 onAddLocationClick={handleOpenAddLocation}
             />
         )}
@@ -1239,7 +1313,7 @@ export default function InventoryPage() {
         open={isLogUseOpen}
         onOpenChange={setIsLogUseOpen}
         product={selectedProduct}
-        allProducts={inventory}
+        allProducts={inventory || []}
         onConfirm={handleLogUseConfirm}
         dialogType={logUseDialogType}
       />
@@ -1265,7 +1339,7 @@ export default function InventoryPage() {
             open={isAddLocationDialogOpen} 
             onOpenChange={setIsAddLocationDialogOpen}
             onSave={handleSaveLocation}
-            locationTypes={locationTypes}
+            locationTypes={locationTypes || []}
             onAddNewLocationType={handleAddNewLocationType}
         />
         {selectedLocation && (
@@ -1274,7 +1348,7 @@ export default function InventoryPage() {
                 onOpenChange={setIsEditLocationDialogOpen}
                 location={selectedLocation}
                 onSave={handleUpdateLocation}
-                locationTypes={locationTypes}
+                locationTypes={locationTypes || []}
                 onAddNewLocationType={handleAddNewLocationType}
             />
         )}
@@ -1319,3 +1393,5 @@ export default function InventoryPage() {
     </ClientOnly>
   );
 }
+
+    

@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -15,24 +16,15 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent } from '@/components/ui/card';
 import { format, isPast, parseISO } from 'date-fns';
-import { type InventoryItem } from '@/lib/data';
+import { type InventoryItem, type SpoilageItem } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
 import Image from 'next/image';
-
-export interface SpoilageItem {
-  productId: string;
-  productName: string;
-  batchId: string;
-  stock: number;
-  costPerUnit: number;
-  expirationDate: string;
-}
 
 interface ManageSpoilageDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   inventory: InventoryItem[];
-  onConfirm: (itemsToWriteOff: SpoilageItem[]) => void;
+  onConfirm: (items: SpoilageItem[]) => void;
 }
 
 export const ManageSpoilageDialog: React.FC<ManageSpoilageDialogProps> = ({

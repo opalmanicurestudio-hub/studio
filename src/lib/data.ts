@@ -473,6 +473,15 @@ export type Resource = {
 export type Bill = BillDefinition;
 export const bills: Bill[] = billDefinitions;
 
+export type SpoilageItem = {
+  productId: string;
+  productName: string;
+  batchId: string;
+  stock: number;
+  costPerUnit: number;
+  expirationDate: string;
+};
+
 
 export { billDefinitions, billInstances, transactions };
 
@@ -1128,3 +1137,5 @@ export const resources: Resource[] = [
 
 
 export { nanoid };
+
+    
