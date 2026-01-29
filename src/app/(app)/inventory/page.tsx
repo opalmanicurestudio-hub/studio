@@ -1270,7 +1270,7 @@ export default function InventoryPage() {
         open={isAddEquipmentDialogOpen}
         onOpenChange={setIsAddEquipmentDialogOpen}
         onEquipmentAdded={handleEquipmentAdded}
-        equipmentCategories={productCategories.filter(c => c === 'Tools')}
+        equipmentCategories={productCategories}
         onNewCategory={onNewCategory}
         locations={locations || []}
       />
