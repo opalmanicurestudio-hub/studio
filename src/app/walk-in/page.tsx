@@ -19,7 +19,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { useFirebase, addDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, getDocs, query, where } from 'firebase/firestore';
-import { type Service, type Staff } from '@/lib/data';
+import { type Service, type Staff, type ConsentForm } from '@/lib/data';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { Progress } from '@/components/ui/progress';
 import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock } from 'lucide-react';
@@ -34,8 +34,9 @@ import { Calendar } from '@/components/ui/calendar';
 import { format, parse, getDay } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
+import { FormFieldRenderer } from '@/components/consents/FormFieldRenderer';
 
-type Step = 'services' | 'details' | 'confirmation';
+type Step = 'services' | 'consents' | 'details' | 'confirmation';
 
 const StaffSelectionCard = ({ staff, isSelected, onSelect }: { staff: Staff | { id: string, name: string, avatarUrl: string }, isSelected: boolean, onSelect: () => void }) => {
     const isAnyStaff = staff.id === 'any';
@@ -147,9 +148,16 @@ export default function WalkInPage() {
       return query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true));
   }, [firestore, tenantId]);
 
+  const consentFormsQuery = useMemoFirebase(() => {
+    if (!firestore) return null;
+    return collection(firestore, `tenants/${tenantId}/consentForms`);
+  }, [firestore, tenantId]);
+
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
   const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection(scheduleProfilesQuery);
+  const { data: consentForms, isLoading: consentFormsLoading } = useCollection<ConsentForm>(consentFormsQuery);
+
   const scheduleProfile = useMemo(() => scheduleProfiles?.[0], [scheduleProfiles]);
 
   const [step, setStep] = useState<Step>('services');
@@ -166,7 +174,7 @@ export default function WalkInPage() {
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
   const [waitForPreferred, setWaitForPreferred] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
+  const [completedForms, setCompletedForms] = useState<Set<string>>(new Set());
 
   const mainServices = useMemo(() => (services || []).filter(s => s.type === 'service'), [services]);
   const addOnServices = useMemo(() => (services || []).filter(s => s.type === 'addon'), [services]);
@@ -207,6 +215,21 @@ export default function WalkInPage() {
     const price = selectedServices.reduce((acc, s) => acc + s.price, 0);
     return { totalDuration: duration, totalPrice: price };
   }, [selectedServices]);
+
+  const requiredForms = useMemo(() => {
+    if (selectedServices.length === 0 || !consentForms) return [];
+    const formIds = new Set(selectedServices.flatMap(s => s.requiredFormIds || []));
+    if (formIds.size === 0) return [];
+    return consentForms.filter(f => formIds.has(f.id));
+  }, [selectedServices, consentForms]);
+
+  const handleServicesNext = () => {
+    if (requiredForms.length > 0) {
+      setStep('consents');
+    } else {
+      setStep('details');
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -261,7 +284,7 @@ export default function WalkInPage() {
     }
   };
 
-  const progressValue = step === 'services' ? 33 : step === 'details' ? 66 : 100;
+  const progressValue = step === 'services' ? 25 : step === 'consents' ? 50 : step === 'details' ? 75 : 100;
   
   const resetFlow = () => {
     setCustomerName('');
@@ -275,11 +298,12 @@ export default function WalkInPage() {
     setPreferredStaffId('any');
     setNotes('');
     setWaitForPreferred(false);
+    setCompletedForms(new Set());
     setStep('services');
     setIsSubmitting(false);
   };
   
-  const isLoading = servicesLoading || staffLoading || scheduleProfilesLoading || !hasMounted;
+  const isLoading = servicesLoading || staffLoading || scheduleProfilesLoading || consentFormsLoading || !hasMounted;
   
   if (isLoading) {
     return (
@@ -406,13 +430,57 @@ export default function WalkInPage() {
                     </Accordion>
                   </CardContent>
                   <CardFooter className="flex justify-end">
-                    <Button onClick={() => setStep('details')} disabled={selectedServices.length === 0}>
+                    <Button onClick={handleServicesNext} disabled={selectedServices.length === 0}>
                         Next <ArrowRight className="ml-2 h-4 w-4" />
                     </Button>
                   </CardFooter>
                 </div>
               )}
-              
+              {step === 'consents' && (
+                <div>
+                  <CardHeader>
+                    <CardTitle>Consent Forms</CardTitle>
+                    <CardDescription>Please review and acknowledge the following forms before continuing.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4 max-h-[40vh] overflow-y-auto">
+                    {requiredForms.map(form => (
+                        <Card key={form.id}>
+                            <CardHeader>
+                                <CardTitle className="text-lg">{form.title}</CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                {form.fields?.map(field => <FormFieldRenderer key={field.id} field={field} />)}
+                                <div className="flex items-center space-x-2 pt-4 border-t">
+                                    <Checkbox id={`consent-ack-${form.id}`}
+                                        checked={completedForms.has(form.id)}
+                                        onCheckedChange={(checked) => {
+                                            const newCompleted = new Set(completedForms);
+                                            if (checked) {
+                                                newCompleted.add(form.id);
+                                            } else {
+                                                newCompleted.delete(form.id);
+                                            }
+                                            setCompletedForms(newCompleted);
+                                        }}
+                                    />
+                                    <Label htmlFor={`consent-ack-${form.id}`} className="text-sm font-normal">
+                                        I have read, understood, and agree to the terms of this form.
+                                    </Label>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    ))}
+                  </CardContent>
+                  <CardFooter className="flex justify-between">
+                        <Button variant="ghost" onClick={() => setStep('services')} type="button">
+                            <ArrowLeft className="mr-2 h-4 w-4" /> Back
+                        </Button>
+                        <Button onClick={() => setStep('details')} disabled={completedForms.size < requiredForms.length}>
+                            Next <ArrowRight className="ml-2 h-4 w-4" />
+                        </Button>
+                  </CardFooter>
+                </div>
+              )}
               {step === 'details' && (
                 <form onSubmit={handleSubmit}>
                     <CardHeader>
@@ -508,7 +576,7 @@ export default function WalkInPage() {
                         </div>
                     </CardContent>
                     <CardFooter className="flex justify-between">
-                        <Button variant="ghost" onClick={() => setStep('services')} type="button">
+                        <Button variant="ghost" onClick={() => setStep(requiredForms.length > 0 ? 'consents' : 'services')} type="button">
                             <ArrowLeft className="mr-2 h-4 w-4" /> Back
                         </Button>
                         <Button type="submit" disabled={isSubmitting}>
