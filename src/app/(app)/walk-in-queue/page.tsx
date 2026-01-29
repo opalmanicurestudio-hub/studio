@@ -33,7 +33,7 @@ import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 import { Tooltip, TooltipProvider, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useIsMobile } from '@/hooks/use-mobile';
+import { useIsMobile } from '@/hooks/use-is-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 
 const Timer = ({ startTime }: { startTime: string }) => {
@@ -561,7 +561,8 @@ const AssignStaffDialog = ({ open, onOpenChange, walkIn, staff, services, events
 
 export default function WalkInQueuePage() {
   const { firestore, user } = useFirebase();
-  const tenantId = 'tenant-abc';
+  const { selectedTenant } = useTenant();
+  const tenantId = selectedTenant?.id;
   const { toast } = useToast();
   const [ticketToPrint, setTicketToPrint] = useState<WalkIn | null>(null);
   const [checkoutAppointment, setCheckoutAppointment] = useState<Appointment | null>(null);
@@ -635,12 +636,17 @@ export default function WalkInQueuePage() {
         endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any),
     }));
   }, [appointmentsFromDB]);
+
+  const activeStaff = useMemo(() => {
+    if (!staff) return [];
+    return staff.filter(s => s.active);
+  }, [staff]);
   
   useEffect(() => {
-    if (staff) {
-        setStaffOrder(staff);
+    if (activeStaff) {
+        setStaffOrder(activeStaff);
     }
-  }, [staff]);
+  }, [activeStaff]);
 
     const dailyStats = useMemo(() => {
     if (!walkIns) return { total: 0, completed: 0, skippedOrCancelled: 0, avgWaitTime: 0, conversionRate: 0 };
@@ -680,7 +686,7 @@ export default function WalkInQueuePage() {
   };
   
     const canNotifyNext = useMemo(() => {
-        if (!staff || !walkIns || !events || !services || !appointments || !resources) return false;
+        if (!activeStaff || !walkIns || !events || !services || !appointments || !resources) return false;
 
         const waitingCustomers = walkIns.filter(w => w.status === 'waiting');
         if (waitingCustomers.length === 0) return false;
@@ -698,7 +704,7 @@ export default function WalkInQueuePage() {
             }
         });
 
-        const idleStaff = staff.filter(s => {
+        const idleStaff = activeStaff.filter(s => {
             if (s.status !== 'idle' || s.onBreak) return false;
             const isBlocked = events.some(event => {
                 if (event.type !== 'blocked') return false;
@@ -727,7 +733,7 @@ export default function WalkInQueuePage() {
         if (!isAnyStaffQualified) return false;
 
         return notifiedCustomers.length < idleStaff.length;
-    }, [staff, walkIns, events, services, appointments, resources]);
+    }, [activeStaff, walkIns, events, services, appointments, resources]);
 
   const assignWalkIn = useCallback(async (walkInId: string, staffId: string) => {
     if (!firestore || !walkIns || !staff || !services || !clients) return;
@@ -812,7 +818,7 @@ export default function WalkInQueuePage() {
   }, [firestore, tenantId, walkIns, staff, services, clients, toast]);
 
   const handleStartServiceFromNotified = useCallback((walkIn: WalkIn) => {
-    if (!staff || !services || !events || !appointments || !resources) return;
+    if (!activeStaff || !services || !events || !appointments || !resources) return;
     
     const now = new Date();
     
@@ -835,7 +841,7 @@ export default function WalkInQueuePage() {
         return;
     }
 
-    const idleStaff = staff.filter(s => {
+    const idleStaff = activeStaff.filter(s => {
         if (s.status !== 'idle' || s.onBreak) return false;
         return !events.some(event => {
             if (event.type !== 'blocked') return false;
@@ -855,10 +861,10 @@ export default function WalkInQueuePage() {
     const staffToAssign = qualifiedStaff[0];
     assignWalkIn(walkIn.id, staffToAssign.id);
 
-  }, [staff, services, events, appointments, assignWalkIn, toast, resources]);
+  }, [activeStaff, services, events, appointments, assignWalkIn, toast, resources]);
 
     const handleNotifyNext = () => {
-        if (!canNotifyNext || !walkIns || !staff || !firestore || !services) {
+        if (!canNotifyNext || !walkIns || !activeStaff || !firestore || !services) {
             toast({
                 variant: 'destructive',
                 title: 'Cannot Notify',
@@ -867,7 +873,7 @@ export default function WalkInQueuePage() {
             return;
         }
         
-        const idleStaff = staff.filter(s => s.status === 'idle' && !s.onBreak);
+        const idleStaff = activeStaff.filter(s => s.status === 'idle' && !s.onBreak);
         const waitingCustomers = walkIns.filter(w => w.status === 'waiting').sort((a,b) => (a.waitForPreferredStaff ? 0 : 1) - (b.waitForPreferredStaff ? 0 : 1) || parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
         const customerToNotify = waitingCustomers[0];
 
@@ -902,10 +908,10 @@ export default function WalkInQueuePage() {
   };
 
   const nextUpStaffId = useMemo(() => {
-    if (!staff || !events) return null;
+    if (!activeStaff || !events) return null;
     const now = new Date();
     
-    const idleStaff = staff.filter(s => {
+    const idleStaff = activeStaff.filter(s => {
         if (s.status !== 'idle' || s.onBreak) return false;
         
         const isBlocked = events.some(event => {
@@ -939,7 +945,7 @@ export default function WalkInQueuePage() {
         }
         return null;
     }
-  }, [staff, assignmentMode, staffOrder, events]);
+  }, [activeStaff, assignmentMode, staffOrder, events]);
 
 
   const waitingQueue = useMemo(() => {
@@ -1359,10 +1365,10 @@ export default function WalkInQueuePage() {
                 <CardContent>
                     {assignmentMode === 'automatic' ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {staff?.map(member => (
+                            {activeStaff.map(member => (
                                 <StaffStatusCard 
                                     key={member.id} 
-                                    staffMember={member} 
+                                    staffMember={member as Staff & { stats: any }}
                                     onStatusChange={handleStaffStatusChange} 
                                     isNextUp={member.id === nextUpStaffId}
                                     appointments={appointments || []}
