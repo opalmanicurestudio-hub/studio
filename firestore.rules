@@ -218,6 +218,14 @@ service cloud.firestore {
      */
     match /tenants/{tenantId}/clients/{clientId} {
       allow read, write: if isTenantOwner(tenantId) || isStaff(tenantId);
+
+      /**
+       * @description Rules for signed consent forms for a client.
+       * @path /tenants/{tenantId}/clients/{clientId}/signedConsents/{signedConsentId}
+       */
+      match /signedConsents/{signedConsentId} {
+        allow read, write: if isTenantOwner(tenantId) || isStaff(tenantId);
+      }
     }
 
     /**

@@ -18,7 +18,7 @@ import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConi
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
@@ -34,6 +34,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import { LogIncidentDialog } from '@/components/incidents/LogIncidentDialog';
 import { IncidentFormData } from '@/components/incidents/LogIncidentForm';
@@ -46,7 +47,7 @@ import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog'
 import { nanoid } from 'nanoid';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { collection, doc, arrayUnion, query, where } from 'firebase/firestore';
-import type { Client, Appointment, Service, CustomFormula, Incident, Membership, Package } from '@/lib/data';
+import type { Client, Appointment, Service, CustomFormula, Incident, Membership, Package, ConsentForm } from '@/lib/data';
 
 
 type ClientPhoto = {
@@ -211,6 +212,18 @@ export default function ClientDetailPage() {
     return collection(firestore, `tenants/${tenantId}/packages`);
   }, [firestore, tenantId]);
   const { data: packages } = useCollection<Package>(packagesQuery);
+  
+  const consentFormsQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, `tenants/${tenantId}/consentForms`);
+  }, [firestore, tenantId]);
+  const { data: consentForms, isLoading: consentFormsLoading } = useCollection<ConsentForm>(consentFormsQuery);
+
+  const signedConsentsQuery = useMemoFirebase(() => {
+    if (!firestore || !clientId) return null;
+    return collection(firestore, `tenants/${tenantId}/clients/${clientId}/signedConsents`);
+  }, [firestore, tenantId, clientId]);
+  const { data: signedConsents, isLoading: signedConsentsLoading } = useCollection<any>(signedConsentsQuery);
 
 
   const { toast } = useToast();
@@ -224,6 +237,13 @@ export default function ClientDetailPage() {
 
   const [editableReferralCode, setEditableReferralCode] = useState(client?.referralCode || '');
   const [isCodeDirty, setIsCodeDirty] = useState(false);
+  const [viewingConsent, setViewingConsent] = useState<any | null>(null);
+
+  const formTemplateForViewing = useMemo(() => {
+    if (!viewingConsent || !consentForms) return null;
+    return consentForms.find(f => f.id === viewingConsent.formId);
+  }, [viewingConsent, consentForms]);
+
 
   const clientAppointments = useMemo(() => {
     if (!clientAppointmentsData || !services) return [];
@@ -256,7 +276,7 @@ export default function ClientDetailPage() {
       setIsCodeDirty(false);
   }, [client?.referralCode]);
 
-  const isLoading = isUserLoading || clientLoading || appointmentsLoading || servicesLoading || allClientsLoading || staffLoading;
+  const isLoading = isUserLoading || clientLoading || appointmentsLoading || servicesLoading || allClientsLoading || staffLoading || consentFormsLoading || signedConsentsLoading;
 
   if (isLoading) {
       return (
@@ -714,7 +734,31 @@ export default function ClientDetailPage() {
                    <TabsContent value="consents" className="m-0">
                        <Card>
                           <CardHeader><div><CardTitle>Signed Forms</CardTitle><CardDescription>All consent forms signed by {client.name}.</CardDescription></div></CardHeader>
-                          <CardContent><div className="border-2 border-dashed rounded-lg p-12 text-center"><FileText className="w-10 h-10 text-muted-foreground mx-auto mb-4" /><h3 className="font-semibold text-lg">No Forms on File</h3><p className="text-sm text-muted-foreground">This client has not signed any forms yet.</p></div></CardContent>
+                          <CardContent>
+                            {signedConsentsLoading ? (
+                                <div className="text-center py-12"><Loader className="h-6 w-6 animate-spin mx-auto" /></div>
+                            ) : signedConsents && signedConsents.length > 0 ? (
+                                <div className="space-y-4">
+                                    {signedConsents.map((consent: any) => (
+                                        <Card key={consent.id} className="hover:bg-muted/50 transition-colors">
+                                            <CardContent className="p-4 flex items-center justify-between">
+                                                <div>
+                                                    <p className="font-semibold">{consent.formTitle}</p>
+                                                    <p className="text-sm text-muted-foreground">Signed on {format(parseISO(consent.signedAt), 'PPP p')}</p>
+                                                </div>
+                                                <Button variant="outline" onClick={() => setViewingConsent(consent)}>View</Button>
+                                            </CardContent>
+                                        </Card>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="border-2 border-dashed rounded-lg p-12 text-center">
+                                    <FileText className="w-10 h-10 text-muted-foreground mx-auto mb-4" />
+                                    <h3 className="font-semibold text-lg">No Forms on File</h3>
+                                    <p className="text-sm text-muted-foreground">This client has not signed any forms yet.</p>
+                                </div>
+                            )}
+                          </CardContent>
                       </Card>
                   </TabsContent>
                 </div>
@@ -770,6 +814,49 @@ export default function ClientDetailPage() {
                 )}
             </DialogContent>
         </Dialog>
+        <Dialog open={!!viewingConsent} onOpenChange={() => setViewingConsent(null)}>
+            <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                    <DialogTitle>{viewingConsent?.formTitle}</DialogTitle>
+                    <DialogDescription>
+                    Signed on {viewingConsent ? format(parseISO(viewingConsent.signedAt), 'PPP p') : ''}
+                    </DialogDescription>
+                </DialogHeader>
+                <ScrollArea className="max-h-[60vh] -mr-6 pr-6">
+                <div className="py-4 space-y-4 pl-6">
+                {viewingConsent && formTemplateForViewing && formTemplateForViewing.fields ? (
+                    formTemplateForViewing.fields.map((field: any) => {
+                    const answer = viewingConsent.formData ? viewingConsent.formData[field.id] : undefined;
+
+                    if (field.type === 'heading') {
+                        return <h3 key={field.id} className="text-lg font-semibold pt-4">{field.label}</h3>
+                    }
+                    if (field.type === 'paragraph') {
+                        return <p key={field.id} className="text-sm text-muted-foreground">{field.label}</p>
+                    }
+                    
+                    return (
+                        <div key={field.id} className="space-y-1 pt-2">
+                        <Label className="font-semibold">{field.label}</Label>
+                        {field.type === 'signature' && typeof answer === 'string' && answer.startsWith('data:image') ? (
+                            <div className="p-2 border rounded-md bg-muted/50 flex justify-center">
+                            <Image src={answer} alt="Signature" width={250} height={125} className="object-contain" />
+                            </div>
+                        ) : (
+                            <p className="text-sm text-muted-foreground p-3 bg-muted/50 rounded-md break-words">
+                            {answer !== undefined ? String(answer) : <span className="italic">No answer provided</span>}
+                            </p>
+                        )}
+                        </div>
+                    );
+                    })
+                ) : (
+                    <p>Could not load form details.</p>
+                )}
+                </div>
+                </ScrollArea>
+            </DialogContent>
+        </Dialog>
     </div>
   );
 
@@ -791,3 +878,4 @@ export default function ClientDetailPage() {
     
 
     
+

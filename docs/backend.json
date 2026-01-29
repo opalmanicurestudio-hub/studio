@@ -827,6 +827,23 @@
             }
         },
         "required": ["id", "type", "label"]
+    },
+    "SignedConsent": {
+        "title": "Signed Consent",
+        "description": "A record of a consent form signed by a client.",
+        "type": "object",
+        "properties": {
+            "id": { "type": "string" },
+            "formId": { "type": "string", "description": "The ID of the ConsentForm template." },
+            "formTitle": { "type": "string", "description": "The title of the form at the time of signing." },
+            "clientId": { "type": "string" },
+            "signedAt": { "type": "string", "format": "date-time" },
+            "formData": {
+                "type": "object",
+                "description": "The data submitted by the client, where keys are field IDs and values are the answers."
+            }
+        },
+        "required": ["id", "formId", "formTitle", "clientId", "signedAt"]
     }
   },
   "auth": {
@@ -888,6 +905,10 @@
         "$ref": "#/entities/Client"
       },
       "description": "Clients belonging to a specific tenant."
+    },
+     "/tenants/{tenantId}/clients/{clientId}/signedConsents/{signedConsentId}": {
+        "schema": { "$ref": "#/entities/SignedConsent" },
+        "description": "Stores instances of consent forms signed by a specific client."
     },
     "/tenants/{tenantId}/appointments/{appointmentId}": {
       "schema": {
