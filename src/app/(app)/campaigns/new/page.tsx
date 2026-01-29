@@ -25,6 +25,7 @@ import { nanoid } from 'nanoid';
 import { type Campaign } from '@/lib/data';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 const campaignSchema = z.object({
   name: z.string().min(3, "Campaign name must be at least 3 characters."),
@@ -91,36 +92,40 @@ const CampaignPreviewDialog = ({
 
   return (
     <Dialog open={!!previewData} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
+      <DialogContent className="max-w-3xl p-0">
+        <DialogHeader className="p-6 pb-2">
           <DialogTitle>Campaign Preview</DialogTitle>
         </DialogHeader>
-        {previewData.type === 'email' ? (
-          <div className="border rounded-lg overflow-hidden bg-background">
-            <div className="p-4 bg-muted/50 border-b text-sm">
-              <p><strong>To:</strong> {sampleClientName} &lt;jane.doe@example.com&gt;</p>
-              <p><strong>From:</strong> Your Business &lt;hello@yourbusiness.com&gt;</p>
-              <p><strong>Subject:</strong> {previewData.subject}</p>
-            </div>
-            <div className="p-4">
-              {previewData.imageUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={previewData.imageUrl} alt="Campaign visual" className="w-full h-auto rounded-md mb-4" />
-              )}
-              <div className="prose prose-sm dark:prose-invert max-w-full" dangerouslySetInnerHTML={{ __html: bodyWithPlaceholders.replace(/\n/g, '<br />') }} />
-            </div>
-          </div>
-        ) : (
-          <div className="flex justify-center p-4">
-            <div className="w-[320px] h-[580px] bg-muted rounded-3xl border-8 border-foreground p-4 flex flex-col">
-              <div className="flex-1 bg-background rounded-lg p-3 overflow-y-auto flex flex-col justify-end">
-                 <div className="bg-primary text-primary-foreground p-2 rounded-lg ml-auto max-w-[80%]">
-                  <p className="text-sm whitespace-pre-wrap">{bodyWithPlaceholders}</p>
+        <ScrollArea className="max-h-[80vh]">
+          <div className="p-6 pt-0">
+            {previewData.type === 'email' ? (
+              <div className="border rounded-lg overflow-hidden bg-background">
+                <div className="p-4 bg-muted/50 border-b text-sm">
+                  <p><strong>To:</strong> {sampleClientName} &lt;jane.doe@example.com&gt;</p>
+                  <p><strong>From:</strong> Your Business &lt;hello@yourbusiness.com&gt;</p>
+                  <p><strong>Subject:</strong> {previewData.subject}</p>
+                </div>
+                <div className="p-4">
+                  {previewData.imageUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={previewData.imageUrl} alt="Campaign visual" className="w-full h-auto rounded-md mb-4" />
+                  )}
+                  <div className="prose prose-sm dark:prose-invert max-w-full" dangerouslySetInnerHTML={{ __html: bodyWithPlaceholders.replace(/\n/g, '<br />') }} />
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="flex justify-center py-4">
+                <div className="w-[320px] h-[580px] bg-muted rounded-3xl border-8 border-foreground p-4 flex flex-col">
+                  <div className="flex-1 bg-background rounded-lg p-3 overflow-y-auto flex flex-col justify-end">
+                     <div className="bg-primary text-primary-foreground p-2 rounded-lg ml-auto max-w-[80%]">
+                      <p className="text-sm whitespace-pre-wrap">{bodyWithPlaceholders}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
-        )}
+        </ScrollArea>
       </DialogContent>
     </Dialog>
   );
