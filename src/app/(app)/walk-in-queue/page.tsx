@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -33,7 +32,7 @@ import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 import { Tooltip, TooltipProvider, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useIsMobile } from '@/hooks/use-is-mobile';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 
 const Timer = ({ startTime }: { startTime: string }) => {
@@ -577,37 +576,37 @@ export default function WalkInQueuePage() {
 
 
   const staffQuery = useMemoFirebase(() => {
-    if (!firestore || !user) return null;
+    if (!firestore || !user || !tenantId) return null;
     return collection(firestore, 'tenants', tenantId, 'staff');
   }, [firestore, user, tenantId]);
   
   const walkInQuery = useMemoFirebase(() => {
-    if (!firestore || !user) return null;
+    if (!firestore || !user || !tenantId) return null;
     return collection(firestore, 'tenants', tenantId, 'walkIns');
   }, [firestore, user, tenantId]);
 
   const servicesQuery = useMemoFirebase(() => {
-    if (!firestore || !user) return null;
+    if (!firestore || !user || !tenantId) return null;
     return collection(firestore, `tenants/${tenantId}/services`);
   }, [firestore, user, tenantId]);
   
   const clientsQuery = useMemoFirebase(() => {
-    if (!firestore || !user) return null;
+    if (!firestore || !user || !tenantId) return null;
     return collection(firestore, 'tenants', tenantId, 'clients');
   }, [firestore, user, tenantId]);
 
   const eventsQuery = useMemoFirebase(() => {
-    if (!firestore || !user) return null;
+    if (!firestore || !user || !tenantId) return null;
     return collection(firestore, `tenants/${tenantId}/events`);
   }, [firestore, user, tenantId]);
   
   const appointmentsQuery = useMemoFirebase(() => {
-    if (!firestore || !user) return null;
+    if (!firestore || !user || !tenantId) return null;
     return collection(firestore, 'tenants', tenantId, 'appointments');
   }, [firestore, user, tenantId]);
 
   const resourcesQuery = useMemoFirebase(() => {
-    if (!firestore || !user) return null;
+    if (!firestore || !user || !tenantId) return null;
     return collection(firestore, `tenants/${tenantId}/resources`);
   }, [firestore, user, tenantId]);
 
@@ -736,7 +735,7 @@ export default function WalkInQueuePage() {
     }, [activeStaff, walkIns, events, services, appointments, resources]);
 
   const assignWalkIn = useCallback(async (walkInId: string, staffId: string) => {
-    if (!firestore || !walkIns || !staff || !services || !clients) return;
+    if (!firestore || !tenantId || !walkIns || !staff || !services || !clients) return;
 
     const walkIn = walkIns.find(w => w.id === walkInId);
     const staffMember = staff.find(s => s.id === staffId);
@@ -864,7 +863,7 @@ export default function WalkInQueuePage() {
   }, [activeStaff, services, events, appointments, assignWalkIn, toast, resources]);
 
     const handleNotifyNext = () => {
-        if (!canNotifyNext || !walkIns || !activeStaff || !firestore || !services) {
+        if (!canNotifyNext || !walkIns || !activeStaff || !firestore || !services || !tenantId) {
             toast({
                 variant: 'destructive',
                 title: 'Cannot Notify',
@@ -969,7 +968,7 @@ export default function WalkInQueuePage() {
   }, [walkIns]);
   
   const handleFinishService = (walkIn: WalkIn) => {
-    if (!firestore || !services) return;
+    if (!firestore || !services || !tenantId) return;
     
     const appointmentId = `apt-walkin-${walkIn.id}`;
     
@@ -977,8 +976,8 @@ export default function WalkInQueuePage() {
       id: appointmentId,
       clientId: walkIn.clientId || '',
       serviceId: walkIn.serviceIds[0],
-      startTime: walkIn.serviceStartTime || new Date().toISOString(),
-      endTime: new Date().toISOString(),
+      startTime: parseISO(walkIn.serviceStartTime || new Date().toISOString()),
+      endTime: new Date(),
       status: 'servicing',
       isWalkIn: true,
       actualStartTime: walkIn.serviceStartTime,
@@ -990,7 +989,7 @@ export default function WalkInQueuePage() {
   };
 
   const handleStaffStatusChange = (staffId: string, statusUpdate: Partial<Staff>) => {
-    if (!firestore || !staff) return;
+    if (!firestore || !staff || !tenantId) return;
     
     const staffMember = staff.find(s => s.id === staffId);
     if (!staffMember) return;
@@ -1029,7 +1028,7 @@ export default function WalkInQueuePage() {
   }
   
   const handleWalkInStatusChange = useCallback((walkInId: string, staffId: string, status: WalkIn['status']) => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
     const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
     
     let update: Partial<WalkIn> = { status };
@@ -1056,8 +1055,8 @@ export default function WalkInQueuePage() {
       clientName: walkIn.customerName,
       serviceId: service.id,
       staffId: walkIn.assignedStaffId,
-      startTime: parseISO(walkIn.serviceStartTime || walkIn.checkInTime).toISOString(),
-      endTime: addMinutes(parseISO(walkIn.serviceStartTime || walkIn.checkInTime), walkIn.estimatedDuration).toISOString(),
+      startTime: parseISO(walkIn.serviceStartTime || walkIn.checkInTime),
+      endTime: addMinutes(parseISO(walkIn.serviceStartTime || walkIn.checkInTime), walkIn.estimatedDuration),
       status: 'ready_for_checkout',
       isWalkIn: true,
       addOnIds: walkIn.serviceIds.slice(1),
@@ -1078,7 +1077,7 @@ export default function WalkInQueuePage() {
 
   useEffect(() => {
     const timer = setInterval(() => {
-        if (!firestore || !walkIns) return;
+        if (!firestore || !walkIns || !tenantId) return;
         const now = new Date();
         const skipTimeMinutes = 5;
 
@@ -1096,7 +1095,7 @@ export default function WalkInQueuePage() {
         });
     }, 10000);
     return () => clearInterval(timer);
-  }, [firestore, walkIns, handleWalkInStatusChange, toast]);
+  }, [firestore, walkIns, handleWalkInStatusChange, toast, tenantId]);
   
   const estimatedWaitTime = useMemo(() => {
     if (!staff || !services || !appointments || !events || !walkIns || !resources) return null;
@@ -1216,7 +1215,7 @@ export default function WalkInQueuePage() {
   }, [selectedAppointment, clients, services]);
 
   const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
     updateDocumentNonBlocking(appointmentRef, {
         status: 'ready_for_checkout',
