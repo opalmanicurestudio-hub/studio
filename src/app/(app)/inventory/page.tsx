@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
@@ -168,7 +169,6 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
     const handleCancel = () => {
         if (editableOrder) {
             onCancelOrder(editableOrder.id);
-            onOpenChange(false);
         }
     }
 
@@ -314,25 +314,139 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
     )
 }
 
-const OrdersTab = ({ orders, inventory, isLoading, onAddOrder, onUpdateOrder, onCancelOrder }: { 
-    orders: Order[],
-    inventory: InventoryItem[],
-    isLoading: boolean, 
-    onAddOrder: (order: Omit<Order, 'id'>) => void, 
-    onUpdateOrder: (order: Order) => void, 
-    onCancelOrder: (orderId: string) => void 
-}) => {
-    const [isAddOrderOpen, setIsAddOrderOpen] = useState(false);
-    const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-    const [orderToReceive, setOrderToReceive] = useState<Order | null>(null);
-    const { toast } = useToast();
+const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
     const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
     const tenantId = selectedTenant?.id;
+    const { toast } = useToast();
+    
+    const ordersQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/orders`) : null, [firestore, tenantId]);
+    const { data: orders, isLoading: ordersLoading } = useCollection<Order>(ordersQuery);
+
+    const [isAddOrderOpen, setIsAddOrderOpen] = useState(false);
+    const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+    const [orderToCancel, setOrderToCancel] = useState<Order | null>(null);
+    const [cancelReason, setCancelReason] = useState('');
+    const [orderToReceive, setOrderToReceive] = useState<Order | null>(null);
     
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
 
+    const handleAddOrder = (newOrderData: Omit<Order, 'id'>) => {
+        if (!firestore || !tenantId) return;
+
+        const finalItems: { productId: string; productName: string; quantity: number; costPerUnit: number; }[] = [];
+        
+        newOrderData.items.forEach(item => {
+            if (item.productId.startsWith('custom-')) {
+                const newProductId = nanoid();
+                const newProductShell: InventoryItem = {
+                    id: newProductId,
+                    name: item.productName,
+                    type: 'professional',
+                    category: 'Uncategorized',
+                    totalStock: 0,
+                    supplier: newOrderData.supplier,
+                    costPerUnit: item.costPerUnit,
+                    batches: [],
+                };
+                const productDocRef = doc(firestore, `tenants/${tenantId}/inventory`, newProductId);
+                setDocumentNonBlocking(productDocRef, newProductShell, {});
+                finalItems.push({ ...item, productId: newProductId });
+            } else {
+                finalItems.push(item);
+            }
+        });
+
+        const newOrder: Order = {
+            ...newOrderData,
+            id: nanoid(),
+            items: finalItems,
+            status: 'Placed',
+        };
+        const orderRef = collection(firestore, 'tenants', tenantId, 'orders');
+        addDocumentNonBlocking(orderRef, newOrder);
+        
+        const totalCost = newOrder.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
+        if (totalCost > 0) {
+            const newTransaction: Omit<Transaction, 'id' | 'date'> = {
+                description: `Purchase Order: ${newOrder.supplier}`,
+                clientOrVendor: newOrder.supplier,
+                type: 'expense',
+                context: newOrder.paymentContext || 'Business',
+                category: 'Supplies',
+                amount: totalCost,
+                paymentMethod: newOrder.paymentMethod || 'On Account',
+                paymentMethodIdentifier: newOrder.paymentMethodIdentifier,
+                hasReceipt: !!newOrder.invoiceUrl,
+                receiptUrl: newOrder.invoiceUrl,
+                relatedOrderId: newOrder.id,
+            };
+            const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+            addDocumentNonBlocking(transactionsRef, { ...newTransaction, date: newOrder.orderDate });
+        }
+
+        toast({
+            title: "Order Created!",
+            description: `Your order to ${newOrder.supplier} has been saved as '${newOrder.status}'.`
+        });
+    };
+
+    const handleUpdateOrder = (updatedOrder: Order) => {
+        if (!firestore || !tenantId) return;
+        const orderRef = doc(firestore, `tenants/${tenantId}/orders`, updatedOrder.id);
+        updateDocumentNonBlocking(orderRef, updatedOrder);
+        toast({
+            title: "Order Updated",
+            description: `Order ${updatedOrder.id.slice(-6)} has been updated.`
+        })
+    }
+
+    const handleCancelOrderClick = (orderId: string) => {
+        const order = orders?.find(o => o.id === orderId);
+        if (order) {
+            setSelectedOrder(null);
+            setOrderToCancel(order);
+        }
+    };
+
+    const handleConfirmCancelOrder = () => {
+        if (!firestore || !orderToCancel || !tenantId) return;
+
+        const orderRef = doc(firestore, `tenants/${tenantId}/orders`, orderToCancel.id);
+        const existingNotes = orderToCancel.notes || '';
+        const newNotes = `Cancelled on ${new Date().toLocaleDateString()}${cancelReason ? `: ${cancelReason}` : ''}\n---\n${existingNotes}`;
+        
+        updateDocumentNonBlocking(orderRef, { status: 'Cancelled', notes: newNotes });
+
+        const totalCost = orderToCancel.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
+        if (totalCost > 0) {
+            const newTransaction: Omit<Transaction, 'id' | 'date'> = {
+                description: `Reversal for Order: ${orderToCancel.supplier}`,
+                clientOrVendor: orderToCancel.supplier,
+                type: 'reversal',
+                context: orderToCancel.paymentContext || 'Business',
+                category: 'Supplies',
+                amount: totalCost,
+                paymentMethod: 'On Account',
+                paymentMethodIdentifier: orderToCancel.paymentMethodIdentifier,
+                hasReceipt: !!orderToCancel.invoiceUrl,
+                receiptUrl: orderToCancel.invoiceUrl,
+                relatedOrderId: orderToCancel.id,
+            };
+            const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+            addDocumentNonBlocking(transactionsRef, { ...newTransaction, date: new Date().toISOString() });
+        }
+
+        toast({
+            title: "Order Cancelled",
+            description: `Order ${orderToCancel.id.slice(-6)} has been cancelled and the expense reversed.`
+        });
+        
+        setOrderToCancel(null);
+        setCancelReason('');
+    };
+    
     const filteredOrders = useMemo(() => {
         if (!orders) return [];
         return orders.filter(order => {
@@ -369,12 +483,12 @@ const OrdersTab = ({ orders, inventory, isLoading, onAddOrder, onUpdateOrder, on
           const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.productId);
           
           if (item.quantityReceived > 0) {
-              const newBatchData: Batch = {
+              const newBatchData: Omit<Batch, 'id'> & {id: string} = {
                 id: `batch-${nanoid()}`,
                 stock: item.quantityReceived,
                 costPerUnit: item.costPerUnit,
                 receivedDate: new Date().toISOString(),
-                ...(item.expirationDate && { expirationDate: item.expirationDate.toISOString() }),
+                expirationDate: item.expirationDate ? item.expirationDate.toISOString() : undefined,
               };
               
               const updatedBatches = [...existingProduct.batches, newBatchData];
@@ -470,7 +584,7 @@ const OrdersTab = ({ orders, inventory, isLoading, onAddOrder, onUpdateOrder, on
                                 onChange={(e) => setSearchTerm(e.target.value)}
                             />
                         </div>
-                        <Select value={statusFilter} onValueChange={setStatusFilter}>
+                        <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as any)}>
                             <SelectTrigger className="w-full sm:w-[180px]">
                                 <SelectValue placeholder="Filter by status" />
                             </SelectTrigger>
@@ -487,7 +601,7 @@ const OrdersTab = ({ orders, inventory, isLoading, onAddOrder, onUpdateOrder, on
                     </div>
                 </CardHeader>
                 <CardContent>
-                     {isLoading ? <p>Loading orders...</p> : orders.length > 0 ? (
+                     {ordersLoading ? <p>Loading orders...</p> : orders && orders.length > 0 ? (
                         filteredOrders.length > 0 ? (
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                               {filteredOrders.map(order => <OrderCard key={order.id} order={order} onSelect={setSelectedOrder} onTrack={openTrackingUrl} onReceive={setOrderToReceive} />)}
@@ -510,14 +624,14 @@ const OrdersTab = ({ orders, inventory, isLoading, onAddOrder, onUpdateOrder, on
             <AddOrderDialog
                 open={isAddOrderOpen}
                 onOpenChange={setIsAddOrderOpen}
-                onSave={onAddOrder}
+                onSave={handleAddOrder}
             />
             <ViewOrEditOrderDialog
                 order={selectedOrder}
                 open={!!selectedOrder}
                 onOpenChange={(isOpen) => !isOpen && setSelectedOrder(null)}
-                onSave={onUpdateOrder}
-                onCancelOrder={onCancelOrder}
+                onSave={handleUpdateOrder}
+                onCancelOrder={handleCancelOrderClick}
                 onTrack={openTrackingUrl}
             />
              <ReceiveStockDialog
@@ -526,6 +640,31 @@ const OrdersTab = ({ orders, inventory, isLoading, onAddOrder, onUpdateOrder, on
                 order={orderToReceive}
                 onConfirm={handleReceiveStock}
             />
+            <AlertDialog open={!!orderToCancel} onOpenChange={() => setOrderToCancel(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you sure you want to cancel this order?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will mark the order as cancelled and create a reversal transaction for the cost. This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <div className="py-4">
+                        <Label htmlFor="cancel-reason" className="mb-2 block">Reason for Cancellation (Optional)</Label>
+                        <Textarea
+                            id="cancel-reason"
+                            placeholder="e.g., Ordered by mistake, found a better price..."
+                            value={cancelReason}
+                            onChange={(e) => setCancelReason(e.target.value)}
+                        />
+                    </div>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setOrderToCancel(null)}>Back</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleConfirmCancelOrder} className={buttonVariants({ variant: "destructive" })}>
+                            Yes, Cancel Order
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </>
     );
 };
@@ -789,46 +928,6 @@ export default function InventoryPage() {
     });
   };
   
-  const handleUpdateOrder = (updatedOrder: Order) => {
-      if (!firestore || !tenantId) return;
-      const orderRef = doc(firestore, `tenants/${tenantId}/orders`, updatedOrder.id);
-      updateDocumentNonBlocking(orderRef, updatedOrder);
-      toast({
-          title: "Order Updated",
-          description: `Order ${updatedOrder.id.slice(-6)} has been updated.`
-      })
-  }
-
-  const handleCancelOrder = (orderId: string) => {
-      if(!firestore || !orders || !tenantId) return;
-      
-      const orderToCancel = orders.find(o => o.id === orderId);
-      if (!orderToCancel) return;
-
-      const orderRef = doc(firestore, `tenants/${tenantId}/orders`, orderId);
-      updateDocumentNonBlocking(orderRef, { status: 'Cancelled' });
-
-      // Create a reversal transaction
-      const totalCost = orderToCancel.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
-      const newTransaction: Omit<Transaction, 'id' | 'date'> = {
-        description: `Reversal for Order: ${orderToCancel.supplier}`,
-        clientOrVendor: orderToCancel.supplier,
-        type: 'reversal',
-        context: 'Business',
-        category: 'Supplies',
-        amount: totalCost,
-        paymentMethod: 'On Account',
-        hasReceipt: true,
-        relatedOrderId: orderToCancel.id,
-      };
-      const transactionsRef = collection(firestore, `tenants/${tenantId}/transactions`);
-      addDocumentNonBlocking(transactionsRef, { ...newTransaction, date: new Date().toISOString() });
-
-      toast({
-          title: "Order Cancelled",
-          description: `Order ${orderId.slice(-6)} has been cancelled and the expense reversed.`
-      })
-  }
 
   const handleOpenAddLocation = () => setIsAddLocationDialogOpen(true);
   
@@ -1213,7 +1312,7 @@ export default function InventoryPage() {
                   inventory={inventory || []}
                   stockCorrections={stockCorrections || []}
                   onSpoilageConfirm={handleSpoilageConfirm} 
-                  onLogOverheadUse={handleOpenLogUse} 
+                  onLogOverheadUse={handleOpenOverheadLogUse} 
                 />
             </div>
 
@@ -1382,12 +1481,7 @@ export default function InventoryPage() {
                 </TabsContent>
                 <TabsContent value="orders" className="mt-6">
                     <OrdersTab 
-                        orders={orders || []} 
                         inventory={inventory || []}
-                        isLoading={ordersLoading} 
-                        onAddOrder={handleAddOrder}
-                        onUpdateOrder={handleUpdateOrder}
-                        onCancelOrder={handleCancelOrder}
                     />
                 </TabsContent>
                 <TabsContent value="locations" className="mt-6">
