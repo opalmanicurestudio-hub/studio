@@ -107,18 +107,36 @@ const InventoryReportPage = () => {
     }, [inventory]);
 
     const retailPerformance = useMemo(() => {
-        return inventory.filter(item => item.type === 'retail').map(item => {
+        return inventory
+          .filter(item => item.type === 'retail')
+          .map(item => {
             const landedCost = item.costPerUnit || 0;
-            const retailPrice = landedCost * 1.75; // 75% markup
+            const retailPrice = item.msrp || landedCost * 1.75; // 75% markup fallback
             const profitPerUnit = retailPrice - landedCost;
-            const profitMargin = retailPrice > 0 ? (profitPerUnit / retailPrice) * 100 : 0;
+    
+            const unitsSold = stockCorrections
+              .filter(sc => sc.productId === item.id && sc.reason.startsWith('Retail Sale'))
+              .reduce((sum, sc) => sum + Math.abs(sc.change), 0);
+    
+            const totalUnitsHandled = unitsSold + item.totalStock;
+            const sellThroughRate = totalUnitsHandled > 0 ? (unitsSold / totalUnitsHandled) * 100 : 0;
+            
+            const totalRevenue = unitsSold * retailPrice;
+            const totalProfit = unitsSold * profitPerUnit;
+    
             return {
-                ...item,
-                retailPrice,
-                profitMargin
+              ...item,
+              retailPrice,
+              profitPerUnit,
+              profitMargin: retailPrice > 0 ? (profitPerUnit / retailPrice) * 100 : 0,
+              unitsSold,
+              sellThroughRate,
+              totalRevenue,
+              totalProfit,
             };
-        });
-    }, [inventory]);
+          })
+          .sort((a,b) => b.totalRevenue - a.totalRevenue); // Sort by most revenue
+      }, [inventory, stockCorrections]);
 
     const professionalUsage = useMemo(() => {
         const usage = new Map<string, { item: InventoryItem, count: number }>();
@@ -291,16 +309,31 @@ const InventoryReportPage = () => {
                     
                     {/* Retail Performance */}
                     <Card className="print:shadow-none print:border-gray-300">
-                        <CardHeader><CardTitle>Retail Performance</CardTitle></CardHeader>
+                        <CardHeader>
+                            <CardTitle>Retail Performance</CardTitle>
+                            <CardDescription>A breakdown of your retail product sales performance.</CardDescription>
+                        </CardHeader>
                         <CardContent>
                             <Table>
-                                <TableHeader><TableRow><TableHead>Product</TableHead><TableHead className="text-right">Price</TableHead><TableHead className="text-right">Profit Margin</TableHead></TableRow></TableHeader>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Product</TableHead>
+                                        <TableHead className="text-right">Units Sold</TableHead>
+                                        <TableHead className="text-right">Sell-Through</TableHead>
+                                        <TableHead className="text-right">Revenue</TableHead>
+                                        <TableHead className="text-right">Profit/Unit</TableHead>
+                                        <TableHead className="text-right">Total Profit</TableHead>
+                                    </TableRow>
+                                </TableHeader>
                                 <TableBody>
                                     {retailPerformance.map(item => (
                                         <TableRow key={item.id}>
-                                            <TableCell>{item.name}</TableCell>
-                                            <TableCell className="text-right font-mono">${item.retailPrice.toFixed(2)}</TableCell>
-                                            <TableCell className="text-right font-mono">{item.profitMargin.toFixed(1)}%</TableCell>
+                                            <TableCell className="font-medium">{item.name}</TableCell>
+                                            <TableCell className="text-right font-mono">{item.unitsSold}</TableCell>
+                                            <TableCell className="text-right font-mono">{item.sellThroughRate.toFixed(1)}%</TableCell>
+                                            <TableCell className="text-right font-mono">${item.totalRevenue.toFixed(2)}</TableCell>
+                                            <TableCell className="text-right font-mono text-green-500">${item.profitPerUnit.toFixed(2)}</TableCell>
+                                            <TableCell className="text-right font-mono font-bold">${item.totalProfit.toFixed(2)}</TableCell>
                                         </TableRow>
                                     ))}
                                 </TableBody>
