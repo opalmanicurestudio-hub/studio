@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
@@ -766,7 +765,7 @@ export default function InventoryPage() {
         hasReceipt: true,
         relatedOrderId: orderToCancel.id,
       };
-      const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+      const transactionsRef = collection(firestore, `tenants/${tenantId}/transactions`);
       addDocumentNonBlocking(transactionsRef, { ...newTransaction, date: new Date().toISOString() });
 
       toast({
@@ -1182,7 +1181,7 @@ export default function InventoryPage() {
                                       inventory={inventory || []}
                                       stockCorrections={stockCorrections || []}
                                       onSpoilageConfirm={handleSpoilageConfirm}
-                                      onLogOverheadUse={handleLogUseClick}
+                                      onLogOverheadUse={handleOpenOverheadLogUse}
                                      />
                                 </div>
                             </ScrollArea>
@@ -1488,3 +1487,5 @@ export default function InventoryPage() {
     </ClientOnly>
   );
 }
+
+    
