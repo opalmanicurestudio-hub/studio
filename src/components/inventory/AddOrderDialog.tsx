@@ -55,11 +55,23 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({
             quantity: 1,
             costPerUnit: p.costPerUnit || 0
         }));
-        setItems(prev => [...prev, ...newItems.filter(newItem => !prev.find(item => item.productId === newItem.productId))]);
+        setItems(prev => {
+          const newAndUpdatedItems = [...prev];
+          
+          if (newAndUpdatedItems.length === 0 && newItems.length > 0) {
+            const firstProductSupplier = products.find(p => p.id === newItems[0].productId)?.supplier;
+            if (firstProductSupplier) {
+              setSupplier(firstProductSupplier);
+            }
+          }
 
-        if (!supplier && selectedProducts.length > 0 && selectedProducts[0].supplier) {
-            setSupplier(selectedProducts[0].supplier);
-        }
+          newItems.forEach(newItem => {
+            if (!newAndUpdatedItems.find(item => item.productId === newItem.productId)) {
+              newAndUpdatedItems.push(newItem);
+            }
+          });
+          return newAndUpdatedItems;
+        });
     };
 
     const handleAddCustomItem = () => {
@@ -112,6 +124,35 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({
                     <DialogTitle>Create New Purchase Order</DialogTitle>
                 </DialogHeader>
                 <div className="grid gap-4 py-4 max-h-[70vh] overflow-y-auto pr-4">
+                    <div>
+                        <Label>Items</Label>
+                        <div className="space-y-2 mt-2">
+                             {items.map(item => (
+                                <div key={item.productId} className="flex items-center gap-2 p-2 border rounded-md">
+                                    <div className="flex-1">
+                                        <p className="text-sm font-medium">{item.productName}</p>
+                                    </div>
+                                    <Input type="number" value={item.quantity} onChange={e => handleItemChange(item.productId, 'quantity', Number(e.target.value))} className="w-16 h-8" />
+                                    <div className="relative w-24">
+                                        <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input type="number" value={item.costPerUnit} onChange={e => handleItemChange(item.productId, 'costPerUnit', Number(e.target.value))} className="w-24 h-8 pl-7" />
+                                    </div>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleRemoveItem(item.productId)}><Trash2 className="h-4 w-4" /></Button>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="flex items-center gap-2 mt-2">
+                            <Input
+                                placeholder="Add a new product by name..."
+                                value={customItemName}
+                                onChange={(e) => setCustomItemName(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && handleAddCustomItem()}
+                            />
+                            <Button variant="outline" size="sm" type="button" onClick={handleAddCustomItem}>Add New</Button>
+                        </div>
+                        <Button variant="outline" className="mt-2 w-full" type="button" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2"/>Add from Inventory</Button>
+                    </div>
+
                     <div className="space-y-2">
                         <Label htmlFor="supplier">Supplier</Label>
                         <Input id="supplier" value={supplier} onChange={e => setSupplier(e.target.value)} />
@@ -141,34 +182,6 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({
                     <div className="space-y-2">
                         <Label htmlFor="trackingUrl">Tracking URL</Label>
                         <Input id="trackingUrl" value={trackingUrl} onChange={e => setTrackingUrl(e.target.value)} placeholder="https://carrier.com/track/..."/>
-                    </div>
-                    <div>
-                        <Label>Items</Label>
-                        <div className="space-y-2 mt-2">
-                             {items.map(item => (
-                                <div key={item.productId} className="flex items-center gap-2 p-2 border rounded-md">
-                                    <div className="flex-1">
-                                        <p className="text-sm font-medium">{item.productName}</p>
-                                    </div>
-                                    <Input type="number" value={item.quantity} onChange={e => handleItemChange(item.productId, 'quantity', Number(e.target.value))} className="w-16 h-8" />
-                                    <div className="relative w-24">
-                                        <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                        <Input type="number" value={item.costPerUnit} onChange={e => handleItemChange(item.productId, 'costPerUnit', Number(e.target.value))} className="w-24 h-8 pl-7" />
-                                    </div>
-                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleRemoveItem(item.productId)}><Trash2 className="h-4 w-4" /></Button>
-                                </div>
-                            ))}
-                        </div>
-                        <div className="flex items-center gap-2 mt-2">
-                            <Input
-                                placeholder="Add a new product by name..."
-                                value={customItemName}
-                                onChange={(e) => setCustomItemName(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && handleAddCustomItem()}
-                            />
-                            <Button variant="outline" size="sm" type="button" onClick={handleAddCustomItem}>Add New</Button>
-                        </div>
-                        <Button variant="outline" className="mt-2 w-full" type="button" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2"/>Add from Inventory</Button>
                     </div>
                      <div className="space-y-2">
                         <Label htmlFor="invoice">Invoice/Receipt</Label>
