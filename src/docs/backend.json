@@ -109,6 +109,18 @@
         "smsNotificationMessage": {
             "type": "string",
             "description": "Customizable SMS message for walk-in notifications."
+        },
+        "twilioAccountSid": {
+          "type": "string",
+          "description": "The Account SID for the tenant's Twilio account."
+        },
+        "twilioAuthToken": {
+          "type": "string",
+          "description": "The Auth Token for the tenant's Twilio account."
+        },
+        "twilioPhoneNumber": {
+          "type": "string",
+          "description": "The Twilio phone number used for sending SMS messages."
         }
       },
       "required": [
@@ -1066,3 +1078,4 @@
 
 
     
+

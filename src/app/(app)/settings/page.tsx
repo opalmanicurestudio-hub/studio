@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
@@ -298,7 +297,7 @@ export default function SettingsPage() {
   const policiesFields: (keyof Tenant)[] = ['lateArrivalGracePeriod', 'cancellationWindowHours', 'cancellationFee', 'noShowFee', 'autoCancelLateArrivals', 'cancellationPolicy', 'lateArrivalPolicy', 'noShowPolicy'];
   const referralFields: (keyof Tenant)[] = ['referrerReward', 'newClientDiscount'];
   const queueFields: (keyof Tenant)[] = ['queueSkipTimeMinutes'];
-  const smsFields: (keyof Tenant)[] = ['smsNotificationMessage'];
+  const smsFields: (keyof Tenant)[] = ['smsNotificationMessage', 'twilioAccountSid', 'twilioAuthToken', 'twilioPhoneNumber'];
 
   const { handleEdit: handlePoliciesEdit, handleCancel: handlePoliciesCancel, handleSave: handlePoliciesSave } = createGenericHandlers(isPoliciesEditing, setIsPoliciesEditing, tenantData, setTenantData, backupTenantData, setBackupTenantData, policiesFields);
   const { handleEdit: handleReferralEdit, handleCancel: handleReferralCancel, handleSave: handleReferralSave } = createGenericHandlers(isReferralEditing, setIsReferralEditing, tenantData, setTenantData, backupTenantData, setBackupTenantData, referralFields);
@@ -656,7 +655,7 @@ export default function SettingsPage() {
                 <div>
                     <CardTitle className="flex items-center gap-2">
                         <ListChecks className="w-5 h-5 text-primary" />
-                        Walk-in Queue
+                        Queue Settings
                     </CardTitle>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
@@ -690,8 +689,9 @@ export default function SettingsPage() {
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <MessageSquare className="w-5 h-5 text-primary" />
-                  SMS Notifications
+                  Messaging &amp; Notifications
                 </CardTitle>
+                 <CardDescription>Configure your third-party messaging providers and templates.</CardDescription>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
                   {isSmsEditing ? (
@@ -704,8 +704,39 @@ export default function SettingsPage() {
                   )}
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-6">
               <div className="space-y-2">
+                <Label htmlFor="twilio-sid">Twilio Account SID</Label>
+                <Input
+                  id="twilio-sid"
+                  value={tenantData.twilioAccountSid || ''}
+                  onChange={(e) => setTenantData(prev => ({...prev, twilioAccountSid: e.target.value}))}
+                  placeholder="AC..."
+                  disabled={!isSmsEditing}
+                />
+              </div>
+               <div className="space-y-2">
+                <Label htmlFor="twilio-token">Twilio Auth Token</Label>
+                <Input
+                  id="twilio-token"
+                  type="password"
+                  value={tenantData.twilioAuthToken || ''}
+                  onChange={(e) => setTenantData(prev => ({...prev, twilioAuthToken: e.target.value}))}
+                  placeholder="••••••••••••••••"
+                  disabled={!isSmsEditing}
+                />
+              </div>
+               <div className="space-y-2">
+                <Label htmlFor="twilio-phone">Twilio Phone Number</Label>
+                <Input
+                  id="twilio-phone"
+                  value={tenantData.twilioPhoneNumber || ''}
+                  onChange={(e) => setTenantData(prev => ({...prev, twilioPhoneNumber: e.target.value}))}
+                  placeholder="+15551234567"
+                  disabled={!isSmsEditing}
+                />
+              </div>
+              <div className="space-y-2 pt-4 border-t">
                 <Label htmlFor="sms-message">Walk-in Notification Message</Label>
                 <Textarea
                   id="sms-message"
