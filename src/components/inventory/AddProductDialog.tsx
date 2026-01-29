@@ -118,10 +118,6 @@ const Step1_BasicDetails = ({
     
     return (
   <div className="grid gap-6 py-4">
-    <div className="flex items-center justify-between p-4 border rounded-lg">
-        <div className='space-y-1'><Label htmlFor="is-addon">Is this an Add-on Service?</Label><p className='text-sm text-muted-foreground'>Add-ons can be appended to primary services.</p></div>
-        <Controller name="isAddon" control={control} render={({ field }) => ( <Switch id="is-addon" checked={field.value} onCheckedChange={field.onChange} /> )}/>
-    </div>
     <div className="space-y-2">
       <Label htmlFor="product-name">Product Name</Label>
       <Input id="product-name" placeholder="e.g., Hydrating Shampoo" {...register('name')} />
