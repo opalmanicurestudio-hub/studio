@@ -59,13 +59,24 @@ export const InventorySidebar = ({
         const overheadInStock: InventoryItem[] = [];
 
         inventory.forEach(item => {
-            const itemTotalValue = (item.totalStock || 0) * (item.costPerUnit || 0);
+            let itemTotalValue = (item.totalStock || 0) * (item.costPerUnit || 0);
+            
+            const costPerUnit = item.costPerUnit || 0;
+            if (costPerUnit > 0) {
+                if (item.costingMethod === 'size' && item.size && item.size > 0 && item.partialContainerSize) {
+                    const costPerBaseUnit = costPerUnit / item.size;
+                    itemTotalValue += item.partialContainerSize * costPerBaseUnit;
+                } else if (item.costingMethod === 'uses' && item.estimatedUses && item.estimatedUses > 0 && item.partialContainerUses) {
+                    const costPerBaseUnit = costPerUnit / item.estimatedUses;
+                    itemTotalValue += item.partialContainerUses * costPerBaseUnit;
+                }
+            }
 
             if (item.type === 'professional') profVal += itemTotalValue;
             if (item.type === 'retail') retVal += itemTotalValue;
             if (item.type === 'overhead') {
               overVal += itemTotalValue;
-              if (item.totalStock > 0) {
+              if (item.totalStock > 0 || (item.partialContainerSize || 0) > 0 || (item.partialContainerUses || 0) > 0) {
                 overheadInStock.push(item);
               }
             }
@@ -264,4 +275,5 @@ export const InventorySidebar = ({
         </AlertDialog>
     </div>
     )
-};
+
+    
