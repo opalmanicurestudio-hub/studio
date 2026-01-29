@@ -347,6 +347,9 @@ export type Order = {
   }[];
   notes?: string;
   invoiceUrl?: string;
+  paymentMethod?: string;
+  paymentContext?: 'Business' | 'Personal';
+  paymentMethodIdentifier?: string;
 };
 
 export type Quote = {

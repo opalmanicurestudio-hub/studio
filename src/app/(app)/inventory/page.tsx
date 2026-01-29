@@ -204,6 +204,17 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                         {isEditing ? (
                             <div className="space-y-4">
                                 <div className="space-y-2"><Label htmlFor="edit-supplier">Supplier</Label><Input id="edit-supplier" value={editableOrder.supplier} onChange={handleChange} name="supplier" /></div>
+                                 <div className="space-y-2">
+                                    <Label>Payment Method</Label>
+                                    <RadioGroup value={editableOrder.paymentContext || 'Business'} onValueChange={(v: any) => setEditableOrder(prev => prev ? ({...prev, paymentContext: v}) : null)} className="grid grid-cols-2 gap-2">
+                                        <div><RadioGroupItem value="Business" id="business-order-edit-dialog" className="peer sr-only" /><Label htmlFor="business-order-edit-dialog" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Business</Label></div>
+                                        <div><RadioGroupItem value="Personal" id="personal-order-edit-dialog" className="peer sr-only" /><Label htmlFor="personal-order-edit-dialog" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Personal</Label></div>
+                                    </RadioGroup>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div className="space-y-2"><Label htmlFor="paymentMethod-edit-dialog">Account</Label><Select value={editableOrder.paymentMethod || ''} onValueChange={(v) => setEditableOrder(prev => prev ? ({...prev, paymentMethod: v}) : null)}><SelectTrigger id="paymentMethod-edit-dialog"><SelectValue placeholder="Select an account" /></SelectTrigger><SelectContent><SelectItem value="Checking">Checking</SelectItem><SelectItem value="Credit Card">Credit Card</SelectItem><SelectItem value="Cash">Cash</SelectItem><SelectItem value="Other">Other</SelectItem></SelectContent></Select></div>
+                                    <div className="space-y-2"><Label htmlFor="paymentMethodIdentifier-edit-dialog">Identifier</Label><Input id="paymentMethodIdentifier-edit-dialog" placeholder="e.g., Chase ****1234" value={editableOrder.paymentMethodIdentifier || ''} onChange={e => setEditableOrder(prev => prev ? ({...prev, paymentMethodIdentifier: e.target.value}) : null)} /></div>
+                                </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2"><Label>Order Date</Label><Popover><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal">{editableOrder.orderDate ? format(parseISO(editableOrder.orderDate), 'PPP') : 'Select date'}</Button></PopoverTrigger><PopoverContent><Calendar mode="single" selected={parseISO(editableOrder.orderDate)} onSelect={(d) => handleDateChange(d, 'orderDate')} /></PopoverContent></Popover></div>
                                     <div className="space-y-2"><Label>Expected Arrival</Label><Popover><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal">{editableOrder.expectedArrivalDate ? format(parseISO(editableOrder.expectedArrivalDate), 'PPP') : 'Select date'}</Button></PopoverTrigger><PopoverContent><Calendar mode="single" selected={editableOrder.expectedArrivalDate ? parseISO(editableOrder.expectedArrivalDate) : undefined} onSelect={(d) => handleDateChange(d, 'expectedArrivalDate')} /></PopoverContent></Popover></div>
@@ -249,6 +260,7 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                                         Track
                                     </Button>
                                     {editableOrder.expectedArrivalDate && <p><strong>Expected Arrival:</strong> {format(parseISO(editableOrder.expectedArrivalDate), 'MMM d, yyyy')}</p>}
+                                    {editableOrder.paymentMethod && <p><strong>Paid with:</strong> {editableOrder.paymentContext} {editableOrder.paymentMethod} {editableOrder.paymentMethodIdentifier && `(****${editableOrder.paymentMethodIdentifier.slice(-4)})`}</p>}
                                     {editableOrder.invoiceUrl && (
                                         <div className="flex items-center gap-2">
                                             <FileImage className="w-4 h-4 text-muted-foreground" />
@@ -687,10 +699,11 @@ export default function InventoryPage() {
             description: `Purchase Order: ${newOrder.supplier}`,
             clientOrVendor: newOrder.supplier,
             type: 'expense',
-            context: 'Business',
+            context: newOrder.paymentContext || 'Business',
             category: 'Supplies',
             amount: totalCost,
-            paymentMethod: 'On Account',
+            paymentMethod: newOrder.paymentMethod || 'On Account',
+            paymentMethodIdentifier: newOrder.paymentMethodIdentifier,
             hasReceipt: !!newOrder.invoiceUrl,
             receiptUrl: newOrder.invoiceUrl,
             relatedOrderId: newOrder.id,
@@ -844,7 +857,7 @@ export default function InventoryPage() {
 
     toast({
         title: "Item Written Off",
-        description: `${quantity} unit(s) of ${product.name} have been written off with a loss of $${lossAmount.toFixed(2)}.`,
+        description: `${quantity} unit(s) of ${product.name} have been written off with a total loss of $${lossAmount.toFixed(2)}.`,
     });
 
     return { success: true, message: "Write-off successful." };
@@ -921,7 +934,7 @@ export default function InventoryPage() {
     handleLogUseConfirm(productId, 1, 'Manual Overhead Use');
   };
   
-  const handleSpoilageConfirm = (items: SpoilageItem[]) => {
+  const handleSpoilageConfirm = (items: SpoilageItem[], notes?: string, imageUrl?: string) => {
     if (!firestore || !tenantId || !inventory) return;
 
     const batch = writeBatch(firestore);
@@ -1449,3 +1462,4 @@ export default function InventoryPage() {
     </ClientOnly>
   );
 }
+

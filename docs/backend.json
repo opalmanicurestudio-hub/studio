@@ -553,7 +553,20 @@
           }
         },
         "notes": { "type": "string" },
-        "invoiceUrl": { "type": "string", "format": "uri" }
+        "invoiceUrl": { "type": "string", "format": "uri" },
+        "paymentMethod": {
+          "type": "string",
+          "description": "The method of payment used for the purchase."
+        },
+        "paymentContext": {
+          "type": "string",
+          "enum": ["Business", "Personal"],
+          "description": "The financial context of the payment."
+        },
+        "paymentMethodIdentifier": {
+          "type": "string",
+          "description": "An identifier for the payment method (e.g., last 4 digits of a card)."
+        }
       },
       "required": ["id", "supplier", "orderDate", "status", "items"]
     },
@@ -692,6 +705,10 @@
         "paymentMethod": {
           "type": "string",
           "description": "The method of payment used for the transaction."
+        },
+        "paymentMethodIdentifier": {
+            "type": "string",
+            "description": "An identifier for the payment method (e.g., last 4 digits of a card)."
         },
         "hasReceipt": {
           "type": "boolean"
@@ -944,4 +961,6 @@
     }
   }
 }
+
+
 

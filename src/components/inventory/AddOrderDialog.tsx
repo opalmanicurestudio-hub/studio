@@ -15,6 +15,8 @@ import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { useInventory } from '@/context/InventoryContext';
 import { nanoid } from 'nanoid';
 import { ImageUpload } from '../shared/ImageUpload';
+import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 
 interface AddOrderDialogProps {
@@ -45,6 +47,10 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({
     const [invoiceUrl, setInvoiceUrl] = useState('');
     const [items, setItems] = useState<OrderItem[]>([]);
     const [customItemName, setCustomItemName] = useState('');
+
+    const [paymentContext, setPaymentContext] = useState<'Business' | 'Personal'>('Business');
+    const [paymentMethod, setPaymentMethod] = useState('');
+    const [paymentMethodIdentifier, setPaymentMethodIdentifier] = useState('');
 
     const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
     
@@ -110,6 +116,9 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({
             items: items,
             invoiceUrl,
             expectedArrivalDate: expectedDate ? expectedDate.toISOString() : undefined,
+            paymentMethod,
+            paymentContext,
+            paymentMethodIdentifier,
         };
 
         onSave(newOrder);
@@ -157,9 +166,42 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({
                         <Label htmlFor="supplier">Supplier</Label>
                         <Input id="supplier" value={supplier} onChange={e => setSupplier(e.target.value)} />
                     </div>
+                     <div className="space-y-2">
+                        <Label>Payment Method</Label>
+                        <RadioGroup value={paymentContext} onValueChange={(v: any) => setPaymentContext(v)} className="grid grid-cols-2 gap-2">
+                            <div>
+                                <RadioGroupItem value="Business" id="business-order" className="peer sr-only" />
+                                <Label htmlFor="business-order" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Business</Label>
+                            </div>
+                            <div>
+                                <RadioGroupItem value="Personal" id="personal-order" className="peer sr-only" />
+                                <Label htmlFor="personal-order" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Personal</Label>
+                            </div>
+                        </RadioGroup>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="paymentMethod">Account</Label>
+                            <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                                <SelectTrigger id="paymentMethod">
+                                <SelectValue placeholder="Select an account" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                <SelectItem value="Checking">Checking</SelectItem>
+                                <SelectItem value="Credit Card">Credit Card</SelectItem>
+                                <SelectItem value="Cash">Cash</SelectItem>
+                                <SelectItem value="Other">Other</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="paymentMethodIdentifier">Identifier (Optional)</Label>
+                            <Input id="paymentMethodIdentifier" placeholder="e.g., Chase ****1234" value={paymentMethodIdentifier} onChange={e => setPaymentMethodIdentifier(e.target.value)} />
+                        </div>
+                    </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
-                             <Label>Order Date</Label>
+                            <Label>Order Date</Label>
                             <Input
                                 type="date"
                                 value={orderDate ? format(orderDate, 'yyyy-MM-dd') : ''}
@@ -168,7 +210,7 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({
                         </div>
                         <div className="space-y-2">
                             <Label>Expected Arrival</Label>
-                            <Input
+                             <Input
                                 type="date"
                                 value={expectedDate ? format(expectedDate, 'yyyy-MM-dd') : ''}
                                 onChange={(e) => setExpectedDate(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined)}
