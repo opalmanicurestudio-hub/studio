@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -39,7 +40,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2 } from 'lucide-react';
+import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2, ShoppingCart, Calculator, Clock } from 'lucide-react';
 import { type Service } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectResourcesDialog } from './SelectResourcesDialog';
@@ -186,7 +187,7 @@ const Step1_BasicDetails = ({
 
     <div className="space-y-2">
       <Label>Service Image</Label>
-       <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/>
+       <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} initialImage={field.value}/> )}/>
     </div>
   </div>
     );
@@ -306,17 +307,20 @@ const PricingTierInput = ({ level }: { level: 'apprentice' | 'junior' | 'senior'
                 <CardTitle className="text-base capitalize">{level}</CardTitle>
             </CardHeader>
             <CardContent className="p-4 pt-0 grid grid-cols-2 gap-4">
-                 <div className="space-y-1">
-                    <Label htmlFor={`${level}-price`} className="text-xs">Price</Label>
+                <div className="space-y-1">
+                    <Label htmlFor={`${level}-price-edit`} className="text-xs flex items-center gap-1.5"><DollarSign className="w-3 h-3 text-muted-foreground"/>Price</Label>
                     <div className="relative">
                         <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                        <Input id={`${level}-price`} type="number" placeholder="0.00" {...register(`pricingTiers.${level}.price`)} className="pl-7" />
+                        <Input id={`${level}-price-edit`} type="number" placeholder="0.00" {...register(`pricingTiers.${level}.price`)} className="pl-7" />
                     </div>
                     {(errors.pricingTiers as any)?.[level]?.price && <p className="text-xs text-destructive">{(errors.pricingTiers as any)[level].price.message}</p>}
                 </div>
                 <div className="space-y-1">
-                    <Label htmlFor={`${level}-duration`} className="text-xs">Duration</Label>
-                    <Input id={`${level}-duration`} type="number" placeholder="mins" {...register(`pricingTiers.${level}.duration`)} />
+                    <Label htmlFor={`${level}-duration-edit`} className="text-xs flex items-center gap-1.5"><Clock className="w-3 h-3 text-muted-foreground"/>Duration</Label>
+                    <div className="relative">
+                        <Input id={`${level}-duration-edit`} type="number" placeholder="0" {...register(`pricingTiers.${level}.duration`)} className="pr-12"/>
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">mins</span>
+                    </div>
                     {(errors.pricingTiers as any)?.[level]?.duration && <p className="text-xs text-destructive">{(errors.pricingTiers as any)[level].duration.message}</p>}
                 </div>
             </CardContent>
@@ -425,12 +429,20 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
     );
 };
 
-const Step4_VisibilityConfirmation = ({ consentForms }: { consentForms: ConsentForm[] }) => {
+const Step4_VisibilityConfirmation = () => {
     const { register, control, setValue, watch } = useFormContext<ServiceFormData>();
     const requiredFormIds = watch('requiredFormIds') || [];
     const [isConsentFormBrowserOpen, setIsConsentFormBrowserOpen] = useState(false);
     
-    const requiredForms = consentForms.filter(f => requiredFormIds.includes(f.id));
+    const { firestore } = useFirebase();
+    const { selectedTenant } = useTenant();
+    const consentFormsQuery = useMemoFirebase(() => {
+        if (!firestore || !selectedTenant) return null;
+        return collection(firestore, `tenants/${selectedTenant.id}/consentForms`);
+    }, [firestore, selectedTenant]);
+    const { data: consentForms } = useCollection<ConsentForm>(consentFormsQuery);
+    
+    const requiredForms = consentForms?.filter(f => requiredFormIds.includes(f.id)) || [];
 
     const handleRemoveForm = (formId: string) => {
         const newIds = requiredFormIds.filter(id => id !== formId);
@@ -536,12 +548,12 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
   const [tmhr, setTmhr] = useState(0);
   const { inventory } = useInventory();
   
-  const { firestore } = useFirebase();
-  const tenantId = 'tenant-abc';
-  const consentFormsQuery = useMemoFirebase(() => {
-      if (!firestore) return null;
-      return collection(firestore, `tenants/${tenantId}/consentForms`);
-  }, [firestore, tenantId]);
+  const { firestore, useMemoFirebase: useMemoFirebaseHook } = useFirebase();
+  const { selectedTenant } = useTenant();
+  const consentFormsQuery = useMemoFirebaseHook(() => {
+      if (!firestore || !selectedTenant) return null;
+      return collection(firestore, `tenants/${selectedTenant.id}/consentForms`);
+  }, [firestore, selectedTenant]);
   const { data: consentForms } = useCollection<ConsentForm>(consentFormsQuery);
 
 
@@ -696,5 +708,3 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
     </Dialog>
   );
 };
-
-    

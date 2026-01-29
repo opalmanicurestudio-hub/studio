@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -19,7 +20,7 @@ import {
   SheetDescription,
   SheetFooter,
 } from '@/components/ui/sheet';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -39,7 +40,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2 } from 'lucide-react';
+import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2, ShoppingCart, Calculator, Clock } from 'lucide-react';
 import { type Service } from '@/lib/data';
 import { BrowseProductsDialog } from './BrowseProductsDialog';
 import { SelectResourcesDialog } from './SelectResourcesDialog';
@@ -47,10 +48,14 @@ import { SelectAddOnsDialog } from './SelectAddOnsDialog';
 import { BrowseConsentFormsDialog } from './BrowseConsentFormsDialog';
 import { Switch } from '../ui/switch';
 import { useInventory } from '@/context/InventoryContext';
+import { SelectResourcesDialog as NewSelectResourcesDialog } from '../services/SelectResourcesDialog';
 import { cn } from '@/lib/utils';
 import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
-import { useFirebase, useMemoFirebase, useCollection } from '@/firebase';
-import { collection } from 'firebase/firestore';
+import { format, parseISO } from 'date-fns';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { Calendar } from '../ui/calendar';
+import { CalendarIcon } from 'lucide-react';
+import { ScrollArea } from '../ui/scroll-area';
 
 
 const serviceSchema = z.object({
@@ -74,9 +79,22 @@ const serviceSchema = z.object({
   depositAmount: z.coerce.number().optional(),
   
   pricingTiers: z.object({
-    junior: z.coerce.number().min(0, 'Price must be 0 or more.'),
-    senior: z.coerce.number().min(0, 'Price must be 0 or more.'),
-    master: z.coerce.number().min(0, 'Price must be 0 or more.'),
+    apprentice: z.object({
+        price: z.coerce.number().min(0, 'Price must be 0 or more.'),
+        duration: z.coerce.number().min(1, 'Duration must be at least 1 minute.'),
+    }),
+    junior: z.object({
+        price: z.coerce.number().min(0, 'Price must be 0 or more.'),
+        duration: z.coerce.number().min(1, 'Duration must be at least 1 minute.'),
+    }),
+    senior: z.object({
+        price: z.coerce.number().min(0, 'Price must be 0 or more.'),
+        duration: z.coerce.number().min(1, 'Duration must be at least 1 minute.'),
+    }),
+    master: z.object({
+        price: z.coerce.number().min(0, 'Price must be 0 or more.'),
+        duration: z.coerce.number().min(1, 'Duration must be at least 1 minute.'),
+    }),
   }),
   confirmationMessage: z.string().optional(),
   requiredFormIds: z.array(z.string()).optional(),
@@ -145,7 +163,7 @@ const Step1_BasicDetails = ({
 
     <div className="grid grid-cols-3 gap-4">
         <div className="space-y-2">
-            <Label htmlFor="duration">Duration (min)</Label>
+            <Label htmlFor="duration">Default Duration (min)</Label>
             <Input id="duration" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>
             {errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}
         </div>
@@ -283,17 +301,48 @@ const Step2_Formula = ({ onScanClick, resources, allServices }: { onScanClick: (
     );
 };
 
+const PricingTierInput = ({ level }: { level: 'apprentice' | 'junior' | 'senior' | 'master' }) => {
+    const { register, formState: { errors } } = useFormContext<ServiceFormData>();
+    
+    return (
+        <Card>
+            <CardHeader className="p-4">
+                <CardTitle className="text-base capitalize">{level}</CardTitle>
+            </CardHeader>
+            <CardContent className="p-4 pt-0 grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                    <Label htmlFor={`${level}-price`} className="text-xs flex items-center gap-1.5"><DollarSign className="w-3 h-3 text-muted-foreground"/>Price</Label>
+                    <div className="relative">
+                        <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                        <Input id={`${level}-price`} type="number" placeholder="0.00" {...register(`pricingTiers.${level}.price`)} className="pl-7" />
+                    </div>
+                    {(errors.pricingTiers as any)?.[level]?.price && <p className="text-xs text-destructive">{(errors.pricingTiers as any)[level].price.message}</p>}
+                </div>
+                <div className="space-y-1">
+                    <Label htmlFor={`${level}-duration`} className="text-xs flex items-center gap-1.5"><Clock className="w-3 h-3 text-muted-foreground"/>Duration</Label>
+                    <div className="relative">
+                        <Input id={`${level}-duration`} type="number" placeholder="0" {...register(`pricingTiers.${level}.duration`)} className="pr-12"/>
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">mins</span>
+                    </div>
+                    {(errors.pricingTiers as any)?.[level]?.duration && <p className="text-xs text-destructive">{(errors.pricingTiers as any)[level].duration.message}</p>}
+                </div>
+            </CardContent>
+        </Card>
+    );
+};
+
 const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
     const { control, watch, register, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
     const isAddon = watch('isAddon');
     const depositType = watch('depositType');
-    const [juniorPrice, seniorPrice, masterPrice] = watch(['pricingTiers.junior', 'pricingTiers.senior', 'pricingTiers.master']);
+    const [juniorPrice, seniorPrice, masterPrice, apprenticePrice] = watch(['pricingTiers.junior.price', 'pricingTiers.senior.price', 'pricingTiers.master.price', 'pricingTiers.apprentice.price']);
 
     const tiers = useMemo(() => [
+        { level: 'apprentice', price: apprenticePrice || 0 },
         { level: 'junior', price: juniorPrice || 0 },
         { level: 'senior', price: seniorPrice || 0 },
         { level: 'master', price: masterPrice || 0 },
-    ], [juniorPrice, seniorPrice, masterPrice]);
+    ], [apprenticePrice, juniorPrice, seniorPrice, masterPrice]);
 
     useEffect(() => {
         if (depositType === 'breakeven') {
@@ -307,22 +356,13 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
             <CardHeader><CardTitle>Pricing & Booking</CardTitle></CardHeader>
             <CardContent className="space-y-6">
                 <div className="space-y-4">
-                    <Label>Pricing Tiers</Label>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="junior-price">Junior</Label>
-                            <Input id="junior-price" type="number" placeholder="0.00" {...register('pricingTiers.junior', { valueAsNumber: true })} />
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="senior-price">Senior</Label>
-                            <Input id="senior-price" type="number" placeholder="0.00" {...register('pricingTiers.senior', { valueAsNumber: true })} />
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="master-price">Master</Label>
-                            <Input id="master-price" type="number" placeholder="0.00" {...register('pricingTiers.master', { valueAsNumber: true })} />
-                        </div>
+                    <Label>Pricing & Duration Tiers</Label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <PricingTierInput level="apprentice" />
+                        <PricingTierInput level="junior" />
+                        <PricingTierInput level="senior" />
+                        <PricingTierInput level="master" />
                     </div>
-                     {errors.pricingTiers && <p className="text-sm text-destructive">{errors.pricingTiers?.junior?.message || errors.pricingTiers?.senior?.message || errors.pricingTiers?.master?.message}</p>}
                 </div>
 
                 <Card className="bg-muted/50"><CardContent className="p-4 space-y-4">
@@ -470,7 +510,7 @@ export const AddServiceDialog: React.FC<{
         compatibleAddOnIds: [],
         depositType: 'none',
         requiredFormIds: [],
-        pricingTiers: { junior: 0, senior: 0, master: 0 },
+        pricingTiers: { apprentice: {price: 0, duration: 0}, junior: {price: 0, duration: 0}, senior: {price: 0, duration: 0}, master: {price: 0, duration: 0} },
       });
       setStep(1);
     }
@@ -525,7 +565,7 @@ export const AddServiceDialog: React.FC<{
   }
 
   const onSubmit = (data: ServiceFormData) => {
-      const finalPrice = data.pricingTiers.senior || 0;
+      const finalPrice = data.pricingTiers.senior.price || 0;
       const netProfit = finalPrice - breakEvenCost;
       const margin = finalPrice > 0 ? (netProfit / finalPrice) * 100 : 0;
       
@@ -539,9 +579,10 @@ export const AddServiceDialog: React.FC<{
         padAfter: data.padAfter,
         price: finalPrice,
         pricingTiers: [
-            { level: 'junior', price: data.pricingTiers.junior },
-            { level: 'senior', price: data.pricingTiers.senior },
-            { level: 'master', price: data.pricingTiers.master },
+            { level: 'apprentice', price: data.pricingTiers.apprentice.price, duration: data.pricingTiers.apprentice.duration },
+            { level: 'junior', price: data.pricingTiers.junior.price, duration: data.pricingTiers.junior.duration },
+            { level: 'senior', price: data.pricingTiers.senior.price, duration: data.pricingTiers.senior.duration },
+            { level: 'master', price: data.pricingTiers.master.price, duration: data.pricingTiers.master.duration },
         ],
         cost: breakEvenCost,
         profit: netProfit,
@@ -582,7 +623,7 @@ export const AddServiceDialog: React.FC<{
         const isValid = fieldsToValidate.length > 0 ? await trigger(fieldsToValidate) : true;
         
         if (isValid && step < totalSteps) {
-        setStep(step + 1);
+            setStep(step + 1);
         }
     };
 
