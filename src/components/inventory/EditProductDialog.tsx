@@ -94,16 +94,17 @@ const editProductSchema = z.object({
 
 type ProductFormData = z.infer<typeof editProductSchema>;
 
-const Step1_BasicDetails = ({
-  categories,
-  onNewCategory,
-}: {
-  categories: string[];
-  onNewCategory: (category: string) => void;
+const Step1_BasicDetails = ({ 
+    categories, 
+    onNewCategory 
+}: { 
+    categories: string[];
+    onNewCategory: (category: string) => void;
 }) => {
     const { register, control, setValue, watch, formState: { errors } } = useFormContext<ProductFormData>();
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
+    const category = watch('category');
 
     const handleAddNewCategory = () => {
         if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
@@ -114,67 +115,67 @@ const Step1_BasicDetails = ({
             setIsAddingCategory(false);
         }
     };
-
+    
     return (
-        <div className="grid gap-6 py-4">
-            <div className="space-y-2">
-                <Label htmlFor="product-name-edit">Product Name</Label>
-                <Input id="product-name-edit" {...register('name')} />
-                {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
-            </div>
-            <Controller
-                name="type"
-                control={control}
-                render={({ field }) => (
-                    <div className="space-y-2">
-                        <Label>Product Type</Label>
-                        <RadioGroup value={field.value} className="grid grid-cols-2 gap-2" disabled>
-                            <RadioGroupItem value="professional" id="professional-edit" className="peer sr-only" />
-                            <Label htmlFor="professional-edit" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
-                                <Package className="mb-2 h-6 w-6" /> Professional
-                            </Label>
-                            <RadioGroupItem value="retail" id="retail-edit" className="peer sr-only" />
-                            <Label htmlFor="retail-edit" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
-                                <ShoppingCart className="mb-2 h-6 w-6" /> Retail
-                            </Label>
-                        </RadioGroup>
-                    </div>
-                )}
-            />
-            <div className="space-y-2">
-                <Label htmlFor="category-edit">Category</Label>
-                {isAddingCategory ? (
-                    <div className="flex gap-2">
-                        <Input
-                            placeholder="Enter new category name..."
-                            value={newCategoryName}
-                            onChange={(e) => setNewCategoryName(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()}
-                        />
-                        <Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button>
-                    </div>
-                ) : (
-                    <div className="flex gap-2">
-                        <Controller name="category" control={control} render={({ field }) => (
-                            <Select onValueChange={field.onChange} value={field.value}>
-                                <SelectTrigger><SelectValue placeholder="Select a category" /></SelectTrigger>
-                                <SelectContent>{categories.map(cat => (<SelectItem key={cat} value={cat}>{cat}</SelectItem>))}</SelectContent>
-                            </Select>
-                        )} />
-                        <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"><PlusCircle className="h-4 w-4" /></Button>
-                    </div>
-                )}
-                {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
-            </div>
-            <div className="space-y-2">
-                <Label>Product Image</Label>
-                <Controller name="imageUrl" control={control} render={({ field }) => (<ImageUpload onImageUploaded={field.onChange} initialImage={field.value} />)} />
-            </div>
-            <div className="space-y-2">
-                <Label htmlFor="internalNotes-edit">Internal Notes</Label>
-                <Textarea id="internalNotes-edit" {...register('internalNotes')} />
-            </div>
+  <div className="grid gap-6 py-4">
+    <div className="flex items-center justify-between p-4 border rounded-lg">
+        <div className='space-y-1'><Label htmlFor="is-addon-edit">Is this an Add-on Service?</Label><p className='text-sm text-muted-foreground'>Add-ons can be appended to primary services.</p></div>
+    </div>
+    <div className="space-y-2">
+      <Label htmlFor="service-name-edit">Service Name</Label>
+    </div>
+    <div className="space-y-2">
+      <Label htmlFor="category-edit">Category</Label>
+      {isAddingCategory ? (
+        <div className="flex gap-2">
+          <Input
+            placeholder="Enter new category name..."
+            value={newCategoryName}
+            onChange={(e) => setNewCategoryName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()}
+          />
+          <Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button>
         </div>
+      ) : (
+        <div className="flex gap-2">
+          <Controller name="category" control={control} render={({ field }) => (
+               <Select onValueChange={field.onChange} value={field.value}>
+                <SelectTrigger> <SelectValue placeholder="Select a category" /> </SelectTrigger>
+                <SelectContent> {categories.map(cat => ( <SelectItem key={cat} value={cat}>{cat}</SelectItem> ))} </SelectContent>
+              </Select>
+          )}/>
+          <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"> <PlusCircle className="h-4 w-4" /> </Button>
+        </div>
+      )}
+       {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
+    </div>
+
+    <div className="grid grid-cols-3 gap-4">
+        <div className="space-y-2">
+            <Label htmlFor="duration-edit">Duration (min)</Label>
+            <Input id="duration-edit" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>
+            {errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}
+        </div>
+        <div className="space-y-2">
+            <Label htmlFor="pad-before-edit">Pad Before (min)</Label>
+            <Input id="pad-before-edit" type="number" placeholder="e.g., 0" {...register('padBefore', { valueAsNumber: true })} />
+        </div>
+        <div className="space-y-2">
+            <Label htmlFor="pad-after-edit">Pad After (min)</Label>
+            <Input id="pad-after-edit" type="number" placeholder="e.g., 15" {...register('padAfter', { valueAsNumber: true })} />
+        </div>
+    </div>
+    
+    <div className="space-y-2">
+      <Label htmlFor="description-edit">Description</Label>
+      <Textarea id="description-edit" placeholder="Describe the service for your booking page..." {...register('description')} />
+    </div>
+
+    <div className="space-y-2">
+      <Label>Service Image</Label>
+       <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/>
+    </div>
+  </div>
     );
 };
 
@@ -491,9 +492,27 @@ const Step3_InventorySupplier = ({ onAddLocationClick, locations }: { onAddLocat
                  <CardContent className="space-y-4">
                     <div className="space-y-2"><Label htmlFor="reorder-point-edit">Reorder Point</Label><Input id="reorder-point-edit" type="number" placeholder="e.g., 5" {...register('reorderPoint')} /></div>
                     <div className="space-y-2">
-                        <Label>Expiration</Label>
+                        <Label>Expiration Date</Label>
                         <p className="text-xs text-muted-foreground">Editing expiration for the first/most recent batch.</p>
-                        <Controller name="expirationDate" control={control} render={({ field }) => ( <Popover><PopoverTrigger className={cn( buttonVariants({ variant: 'outline' }), 'w-full justify-start text-left font-normal', !field.value && 'text-muted-foreground' )}> <CalendarIcon className="mr-2 h-4 w-4" /> {field.value ? format(field.value, 'PPP') : 'No expiry'}</PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} /></PopoverContent></Popover> )}/>
+                        <Controller
+                            name="expirationDate"
+                            control={control}
+                            render={({ field }) => (
+                                <Input
+                                    id="expiration-date-edit"
+                                    type="date"
+                                    value={field.value ? format(field.value, 'yyyy-MM-dd') : ''}
+                                    onChange={(e) => {
+                                        if (e.target.value) {
+                                            const [year, month, day] = e.target.value.split('-').map(Number);
+                                            field.onChange(new Date(year, month - 1, day));
+                                        } else {
+                                            field.onChange(undefined);
+                                        }
+                                    }}
+                                />
+                            )}
+                        />
                     </div>
                     <Alert variant="destructive">
                         <AlertTriangle className="h-4 w-4" />
