@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
@@ -80,7 +81,7 @@ import { useTenant } from '@/context/TenantContext';
 import { Html5Qrcode } from 'html5-qrcode';
 import { ProductCard } from '@/components/inventory/ProductCard';
 import { EditEquipmentDialog } from '@/components/inventory/EditEquipmentDialog';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { RadioGroup } from '@/components/ui/radio-group';
 
 
 const OrderCard = ({ order, onSelect, onTrack, onReceive }: { order: Order, onSelect: (order: Order) => void, onTrack: (e: React.MouseEvent, url?: string) => void, onReceive: (order: Order) => void }) => {
@@ -349,7 +350,7 @@ const OrdersTab = ({ orders, inventory, isLoading, onAddOrder, onUpdateOrder, on
                 stock: item.quantityReceived,
                 costPerUnit: item.costPerUnit,
                 receivedDate: new Date().toISOString(),
-                expirationDate: item.expirationDate?.toISOString(),
+                ...(item.expirationDate && { expirationDate: item.expirationDate.toISOString() }),
               };
               
               const updatedBatches = [...existingProduct.batches, newBatchData];
@@ -1488,4 +1489,3 @@ export default function InventoryPage() {
   );
 }
 
-    
