@@ -547,14 +547,30 @@ export default function ProductDetailPage() {
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {product.batches.map(batch => (
-                                                <TableRow key={batch.id}>
-                                                    <TableCell>{format(parseISO(batch.receivedDate), 'MMM d, yyyy')}</TableCell>
-                                                    <TableCell>{batch.stock}</TableCell>
-                                                    <TableCell>${batch.costPerUnit.toFixed(2)}</TableCell>
-                                                    <TableCell>{batch.expirationDate ? format(parseISO(batch.expirationDate), 'MMM d, yyyy') : 'N/A'}</TableCell>
-                                                </TableRow>
-                                            ))}
+                                            {product.batches.sort((a,b) => parseISO(b.receivedDate).getTime() - parseISO(a.receivedDate).getTime()).map((batch, index, sortedBatches) => {
+                                                let costChangeIndicator: React.ReactNode = null;
+                                                const prevBatch = sortedBatches[index + 1];
+                                                if(prevBatch) {
+                                                    if(batch.costPerUnit > prevBatch.costPerUnit) {
+                                                        costChangeIndicator = <TrendingUp className="h-4 w-4 text-destructive" />
+                                                    } else if (batch.costPerUnit < prevBatch.costPerUnit) {
+                                                        costChangeIndicator = <TrendingDown className="h-4 w-4 text-green-500" />
+                                                    }
+                                                }
+                                                return (
+                                                    <TableRow key={batch.id}>
+                                                        <TableCell>{format(parseISO(batch.receivedDate), 'MMM d, yyyy')}</TableCell>
+                                                        <TableCell>{batch.stock}</TableCell>
+                                                        <TableCell>
+                                                            <div className="flex items-center justify-end gap-2 font-mono">
+                                                                <span>${batch.costPerUnit.toFixed(2)}</span>
+                                                                {costChangeIndicator}
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell>{batch.expirationDate ? format(parseISO(batch.expirationDate), 'MMM d, yyyy') : 'N/A'}</TableCell>
+                                                    </TableRow>
+                                                )
+                                            })}
                                         </TableBody>
                                     </Table>
                                 </TabsContent>

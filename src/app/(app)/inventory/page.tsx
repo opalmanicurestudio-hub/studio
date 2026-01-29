@@ -344,6 +344,7 @@ const OrdersTab = ({ orders, inventory, isLoading, onAddOrder, onUpdateOrder, on
               batch.update(productRef, {
                 batches: updatedBatches,
                 totalStock: totalStock,
+                costPerUnit: item.costPerUnit,
               });
 
               const stockCorrection: Omit<StockCorrection, 'id'> = {
