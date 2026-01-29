@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
@@ -226,7 +224,8 @@ export const DayTimeline = ({
         }
 
         const padBefore = service.padBefore || 0;
-        const totalDuration = service.duration + padBefore + (service.padAfter || 0);
+        const coreDuration = differenceInMinutes(item.endTime, item.startTime);
+        const totalDuration = coreDuration + padBefore + (service.padAfter || 0);
         
         const actualStartTime = subMinutes(item.startTime, padBefore);
         const minutesFromStart = differenceInMinutes(actualStartTime, dayStart);
