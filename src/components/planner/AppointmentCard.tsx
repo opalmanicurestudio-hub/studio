@@ -43,7 +43,7 @@ import {
   Car,
   Building,
   HardHat,
-  Gift,
+  Cake,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -501,7 +501,7 @@ export function AppointmentCard({
                     <TooltipProvider>
                         <Tooltip>
                             <TooltipTrigger>
-                                <Gift className="h-4 w-4 text-pink-500" />
+                                <Cake className="h-4 w-4 text-pink-500" />
                             </TooltipTrigger>
                             <TooltipContent>
                                 <p>It's {client.name.split(' ')[0]}'s Birthday!</p>
@@ -718,4 +718,3 @@ export function AppointmentCard({
     </div>
   );
 }
-
