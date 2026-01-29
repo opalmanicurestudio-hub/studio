@@ -81,6 +81,7 @@ import { useTenant } from '@/context/TenantContext';
 import { Html5Qrcode } from 'html5-qrcode';
 import { ProductCard } from '@/components/inventory/ProductCard';
 import { EditEquipmentDialog } from '@/components/inventory/EditEquipmentDialog';
+import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 
 
 const OrderCard = ({ order, onSelect, onTrack, onReceive }: { order: Order, onSelect: (order: Order) => void, onTrack: (e: React.MouseEvent, url?: string) => void, onReceive: (order: Order) => void }) => {
@@ -204,20 +205,34 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                         {isEditing ? (
                             <div className="space-y-4">
                                 <div className="space-y-2"><Label htmlFor="edit-supplier">Supplier</Label><Input id="edit-supplier" value={editableOrder.supplier} onChange={handleChange} name="supplier" /></div>
-                                 <div className="space-y-2">
+                                <div className="space-y-2">
                                     <Label>Payment Method</Label>
                                     <RadioGroup value={editableOrder.paymentContext || 'Business'} onValueChange={(v: any) => setEditableOrder(prev => prev ? ({...prev, paymentContext: v}) : null)} className="grid grid-cols-2 gap-2">
-                                        <div><RadioGroupItem value="Business" id="business-order-edit-dialog" className="peer sr-only" /><Label htmlFor="business-order-edit-dialog" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Business</Label></div>
-                                        <div><RadioGroupItem value="Personal" id="personal-order-edit-dialog" className="peer sr-only" /><Label htmlFor="personal-order-edit-dialog" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Personal</Label></div>
+                                        <div><RadioGroupItem value="Business" id="business-order-edit" className="peer sr-only" /><Label htmlFor="business-order-edit" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Business</Label></div>
+                                        <div><RadioGroupItem value="Personal" id="personal-order-edit" className="peer sr-only" /><Label htmlFor="personal-order-edit" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Personal</Label></div>
                                     </RadioGroup>
                                 </div>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    <div className="space-y-2"><Label htmlFor="paymentMethod-edit-dialog">Account</Label><Select value={editableOrder.paymentMethod || ''} onValueChange={(v) => setEditableOrder(prev => prev ? ({...prev, paymentMethod: v}) : null)}><SelectTrigger id="paymentMethod-edit-dialog"><SelectValue placeholder="Select an account" /></SelectTrigger><SelectContent><SelectItem value="Checking">Checking</SelectItem><SelectItem value="Credit Card">Credit Card</SelectItem><SelectItem value="Cash">Cash</SelectItem><SelectItem value="Other">Other</SelectItem></SelectContent></Select></div>
-                                    <div className="space-y-2"><Label htmlFor="paymentMethodIdentifier-edit-dialog">Identifier</Label><Input id="paymentMethodIdentifier-edit-dialog" placeholder="e.g., Chase ****1234" value={editableOrder.paymentMethodIdentifier || ''} onChange={e => setEditableOrder(prev => prev ? ({...prev, paymentMethodIdentifier: e.target.value}) : null)} /></div>
+                                    <div className="space-y-2"><Label htmlFor="paymentMethod-edit">Account</Label><Select value={editableOrder.paymentMethod || ''} onValueChange={(v) => setEditableOrder(prev => prev ? ({...prev, paymentMethod: v}) : null)}><SelectTrigger id="paymentMethod-edit"><SelectValue placeholder="Select an account" /></SelectTrigger><SelectContent><SelectItem value="Checking">Checking</SelectItem><SelectItem value="Credit Card">Credit Card</SelectItem><SelectItem value="Cash">Cash</SelectItem><SelectItem value="Other">Other</SelectItem></SelectContent></Select></div>
+                                    <div className="space-y-2"><Label htmlFor="paymentMethodIdentifier-edit">Identifier</Label><Input id="paymentMethodIdentifier-edit" placeholder="e.g., Chase ****1234" value={editableOrder.paymentMethodIdentifier || ''} onChange={e => setEditableOrder(prev => prev ? ({...prev, paymentMethodIdentifier: e.target.value}) : null)} /></div>
                                 </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-2"><Label>Order Date</Label><Popover><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal">{editableOrder.orderDate ? format(parseISO(editableOrder.orderDate), 'PPP') : 'Select date'}</Button></PopoverTrigger><PopoverContent><Calendar mode="single" selected={parseISO(editableOrder.orderDate)} onSelect={(d) => handleDateChange(d, 'orderDate')} /></PopoverContent></Popover></div>
-                                    <div className="space-y-2"><Label>Expected Arrival</Label><Popover><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal">{editableOrder.expectedArrivalDate ? format(parseISO(editableOrder.expectedArrivalDate), 'PPP') : 'Select date'}</Button></PopoverTrigger><PopoverContent><Calendar mode="single" selected={editableOrder.expectedArrivalDate ? parseISO(editableOrder.expectedArrivalDate) : undefined} onSelect={(d) => handleDateChange(d, 'expectedArrivalDate')} /></PopoverContent></Popover></div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label>Order Date</Label>
+                                        <Input
+                                            type="date"
+                                            value={editableOrder.orderDate ? format(parseISO(editableOrder.orderDate), 'yyyy-MM-dd') : ''}
+                                            onChange={(e) => handleDateChange(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined, 'orderDate')}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Expected Arrival</Label>
+                                        <Input
+                                            type="date"
+                                            value={editableOrder.expectedArrivalDate ? format(parseISO(editableOrder.expectedArrivalDate), 'yyyy-MM-dd') : ''}
+                                            onChange={(e) => handleDateChange(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined, 'expectedArrivalDate')}
+                                        />
+                                    </div>
                                 </div>
                                 <div className="space-y-2"><Label htmlFor="edit-trackingNumber">Tracking Number</Label><Input id="edit-trackingNumber" value={editableOrder.trackingNumber || ''} onChange={handleChange} name="trackingNumber" /></div>
                                 <div className="space-y-2"><Label htmlFor="edit-trackingUrl">Tracking URL</Label><Input id="edit-trackingUrl" value={editableOrder.trackingUrl || ''} onChange={handleChange} name="trackingUrl" placeholder="https://carrier.com/track/..."/></div>
@@ -930,10 +945,6 @@ export default function InventoryPage() {
     
     return { success: true, message: `${quantity} ${unit} of ${product.name} logged.` };
   };
-
-  const handleLogOverheadUse = (productId: string) => {
-    handleLogUseConfirm(productId, 1, 'Manual Overhead Use');
-  };
   
   const handleSpoilageConfirm = (items: SpoilageItem[], notes?: string, imageUrl?: string) => {
     if (!firestore || !tenantId || !inventory) return;
@@ -954,10 +965,18 @@ export default function InventoryPage() {
 
             const newTotalStock = updatedBatches.reduce((acc, b) => acc + b.stock, 0);
 
-            batch.update(productRef, {
+            const updatePayload: Partial<InventoryItem> = {
                 batches: updatedBatches,
                 totalStock: newTotalStock,
-            });
+            };
+            
+            // If writing off the last container, clear partial usage as well
+            if (newTotalStock === 0) {
+                updatePayload.partialContainerUses = 0;
+                updatePayload.partialContainerSize = 0;
+            }
+
+            batch.update(productRef, updatePayload);
             
             const stockCorrection: Omit<StockCorrection, 'id'> = {
                 productId: item.productId,
@@ -971,21 +990,27 @@ export default function InventoryPage() {
             
             const lossAmount = item.stock * item.costPerUnit;
             totalLoss += lossAmount;
-            
-            const transaction: Omit<Transaction, 'id' | 'date'> = {
-                description: `Spoilage: ${item.stock} x ${item.productName}`,
-                clientOrVendor: 'Internal',
-                type: 'expense',
-                context: 'Business',
-                category: 'Spoilage',
-                amount: lossAmount,
-                paymentMethod: 'Internal',
-                hasReceipt: false,
-            };
-            const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-            batch.set(txnRef, {...transaction, date: new Date().toISOString() });
         }
     });
+    
+    // Create a single transaction for the total loss
+    if (totalLoss > 0) {
+        const transaction: Omit<Transaction, 'id' | 'date'> = {
+            description: `Spoilage Write-off: ${items.length} batch(es)`,
+            clientOrVendor: 'Internal',
+            type: 'expense',
+            context: 'Business',
+            category: 'Spoilage',
+            amount: totalLoss,
+            paymentMethod: 'Internal',
+            hasReceipt: !!imageUrl,
+            receiptUrl: imageUrl,
+            notes: notes,
+        };
+        const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+        batch.set(txnRef, {...transaction, date: new Date().toISOString() });
+    }
+
 
     batch.commit().then(() => {
         toast({
@@ -1463,4 +1488,6 @@ export default function InventoryPage() {
     </ClientOnly>
   );
 }
+
+
 
