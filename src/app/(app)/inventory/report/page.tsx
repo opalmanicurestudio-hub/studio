@@ -5,12 +5,12 @@ import React, { useMemo, useRef } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 import { ArrowLeft, Printer, BarChart, DollarSign, Package, Store, Hammer, Recycle, TrendingUp, AlertTriangle, Download } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
-import { format, isPast, parseISO } from 'date-fns';
+import { format, isPast, parseISO, differenceInMonths } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { type InventoryItem } from '@/lib/data';
 
@@ -56,20 +56,40 @@ const InventoryReportPage = () => {
     const stats = useMemo(() => {
         let professionalValue = 0;
         let retailValue = 0;
-        let equipmentValue = 0;
         let overheadValue = 0;
+        let equipmentValue = 0;
 
         inventory.forEach(item => {
-            const itemValue = (item.totalStock || 0) * (item.costPerUnit || 0);
+            let itemTotalValue = (item.totalStock || 0) * (item.costPerUnit || 0);
+
+            const costPerUnit = item.costPerUnit || 0;
+            if (costPerUnit > 0) {
+                if (item.costingMethod === 'size' && item.size && item.size > 0 && item.partialContainerSize) {
+                    const costPerBaseUnit = costPerUnit / item.size;
+                    itemTotalValue += item.partialContainerSize * costPerBaseUnit;
+                } else if (item.costingMethod === 'uses' && item.estimatedUses && item.estimatedUses > 0 && item.partialContainerUses) {
+                    const costPerBaseUnit = costPerUnit / item.estimatedUses;
+                    itemTotalValue += item.partialContainerUses * costPerBaseUnit;
+                }
+            }
+            
             switch (item.type) {
-                case 'professional': professionalValue += itemValue; break;
-                case 'retail': retailValue += itemValue; break;
-                case 'overhead': overheadValue += itemValue; break;
-                case 'equipment':
+                case 'professional': professionalValue += itemTotalValue; break;
+                case 'retail': retailValue += itemTotalValue; break;
+                case 'overhead': overheadValue += itemTotalValue; break;
+                case 'equipment': {
                     const purchaseCost = item.costPerUnit || 0;
-                    // Simplified depreciation for report
-                    equipmentValue += purchaseCost * 0.8; // Assuming 20% depreciation for simplicity
+                    const lifespanMonths = (item.lifespanYears || 5) * 12;
+                    const monthlyDepreciation = lifespanMonths > 0 ? purchaseCost / lifespanMonths : 0;
+                    
+                    const purchaseDate = item.batches[0]?.receivedDate ? parseISO(item.batches[0].receivedDate) : new Date();
+                    const monthsInService = differenceInMonths(new Date(), purchaseDate);
+                    
+                    const accumulatedDepreciation = Math.min(monthlyDepreciation * monthsInService, purchaseCost);
+                    const bookValue = purchaseCost - accumulatedDepreciation;
+                    equipmentValue += bookValue;
                     break;
+                }
             }
         });
         const totalValue = professionalValue + retailValue + equipmentValue + overheadValue;
@@ -293,4 +313,3 @@ const InventoryReportPage = () => {
 }
 
 export default InventoryReportPage;
-    
