@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { ArrowLeft, Save, Send, Loader, Eye, Mail, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Save, Send, Loader, Eye, Mail, MessageSquare, Wand2, HandHeart, Sparkles, PartyPopper } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
@@ -40,6 +40,42 @@ const campaignSchema = z.object({
 });
 
 type CampaignFormData = z.infer<typeof campaignSchema>;
+
+const premadeCampaigns = [
+  {
+    name: "Welcome New Client",
+    icon: HandHeart,
+    targetAudience: 'new',
+    type: 'email',
+    subject: "Welcome! A special thank you for your first visit.",
+    body: "Hi {{clientName}},\n\nIt was a pleasure to see you recently! As a thank you for choosing us, we'd like to offer you 15% off your next service. We can't wait to see you again.\n\nBest,\nThe Team",
+  },
+  {
+    name: "Re-engage Inactive Client",
+    icon: Sparkles,
+    targetAudience: 'inactive_90',
+    type: 'sms',
+    subject: "",
+    body: "Hi {{clientName}}, we miss you! Come back and enjoy $10 off your next service. We look forward to seeing you soon!",
+  },
+  {
+    name: "Birthday Special",
+    icon: PartyPopper,
+    targetAudience: 'all', // This would ideally be a 'birthday' trigger
+    type: 'email',
+    subject: "Happy Birthday from all of us!",
+    body: "Hi {{clientName}},\n\nWishing you a fantastic birthday! To celebrate, we're giving you a special gift of 20% off your next visit. Treat yourself!\n\nWarmly,\nThe Team",
+  },
+    {
+    name: "Promote New Service",
+    icon: Wand2,
+    targetAudience: 'all',
+    type: 'email',
+    subject: "✨ Something New is Here! ✨",
+    body: "Hi {{clientName}},\n\nWe're excited to announce our brand new service: [Service Name]! It's designed to [briefly describe benefit].\n\nBe one of the first to try it and get an exclusive 10% off. Book your appointment today!\n\nCheers,\nThe Team",
+  },
+];
+
 
 const CampaignPreviewDialog = ({
   previewData,
@@ -101,7 +137,7 @@ export default function NewCampaignPage() {
     const [isSending, setIsSending] = useState(false);
     const [previewData, setPreviewData] = useState<CampaignFormData | null>(null);
 
-    const { control, handleSubmit, register, watch, formState: { errors } } = useForm<CampaignFormData>({
+    const { control, handleSubmit, register, watch, setValue, formState: { errors } } = useForm<CampaignFormData>({
         resolver: zodResolver(campaignSchema),
         defaultValues: {
             type: 'email',
@@ -110,6 +146,17 @@ export default function NewCampaignPage() {
     });
     
     const campaignType = watch('type');
+    
+    const handleTemplateSelect = (templateName: string) => {
+        const template = premadeCampaigns.find(t => t.name === templateName);
+        if (template) {
+            setValue('name', template.name);
+            setValue('type', template.type as 'email' | 'sms');
+            setValue('subject', template.subject);
+            setValue('body', template.body);
+            setValue('targetAudience', template.targetAudience as any);
+        }
+    };
 
     const processSubmit = async (data: CampaignFormData, status: 'draft' | 'sent') => {
         if (!firestore || !selectedTenant) return;
@@ -175,11 +222,26 @@ export default function NewCampaignPage() {
                             </Link>
                         </Button>
                     </div>
-
-                    <Card>
+                     <Card>
                         <CardHeader>
                             <CardTitle>Compose Your Campaign</CardTitle>
-                            <CardDescription>Fill in the details for your new marketing campaign.</CardDescription>
+                             <div className="pt-4">
+                                <Select onValueChange={handleTemplateSelect}>
+                                    <SelectTrigger className="w-full md:w-1/2">
+                                        <SelectValue placeholder="✨ Start from a template..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {premadeCampaigns.map(template => (
+                                            <SelectItem key={template.name} value={template.name}>
+                                                <div className="flex items-center gap-2">
+                                                    <template.icon className="h-4 w-4" />
+                                                    <span>{template.name}</span>
+                                                </div>
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
                         </CardHeader>
                         <CardContent className="space-y-6">
                             <div className="space-y-2">
