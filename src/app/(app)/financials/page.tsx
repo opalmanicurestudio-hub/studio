@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
@@ -75,6 +74,7 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/comp
 import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
+import { useTenant } from '@/context/TenantContext';
 
 const BillItemRow = ({
   bill,
@@ -352,7 +352,8 @@ const FinancialProfileManager = ({
   onDeleteProfile: (id: string) => void;
 }) => {
   const { firestore } = useFirebase();
-  const tenantId = 'tenant-abc';
+  const { selectedTenant } = useTenant();
+  const tenantId = selectedTenant?.id;
   const profileKey = `${activeTab}Profiles`;
   const currentProfiles = profiles[profileKey] || [];
   const [tempName, setTempName] = useState('');
@@ -386,8 +387,7 @@ const FinancialProfileManager = ({
   };
   
   const handleSetActive = async (id: string) => {
-    if (isEditing) return;
-    if (!firestore) return;
+    if (isEditing || !firestore || !tenantId) return;
     const batch = writeBatch(firestore);
     currentProfiles.forEach((p: any) => {
         const profileDocRef = doc(firestore, `tenants/${tenantId}/${profileKey}/${p.id}`);
@@ -549,7 +549,7 @@ const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal, totalHours }: { life
 
 export default function FinancialFoundationPage() {
     const { firestore, user } = useFirebase();
-    const { selectedTenant, isLoading: isTenantLoading } = useTenant();
+    const { selectedTenant, isLoading: isTenantContextLoading } = useTenant();
     const tenantId = selectedTenant?.id;
     const [isEditing, setIsEditing] = useState(false);
     const [activeTab, setActiveTab] = useState('lifestyle');
@@ -751,6 +751,7 @@ export default function FinancialFoundationPage() {
             if (firestore) {
                  Object.entries(profiles).forEach(([profileKey, profileList]) => {
                     (profileList as any[]).forEach((profile: any) => {
+                        if (!tenantId) return;
                         const profileRef = doc(firestore, `tenants/${tenantId}/${profileKey}/${profile.id}`);
                         const { icon, ...profileData } = profile; // Omit icon before saving
                         setDocumentNonBlocking(profileRef, profileData, { merge: true });
@@ -878,3 +879,4 @@ export default function FinancialFoundationPage() {
   );
 }
 
+    
