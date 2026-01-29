@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle, UserPlus, Coins, Printer, Wallet, Award, Repeat, CheckCircle, Percent } from 'lucide-react';
-import { type InventoryItem, type StockCorrection, type Transaction, type Client, type Appointment, type Service, type AppointmentCheckoutState, type Membership, type Package, type ClientFormData, type WalkIn, memberships as initialMemberships, packages as initialPackages } from '@/lib/data';
+import { type InventoryItem, type StockCorrection, type Transaction, type Client, type Appointment, type Service, type AppointmentCheckoutState, type Membership, type Package, type ClientFormData, type WalkIn } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -38,7 +38,7 @@ import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceip
 import { useIsMobile } from '@/hooks/use-mobile';
 import { CompleteAppointmentDialog, type CheckoutData } from '@/components/planner/CompleteAppointmentDialog';
 import { nanoid } from 'nanoid';
-import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
+import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc, setDoc } from 'firebase/firestore';
 import { parseISO } from 'date-fns';
 import { Html5Qrcode } from 'html5-qrcode';
@@ -52,6 +52,9 @@ import {
   AlertDialogTitle,
   AlertDialogFooter,
 } from "@/components/ui/alert-dialog"
+import { useInventory } from '@/context/InventoryContext';
+import { useTenant } from '@/context/TenantContext';
+import { Loader } from 'lucide-react';
 
 
 type CartItem = {
@@ -517,26 +520,21 @@ export default function RetailPage() {
   
   const [isScannerOpen, setIsScannerOpen] = useState(false);
 
-  // Firestore data fetching
   const { firestore, user } = useFirebase();
-  const tenantId = 'tenant-abc';
+  const { selectedTenant } = useTenant();
+  const tenantId = selectedTenant?.id;
 
-  const clientsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/clients`), [firestore, tenantId]);
-  const appointmentsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/appointments`), [firestore, tenantId]);
-  const walkInQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/walkIns`), [firestore, tenantId]);
-  const servicesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/services`), [firestore, tenantId]);
-  const inventoryQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/inventory`), [firestore, tenantId]);
-  const staffQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
-
-  const { data: staff } = useCollection<Staff>(staffQuery);
-  const { data: clients } = useCollection<Client>(clientsQuery);
-  const { data: appointmentsFromDB } = useCollection<Appointment>(appointmentsQuery);
-  const { data: walkIns } = useCollection<WalkIn>(walkInQuery);
-  const { data: services } = useCollection<Service>(servicesQuery);
-  const { data: inventory } = useCollection<InventoryItem>(inventoryQuery);
-  
-  const memberships: Membership[] = initialMemberships; // Using mock for now
-  const packages: Package[] = initialPackages; // Using mock for now
+  const {
+    inventory,
+    clients,
+    services,
+    staff,
+    walkIns,
+    memberships,
+    packages,
+    appointments: appointmentsFromDB,
+    isLoading,
+  } = useInventory();
 
   // Memoized conversion to Date objects
   const liveAppointments = useMemo(() => {
@@ -605,7 +603,7 @@ export default function RetailPage() {
 
     let price = 0;
     if (type === 'product') {
-        price = (item as InventoryItem).costPerUnit ? (item as InventoryItem).costPerUnit! * 1.75 : 0;
+        price = (item as InventoryItem).msrp || 0;
     } else {
         price = (item as Membership | Package).price;
     }
@@ -805,7 +803,7 @@ export default function RetailPage() {
     addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/transactions`), { ...newTransaction, date: new Date().toISOString() });
     
     // Update Client State
-    if (selectedClient && firestore) {
+    if (selectedClient && firestore && tenantId) {
         const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id);
         const clientUpdate: Partial<Client> = {
             lifetimeValue: (selectedClient.lifetimeValue || 0) + grandTotal,
@@ -893,7 +891,7 @@ export default function RetailPage() {
   };
     
   const handleAppointmentCheckout = async (data: CheckoutData) => {
-    if (!checkoutAppointment || !firestore || !clients || !inventory) return;
+    if (!checkoutAppointment || !firestore || !clients || !inventory || !tenantId) return;
 
     const {
         newCorrections,
@@ -1020,7 +1018,7 @@ export default function RetailPage() {
   };
 
   const handleAddClient = async (data: ClientFormData) => {
-    if (!firestore) return;
+    if (!firestore || !tenantId) return;
 
     const { referringClientId, ...clientData } = data;
     const firstName = data.name.split(' ')[0].toUpperCase();
@@ -1044,7 +1042,6 @@ export default function RetailPage() {
       }
     };
     
-    // Let Firestore generate the ID
     const clientsCollection = collection(firestore, `tenants/${tenantId}/clients`);
     const newClientRef = doc(clientsCollection);
     
@@ -1084,7 +1081,7 @@ export default function RetailPage() {
       name: checkoutAppointment.isWalkIn ? walkInClientName : 'Unknown Client',
       email: '', phone: '', avatarUrl: '', lifetimeValue: 0, lastAppointment: '',
     };
-        
+    
     return {
       appointment: checkoutAppointment,
       client: displayClient,
@@ -1119,19 +1116,23 @@ export default function RetailPage() {
                 </div>
                 <ScrollArea className="flex-1">
                   <TabsContent value="products" className="m-0">
-                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
-                          {(retailProducts || []).map(product => (
-                              <Card key={product.id} onClick={() => addToCart(product, 'product')} className="cursor-pointer hover:shadow-lg transition-shadow">
-                                  <CardContent className="p-2 space-y-2">
-                                      <div className="aspect-square bg-muted rounded-md overflow-hidden">
-                                          <Image src={product.imageUrl || `https://picsum.photos/seed/inv${product.id}/200/200`} alt={product.name} width={200} height={200} className="object-cover h-full w-full" />
-                                      </div>
-                                      <h3 className="text-sm font-medium leading-tight truncate">{product.name}</h3>
-                                      <p className="text-sm font-semibold">${((product.costPerUnit || 0) * 1.75).toFixed(2)}</p>
-                                  </CardContent>
-                              </Card>
-                          ))}
-                      </div>
+                      {isLoading ? (
+                         <div className="flex items-center justify-center p-10"><Loader className="h-6 w-6 animate-spin"/></div>
+                      ) : (
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
+                            {(retailProducts || []).map(product => (
+                                <Card key={product.id} onClick={() => addToCart(product, 'product')} className="cursor-pointer hover:shadow-lg transition-shadow">
+                                    <CardContent className="p-2 space-y-2">
+                                        <div className="aspect-square bg-muted rounded-md overflow-hidden">
+                                            <Image src={product.imageUrl || `https://picsum.photos/seed/inv${product.id}/200/200`} alt={product.name} width={200} height={200} className="object-cover h-full w-full" />
+                                        </div>
+                                        <h3 className="text-sm font-medium leading-tight truncate">{product.name}</h3>
+                                        <p className="text-sm font-semibold">${(product.msrp || 0).toFixed(2)}</p>
+                                    </CardContent>
+                                </Card>
+                            ))}
+                        </div>
+                      )}
                   </TabsContent>
                    <TabsContent value="memberships" className="m-0">
                       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
