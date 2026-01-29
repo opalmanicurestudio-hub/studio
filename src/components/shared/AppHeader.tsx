@@ -44,7 +44,7 @@ const TenantSwitcher = () => {
         return (
             <div className="flex items-center gap-2">
                 <Building className="h-5 w-5 text-muted-foreground" />
-                <span className="font-semibold text-lg">{selectedTenant?.name || 'My Business'}</span>
+                <span className="font-semibold text-lg truncate max-w-[150px] md:max-w-none">{selectedTenant?.name || 'My Business'}</span>
             </div>
         );
     }
@@ -54,8 +54,8 @@ const TenantSwitcher = () => {
             <DropdownMenuTrigger asChild>
                 <Button variant="outline" className="gap-2">
                     <Building className="h-5 w-5 text-muted-foreground" />
-                    <span className="font-semibold">{selectedTenant.name}</span>
-                    <ChevronsUpDown className="h-4 w-4 text-muted-foreground" />
+                    <span className="font-semibold truncate max-w-[150px] md:max-w-none">{selectedTenant.name}</span>
+                    <ChevronsUpDown className="h-4 w-4 text-muted-foreground shrink-0" />
                 </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
@@ -76,7 +76,7 @@ const TenantSwitcher = () => {
     )
 }
 
-export function AppHeader() {
+export function AppHeader({ title }: { title?: string }) {
   const { staff } = useInventory();
   const { user } = useUser();
   
@@ -135,14 +135,22 @@ export function AppHeader() {
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-background/80 px-4 backdrop-blur-sm md:px-6 print:hidden">
-      <div className="flex items-center gap-2">
+    <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b bg-background/80 px-4 backdrop-blur-sm md:px-6 print:hidden">
+      <div className="flex flex-1 items-center gap-2">
         <SidebarTrigger className="md:hidden" />
-        <ClientOnly>
-          <TenantSwitcher />
-        </ClientOnly>
+        
+        {/* On mobile, show title; on desktop, show switcher */}
+        {title && <h1 className="text-xl font-semibold truncate md:hidden">{title}</h1>}
+        
+        {/* On desktop, show switcher. Also show on mobile if no title exists (dashboard). */}
+        <div className={cn(title ? 'hidden md:block' : 'block')}>
+            <ClientOnly>
+            <TenantSwitcher />
+            </ClientOnly>
+        </div>
       </div>
-      <div className="ml-auto flex items-center gap-2">
+      
+      <div className="flex items-center gap-2">
         <ClientOnly>
           <DropdownMenu>
               <DropdownMenuTrigger asChild>
