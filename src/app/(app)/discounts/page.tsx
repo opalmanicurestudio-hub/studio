@@ -5,7 +5,7 @@ import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, Search, DollarSign, Ticket, Award } from 'lucide-react';
+import { PlusCircle, Search, DollarSign, Percent, Repeat, BarChart } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useInventory } from '@/context/InventoryContext';
 import { AddDiscountDialog } from '@/components/discounts/AddDiscountDialog';
@@ -31,7 +31,7 @@ const EmptyState = ({ onAdd }: { onAdd: () => void }) => (
 );
 
 export default function DiscountsPage() {
-    const { discounts, isLoading } = useInventory();
+    const { discounts, isLoading, transactions, appointments } = useInventory();
     const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
     const tenantId = selectedTenant?.id;
@@ -82,35 +82,70 @@ export default function DiscountsPage() {
     };
     
     const kpiData = useMemo(() => {
-        if (!discounts || discounts.length === 0) {
-        return {
-            totalValue: 0,
-            totalRedemptions: 0,
+        if (!transactions || !discounts || !appointments) {
+          return {
+            grossSales: 0,
+            netSales: 0,
+            discountsApplied: 0,
+            promoEffectiveness: 0,
             mostPopularCode: 'N/A',
-        };
+          };
         }
 
-        let totalValue = 0;
-        let totalRedemptions = 0;
-        let mostPopularCode = 'N/A';
-        let maxUsage = -1;
+        const incomeTransactions = transactions.filter(
+          (t) => t.type === 'income' && (t.category === 'Service Revenue' || t.category === 'Retail')
+        );
+    
+        const discountedTransactions = incomeTransactions.filter(t => t.discountAmount && t.discountAmount > 0);
 
-        discounts.forEach(discount => {
-            totalRedemptions += discount.usageCount;
-
-            if (discount.type === 'fixed') {
-                totalValue += discount.value * discount.usageCount;
-            }
-            // Note: Percentage-based discount values are not included in this total for accuracy.
+        const netSales = discountedTransactions.reduce((acc, t) => acc + t.amount, 0);
+        const discountsApplied = discountedTransactions.reduce((acc, t) => acc + (t.discountAmount || 0), 0);
+        const grossSales = netSales + discountsApplied;
+    
+        // --- Promo Effectiveness (Retention) ---
+        const uniqueDiscountedClientIds = new Set(discountedTransactions.map(t => t.clientId).filter((id): id is string => !!id));
+        
+        let retainedClients = 0;
+        uniqueDiscountedClientIds.forEach(clientId => {
+            const clientDiscountedTransactions = discountedTransactions.filter(t => t.clientId === clientId);
+            if (clientDiscountedTransactions.length === 0) return;
             
-            if (discount.usageCount > maxUsage) {
-                maxUsage = discount.usageCount;
-                mostPopularCode = discount.code;
+            const lastDiscountedTx = clientDiscountedTransactions.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+            
+            const hasSubsequentAppointment = appointments.some(apt => 
+                apt.clientId === clientId && 
+                new Date(apt.startTime) > new Date(lastDiscountedTx.date)
+            );
+    
+            if (hasSubsequentAppointment) {
+                retainedClients++;
             }
         });
-
-        return { totalValue, totalRedemptions, mostPopularCode };
-    }, [discounts]);
+    
+        const promoEffectiveness = uniqueDiscountedClientIds.size > 0 
+          ? (retainedClients / uniqueDiscountedClientIds.size) * 100 
+          : 0;
+    
+        // Find most popular code
+        const codeCounts = discountedTransactions.reduce((acc, t) => {
+            if(t.appliedDiscountCode) {
+                acc[t.appliedDiscountCode] = (acc[t.appliedDiscountCode] || 0) + 1;
+            }
+            return acc;
+        }, {} as Record<string, number>);
+    
+        const mostPopularCode = Object.keys(codeCounts).length > 0 
+            ? Object.entries(codeCounts).sort((a, b) => b[1] - a[1])[0][0]
+            : 'N/A';
+    
+        return {
+          grossSales,
+          netSales,
+          discountsApplied,
+          promoEffectiveness,
+          mostPopularCode,
+        };
+      }, [transactions, discounts, appointments]);
     
     const filteredDiscounts = useMemo(() => {
         if (!discounts) return [];
@@ -136,38 +171,49 @@ export default function DiscountsPage() {
                     </Button>
                 </div>
                 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Total Discount Value</CardTitle>
+                        <CardTitle className="text-sm font-medium">Gross Sales</CardTitle>
                         <DollarSign className="h-4 w-4 text-muted-foreground" />
                         </CardHeader>
                         <CardContent>
-                        <div className="text-2xl font-bold">${kpiData.totalValue.toFixed(2)}</div>
-                        <p className="text-xs text-muted-foreground">Value of all fixed-amount discounts redeemed.</p>
+                        <div className="text-2xl font-bold">${kpiData.grossSales.toFixed(2)}</div>
+                        <p className="text-xs text-muted-foreground">Total revenue before discounts.</p>
                         </CardContent>
                     </Card>
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Total Redemptions</CardTitle>
-                        <Ticket className="h-4 w-4 text-muted-foreground" />
+                        <CardTitle className="text-sm font-medium">Discounts Applied</CardTitle>
+                        <Percent className="h-4 w-4 text-muted-foreground" />
                         </CardHeader>
                         <CardContent>
-                        <div className="text-2xl font-bold">{kpiData.totalRedemptions}</div>
-                        <p className="text-xs text-muted-foreground">Total times any discount has been used.</p>
+                        <div className="text-2xl font-bold text-destructive">-${kpiData.discountsApplied.toFixed(2)}</div>
+                        <p className="text-xs text-muted-foreground">Most used: <strong>{kpiData.mostPopularCode}</strong></p>
                         </CardContent>
                     </Card>
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Most Popular Code</CardTitle>
-                        <Award className="h-4 w-4 text-muted-foreground" />
+                        <CardTitle className="text-sm font-medium">Net Sales</CardTitle>
+                        <DollarSign className="h-4 w-4 text-muted-foreground" />
                         </CardHeader>
                         <CardContent>
-                        <div className="text-2xl font-bold">{kpiData.mostPopularCode}</div>
-                        <p className="text-xs text-muted-foreground">The most frequently used promotion.</p>
+                        <div className="text-2xl font-bold text-primary">${kpiData.netSales.toFixed(2)}</div>
+                        <p className="text-xs text-muted-foreground">Total revenue after discounts.</p>
+                        </CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Promo Retention</CardTitle>
+                        <Repeat className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                        <div className="text-2xl font-bold">{kpiData.promoEffectiveness.toFixed(1)}%</div>
+                        <p className="text-xs text-muted-foreground">% of discounted clients who returned.</p>
                         </CardContent>
                     </Card>
                 </div>
+
 
                 <Card>
                     <CardHeader>

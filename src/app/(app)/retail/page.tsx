@@ -824,10 +824,12 @@ export default function RetailPage() {
         type: 'income',
         context: 'Business',
         category: 'Retail',
-        amount: grandTotal,
+        amount: grandTotal - tipAmount,
         paymentMethod: paymentTab,
         hasReceipt: true,
         tipAmount: tipAmount > 0 ? tipAmount : undefined,
+        appliedDiscountCode: discount > 0 ? promoCode : undefined,
+        discountAmount: totalDiscount > 0 ? totalDiscount : undefined,
     };
     addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/transactions`), { ...newTransaction, date: new Date().toISOString() });
     
@@ -930,39 +932,44 @@ export default function RetailPage() {
         tipAllocations,
         addOns,
         absorbedCost,
-        redeemedOffer
+        redeemedOffer,
+        appliedDiscountCode,
+        discountAmount,
     } = data;
         
     const allPerformedServices = [services?.find(s => s.id === checkoutAppointment.serviceId), ...addOns].filter((s): s is Service => !!s);
         
     const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+    
+    const clientForTx = clients.find(c => c.id === checkoutAppointment.clientId);
 
-    // 1. Service Revenue Transactions
-    allPerformedServices.forEach(service => {
-        const staffId = serviceStaffOverrides[service.id] || checkoutAppointment.staffId;
-        const newTransaction: Omit<Transaction, 'id' | 'date'> = {
-            description: `Service: ${service.name}`,
-            clientOrVendor: clients.find(c => c.id === checkoutAppointment.clientId)?.name || 'N/A',
-            clientId: checkoutAppointment.clientId,
-            type: 'income',
-            context: 'Business',
-            category: 'Service Revenue',
-            amount: redeemedOffer ? 0 : service.price,
-            paymentMethod: receiptData.payment.method,
-            hasReceipt: true,
-            staffId: staffId,
-            appointmentId: checkoutAppointment.id,
-        };
-        addDocumentNonBlocking(transactionsRef, {...newTransaction, date: new Date().toISOString()});
-    });
-        
-    // 2. Tip Transactions
+    const nonTipTotal = receiptData.total - receiptData.tip;
+
+    // Create one main transaction for the sale
+    const saleTransaction: Omit<Transaction, 'id' | 'date'> = {
+        description: `Sale for ${allPerformedServices.map(s => s.name).join(', ')}`,
+        clientOrVendor: clientForTx?.name || 'N/A',
+        clientId: clientForTx?.id,
+        type: 'income',
+        context: 'Business',
+        category: 'Service Revenue', 
+        amount: nonTipTotal, 
+        paymentMethod: receiptData.payment.method,
+        hasReceipt: true,
+        staffId: checkoutAppointment.staffId,
+        appointmentId: checkoutAppointment.id,
+        appliedDiscountCode: appliedDiscountCode,
+        discountAmount: discountAmount,
+    };
+    addDocumentNonBlocking(transactionsRef, {...saleTransaction, date: new Date().toISOString()});
+
+    // Tip Transactions
     Object.entries(tipAllocations).forEach(([staffId, tipAmount]) => {
         if (tipAmount > 0) {
             const newTransaction: Omit<Transaction, 'id' | 'date'> = {
                 description: `Tip for Appointment #${checkoutAppointment.id.slice(-4)}`,
-                clientOrVendor: clients.find(c => c.id === checkoutAppointment.clientId)?.name || 'N/A',
-                clientId: checkoutAppointment.clientId,
+                clientOrVendor: clientForTx?.name || 'N/A',
+                clientId: clientForTx?.id,
                 type: 'income',
                 context: 'Business',
                 category: 'Tips',
@@ -977,12 +984,12 @@ export default function RetailPage() {
         }
     });
         
-    // 3. Update stock corrections
+    // Update stock corrections
     newCorrections.forEach((correction) => {
         addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), correction);
     });
     
-    // 4. Update appointment
+    // Update appointment
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', checkoutAppointment.id);
     const updateData: any = { 
         status: 'completed',
@@ -991,7 +998,7 @@ export default function RetailPage() {
     };
     updateDocumentNonBlocking(appointmentRef, updateData);
     
-    // 5. Update staff status
+    // Update staff status
     const staffIdsInvolved = new Set(Object.values(serviceStaffOverrides));
     if (checkoutAppointment.staffId) {
         staffIdsInvolved.add(checkoutAppointment.staffId);
@@ -1006,24 +1013,23 @@ export default function RetailPage() {
       }
     });
 
-    // 6. Update Walk-in if applicable
+    // Update Walk-in if applicable
     if (checkoutAppointment.isWalkIn) {
       const walkInId = checkoutAppointment.id.replace('apt-walkin-', '');
       const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
       updateDocumentNonBlocking(walkInDocRef, { status: 'completed' });
     }
 
-     // 7. Update Client Lifetime Value
-    const clientToUpdate = clients.find(c => c.id === checkoutAppointment.clientId);
-    if (clientToUpdate) {
-        const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, clientToUpdate.id);
+     // Update Client Lifetime Value
+    if (clientForTx) {
+        const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, clientForTx.id);
         const updates: Partial<Client> = {
-            lifetimeValue: (clientToUpdate.lifetimeValue || 0) + receiptData.total,
+            lifetimeValue: (clientForTx.lifetimeValue || 0) + receiptData.total,
             lastAppointment: new Date().toISOString()
         };
 
         if (redeemedOffer?.type === 'package') {
-            updates.activePackages = clientToUpdate.activePackages?.map(p => {
+            updates.activePackages = clientForTx.activePackages?.map(p => {
                 if (p.packageId === redeemedOffer.id) {
                     return { ...p, sessionsRemaining: p.sessionsRemaining - 1 };
                 }
@@ -1351,11 +1357,11 @@ export default function RetailPage() {
       <BrowseDiscountsDialog
         open={isDiscountBrowserOpen}
         onOpenChange={setIsDiscountBrowserOpen}
-        allDiscounts={discounts}
         onSelect={(code) => {
             setPromoCode(code);
             handleApplyPromo(code);
         }}
+        allDiscounts={discounts}
         cartServiceIds={[]}
     />
     </>

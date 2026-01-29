@@ -46,6 +46,8 @@ export type Transaction = {
   staffId?: string;
   tipAmount?: number;
   appointmentId?: string;
+  appliedDiscountCode?: string;
+  discountAmount?: number;
 };
 
 
