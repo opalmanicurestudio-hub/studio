@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState } from 'react';
@@ -185,10 +184,13 @@ export default function NewCampaignPage() {
                                     render={({ field }) => (
                                         <div className="space-y-2">
                                             <Label htmlFor="discountId">Attach Discount (Optional)</Label>
-                                            <Select onValueChange={field.onChange} value={field.value}>
+                                            <Select 
+                                                onValueChange={(value) => field.onChange(value === 'none' ? undefined : value)} 
+                                                value={field.value || ''}
+                                            >
                                                 <SelectTrigger id="discountId"><SelectValue placeholder="Select a discount code" /></SelectTrigger>
                                                 <SelectContent>
-                                                    <SelectItem value="">None</SelectItem>
+                                                    <SelectItem value="none">None</SelectItem>
                                                     {discounts.map(d => <SelectItem key={d.id} value={d.id}>{d.code} - {d.description}</SelectItem>)}
                                                 </SelectContent>
                                             </Select>
