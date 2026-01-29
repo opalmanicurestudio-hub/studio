@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, QrCode, Globe, Building, HardHat } from 'lucide-react';
 import { type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState, type Resource } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
-import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping } from 'date-fns';
+import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping, addMonths } from 'date-fns';
 import React, { useState, useMemo, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
@@ -49,7 +49,7 @@ import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceip
 import { PrintTicket, type TicketData } from '@/components/planner/PrintTicket';
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
 import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
-import { collection, query, where, Timestamp, doc, setDoc, arrayUnion, increment } from 'firebase/firestore';
+import { collection, query, where, Timestamp, doc, setDoc, arrayUnion, increment, writeBatch } from 'firebase/firestore';
 import { EditEventDialog } from '@/components/planner/EditEventDialog';
 import { BillDueDateCard } from '@/components/planner/BillDueDateCard';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -650,15 +650,16 @@ const events = useMemo(() => {
     });
   };
   
-  const handleAddAppointment = async (newAppointment: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date}) => {
+  const handleAddAppointment = async (newAppointmentData: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date, recurrence?: { frequency: string, endDate: Date }}) => {
     if (!firestore || !tenantId) return;
 
-    let finalClientId = newAppointment.clientId;
-    let finalClientName = (clients || []).find(c => c.id === finalClientId)?.name || 'Walk-in Customer';
+    const { recurrence, ...baseAppointment } = newAppointmentData;
 
-    // Handle walk-in client creation if necessary
+    let finalClientId = baseAppointment.clientId;
+    let finalClientName = (clients || []).find(c => c.id === finalClientId)?.name || 'Walk-in Customer';
+    
     if (finalClientId && finalClientId.startsWith('walkin-')) {
-        const existingClient = (clients || []).find(c => c.name === newAppointment.clientName);
+        const existingClient = (clients || []).find(c => c.name === baseAppointment.clientName);
         if (existingClient) {
             finalClientId = existingClient.id;
         } else {
@@ -667,7 +668,7 @@ const events = useMemo(() => {
             const newId = newClientRef.id;
             const newClient: Client = {
               id: newId,
-              name: newAppointment.clientName || 'Walk-in Customer',
+              name: baseAppointment.clientName || 'Walk-in Customer',
               email: '', 
               phone: '',
               avatarUrl: '',
@@ -680,28 +681,83 @@ const events = useMemo(() => {
             finalClientName = newClient.name;
         }
     }
-    
-    const appointmentDocId = nanoid();
-    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentDocId);
-    
-    const checkInToken = nanoid(16);
-    const appointmentToSave = { 
-        ...newAppointment, 
-        id: appointmentDocId,
-        clientId: finalClientId, 
-        clientName: finalClientName,
-        checkInToken: checkInToken,
-    };
-    
-    await setDoc(appointmentRef, appointmentToSave);
 
-    const checkInDocRef = doc(firestore, 'appointmentCheckIns', checkInToken);
-    await setDoc(checkInDocRef, appointmentToSave);
+    if (recurrence && recurrence.frequency && recurrence.endDate) {
+        const batch = writeBatch(firestore);
+        const recurrenceId = nanoid();
+        let currentStartTime = baseAppointment.startTime;
+        let currentEndTime = baseAppointment.endTime;
+
+        while (isBefore(currentStartTime, recurrence.endDate)) {
+            const appointmentDocId = nanoid();
+            const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentDocId);
+            const checkInToken = nanoid(16);
+
+            const appointmentToSave = {
+                ...baseAppointment,
+                clientId: finalClientId,
+                clientName: finalClientName,
+                id: appointmentDocId,
+                startTime: currentStartTime.toISOString(),
+                endTime: currentEndTime.toISOString(),
+                checkInToken: checkInToken,
+                recurrenceId: recurrenceId,
+            };
+            batch.set(appointmentRef, appointmentToSave);
+
+            const checkInDocRef = doc(firestore, 'appointmentCheckIns', checkInToken);
+            batch.set(checkInDocRef, appointmentToSave);
+            
+            if (recurrence.frequency === 'weekly') {
+                currentStartTime = addWeeks(currentStartTime, 1);
+                currentEndTime = addWeeks(currentEndTime, 1);
+            } else if (recurrence.frequency === 'bi-weekly') {
+                currentStartTime = addWeeks(currentStartTime, 2);
+                currentEndTime = addWeeks(currentEndTime, 2);
+            } else if (recurrence.frequency === 'every-3-weeks') {
+                currentStartTime = addWeeks(currentStartTime, 3);
+                currentEndTime = addWeeks(currentEndTime, 3);
+            } else if (recurrence.frequency === 'every-4-weeks') {
+                currentStartTime = addWeeks(currentStartTime, 4);
+                currentEndTime = addWeeks(currentEndTime, 4);
+            } else if (recurrence.frequency === 'monthly') {
+                currentStartTime = addMonths(currentStartTime, 1);
+                currentEndTime = addMonths(currentEndTime, 1);
+            } else {
+                break;
+            }
+        }
+        await batch.commit();
+        toast({
+            title: "Recurring Appointments Booked",
+            description: `Appointments with ${finalClientName} have been added to the calendar.`
+        });
+    } else {
+        const appointmentDocId = nanoid();
+        const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentDocId);
+        
+        const checkInToken = nanoid(16);
+        const appointmentToSave = { 
+            ...baseAppointment, 
+            id: appointmentDocId,
+            clientId: finalClientId, 
+            clientName: finalClientName,
+            checkInToken: checkInToken,
+            startTime: baseAppointment.startTime.toISOString(),
+            endTime: baseAppointment.endTime.toISOString(),
+        };
+        
+        await setDoc(appointmentRef, appointmentToSave);
+
+        const checkInDocRef = doc(firestore, 'appointmentCheckIns', checkInToken);
+        await setDoc(checkInDocRef, appointmentToSave);
+        
+        toast({
+            title: "Appointment Booked",
+            description: `Appointment with ${finalClientName} has been added.`
+        });
+    }
     
-    toast({
-        title: "Appointment Booked",
-        description: `Appointment with ${finalClientName} has been added.`
-    })
     setIsAddAppointmentOpen(false);
     setInitialClientIdForNewApt('');
   };
@@ -709,7 +765,6 @@ const events = useMemo(() => {
   const handleUpdateAppointment = (updatedAppointment: Appointment) => {
     if (!firestore || !tenantId) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', updatedAppointment.id);
-    // Firestore doesn't like custom objects like Date, so we serialize
     const dataToSave = {
         ...updatedAppointment,
         startTime: updatedAppointment.startTime.toISOString(),
@@ -728,11 +783,9 @@ const events = useMemo(() => {
     setIsCheckoutOpen(false);
     setSelectedAppointment(null); // Clear appointment from checkout
     
-    // Create a mutable copy to avoid directly mutating state
     let rebookAppointmentData: Appointment = { ...appointment };
 
     if (weeksOut) {
-        // appointment.startTime is already a Date object from the useMemo hook
         rebookAppointmentData.startTime = addWeeks(rebookAppointmentData.startTime, weeksOut).toISOString();
     }
     
@@ -1568,5 +1621,3 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
-
-    
