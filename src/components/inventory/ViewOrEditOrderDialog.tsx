@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -92,9 +93,23 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                                     <div className="space-y-2"><Label htmlFor="paymentMethod-edit">Account</Label><Select value={editableOrder.paymentMethod || ''} onValueChange={(v) => setEditableOrder(prev => prev ? ({...prev, paymentMethod: v}) : null)}><SelectTrigger id="paymentMethod-edit"><SelectValue placeholder="Select an account" /></SelectTrigger><SelectContent><SelectItem value="Checking">Checking</SelectItem><SelectItem value="Credit Card">Credit Card</SelectItem><SelectItem value="Cash">Cash</SelectItem><SelectItem value="Other">Other</SelectItem></SelectContent></Select></div>
                                     <div className="space-y-2"><Label htmlFor="paymentMethodIdentifier-edit">Identifier</Label><Input id="paymentMethodIdentifier-edit" placeholder="e.g., Chase ****1234" value={editableOrder.paymentMethodIdentifier || ''} onChange={e => setEditableOrder(prev => prev ? ({...prev, paymentMethodIdentifier: e.target.value}) : null)} /></div>
                                 </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-2"><Label>Order Date</Label><Popover><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal">{editableOrder.orderDate ? format(parseISO(editableOrder.orderDate), 'PPP') : 'Select date'}</Button></PopoverTrigger><PopoverContent><Calendar mode="single" selected={parseISO(editableOrder.orderDate)} onSelect={(d) => handleDateChange(d, 'orderDate')} /></PopoverContent></Popover></div>
-                                    <div className="space-y-2"><Label>Expected Arrival</Label><Popover><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal">{editableOrder.expectedArrivalDate ? format(parseISO(editableOrder.expectedArrivalDate), 'PPP') : 'Select date'}</Button></PopoverTrigger><PopoverContent><Calendar mode="single" selected={editableOrder.expectedArrivalDate ? parseISO(editableOrder.expectedArrivalDate) : undefined} onSelect={(d) => handleDateChange(d, 'expectedArrivalDate')} /></PopoverContent></Popover></div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label>Order Date</Label>
+                                        <Input
+                                            type="date"
+                                            value={editableOrder.orderDate ? format(parseISO(editableOrder.orderDate), 'yyyy-MM-dd') : ''}
+                                            onChange={(e) => handleDateChange(e.target.value ? new Date(e.target.value) : undefined, 'orderDate')}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Expected Arrival</Label>
+                                        <Input
+                                            type="date"
+                                            value={editableOrder.expectedArrivalDate ? format(parseISO(editableOrder.expectedArrivalDate), 'yyyy-MM-dd') : ''}
+                                            onChange={(e) => handleDateChange(e.target.value ? new Date(e.target.value) : undefined, 'expectedArrivalDate')}
+                                        />
+                                    </div>
                                 </div>
                                 <div className="space-y-2"><Label htmlFor="edit-trackingNumber">Tracking Number</Label><Input id="edit-trackingNumber" value={editableOrder.trackingNumber || ''} onChange={handleChange} name="trackingNumber" /></div>
                                 <div className="space-y-2"><Label htmlFor="edit-trackingUrl">Tracking URL</Label><Input id="edit-trackingUrl" value={editableOrder.trackingUrl || ''} onChange={handleChange} name="trackingUrl" placeholder="https://carrier.com/track/..."/></div>

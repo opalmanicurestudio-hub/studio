@@ -2,7 +2,7 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -199,7 +199,7 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({
                             <Input id="paymentMethodIdentifier" placeholder="e.g., Chase ****1234" value={paymentMethodIdentifier} onChange={e => setPaymentMethodIdentifier(e.target.value)} />
                         </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
                             <Label>Order Date</Label>
                             <Input
