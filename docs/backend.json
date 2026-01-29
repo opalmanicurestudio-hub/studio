@@ -321,28 +321,17 @@
       "type": "object",
       "description": "Represents a product used or sold by a tenant.",
       "properties": {
-        "id": {
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        },
-        "description": {
-          "type": "string"
-        },
-        "cost": {
-          "type": "number"
-        },
-        "quantity": {
-          "type": "number"
-        }
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "cost": { "type": "number" },
+        "quantity": { "type": "number" },
+        "msrp": { "type": "number", "description": "Manufacturer's Suggested Retail Price (DTC Price)." },
+        "wholesalePrice": { "type": "number", "description": "Price for wholesale transactions." },
+        "packagingCost": { "type": "number", "description": "Cost of packaging per item for DTC sales." },
+        "shippingCostToCustomer": { "type": "number", "description": "Average shipping cost per item for DTC sales." }
       },
-      "required": [
-        "id",
-        "name",
-        "cost",
-        "quantity"
-      ]
+      "required": [ "id", "name", "cost", "quantity" ]
     },
     "Client": {
       "title": "Client",
@@ -955,3 +944,4 @@
     }
   }
 }
+

@@ -258,6 +258,14 @@ export type InventoryItem = {
   experimentUses?: number;
   batches: Batch[];
   maintenanceHistory?: MaintenanceRecord[];
+  
+  msrp?: number;
+  markdownPrice?: number;
+  wholesalePrice?: number;
+  packagingCost?: number;
+  shippingCostToCustomer?: number;
+  internalNotes?: string;
+  sku?: string;
 };
 
 export type AppointmentCheckoutState = {

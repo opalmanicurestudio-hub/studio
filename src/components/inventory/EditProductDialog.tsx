@@ -78,6 +78,9 @@ const editProductSchema = z.object({
 
   msrp: z.coerce.number().optional(),
   markdownPrice: z.coerce.number().optional(),
+  wholesalePrice: z.coerce.number().optional(),
+  packagingCost: z.coerce.number().optional(),
+  shippingCostToCustomer: z.coerce.number().optional(),
 
   supplier: z.string().optional(),
   sku: z.string().optional(),
@@ -178,31 +181,42 @@ const Step2_CostingPricing = () => {
     const { control, watch, register } = useFormContext<ProductFormData>();
     const productType = watch('type');
     const costingMethod = watch('costingMethod');
-    const [totalPurchaseCost, numUnits, shippingCost, taxCost, discounts, msrp] = watch([
+    const [totalPurchaseCost, numUnits, shippingCost, taxCost, discounts, msrp, wholesalePrice, packagingCost, shippingCostToCustomer] = watch([
         'totalPurchaseCost',
         'numUnits',
         'shippingCost',
         'taxCost',
         'discounts',
-        'msrp'
+        'msrp',
+        'wholesalePrice',
+        'packagingCost',
+        'shippingCostToCustomer'
     ]);
 
     const landedCostPerItem = useMemo(() => {
         const safeParse = (val: any) => parseFloat(val) || 0;
-
         const total = safeParse(totalPurchaseCost) + safeParse(shippingCost) + safeParse(taxCost) - safeParse(discounts);
         const units = safeParse(numUnits);
-
         if (units === 0) return 0;
         return total / units;
     }, [totalPurchaseCost, numUnits, shippingCost, taxCost, discounts]);
 
-    const profitMargin = useMemo(() => {
-        const price = msrp || 0;
-        if (price === 0 || landedCostPerItem === 0) return 0;
+    const wholesaleProfit = useMemo(() => {
+        const price = wholesalePrice || 0;
+        if (price === 0 || landedCostPerItem === 0) return { profit: 0, margin: 0 };
         const profit = price - landedCostPerItem;
-        return (profit / price) * 100;
-    }, [msrp, landedCostPerItem]);
+        const margin = (profit / price) * 100;
+        return { profit, margin };
+    }, [wholesalePrice, landedCostPerItem]);
+
+    const dtcProfit = useMemo(() => {
+        const price = msrp || 0;
+        const totalDtcCost = landedCostPerItem + (packagingCost || 0) + (shippingCostToCustomer || 0);
+        if (price === 0) return { profit: 0, margin: 0 };
+        const profit = price - totalDtcCost;
+        const margin = (profit / price) * 100;
+        return { profit, margin };
+    }, [msrp, landedCostPerItem, packagingCost, shippingCostToCustomer]);
     
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
@@ -236,11 +250,55 @@ const Step2_CostingPricing = () => {
                 </Card>
             )}
             {(productType === 'retail') && (
-                <Card>
-                    <CardHeader><CardTitle>Retail Pricing</CardTitle><CardDescription>How much will clients pay?</CardDescription></CardHeader>
-                    <CardContent className="space-y-4">
-                        <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label htmlFor="msrp-edit">MSRP</Label><Input id="msrp-edit" type="number" placeholder="0.00" {...register('msrp')} /></div><div className="space-y-2"><Label htmlFor="markdown-price-edit">Markdown Price</Label><Input id="markdown-price-edit" type="number" placeholder="Optional" {...register('markdownPrice')} /></div></div>
-                        <div className="p-3 bg-muted rounded-md"><p className="font-medium text-center">Profit Margin: <span className="text-lg font-bold text-primary">{profitMargin.toFixed(1)}%</span></p></div>
+                 <Card>
+                    <CardHeader><CardTitle>Retail Pricing</CardTitle><CardDescription>Set pricing for different sales channels.</CardDescription></CardHeader>
+                    <CardContent className="space-y-6">
+                        <div className="space-y-2">
+                           <Label className="font-semibold">Wholesale</Label>
+                           <div className="space-y-2 p-3 border rounded-md">
+                                <div className="space-y-1">
+                                    <Label htmlFor="wholesale-price-edit" className="text-xs">Wholesale Price</Label>
+                                    <div className="relative">
+                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input id="wholesale-price-edit" type="number" placeholder="0.00" {...register('wholesalePrice')} className="pl-8" />
+                                    </div>
+                                </div>
+                                <div className="p-2 bg-muted rounded-md text-xs flex justify-between">
+                                    <span>Profit: <span className="font-bold">${wholesaleProfit.profit.toFixed(2)}</span></span>
+                                    <span>Margin: <span className="font-bold">{wholesaleProfit.margin.toFixed(1)}%</span></span>
+                                </div>
+                           </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label className="font-semibold">Direct-to-Consumer (DTC)</Label>
+                             <div className="space-y-4 p-3 border rounded-md">
+                                <div className="space-y-1">
+                                    <Label htmlFor="dtc-price-edit" className="text-xs">DTC Price (MSRP)</Label>
+                                    <div className="relative">
+                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input id="dtc-price-edit" type="number" placeholder="0.00" {...register('msrp')} className="pl-8" />
+                                    </div>
+                                </div>
+                                <div className="space-y-1">
+                                    <Label htmlFor="packaging-cost-edit" className="text-xs">Packaging Cost / item</Label>
+                                    <div className="relative">
+                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input id="packaging-cost-edit" type="number" placeholder="0.00" {...register('packagingCost')} className="pl-8" />
+                                    </div>
+                                </div>
+                                 <div className="space-y-1">
+                                    <Label htmlFor="shipping-cost-edit" className="text-xs">Avg. Shipping Cost / item</Label>
+                                    <div className="relative">
+                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input id="shipping-cost-edit" type="number" placeholder="0.00" {...register('shippingCostToCustomer')} className="pl-8" />
+                                    </div>
+                                </div>
+                                <div className="p-2 bg-muted rounded-md text-xs flex justify-between">
+                                    <span>Profit: <span className="font-bold">${dtcProfit.profit.toFixed(2)}</span></span>
+                                    <span>Margin: <span className="font-bold">{dtcProfit.margin.toFixed(1)}%</span></span>
+                                </div>
+                            </div>
+                        </div>
                     </CardContent>
                 </Card>
             )}
@@ -360,6 +418,9 @@ export const EditProductDialog: React.FC<EditProductDialogProps> = ({
 
             msrp: product.msrp,
             markdownPrice: product.markdownPrice,
+            wholesalePrice: product.wholesalePrice,
+            packagingCost: product.packagingCost,
+            shippingCostToCustomer: product.shippingCostToCustomer,
 
             supplier: product.supplier,
             sku: product.sku,
