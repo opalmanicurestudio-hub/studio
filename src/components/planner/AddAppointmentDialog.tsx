@@ -69,6 +69,8 @@ interface AddAppointmentDialogProps {
   onConfirm: (apt: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date, recurrence?: { frequency: string, endDate: Date }}) => void;
   initialClientId?: string;
   appointmentToRebook?: Appointment | null;
+  initialStartTime?: Date;
+  initialStaffId?: string;
 }
 
 const timeStringToDate = (timeStr: string, date: Date): Date => {
@@ -103,7 +105,7 @@ const AddAppointmentForm = ({
     onConfirm,
     initialClientId,
     appointmentToRebook,
-}: Omit<AddAppointmentDialogProps, 'open' | 'onOpenChange'>) => {
+}: Omit<AddAppointmentDialogProps, 'open' | 'onOpenChange' | 'initialStartTime' | 'initialStaffId'>) => {
     const { register, handleSubmit, control, watch, formState: { errors } } = useForm({
         defaultValues: {
             clientId: appointmentToRebook ? appointmentToRebook.clientId : initialClientId || '',
@@ -156,7 +158,7 @@ const AddAppointmentForm = ({
         } else if (!staffDaySchedule && publicScheduleProfile?.week?.[dayName]) {
             workingHours = publicScheduleProfile.week[dayName];
         } else {
-            return [];
+            return []; // Staff is explicitly not available or no schedule found
         }
         
         if (!workingHours || !workingHours.enabled) {
@@ -460,12 +462,12 @@ const AddAppointmentForm = ({
     )
 }
 
-export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, clients, services, staff, appointments, events, scheduleProfiles, onConfirm, initialClientId, appointmentToRebook }) => {
+export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, clients, services, staff, appointments, events, scheduleProfiles, onConfirm, initialClientId, appointmentToRebook, initialStartTime, initialStaffId }) => {
   const isMobile = useIsMobile();
 
   const formKey = useMemo(() => {
-    return appointmentToRebook ? `rebook-${appointmentToRebook.id}` : `new-${initialClientId || 'fresh'}`;
-  }, [appointmentToRebook, initialClientId]);
+    return appointmentToRebook ? `rebook-${appointmentToRebook.id}` : `new-${initialClientId || initialStaffId ||'fresh'}`;
+  }, [appointmentToRebook, initialClientId, initialStaffId]);
 
   const title = "New Appointment";
   const description = "Book a new appointment for a client.";

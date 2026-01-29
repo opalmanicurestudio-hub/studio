@@ -114,6 +114,8 @@ function PlannerPageContent() {
 
   const [appointmentToRebook, setAppointmentToRebook] = useState<Appointment | null>(null);
   const [initialClientIdForNewApt, setInitialClientIdForNewApt] = useState<string>('');
+  const [newAppointmentSlot, setNewAppointmentSlot] = useState<{ startTime: Date; staffId: string } | null>(null);
+
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannedData, setScannedData] = useState<string | null>(null);
@@ -187,6 +189,8 @@ function PlannerPageContent() {
   const { data: fetchedEvents, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
   const { data: fetchedResources, isLoading: resourcesLoading } = useCollection<Resource>(resourcesQuery);
   const { data: inventory } = useCollection<InventoryItem>(inventoryQuery);
+  
+  const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
 
   const resources = useMemo(() => (fetchedResources && fetchedResources.length > 0) ? fetchedResources : mockResources, [fetchedResources]);
 
@@ -799,6 +803,14 @@ const events = useMemo(() => {
     setIsAddAppointmentOpen(true);
   };
 
+  const handleTimeSlotClick = (startTime: Date, staffId: string) => {
+    setNewAppointmentSlot({ startTime, staffId });
+    setAppointmentToRebook(null);
+    setInitialClientIdForNewApt('');
+    setIsAddAppointmentOpen(true);
+  };
+
+
   const handleAddEvent = (newEvent: Omit<Event, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date}) => {
     if (!firestore || !tenantId) return;
     const newEventWithId = { ...newEvent, id: nanoid() };
@@ -1369,6 +1381,8 @@ const events = useMemo(() => {
                 clients={clients}
                 services={services}
                 resources={resources || []}
+                publicScheduleProfile={publicScheduleProfile}
+                onTimeSlotClick={handleTimeSlotClick}
             />
           )}
 
@@ -1399,6 +1413,8 @@ const events = useMemo(() => {
                 clients={clients}
                 services={services}
                 resources={resources || []}
+                publicScheduleProfile={publicScheduleProfile}
+                onTimeSlotClick={() => {}} // Not implemented for resource view
             />
           )}
       </main>
@@ -1434,6 +1450,7 @@ const events = useMemo(() => {
             if (!isOpen) {
                 setAppointmentToRebook(null);
                 setInitialClientIdForNewApt('');
+                setNewAppointmentSlot(null);
             }
             setIsAddAppointmentOpen(isOpen);
         }}
@@ -1446,6 +1463,8 @@ const events = useMemo(() => {
         onConfirm={handleAddAppointment}
         initialClientId={appointmentToRebook ? appointmentToRebook.clientId : initialClientIdForNewApt}
         appointmentToRebook={appointmentToRebook}
+        initialStartTime={newAppointmentSlot?.startTime}
+        initialStaffId={newAppointmentSlot?.staffId}
       />
        {selectedAppointment && (
         <EditAppointmentDialog 
