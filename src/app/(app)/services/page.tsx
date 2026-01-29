@@ -272,7 +272,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUp
     if (!service.pricingTiers || service.pricingTiers.length === 0) {
         return null;
     }
-    const tierOrder = ['junior', 'senior', 'master'];
+    const tierOrder = ['apprentice', 'junior', 'senior', 'master'];
     return [...service.pricingTiers].sort((a, b) => tierOrder.indexOf(a.level) - tierOrder.indexOf(b.level));
   }, [service.pricingTiers]);
 

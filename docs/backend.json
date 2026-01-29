@@ -164,7 +164,7 @@
         "clientCount": { "type": "number", "description": "The approximate number of clients the staff member has served." },
         "skillLevel": {
             "type": "string",
-            "enum": ["junior", "senior", "master"],
+            "enum": ["apprentice", "junior", "senior", "master"],
             "description": "The skill level of the staff member, used for tiered pricing."
         },
         "role": { "type": "string", "enum": ["admin", "staff"] },
@@ -260,7 +260,7 @@
             "items": {
                 "type": "object",
                 "properties": {
-                    "level": { "type": "string", "enum": ["junior", "senior", "master"] },
+                    "level": { "type": "string", "enum": ["apprentice", "junior", "senior", "master"] },
                     "price": { "type": "number" },
                     "durationMinutes": { "type": "number" }
                 },
@@ -965,5 +965,3 @@
 
 
 
-
-    

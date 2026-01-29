@@ -68,17 +68,20 @@ const ProfitAnalysisCard = ({ service, tmhr }: { service: Service; tmhr: number;
 
     const tiers = useMemo(() => {
         const defaultTiers = [
+            { level: 'apprentice', price: service.price * 0.6 },
             { level: 'junior', price: service.price * 0.8 },
             { level: 'senior', price: service.price },
             { level: 'master', price: service.price * 1.2 },
         ];
         const serviceTiers = service.pricingTiers && service.pricingTiers.length > 0 ? service.pricingTiers : defaultTiers;
 
+        const tierOrder = ['apprentice', 'junior', 'senior', 'master'];
+
         return serviceTiers.map(tier => {
             const profit = tier.price - cost;
             const margin = tier.price > 0 ? (profit / tier.price) * 100 : 0;
             return { ...tier, profit, margin };
-        }).sort((a,b) => a.price - b.price);
+        }).sort((a,b) => tierOrder.indexOf(a.level) - tierOrder.indexOf(b.level));
     }, [service.pricingTiers, service.price, cost]);
 
     return (
@@ -141,22 +144,16 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
       }
     });
 
-    const equipmentCosts = (service.requiredResourceIds || []).map(resourceId => {
+    const equipmentDepreciation = (service.requiredResourceIds || []).reduce((acc, resourceId) => {
         const equipmentItem = inventory.find(i => i.id === resourceId && i.type === 'equipment');
-        let cost = 0;
-        if (equipmentItem && equipmentItem.lifespanYears && equipmentItem.lifespanYears > 0) {
-            const annualDepreciation = (equipmentItem.costPerUnit || 0) / equipmentItem.lifespanYears;
-            const hourlyDepreciation = annualDepreciation / 2080; // Assuming 2080 work hours per year
-            const serviceDurationHours = totalDuration / 60;
-            cost = hourlyDepreciation * serviceDurationHours;
-        }
-      return {
-        id: resourceId,
-        name: equipmentItem?.name || 'Unknown Equipment',
-        imageUrl: equipmentItem?.imageUrl,
-        cost: cost,
-      }
-    }).filter(e => e.cost > 0);
+        if (!equipmentItem || !equipmentItem.lifespanYears || equipmentItem.lifespanYears === 0) return acc;
+
+        const annualDepreciation = (equipmentItem.costPerUnit || 0) / equipmentItem.lifespanYears;
+        const hourlyDepreciation = annualDepreciation / 2080; // Assuming 2080 work hours per year
+        const serviceDurationHours = totalDuration / 60;
+        
+        return acc + (hourlyDepreciation * serviceDurationHours);
+    }, 0);
 
     const totalProductCost = productCosts.reduce((acc, p) => acc + p.cost, 0);
     const totalEquipmentCost = equipmentCosts.reduce((acc, e) => acc + e.cost, 0);
@@ -276,7 +273,13 @@ export default function ServiceDetailPage() {
     }
     const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
 
-    const sortedTiers = [...(service.pricingTiers || [])].sort((a,b) => a.price - b.price);
+    const sortedTiers = useMemo(() => {
+        if (!service.pricingTiers || service.pricingTiers.length === 0) {
+            return [];
+        }
+        const tierOrder = ['apprentice', 'junior', 'senior', 'master'];
+        return [...service.pricingTiers].sort((a,b) => tierOrder.indexOf(a.level) - tierOrder.indexOf(b.level));
+    }, [service.pricingTiers]);
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -328,7 +331,7 @@ export default function ServiceDetailPage() {
                          <Separator className="my-6" />
                          <div className="space-y-4">
                              <h4 className="font-medium">Pricing Tiers</h4>
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                                 {sortedTiers.map(tier => (
                                     <div key={tier.level} className="p-3 rounded-lg bg-muted/50 text-center">
                                         <p className="text-sm capitalize text-muted-foreground">{tier.level}</p>

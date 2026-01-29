@@ -66,7 +66,7 @@ const addStaffSchema = z.object({
   youtubeUrl: z.string().optional(),
   portfolioUrl: z.string().optional(),
   role: z.enum(['admin', 'staff']),
-  skillLevel: z.enum(['junior', 'senior', 'master']),
+  skillLevel: z.enum(['apprentice', 'junior', 'senior', 'master']),
   payStructure: z.enum(['commission', 'hourly', 'salary']),
   commissionRate: z.coerce.number().min(0).max(100).optional(),
   retailCommissionRate: z.coerce.number().min(0).max(100).optional(),
@@ -157,7 +157,7 @@ const AddStaffForm = ({ services, consentForms }: { services: Service[], consent
                                 <PhoneInput name="phone" label="Phone Number" />
                                 <div className="grid grid-cols-2 gap-4">
                                     <Controller name="role" control={control} render={({ field }) => ( <div className="space-y-2"><Label htmlFor="role">Role</Label><Select onValueChange={field.onChange} defaultValue={field.value}><SelectTrigger id="role"><SelectValue placeholder="Select a role" /></SelectTrigger><SelectContent><SelectItem value="staff">Staff</SelectItem><SelectItem value="admin">Admin</SelectItem></SelectContent></Select>{errors.role && <p className="text-sm text-destructive">{errors.role.message}</p>}</div> )}/>
-                                    <Controller name="skillLevel" control={control} render={({ field }) => ( <div className="space-y-2"><Label htmlFor="skillLevel">Skill Level</Label><Select onValueChange={field.onChange} defaultValue={field.value}><SelectTrigger id="skillLevel"><SelectValue placeholder="Select a level" /></SelectTrigger><SelectContent><SelectItem value="junior">Junior</SelectItem><SelectItem value="senior">Senior</SelectItem><SelectItem value="master">Master</SelectItem></SelectContent></Select>{errors.skillLevel && <p className="text-sm text-destructive">{errors.skillLevel.message}</p>}</div> )}/>
+                                    <Controller name="skillLevel" control={control} render={({ field }) => ( <div className="space-y-2"><Label htmlFor="skillLevel">Skill Level</Label><Select onValueChange={field.onChange} defaultValue={field.value}><SelectTrigger id="skillLevel"><SelectValue placeholder="Select a level" /></SelectTrigger><SelectContent><SelectItem value="apprentice">Apprentice</SelectItem><SelectItem value="junior">Junior</SelectItem><SelectItem value="senior">Senior</SelectItem><SelectItem value="master">Master</SelectItem></SelectContent></Select>{errors.skillLevel && <p className="text-sm text-destructive">{errors.skillLevel.message}</p>}</div> )}/>
                                 </div>
                             </div>
                             <div className="space-y-2 mt-4"><Label htmlFor="bio">Bio</Label><Textarea id="bio" placeholder="A short bio for their public profile..." {...register('bio')} /></div>
