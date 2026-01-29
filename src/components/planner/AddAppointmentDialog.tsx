@@ -57,6 +57,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Calendar } from '../ui/calendar';
 import { useForm, Controller } from 'react-hook-form';
 import { Switch } from '../ui/switch';
+import { useToast } from '@/hooks/use-toast';
 
 interface AddAppointmentDialogProps {
   open: boolean;
@@ -389,16 +390,16 @@ const AddAppointmentForm = ({
                         <h3 className="text-lg font-medium">Date & Time</h3>
                         <div className="rounded-lg border space-y-4 p-4">
                             <div className="flex items-center justify-between">
-                                <Button variant="outline" size="icon" onClick={() => methods.setValue('date', subWeeks(date, 1))} type="button"><ChevronLeft className="w-4 h-4" /></Button>
+                                <Button variant="outline" size="icon" onClick={() => setValue('date', subWeeks(date, 1))} type="button"><ChevronLeft className="w-4 h-4" /></Button>
                                 <span className="font-semibold text-center">{format(weekStart, 'MMMM yyyy')}</span>
-                                <Button variant="outline" size="icon" onClick={() => methods.setValue('date', addWeeks(date, 1))} type="button"><ChevronRight className="w-4 h-4" /></Button>
+                                <Button variant="outline" size="icon" onClick={() => setValue('date', addWeeks(date, 1))} type="button"><ChevronRight className="w-4 w-4" /></Button>
                             </div>
-                            <div className="grid grid-cols-7 gap-2">{weekDays.map(day => (<button key={day.toISOString()} onClick={() => methods.setValue('date', day)} disabled={isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))} className={cn("flex flex-col items-center justify-center p-2 rounded-lg border w-full aspect-square transition-colors", isSameDay(day, date) ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-accent", (isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))) && "opacity-50 cursor-not-allowed")} type="button"><span className="text-xs">{format(day, 'E')}</span><span className="font-bold text-lg">{format(day, 'd')}</span></button>))}</div>
+                            <div className="grid grid-cols-7 gap-2">{weekDays.map(day => (<button key={day.toISOString()} onClick={() => setValue('date', day)} disabled={isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))} className={cn("flex flex-col items-center justify-center p-2 rounded-lg border w-full aspect-square transition-colors", isSameDay(day, date) ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-accent", (isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))) && "opacity-50 cursor-not-allowed")} type="button"><span className="text-xs">{format(day, 'E')}</span><span className="font-bold text-lg">{format(day, 'd')}</span></button>))}</div>
                         </div>
                         <div className="space-y-2">
                             <Label>Start Time</Label>
                             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                                {timeSlots.map(time => (<Button key={time} variant={startTime === time ? 'default' : 'outline'} onClick={() => methods.setValue('startTime', time)} type="button">{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</Button>))}
+                                {timeSlots.map(time => (<Button key={time} variant={startTime === time ? 'default' : 'outline'} onClick={() => setValue('startTime', time)} type="button">{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</Button>))}
                                 {timeSlots.length === 0 && (<div className="col-span-full text-center text-sm text-muted-foreground py-4">No available slots for this day.</div>)}
                             </div>
                         </div>
