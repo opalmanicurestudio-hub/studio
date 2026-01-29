@@ -2,10 +2,8 @@
 
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
   DialogContent,
@@ -39,9 +37,11 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { type InventoryItem, type Location, type ConsentForm, type Resource } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
+import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2, ShoppingCart, Calculator } from 'lucide-react';
 import { type Service } from '@/lib/data';
-import { useIsMobile } from '@/hooks/use-mobile';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectResourcesDialog } from './SelectResourcesDialog';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
@@ -117,65 +117,71 @@ const Step1_BasicDetails = ({
     };
     
     return (
-  <div className="grid gap-6 py-4">
-    <div className="flex items-center justify-between p-4 border rounded-lg">
-        <div className='space-y-1'><Label htmlFor="is-addon-edit">Is this an Add-on Service?</Label><p className='text-sm text-muted-foreground'>Add-ons can be appended to primary services.</p></div>
-    </div>
-    <div className="space-y-2">
-      <Label htmlFor="service-name-edit">Service Name</Label>
-    </div>
-    <div className="space-y-2">
-      <Label htmlFor="category-edit">Category</Label>
-      {isAddingCategory ? (
-        <div className="flex gap-2">
-          <Input
-            placeholder="Enter new category name..."
-            value={newCategoryName}
-            onChange={(e) => setNewCategoryName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()}
-          />
-          <Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button>
+      <div className="grid gap-6 py-4">
+        <div className="space-y-2">
+          <Label htmlFor="product-name-edit">Product Name</Label>
+          <Input id="product-name-edit" placeholder="e.g., Hydrating Shampoo" {...register('name')} />
+           {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
         </div>
-      ) : (
-        <div className="flex gap-2">
-          <Controller name="category" control={control} render={({ field }) => (
-               <Select onValueChange={field.onChange} value={field.value}>
-                <SelectTrigger> <SelectValue placeholder="Select a category" /> </SelectTrigger>
-                <SelectContent> {categories.map(cat => ( <SelectItem key={cat} value={cat}>{cat}</SelectItem> ))} </SelectContent>
-              </Select>
-          )}/>
-          <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"> <PlusCircle className="h-4 w-4" /> </Button>
+        <Controller
+            name="type"
+            control={control}
+            render={({ field }) => (
+                <div className="space-y-2">
+                    <Label>Product Type</Label>
+                    <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
+                        <div>
+                            <RadioGroupItem value="professional" id="professional-edit" className="peer sr-only" />
+                            <Label htmlFor="professional-edit" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
+                                <Package className="mb-2 h-6 w-6" /> Professional
+                            </Label>
+                        </div>
+                        <div>
+                            <RadioGroupItem value="retail" id="retail-edit" className="peer sr-only" />
+                            <Label htmlFor="retail-edit" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
+                                <ShoppingCart className="mb-2 h-6 w-6" /> Retail
+                            </Label>
+                        </div>
+                    </RadioGroup>
+                </div>
+            )}
+        />
+        <div className="space-y-2">
+          <Label htmlFor="category-edit">Category</Label>
+          {isAddingCategory ? (
+            <div className="flex gap-2">
+              <Input
+                placeholder="Enter new category name..."
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddNewCategory()}
+              />
+              <Button onClick={handleAddNewCategory} type="button"><Check className="h-4 w-4" /></Button>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <Controller name="category" control={control} render={({ field }) => (
+                   <Select onValueChange={field.onChange} value={field.value}>
+                    <SelectTrigger> <SelectValue placeholder="Select a category" /> </SelectTrigger>
+                    <SelectContent> {categories.map(cat => ( <SelectItem key={cat} value={cat}>{cat}</SelectItem> ))} </SelectContent>
+                  </Select>
+              )}/>
+              <Button variant="outline" size="icon" onClick={() => setIsAddingCategory(true)} type="button"> <PlusCircle className="h-4 w-4" /> </Button>
+            </div>
+          )}
+           {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
         </div>
-      )}
-       {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
-    </div>
 
-    <div className="grid grid-cols-3 gap-4">
         <div className="space-y-2">
-            <Label htmlFor="duration-edit">Duration (min)</Label>
-            <Input id="duration-edit" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>
-            {errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}
+          <Label>Product Image</Label>
+           <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} initialImage={field.value} /> )}/>
         </div>
-        <div className="space-y-2">
-            <Label htmlFor="pad-before-edit">Pad Before (min)</Label>
-            <Input id="pad-before-edit" type="number" placeholder="e.g., 0" {...register('padBefore', { valueAsNumber: true })} />
-        </div>
-        <div className="space-y-2">
-            <Label htmlFor="pad-after-edit">Pad After (min)</Label>
-            <Input id="pad-after-edit" type="number" placeholder="e.g., 15" {...register('padAfter', { valueAsNumber: true })} />
-        </div>
-    </div>
-    
-    <div className="space-y-2">
-      <Label htmlFor="description-edit">Description</Label>
-      <Textarea id="description-edit" placeholder="Describe the service for your booking page..." {...register('description')} />
-    </div>
 
-    <div className="space-y-2">
-      <Label>Service Image</Label>
-       <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/>
-    </div>
-  </div>
+         <div className="space-y-2">
+            <Label htmlFor="internalNotes-edit">Internal Notes</Label>
+            <Textarea id="internalNotes-edit" placeholder="e.g., Back-ordered until June, store on bottom shelf." {...register('internalNotes')} />
+        </div>
+      </div>
     );
 };
 
