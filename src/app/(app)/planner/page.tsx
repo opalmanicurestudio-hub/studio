@@ -1,3 +1,4 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -48,7 +49,7 @@ import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceip
 import { PrintTicket, type TicketData } from '@/components/planner/PrintTicket';
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
 import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
-import { collection, query, where, Timestamp, doc, setDoc } from 'firebase/firestore';
+import { collection, query, where, Timestamp, doc, setDoc, arrayUnion, increment } from 'firebase/firestore';
 import { EditEventDialog } from '@/components/planner/EditEventDialog';
 import { BillDueDateCard } from '@/components/planner/BillDueDateCard';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -317,7 +318,7 @@ const events = useMemo(() => {
     }
   }, [currentDate, appointments, weekStart, billDefinitions, services]);
   
-  const itemsByStaff = useMemo(() => {
+   const itemsByStaff = useMemo(() => {
     const map = new Map<string, (Appointment | Event & { itemType: string })[]>();
     (staff || []).forEach(s => map.set(s.id, []));
 
@@ -502,7 +503,8 @@ const events = useMemo(() => {
       receiptData,
       newCorrections,
       incident,
-      redeemedOffer
+      redeemedOffer,
+      appliedDiscountId
     } = data;
 
     const allPerformedServices = [services?.find(s => s.id === selectedAppointment.serviceId), ...addOns].filter((s): s is Service => !!s);
@@ -630,6 +632,18 @@ const events = useMemo(() => {
         updateDocumentNonBlocking(clientDocRef, updates);
     }
     
+    // 9. Update Discount Usage
+    if (appliedDiscountId) {
+        const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountId);
+        const discountUpdate: any = {
+            usageCount: increment(1)
+        };
+        if (selectedAppointment.clientId) {
+            discountUpdate.usedByClientIds = arrayUnion(selectedAppointment.clientId);
+        }
+        updateDocumentNonBlocking(discountRef, discountUpdate);
+    }
+
     setReceiptDataForPrompt({
         business: { name: 'ClarityFlow Salon', phone: '555-123-4567' },
         ...receiptData
@@ -1554,3 +1568,5 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
+
+    

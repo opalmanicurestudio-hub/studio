@@ -868,6 +868,11 @@
         "limitOnePerCustomer": {
             "type": "boolean",
             "description": "If true, the discount code can only be used once per client."
+        },
+        "usedByClientIds": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "A list of client IDs who have used this discount."
         }
       },
       "required": ["id", "code", "type", "value"]
@@ -1019,3 +1024,6 @@
 
 
 
+
+
+    
