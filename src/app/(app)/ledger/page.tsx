@@ -234,7 +234,7 @@ const TransactionRow = ({ transaction, onRevertClick }: { transaction: Transacti
           </div>
         </div>
       </TableCell>
-      <TableCell>{format(new Date(transaction.date), 'MMM d, yyyy')}</TableCell>
+      <TableCell>{format(new Date(transaction.date), 'MMM d, yyyy p')}</TableCell>
       <TableCell>
         <Badge
           variant={transaction.context === 'Business' ? 'secondary' : 'outline'}
@@ -293,7 +293,7 @@ const TransactionCard = ({ transaction, onRevertClick }: { transaction: Transact
                     </div>
                     <div className="flex-1 space-y-1">
                         <p className="font-semibold">{transaction.description}</p>
-                        <p className="text-sm text-muted-foreground">{transaction.clientOrVendor} &middot; {format(new Date(transaction.date), 'MMM d')}</p>
+                        <p className="text-sm text-muted-foreground">{transaction.clientOrVendor} &middot; {format(new Date(transaction.date), 'MMM d, p')}</p>
                     </div>
                     <div className='text-right'>
                         <p className={cn('font-bold font-mono text-lg', {

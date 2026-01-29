@@ -71,7 +71,7 @@ const AddTransactionForm = () => {
                     <Label htmlFor="amount">Amount</Label>
                     <div className="relative">
                         <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input id="amount" type="number" placeholder="0.00" className="pl-8" {...field} />
+                        <Input id="amount" type="number" step="0.01" placeholder="0.00" className="pl-8" {...field} />
                     </div>
                     {errors.amount && <p className="text-sm text-destructive">{errors.amount.message}</p>}
                     </div>
@@ -81,21 +81,55 @@ const AddTransactionForm = () => {
                 name="date"
                 control={control}
                 render={({ field }) => (
+                  <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                         <Label htmlFor="date">Date</Label>
                         <Popover>
-                            <PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), 'w-full justify-start text-left font-normal', !field.value && 'text-muted-foreground')}>
-                                <span className="flex items-center">
+                            <PopoverTrigger asChild>
+                                <Button
+                                    variant={"outline"}
+                                    className={cn(
+                                    "w-full justify-start text-left font-normal",
+                                    !field.value && "text-muted-foreground"
+                                    )}
+                                >
                                     <CalendarIcon className="mr-2 h-4 w-4" />
                                     {field.value ? format(field.value, 'PPP') : 'Pick a date'}
-                                </span>
+                                </Button>
                             </PopoverTrigger>
                             <PopoverContent className="w-auto p-0">
-                            <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
+                            <Calendar
+                                mode="single"
+                                selected={field.value}
+                                onSelect={(date) => {
+                                    if (date) {
+                                        const existingDate = field.value || new Date();
+                                        const newDate = new Date(date);
+                                        newDate.setHours(existingDate.getHours(), existingDate.getMinutes());
+                                        field.onChange(newDate);
+                                    }
+                                }}
+                                initialFocus
+                            />
                             </PopoverContent>
                         </Popover>
                          {errors.date && <p className="text-sm text-destructive">{errors.date.message}</p>}
                     </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="time">Time</Label>
+                        <Input
+                            id="time"
+                            type="time"
+                            value={field.value ? format(field.value, 'HH:mm') : ''}
+                            onChange={(e) => {
+                                const [hours, minutes] = e.target.value.split(':').map(Number);
+                                const newDate = field.value ? new Date(field.value) : new Date();
+                                newDate.setHours(hours, minutes);
+                                field.onChange(newDate);
+                            }}
+                        />
+                    </div>
+                   </div>
                 )}
             />
              <Controller
@@ -239,7 +273,12 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
 
   useEffect(() => {
     if(open) {
-        reset();
+        reset({
+             date: new Date(),
+             context: 'Business',
+             type: 'expense',
+             amount: undefined,
+        });
     }
   }, [open, reset]);
 
