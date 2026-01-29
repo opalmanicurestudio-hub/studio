@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
@@ -24,7 +25,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { DollarSign, Percent, PlusCircle, Trash2 } from 'lucide-react';
+import { DollarSign, Percent, PlusCircle, Trash2, Users } from 'lucide-react';
 import { useForm, Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -48,6 +49,7 @@ const discountSchema = z.object({
   validFrom: z.date().optional(),
   validUntil: z.date().optional(),
   applicableServiceIds: z.array(z.string()).optional(),
+  limitOnePerCustomer: z.boolean().optional(),
 }).refine(data => data.type !== 'percentage' || (data.value >= 1 && data.value <= 100), {
   message: "Percentage must be between 1 and 100.",
   path: ["value"],
@@ -120,6 +122,7 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
             isActive: true,
             type: 'percentage',
             applicableServiceIds: [],
+            limitOnePerCustomer: false,
         }
     });
 
@@ -138,6 +141,7 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
                 validFrom: discountToEdit.validFrom ? parseISO(discountToEdit.validFrom) : undefined,
                 validUntil: discountToEdit.validUntil ? parseISO(discountToEdit.validUntil) : undefined,
                 applicableServiceIds: discountToEdit.applicableServiceIds || [],
+                limitOnePerCustomer: discountToEdit.limitOnePerCustomer || false,
             });
         } else {
             reset({
@@ -150,6 +154,7 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
                 validFrom: undefined,
                 validUntil: undefined,
                 applicableServiceIds: [],
+                limitOnePerCustomer: false,
             });
         }
     }, [discountToEdit, reset, open]);
@@ -243,6 +248,10 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
             <Label htmlFor="usage-limit">Usage Limit</Label>
             <Input id="usage-limit" type="number" placeholder="0 for unlimited" {...register('usageLimit')} />
             <p className="text-xs text-muted-foreground">Set to 0 for unlimited uses.</p>
+        </div>
+        <div className="flex items-center justify-between">
+            <Label htmlFor="limit-per-customer" className="flex items-center gap-2"><Users className="w-4 h-4 text-muted-foreground" />One use per customer</Label>
+            <Controller name="limitOnePerCustomer" control={control} render={({ field }) => (<Switch id="limit-per-customer" checked={field.value} onCheckedChange={field.onChange} /> )}/>
         </div>
         <div className="flex items-center justify-between">
             <Label htmlFor="is-active">Active</Label>

@@ -1,11 +1,12 @@
 
+
 'use client';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { MoreHorizontal, Percent, Tag, Trash2, Edit } from 'lucide-react';
+import { MoreHorizontal, Percent, Tag, Trash2, Edit, Users, AlertTriangle } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { type Discount } from '@/lib/data';
 
@@ -18,6 +19,11 @@ interface DiscountCardProps {
 export const DiscountCard: React.FC<DiscountCardProps> = ({ discount, onEdit, onDelete }) => {
   const usagePercentage = discount.usageLimit > 0 ? (discount.usageCount / discount.usageLimit) * 100 : 0;
   const isUnlimited = discount.usageLimit === 0;
+
+  const potentialLoss =
+    discount.type === 'fixed' && discount.usageLimit > 0
+      ? discount.value * discount.usageLimit
+      : null;
 
   return (
     <Card>
@@ -46,7 +52,10 @@ export const DiscountCard: React.FC<DiscountCardProps> = ({ discount, onEdit, on
           <span className="font-semibold text-lg">
             {discount.type === 'percentage' ? `${discount.value}% Off` : `$${discount.value.toFixed(2)} Off`}
           </span>
-          <Badge variant={discount.isActive ? 'default' : 'secondary'}>{discount.isActive ? 'Active' : 'Inactive'}</Badge>
+          <div className="flex items-center gap-2">
+            {discount.limitOnePerCustomer && <Badge variant="outline"><Users className="w-3 h-3 mr-1"/>1/Customer</Badge>}
+            <Badge variant={discount.isActive ? 'default' : 'secondary'}>{discount.isActive ? 'Active' : 'Inactive'}</Badge>
+          </div>
         </div>
         {discount.applicableServiceIds && discount.applicableServiceIds.length > 0 && (
           <Badge variant="outline">Applies to {discount.applicableServiceIds.length} service(s)</Badge>
@@ -60,6 +69,13 @@ export const DiscountCard: React.FC<DiscountCardProps> = ({ discount, onEdit, on
           </div>
           <Progress value={isUnlimited ? 0 : usagePercentage} />
         </div>
+         {potentialLoss !== null && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground pt-2">
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+            <span>Potential Loss:</span>
+            <span className="font-semibold text-destructive">${potentialLoss.toFixed(2)}</span>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

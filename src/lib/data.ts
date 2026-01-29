@@ -509,6 +509,7 @@ export type Discount = {
   validFrom?: string;
   validUntil?: string;
   applicableServiceIds?: string[];
+  limitOnePerCustomer?: boolean;
 };
 
 
@@ -1182,5 +1183,6 @@ export { nanoid };
     
 
     
+
 
 

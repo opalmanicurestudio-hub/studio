@@ -164,7 +164,7 @@
         "clientCount": { "type": "number", "description": "The approximate number of clients the staff member has served." },
         "skillLevel": {
             "type": "string",
-            "enum": ["junior", "senior", "master"],
+            "enum": ["apprentice", "junior", "senior", "master"],
             "description": "The skill level of the staff member, used for tiered pricing."
         },
         "role": { "type": "string", "enum": ["admin", "staff"] },
@@ -244,33 +244,27 @@
       "type": "object",
       "description": "Represents a service offered by a tenant.",
       "properties": {
-        "id": {
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        },
-        "description": {
-          "type": "string"
-        },
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number", "description": "The base or default price for the service." },
+        "description": { "type": "string" },
         "imageUrl": {
           "type": "string",
           "format": "uri",
           "description": "URL for the primary service image."
         },
-        "durationMinutes": {
-          "type": "number"
-        },
+        "durationMinutes": { "type": "number", "description": "The base or default duration for the service in minutes." },
         "pricingTiers": {
             "type": "array",
-            "description": "Tiered pricing based on stylist skill level.",
+            "description": "Tiered pricing and duration based on stylist skill level.",
             "items": {
                 "type": "object",
                 "properties": {
-                    "level": { "type": "string", "enum": ["junior", "senior", "master"] },
-                    "price": { "type": "number" }
+                    "level": { "type": "string", "enum": ["apprentice", "junior", "senior", "master"] },
+                    "price": { "type": "number" },
+                    "durationMinutes": { "type": "number" }
                 },
-                "required": ["level", "price"]
+                "required": ["level", "price", "durationMinutes"]
             }
         },
         "category": { "type": "string", "description": "The category of the service (e.g., nails, hair)." },
@@ -299,8 +293,7 @@
       },
       "required": [
         "id",
-        "name",
-        "durationMinutes"
+        "name"
       ]
     },
     "Resource": {
@@ -834,6 +827,50 @@
             }
         },
         "required": ["id", "type", "label"]
+    },
+    "SignedConsent": {
+        "title": "Signed Consent",
+        "description": "A record of a consent form signed by a client.",
+        "type": "object",
+        "properties": {
+            "id": { "type": "string" },
+            "formId": { "type": "string", "description": "The ID of the ConsentForm template." },
+            "formTitle": { "type": "string", "description": "The title of the form at the time of signing." },
+            "clientId": { "type": "string" },
+            "signedAt": { "type": "string", "format": "date-time" },
+            "formData": {
+                "type": "object",
+                "description": "The data submitted by the client, where keys are field IDs and values are the answers."
+            }
+        },
+        "required": ["id", "formId", "formTitle", "clientId", "signedAt"]
+    },
+    "Discount": {
+      "title": "Discount",
+      "type": "object",
+      "description": "Represents a discount code that can be applied to sales.",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string", "description": "The unique code customers will enter." },
+        "description": { "type": "string", "description": "An internal description of the discount." },
+        "type": { "type": "string", "enum": ["percentage", "fixed"], "description": "The type of discount." },
+        "value": { "type": "number", "description": "The discount value (percentage or fixed amount)." },
+        "usageLimit": { "type": "number", "description": "Total number of times the code can be used. 0 for unlimited." },
+        "usageCount": { "type": "number", "description": "How many times the code has been used." },
+        "isActive": { "type": "boolean", "description": "Whether the discount is currently active." },
+        "validFrom": { "type": "string", "format": "date-time", "description": "The date the discount becomes valid." },
+        "validUntil": { "type": "string", "format": "date-time", "description": "The date the discount expires." },
+        "applicableServiceIds": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "A list of service IDs this discount applies to. If empty, it applies to the entire sale."
+        },
+        "limitOnePerCustomer": {
+            "type": "boolean",
+            "description": "If true, the discount code can only be used once per client."
+        }
+      },
+      "required": ["id", "code", "type", "value"]
     }
   },
   "auth": {
@@ -895,6 +932,10 @@
         "$ref": "#/entities/Client"
       },
       "description": "Clients belonging to a specific tenant."
+    },
+     "/tenants/{tenantId}/clients/{clientId}/signedConsents/{signedConsentId}": {
+        "schema": { "$ref": "#/entities/SignedConsent" },
+        "description": "Stores instances of consent forms signed by a specific client."
     },
     "/tenants/{tenantId}/appointments/{appointmentId}": {
       "schema": {
@@ -965,9 +1006,16 @@
         "$ref": "#/entities/ConsentForm"
       },
       "description": "Stores consent form templates created by the tenant."
+    },
+    "/tenants/{tenantId}/discounts/{discountId}": {
+      "schema": {
+        "$ref": "#/entities/Discount"
+      },
+      "description": "Stores discount codes for a specific tenant."
     }
   }
 }
+
 
 
 
