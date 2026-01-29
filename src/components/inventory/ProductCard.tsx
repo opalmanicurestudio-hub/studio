@@ -2,11 +2,7 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import {
-  Card,
-  CardContent,
-  CardFooter,
-} from '@/components/ui/card';
+import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { MoreHorizontal, ShieldPlus, AlertTriangle, Ear, Package, Hammer, Pipette, PackageX, Truck } from 'lucide-react';
@@ -21,6 +17,7 @@ import { cn } from '@/lib/utils';
 import { Rocket, CheckCircle } from 'lucide-react';
 import { Printer } from 'lucide-react';
 import { Edit } from 'lucide-react';
+import Image from 'next/image';
 
 export const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onLogUse, onWriteOff, isSelected, onSelect, isOrdered }: { 
     item: InventoryItem, 
