@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo } from 'react';
@@ -142,8 +143,10 @@ export const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment,
                 </div>
             </CardContent>
              <CardFooter className="p-2 border-t bg-muted/50">
-                <div className="grid grid-cols-2 gap-2 w-full">
-                    <Button variant="ghost" size="sm" className="w-full" onClick={() => onLogUse(item)}><Pipette className="mr-2 h-4 w-4"/>Log Use</Button>
+                <div className={cn("grid gap-2 w-full", item.type === 'professional' || item.type === 'overhead' ? "grid-cols-2" : "grid-cols-1")}>
+                    {(item.type === 'professional' || item.type === 'overhead') && (
+                        <Button variant="ghost" size="sm" className="w-full" onClick={() => onLogUse(item)}><Pipette className="mr-2 h-4 w-4"/>Log Use</Button>
+                    )}
                     <Button variant="ghost" size="sm" className="w-full" onClick={() => onWriteOff(item)}><PackageX className="mr-2 h-4 w-4"/>Write-off</Button>
                 </div>
             </CardFooter>
