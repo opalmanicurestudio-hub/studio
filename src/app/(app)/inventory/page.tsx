@@ -799,7 +799,52 @@ export default function InventoryPage() {
     const product = inventory.find((p: InventoryItem) => p.id === productId);
     if (!product) return { success: false, message: 'Product not found' };
 
-    let unit = product.unit || 'units';
+    const productDocRef = doc(firestore, 'tenants', tenantId, 'inventory', productId);
+    const stockCorrectionsRef = collection(firestore, 'tenants', tenantId, 'stockCorrections');
+    
+    const updateData: Partial<InventoryItem> = {};
+    let unit = 'units';
+    
+    if (product.costingMethod === 'uses') {
+        unit = product.useUnit || 'uses';
+        let currentUses = product.partialContainerUses || 0;
+        let currentStock = product.totalStock;
+        const usesPerContainer = product.estimatedUses || 1;
+        
+        currentUses -= quantity;
+        while (currentUses < 0 && currentStock > 0) {
+            currentStock -= 1;
+            currentUses += usesPerContainer;
+        }
+        
+        updateData.totalStock = currentStock;
+        updateData.partialContainerUses = currentUses;
+
+    } else if (product.costingMethod === 'size') {
+        unit = product.unit || 'ml';
+        let currentSize = product.partialContainerSize || 0;
+        let currentStock = product.totalStock;
+        const sizePerContainer = product.size || 1;
+
+        currentSize -= quantity;
+        while (currentSize < 0 && currentStock > 0) {
+            currentStock -= 1;
+            currentSize += sizePerContainer;
+        }
+        
+        updateData.totalStock = currentStock;
+        updateData.partialContainerSize = currentSize;
+
+    } else { // 'unit' costing method, or undefined
+        updateData.totalStock = (product.totalStock || 0) - quantity;
+        unit = product.unit || 'units';
+    }
+
+    if (updateData.totalStock < 0 || (updateData.partialContainerUses && updateData.partialContainerUses < 0) || (updateData.partialContainerSize && updateData.partialContainerSize < 0)) {
+        return { success: false, message: `Insufficient stock for ${product.name}.`};
+    }
+    
+    updateDocumentNonBlocking(productDocRef, updateData);
 
     const newCorrection: Omit<StockCorrection, 'id'> = {
         productId: productId,
@@ -808,13 +853,9 @@ export default function InventoryPage() {
         unit: unit,
         reason: notes || 'Manual Use Log',
     };
-    const stockCorrectionsRef = collection(firestore, 'tenants', tenantId, 'stockCorrections');
     addDocumentNonBlocking(stockCorrectionsRef, newCorrection);
     
-    let success = true;
-    let message = `${quantity} ${unit} of ${product.name} logged.`;
-    
-    return { success, message };
+    return { success: true, message: `${quantity} ${unit} of ${product.name} logged.` };
   };
   
   const handleToggleExperiment = (item: InventoryItem) => {
