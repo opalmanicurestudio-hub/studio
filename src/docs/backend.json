@@ -877,12 +877,16 @@
             "properties": {
                 "trigger": {
                     "type": "string",
-                    "enum": ["none", "new_client", "loyalty"],
+                    "enum": ["none", "new_client", "loyalty", "re_engagement", "birthday"],
                     "description": "The event that triggers this automation."
                 },
                 "appointmentThreshold": {
                     "type": "number",
                     "description": "Number of appointments to trigger loyalty discount."
+                },
+                "daysSinceLastVisit": {
+                    "type": "number",
+                    "description": "Number of days of inactivity to trigger re-engagement discount."
                 }
             }
         }

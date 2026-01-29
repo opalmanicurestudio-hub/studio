@@ -39,6 +39,7 @@ import { Separator } from '../ui/separator';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '../ui/scroll-area';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
+import { Alert, AlertDescription } from '../ui/alert';
 
 const discountSchema = z.object({
   code: z.string().min(3, "Code must be at least 3 characters.").toUpperCase(),
@@ -52,8 +53,9 @@ const discountSchema = z.object({
   applicableServiceIds: z.array(z.string()).optional(),
   limitOnePerCustomer: z.boolean().default(false),
   automation: z.object({
-      trigger: z.enum(['none', 'new_client', 'loyalty']),
+      trigger: z.enum(['none', 'new_client', 'loyalty', 're_engagement', 'birthday']),
       appointmentThreshold: z.coerce.number().optional(),
+      daysSinceLastVisit: z.coerce.number().optional(),
   }).optional(),
 }).refine(data => data.type !== 'percentage' || (data.value >= 1 && data.value <= 100), {
   message: "Percentage must be between 1 and 100.",
@@ -411,6 +413,8 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
                                 <SelectItem value="none">None (Manual Entry Only)</SelectItem>
                                 <SelectItem value="new_client">New Client's First Visit</SelectItem>
                                 <SelectItem value="loyalty">Loyalty (After X Visits)</SelectItem>
+                                <SelectItem value="re_engagement">Re-engagement (After Inactivity)</SelectItem>
+                                <SelectItem value="birthday">Birthday Special</SelectItem>
                             </SelectContent>
                             </Select>
                         </div>
@@ -428,6 +432,27 @@ export const AddDiscountDialog: React.FC<AddDiscountDialogProps> = ({ open, onOp
                             </div>
                         )}
                         />
+                    )}
+                    {automationTrigger === 're_engagement' && (
+                        <Controller
+                        name="automation.daysSinceLastVisit"
+                        control={control}
+                        render={({ field }) => (
+                            <div className="space-y-2">
+                            <Label>Days Since Last Visit</Label>
+                            <Input type="number" placeholder="e.g., 90" {...field} value={field.value ?? ''} />
+                            <p className="text-xs text-muted-foreground">Trigger when a client hasn't visited in this many days.</p>
+                            </div>
+                        )}
+                        />
+                    )}
+                    {automationTrigger === 'birthday' && (
+                        <Alert>
+                            <AlertTriangle className="h-4 w-4" />
+                            <AlertDescription>
+                            This discount will be suggested for clients whose birthday is in the current month.
+                            </AlertDescription>
+                        </Alert>
                     )}
                  </AccordionContent>
             </AccordionItem>

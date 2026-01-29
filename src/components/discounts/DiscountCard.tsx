@@ -10,6 +10,7 @@ import { MoreHorizontal, Percent, Tag, Trash2, Edit, Users, AlertTriangle, Wand 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { type Discount } from '@/lib/data';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
+import { useMemo } from 'react';
 
 interface DiscountCardProps {
   discount: Discount;
@@ -26,6 +27,24 @@ export const DiscountCard: React.FC<DiscountCardProps> = ({ discount, onEdit, on
       ? discount.value * discount.usageLimit
       : null;
 
+  const automationTooltipText = useMemo(() => {
+    if (!discount.automation || discount.automation.trigger === 'none') {
+      return null;
+    }
+    switch (discount.automation.trigger) {
+      case 'new_client':
+        return "Triggers for new clients.";
+      case 'loyalty':
+        return `Triggers after ${discount.automation.appointmentThreshold || 'X'} appointments.`;
+      case 're_engagement':
+        return `Triggers after ${discount.automation.daysSinceLastVisit || 'X'} days of inactivity.`;
+      case 'birthday':
+        return "Triggers during client's birthday month.";
+      default:
+        return "Automated discount.";
+    }
+  }, [discount.automation]);
+
   return (
     <Card>
       <CardHeader>
@@ -38,17 +57,17 @@ export const DiscountCard: React.FC<DiscountCardProps> = ({ discount, onEdit, on
             <CardDescription>{discount.description || 'No description'}</CardDescription>
           </div>
            <div className="flex items-center gap-2">
-                {discount.automation && discount.automation.trigger !== 'none' && (
-                <TooltipProvider>
-                    <Tooltip>
-                        <TooltipTrigger>
-                            <Wand className="h-4 w-4 text-purple-500" />
-                        </TooltipTrigger>
-                        <TooltipContent>
-                            <p>Automated Discount</p>
-                        </TooltipContent>
-                    </Tooltip>
-                </TooltipProvider>
+                {automationTooltipText && (
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger>
+                                <Wand className="h-4 w-4 text-purple-500" />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p>{automationTooltipText}</p>
+                            </TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
                 )}
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
