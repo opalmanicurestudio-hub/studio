@@ -497,6 +497,19 @@ export type SpoilageItem = {
   expirationDate: string;
 };
 
+export type Discount = {
+  id: string;
+  code: string;
+  description?: string;
+  type: 'percentage' | 'fixed';
+  value: number;
+  usageLimit: number; // 0 for unlimited
+  usageCount: number;
+  isActive: boolean;
+  validFrom?: string;
+  validUntil?: string;
+};
+
 
 export { billDefinitions, billInstances, transactions };
 
@@ -1168,3 +1181,4 @@ export { nanoid };
     
 
     
+

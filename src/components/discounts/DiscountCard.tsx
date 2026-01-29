@@ -1,0 +1,63 @@
+
+'use client';
+
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { MoreHorizontal, Percent, Tag, Trash2, Edit } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { type Discount } from '@/lib/data';
+
+interface DiscountCardProps {
+  discount: Discount;
+  onEdit: (discount: Discount) => void;
+  onDelete: (discountId: string) => void;
+}
+
+export const DiscountCard: React.FC<DiscountCardProps> = ({ discount, onEdit, onDelete }) => {
+  const usagePercentage = discount.usageLimit > 0 ? (discount.usageCount / discount.usageLimit) * 100 : 0;
+  const isUnlimited = discount.usageLimit === 0;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex justify-between items-start">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Tag className="h-5 w-5 text-primary" />
+              {discount.code}
+            </CardTitle>
+            <CardDescription>{discount.description || 'No description'}</CardDescription>
+          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8 -mt-2 -mr-2"><MoreHorizontal className="h-4 w-4" /></Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem onClick={() => onEdit(discount)}><Edit className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
+              <DropdownMenuItem className="text-destructive" onClick={() => onDelete(discount.id)}><Trash2 className="mr-2 h-4 w-4" />Delete</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex justify-between items-center bg-muted/50 p-3 rounded-lg">
+          <span className="font-semibold text-lg">
+            {discount.type === 'percentage' ? `${discount.value}% Off` : `$${discount.value.toFixed(2)} Off`}
+          </span>
+          <Badge variant={discount.isActive ? 'default' : 'secondary'}>{discount.isActive ? 'Active' : 'Inactive'}</Badge>
+        </div>
+        <div>
+          <div className="flex justify-between text-xs mb-1 text-muted-foreground">
+            <span>Usage</span>
+            <span>
+              {discount.usageCount} / {isUnlimited ? '∞' : discount.usageLimit}
+            </span>
+          </div>
+          <Progress value={isUnlimited ? 0 : usagePercentage} />
+        </div>
+      </CardContent>
+    </Card>
+  );
+};

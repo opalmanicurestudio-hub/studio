@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { usePathname } from 'next/navigation';
@@ -38,7 +39,8 @@ import {
   PanelLeft,
   BookText,
   Hammer,
-  HardHat
+  HardHat,
+  Percent
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -89,6 +91,7 @@ const moneyNavItems = [
     { href: '/ledger', icon: BookOpen, label: 'Ledger' },
     { href: '/bills', icon: Landmark, label: 'Bills' },
     { href: '/payday', icon: DollarSign, label: 'Payday' },
+    { href: '/discounts', icon: Percent, label: 'Discounts' },
 ]
 
 export function AppSidebar() {

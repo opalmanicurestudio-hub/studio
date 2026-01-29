@@ -1,4 +1,5 @@
 
+
 /**
  * # Firestore Security Rules
  *
@@ -272,6 +273,14 @@ service cloud.firestore {
     }
 
     /**
+     * @description Rules for discount codes.
+     * @path /tenants/{tenantId}/discounts/{discountId}
+     */
+    match /tenants/{tenantId}/discounts/{discountId} {
+        allow read, write: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
+    }
+
+    /**
      * @description Rules for recurring bills. This data is private.
      * @path /tenants/{tenantId}/bills/{billId}
      * @principle Enforces strict data privacy for a tenant's financial information.
@@ -338,3 +347,4 @@ service cloud.firestore {
     }
   }
 }
+

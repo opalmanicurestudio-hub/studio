@@ -844,6 +844,24 @@
             }
         },
         "required": ["id", "formId", "formTitle", "clientId", "signedAt"]
+    },
+    "Discount": {
+      "title": "Discount",
+      "type": "object",
+      "description": "Represents a discount code that can be applied to sales.",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string", "description": "The unique code customers will enter." },
+        "description": { "type": "string", "description": "An internal description of the discount." },
+        "type": { "type": "string", "enum": ["percentage", "fixed"], "description": "The type of discount." },
+        "value": { "type": "number", "description": "The discount value (percentage or fixed amount)." },
+        "usageLimit": { "type": "number", "description": "Total number of times the code can be used. 0 for unlimited." },
+        "usageCount": { "type": "number", "description": "How many times the code has been used." },
+        "isActive": { "type": "boolean", "description": "Whether the discount is currently active." },
+        "validFrom": { "type": "string", "format": "date-time", "description": "The date the discount becomes valid." },
+        "validUntil": { "type": "string", "format": "date-time", "description": "The date the discount expires." }
+      },
+      "required": ["id", "code", "type", "value"]
     }
   },
   "auth": {
@@ -979,6 +997,16 @@
         "$ref": "#/entities/ConsentForm"
       },
       "description": "Stores consent form templates created by the tenant."
+    },
+    "/tenants/{tenantId}/discounts/{discountId}": {
+      "schema": {
+        "$ref": "#/entities/Discount"
+      },
+      "description": "Stores discount codes for a specific tenant."
     }
   }
 }
+
+
+
+
