@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -10,7 +9,7 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { ManageSpoilageDialog, SpoilageItem } from './ManageSpoilageDialog';
-import { type InventoryItem, type Batch, type StockCorrection } from '@/lib/data';
+import { type InventoryItem, type Batch, type StockCorrection, type Transaction } from '@/lib/data';
 import { isPast, parseISO, differenceInMonths } from 'date-fns';
 import {
   AlertDialog,
@@ -22,22 +21,28 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { useFirebase, addDocumentNonBlocking } from '@/firebase';
+import { collection, doc, writeBatch } from 'firebase/firestore';
+import { useToast } from '@/hooks/use-toast';
+import { useTenant } from '@/context/TenantContext';
 
 
 export const InventorySidebar = ({ 
     inventory,
     stockCorrections,
-    onSpoilageConfirm,
     onLogOverheadUse,
 }: { 
     inventory: InventoryItem[];
     stockCorrections: StockCorrection[];
-    onSpoilageConfirm: (items: SpoilageItem[], notes?: string, imageUrl?: string) => void; 
     onLogOverheadUse: (productId: string) => void;
 }) => {
     const [isSpoilageDialogOpen, setIsSpoilageDialogOpen] = useState(false);
     const [isLogUseConfirmOpen, setIsLogUseConfirmOpen] = useState(false);
     const [itemToLogUse, setItemToLogUse] = useState<InventoryItem | null>(null);
+    const { firestore } = useFirebase();
+    const { toast } = useToast();
+    const { selectedTenant } = useTenant();
+    const tenantId = selectedTenant?.id;
 
     const {
         professionalValue,
@@ -135,11 +140,88 @@ export const InventorySidebar = ({
             });
         return Object.values(usageCounts).sort((a, b) => b.count - a.count).slice(0, 5);
     }, [stockCorrections, inventory]);
+    
+      const handleSpoilageConfirm = (items: SpoilageItem[], notes?: string, imageUrl?: string) => {
+        if (!firestore || !tenantId || !inventory) return;
 
-    const handleConfirmAndClose = (items: SpoilageItem[], notes?: string, imageUrl?: string) => {
-        onSpoilageConfirm(items, notes, imageUrl);
+        const batch = writeBatch(firestore);
+        let totalLoss = 0;
+        
+        items.forEach(item => {
+            const product = inventory.find(p => p.id === item.productId);
+            if (product) {
+                const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.productId);
+
+                const updatedBatches = product.batches.map(b => {
+                    if (b.id === item.batchId) {
+                        totalLoss += item.stock * item.costPerUnit;
+                        return { ...b, stock: 0 }; // Set stock of this batch to 0
+                    }
+                    return b;
+                });
+                
+                const newTotalStock = updatedBatches.reduce((acc, b) => acc + b.stock, 0);
+
+                const updatePayload: Partial<InventoryItem> = {
+                    batches: updatedBatches,
+                    totalStock: newTotalStock,
+                };
+                
+                // If writing off the last container, clear partial usage as well
+                if (newTotalStock === 0) {
+                    updatePayload.partialContainerUses = 0;
+                    updatePayload.partialContainerSize = 0;
+                }
+
+                batch.update(productRef, updatePayload);
+                
+                const stockCorrection: Omit<StockCorrection, 'id'> = {
+                    productId: item.productId,
+                    date: new Date().toISOString(),
+                    change: -item.stock,
+                    unit: product.unit || 'units',
+                    reason: 'Spoilage - Expired',
+                };
+                const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
+                batch.set(scRef, stockCorrection);
+            }
+        });
+        
+        // Create a single transaction for the total loss
+        if (totalLoss > 0) {
+            const transaction: Omit<Transaction, 'id' | 'date'> = {
+                description: `Spoilage Write-off: ${items.length} batch(es)`,
+                clientOrVendor: 'Internal',
+                type: 'expense',
+                context: 'Business',
+                category: 'Spoilage',
+                amount: totalLoss,
+                paymentMethod: 'Internal',
+                hasReceipt: !!imageUrl,
+                receiptUrl: imageUrl,
+                notes: notes,
+            };
+            const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+            batch.set(txnRef, {...transaction, date: new Date().toISOString() });
+        }
+
+        batch.commit().then(() => {
+            toast({
+                title: "Spoilage Written Off",
+                description: `${items.length} item(s) written off with a total loss of $${totalLoss.toFixed(2)}.`,
+            });
+        }).catch((error) => {
+            console.error("Error writing off spoilage:", error);
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: "Failed to write off spoilage.",
+            });
+        });
+        
         setIsSpoilageDialogOpen(false);
     };
+
 
     const handleLogUseClick = (item: InventoryItem) => {
         setItemToLogUse(item);
@@ -256,7 +338,7 @@ export const InventorySidebar = ({
             </CardContent>
         </Card>
 
-        <ManageSpoilageDialog open={isSpoilageDialogOpen} onOpenChange={setIsSpoilageDialogOpen} inventory={inventory} onConfirm={handleConfirmAndClose} />
+        <ManageSpoilageDialog open={isSpoilageDialogOpen} onOpenChange={setIsSpoilageDialogOpen} inventory={inventory} onConfirm={handleSpoilageConfirm} />
 
         <AlertDialog open={isLogUseConfirmOpen} onOpenChange={setIsLogUseConfirmOpen}>
             <AlertDialogContent>
@@ -279,3 +361,6 @@ export const InventorySidebar = ({
 
     
 
+
+}
+    
