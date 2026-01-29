@@ -239,10 +239,10 @@ export default function NewCampaignPage() {
     const targetAudience = watch('targetAudience');
 
     useEffect(() => {
-        if (isTestSendDialogOpen && user?.email && !testEmail) {
+        if (isTestSendDialogOpen && user?.email) {
             setTestEmail(user.email);
         }
-    }, [isTestSendDialogOpen, user, testEmail]);
+    }, [isTestSendDialogOpen, user]);
 
     const handleInsertPlaceholder = (placeholder: string) => {
         const textarea = bodyTextareaRef.current;
