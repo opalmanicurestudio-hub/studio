@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -40,7 +39,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2, ShoppingCart, Calculator } from 'lucide-react';
+import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2 } from 'lucide-react';
 import { type Service } from '@/lib/data';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { SelectResourcesDialog } from './SelectResourcesDialog';
@@ -56,6 +55,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Calendar } from '../ui/calendar';
 import { CalendarIcon } from 'lucide-react';
 import { ScrollArea } from '../ui/scroll-area';
+import { useFirebase, useMemoFirebase, useCollection } from '@/firebase';
+import { collection } from 'firebase/firestore';
 
 
 const serviceSchema = z.object({
@@ -695,3 +696,5 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
     </Dialog>
   );
 };
+
+    
