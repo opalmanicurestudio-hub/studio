@@ -55,6 +55,7 @@ import {
 import { useInventory } from '@/context/InventoryContext';
 import { useTenant } from '@/context/TenantContext';
 import { Loader } from 'lucide-react';
+import { BrowseDiscountsDialog } from '@/components/discounts/BrowseDiscountsDialog';
 
 
 type CartItem = {
@@ -167,6 +168,7 @@ const CartContent = ({
     appliedStoreCredit,
     setAppliedStoreCredit,
     membershipDiscount,
+    setIsDiscountBrowserOpen,
 }: any) => {
     
   const selectedClient = useMemo(() => {
@@ -320,16 +322,15 @@ const CartContent = ({
             <div className="w-full space-y-2 pt-6 border-t">
                 <div className="space-y-2">
                 <Label htmlFor="promo-code">Promo Code</Label>
-                <div className="flex gap-2">
+                 <div className="flex gap-2">
                     <Input
-                    id="promo-code"
-                    value={promoCode}
-                    onChange={(e) => setPromoCode(e.target.value)}
-                    placeholder="e.g., NEWCLIENT15"
+                        id="promo-code"
+                        value={promoCode}
+                        onChange={(e) => setPromoCode(e.target.value)}
+                        placeholder="e.g., NEWCLIENT15"
                     />
-                    <Button variant="outline" onClick={handleApplyPromo}>
-                    Apply
-                    </Button>
+                    <Button variant="secondary" type="button" onClick={() => setIsDiscountBrowserOpen(true)}>Browse</Button>
+                    <Button variant="outline" type="button" onClick={() => handleApplyPromo()}>Apply</Button>
                 </div>
                 </div>
                 <div className="flex justify-between text-sm">
@@ -515,6 +516,7 @@ export default function RetailPage() {
 
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [isAddClientOpen, setIsAddClientOpen] = useState(false);
+  const [isDiscountBrowserOpen, setIsDiscountBrowserOpen] = useState(false);
   
   const [appliedStoreCredit, setAppliedStoreCredit] = useState(0);
   
@@ -659,22 +661,17 @@ export default function RetailPage() {
   
   const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - grandTotal : 0;
 
-  const handleApplyPromo = () => {
-    const code = promoCode.trim().toUpperCase();
+  const handleApplyPromo = (codeToApply?: string) => {
+    const code = (codeToApply || promoCode).trim().toUpperCase();
     if (!code) return;
 
     const discountToApply = discounts.find(d => d.code.toUpperCase() === code);
-
     if (!discountToApply) {
-        toast({ variant: 'destructive', title: 'Invalid Code' });
+        toast({ variant: 'destructive', title: 'Invalid Code', description: 'This promo code could not be found.' });
         return;
     }
-    if (!discountToApply.isActive) {
-        toast({ variant: 'destructive', title: 'Inactive Code' });
-        return;
-    }
-    if (discountToApply.usageLimit > 0 && discountToApply.usageCount >= discountToApply.usageLimit) {
-        toast({ variant: 'destructive', title: 'Usage Limit Reached' });
+    if (!discountToApply.isActive || (discountToApply.usageLimit > 0 && discountToApply.usageCount >= discountToApply.usageLimit)) {
+        toast({ variant: 'destructive', title: 'Inactive Code', description: 'This promo code is either inactive or has reached its usage limit.' });
         return;
     }
 
@@ -686,10 +683,9 @@ export default function RetailPage() {
     let discountValue = 0;
     if (discountToApply.type === 'percentage') {
         discountValue = subtotal * (discountToApply.value / 100);
-    } else { // fixed
+    } else {
         discountValue = discountToApply.value;
     }
-
     setDiscount(discountValue);
     toast({ title: 'Discount Applied!', description: `You saved $${discountValue.toFixed(2)}.` });
   }
@@ -749,29 +745,44 @@ export default function RetailPage() {
         const element = document.getElementById('qr-reader-retail');
         if (element) {
           html5QrCode = new Html5Qrcode('qr-reader-retail');
-          const onScanSuccess = (decodedText: string) => {
+          const onScanSuccess = (decodedText: string, decodedResult: any) => {
             if (html5QrCode?.isScanning) {
               html5QrCode.stop().catch(console.error);
             }
             handleScan(decodedText);
             setIsScannerOpen(false);
           };
-          const onScanFailure = () => { /* ignore */ };
-          html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } }, onScanSuccess, onScanFailure)
-            .catch(err => {
-              toast({ variant: 'destructive', title: 'Camera Error', description: 'Could not start the camera. Please check permissions and try again.' });
-              setIsScannerOpen(false);
-            });
+
+          const onScanFailure = (error: any) => { /* ignore */ };
+            
+          setTimeout(() => {
+                html5QrCode?.start(
+                    { facingMode: "environment" },
+                    { fps: 10, qrbox: { width: 250, height: 250 } },
+                    onScanSuccess,
+                    onScanFailure
+                ).catch(err => {
+                    toast({
+                        variant: 'destructive',
+                        title: 'Camera Error',
+                        description: 'Could not start the camera. Please check permissions and try again.',
+                    });
+                    setIsScannerOpen(false);
+                });
+            }, 300);
         }
-      }, 300);
+      }, 100); 
+
       return () => {
           clearTimeout(timer);
           if (html5QrCode && html5QrCode.isScanning) {
-            html5QrCode.stop().catch(err => console.error("Failed to stop QR Code scanner.", err));
+            html5QrCode.stop().catch(err => {
+                console.error("Failed to stop QR Code scanner.", err);
+            });
           }
       };
     }
-  }, [isScannerOpen, handleScan, toast]);
+}, [isScannerOpen, handleScan, toast]);
 
   const handleRetailCheckout = () => {
     const hasMembershipOrPackage = cart.some(item => item.type === 'membership' || item.type === 'package');
@@ -1212,6 +1223,7 @@ export default function RetailPage() {
                     appliedStoreCredit={appliedStoreCredit}
                     setAppliedStoreCredit={setAppliedStoreCredit}
                     membershipDiscount={membershipDiscount}
+                    setIsDiscountBrowserOpen={setIsDiscountBrowserOpen}
                 />
             </Card>
           </div>
@@ -1261,6 +1273,7 @@ export default function RetailPage() {
                             appliedStoreCredit={appliedStoreCredit}
                             setAppliedStoreCredit={setAppliedStoreCredit}
                             membershipDiscount={membershipDiscount}
+                            setIsDiscountBrowserOpen={setIsDiscountBrowserOpen}
                         />
                     </SheetContent>
                 </Sheet>
@@ -1335,6 +1348,15 @@ export default function RetailPage() {
             </DialogFooter>
         </DialogContent>
       </Dialog>
+      <BrowseDiscountsDialog
+        open={isDiscountBrowserOpen}
+        onOpenChange={setIsDiscountBrowserOpen}
+        allDiscounts={discounts}
+        onSelect={(code) => {
+            setPromoCode(code);
+            handleApplyPromo(code);
+        }}
+    />
     </>
   );
 }
