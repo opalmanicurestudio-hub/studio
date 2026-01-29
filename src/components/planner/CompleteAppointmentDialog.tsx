@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
@@ -23,8 +22,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { AlertCircle, CheckCircle, FileText, FlaskConical, PlusCircle, Trash2, Library, Wand, QrCode, Search, AlertTriangle, ShoppingCart, CreditCard, Banknote, Gift, Coins, ShieldAlert, DollarSign, Users, Award, Repeat } from 'lucide-react';
-import { type Appointment, type Client, type Service, type InventoryItem, type StockCorrection, type CustomFormula, type Staff, AppointmentCheckoutState, Incident } from '@/lib/data';
+import { AlertCircle, CheckCircle, FileText, FlaskConical, PlusCircle, Trash2, Library, Wand, QrCode, Search, AlertTriangle, ShoppingCart, CreditCard, Banknote, Gift, Coins, ShieldAlert, DollarSign, Users, Award, Repeat, Percent } from 'lucide-react';
+import { type Appointment, type Client, type Service, type InventoryItem, type StockCorrection, type CustomFormula, type Staff, AppointmentCheckoutState, Incident, Discount } from '@/lib/data';
 import { Input } from '../ui/input';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { useInventory } from '@/context/InventoryContext';
@@ -98,7 +97,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   onRebook,
   staff,
 }) => {
-  const { inventory, services, memberships, packages, clients, setClients, addStockCorrection, setTransactions } = useInventory();
+  const { inventory, services, memberships, packages, clients, discounts } = useInventory();
   const { appointment, client, service } = appointmentData;
   const [formulaName, setFormulaName] = useState('Default Service Formula');
   const { toast } = useToast();
@@ -208,7 +207,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   }, [open, appointment, service, services, client?.referredBy, incidentMethods]);
 
   const allServicesForAppointment = useMemo(() => [service, ...selectedAddOns].filter((s): s is Service => !!s), [service, selectedAddOns]);
-
+  
   const { initialBreakEven, finalBreakEven, additionalCharge, absorbedCost } = useMemo(() => {
     if (!service) return { initialBreakEven: 0, finalBreakEven: 0, additionalCharge: 0, absorbedCost: 0 };
     
@@ -293,15 +292,48 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
 
 
   const handleApplyPromo = () => {
-    if (promoCode === 'NEWCLIENT15' && client && client.lifetimeValue < (service?.price || 0)) {
-        setDiscount(15);
-        toast({ title: "Discount Applied!", description: "$15.00 new client discount has been applied." })
-    } else {
-        toast({ variant: "destructive", title: "Invalid Code", description: "This promo code is not valid for this client or appointment." })
+    const code = promoCode.trim().toUpperCase();
+    if (!code) return;
+
+    const discountToApply = discounts.find(d => d.code.toUpperCase() === code);
+    if (!discountToApply) {
+        toast({ variant: 'destructive', title: 'Invalid Code', description: 'This promo code could not be found.' });
+        return;
+    }
+    if (!discountToApply.isActive || (discountToApply.usageLimit > 0 && discountToApply.usageCount >= discountToApply.usageLimit)) {
+        toast({ variant: 'destructive', title: 'Inactive Code', description: 'This promo code is either inactive or has reached its usage limit.' });
+        return;
+    }
+
+    if (discountToApply.applicableServiceIds && discountToApply.applicableServiceIds.length > 0) {
+        const applicableServicesInCart = allServicesForAppointment.filter(s => discountToApply.applicableServiceIds!.includes(s.id));
+        if (applicableServicesInCart.length === 0) {
+            toast({ variant: 'destructive', title: 'Not Applicable', description: 'This code is not valid for the services in this appointment.' });
+            return;
+        }
+        
+        let discountValue = 0;
+        if (discountToApply.type === 'percentage') {
+            const applicableTotal = applicableServicesInCart.reduce((sum, s) => sum + s.price, 0);
+            discountValue = applicableTotal * (discountToApply.value / 100);
+        } else {
+            discountValue = discountToApply.value;
+        }
+        setDiscount(discountValue);
+        toast({ title: 'Discount Applied!', description: `You saved $${discountValue.toFixed(2)}.` });
+
+    } else { // Cart-wide discount
+        let discountValue = 0;
+        if (discountToApply.type === 'percentage') {
+            discountValue = subtotal * (discountToApply.value / 100);
+        } else {
+            discountValue = discountToApply.value;
+        }
+        setDiscount(discountValue);
+        toast({ title: 'Discount Applied!', description: `You saved $${discountValue.toFixed(2)}.` });
     }
   }
-
-
+  
   const handleStaffOverride = (serviceId: string, staffId: string) => {
     setServiceStaffOverrides(prev => ({ ...prev, [serviceId]: staffId }));
   };
@@ -630,7 +662,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
             <CardContent className="p-4 flex items-center gap-4">
                   <Avatar className="w-12 h-12">
                     <AvatarImage src={client.avatarUrl} alt={client.name} />
-                    <AvatarFallback>{client.name.substring(0, 2)}</AvatarFallback>
+                    <AvatarFallback>{client.name.substring(0,2)}</AvatarFallback>
                 </Avatar>
                 <div>
                     <p className="font-semibold">{client.name}</p>
@@ -722,11 +754,12 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                     <h4 className="font-medium">Product Formula</h4>
                     {client.customFormulas && client.customFormulas.length > 0 && (
                       <div className="w-full sm:w-auto sm:min-w-[200px]">
-                          <Select onValueChange={handleApplyClientFormula}>
-                              <SelectTrigger>
-                                  <SelectValue placeholder="Load a client formula..." />
+                          <Select onValueChange={handleApplyClientFormula} defaultValue="default">
+                              <SelectTrigger className="h-8 text-xs">
+                                  <SelectValue placeholder="Load a formula..." />
                               </SelectTrigger>
                               <SelectContent>
+                                  <SelectItem value="default">Default Service Formula</SelectItem>
                                   {client.customFormulas.map(formula => (
                                       <SelectItem key={formula.name} value={formula.name}>{formula.name}</SelectItem>
                                   ))}
@@ -784,9 +817,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
           <CardContent className="space-y-3">
                 <h4 className="font-medium text-sm">Add-on Services</h4>
                 <div className="space-y-2 text-sm">
-                    {selectedAddOns.map((item) => (
-                        <div key={item.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md"><p className="font-medium">{item.name}</p><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}><Trash2 className="h-4 w-4" /></Button></div>
-                    ))}
+                    {selectedAddOns.map((item) => (<div key={item.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md"><p className="font-medium">{item.name}</p><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}
                 </div>
                 <Button variant="outline" size="sm" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4"/>Select Add-ons</Button>
                 <Separator className="my-4"/>
@@ -1124,7 +1155,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                     <AlertTriangle className="h-4 w-4" />
                     <AlertTitle>Camera Access Required</AlertTitle>
                     <AlertDescription>
-                        Please enable camera access to use the scanner.
+                        Please enable camera access in your browser settings to use the scanner.
                     </AlertDescription>
                 </Alert>
             )}

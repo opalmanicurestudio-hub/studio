@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle, UserPlus, Coins, Printer, Wallet, Award, Repeat, CheckCircle, Percent } from 'lucide-react';
-import { type InventoryItem, type StockCorrection, type Transaction, type Client, type Appointment, type Service, type AppointmentCheckoutState, type Membership, type Package, type ClientFormData, type WalkIn } from '@/lib/data';
+import { type InventoryItem, type StockCorrection, type Transaction, type Client, type Appointment, type Service, type AppointmentCheckoutState, type Membership, type Package, type ClientFormData, type WalkIn, type Discount } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -532,6 +532,7 @@ export default function RetailPage() {
     walkIns,
     memberships,
     packages,
+    discounts,
     appointments: appointmentsFromDB,
     isLoading,
   } = useInventory();
@@ -659,14 +660,38 @@ export default function RetailPage() {
   const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - grandTotal : 0;
 
   const handleApplyPromo = () => {
-    const selectedClient = clients?.find(c => c.id === selectedClientId);
-    const service = (services || []).find(s => s.id === liveAppointments[0]?.serviceId);
-    if (promoCode === 'NEWCLIENT15' && selectedClient && service && selectedClient.lifetimeValue < (service?.price || 0)) {
-        setDiscount(15);
-        toast({ title: "Discount Applied!", description: "$15.00 new client discount has been applied." })
-    } else {
-        toast({ variant: "destructive", title: "Invalid Code", description: "This promo code is not valid for this client or appointment." })
+    const code = promoCode.trim().toUpperCase();
+    if (!code) return;
+
+    const discountToApply = discounts.find(d => d.code.toUpperCase() === code);
+
+    if (!discountToApply) {
+        toast({ variant: 'destructive', title: 'Invalid Code' });
+        return;
     }
+    if (!discountToApply.isActive) {
+        toast({ variant: 'destructive', title: 'Inactive Code' });
+        return;
+    }
+    if (discountToApply.usageLimit > 0 && discountToApply.usageCount >= discountToApply.usageLimit) {
+        toast({ variant: 'destructive', title: 'Usage Limit Reached' });
+        return;
+    }
+
+    if (discountToApply.applicableServiceIds && discountToApply.applicableServiceIds.length > 0) {
+        toast({ variant: 'destructive', title: 'Not Applicable', description: 'This code is for specific services only and cannot be used in retail checkout.' });
+        return;
+    }
+    
+    let discountValue = 0;
+    if (discountToApply.type === 'percentage') {
+        discountValue = subtotal * (discountToApply.value / 100);
+    } else { // fixed
+        discountValue = discountToApply.value;
+    }
+
+    setDiscount(discountValue);
+    toast({ title: 'Discount Applied!', description: `You saved $${discountValue.toFixed(2)}.` });
   }
   
   const handleScan = useCallback((data: string) => {
@@ -1072,7 +1097,11 @@ export default function RetailPage() {
     const displayClient = clientData || {
       id: checkoutAppointment.clientId,
       name: checkoutAppointment.isWalkIn ? walkInClientName : 'Unknown Client',
-      email: '', phone: '', avatarUrl: '', lifetimeValue: 0, lastAppointment: '',
+      email: '',
+      phone: '',
+      avatarUrl: '',
+      lifetimeValue: 0,
+      lastAppointment: '',
     };
     
     return {
