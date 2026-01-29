@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -34,6 +34,43 @@ const audienceText = {
     loyal: 'Loyal Clients',
     inactive_90: 'Inactive (90+ days)',
 };
+
+const CampaignCard = ({ campaign, onSend, onDelete }: { campaign: Campaign, onSend: (id: string) => void, onDelete: (campaign: Campaign) => void }) => (
+    <Card>
+        <CardContent className="p-4 space-y-3">
+            <div className="flex justify-between items-start gap-4">
+                <div>
+                    <p className="font-semibold">{campaign.name}</p>
+                    <p className="text-sm text-muted-foreground capitalize flex items-center gap-1.5">
+                        {campaign.type === 'email' ? <Mail className="w-3 h-3" /> : <MessageSquare className="w-3 h-3" />}
+                        {campaign.type}
+                    </p>
+                </div>
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 -mt-1 -mr-2"><MoreHorizontal className="h-4 w-4" /></Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                        <DropdownMenuItem onClick={() => onSend(campaign.id)} disabled={campaign.status === 'sent'}>
+                            <Send className="mr-2 h-4 w-4" /> Send Now
+                        </DropdownMenuItem>
+                        <DropdownMenuItem className="text-destructive" onClick={() => onDelete(campaign)}>
+                            <Trash2 className="mr-2 h-4 w-4" /> Delete
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            </div>
+            <div className="flex items-center text-sm">
+                <AudienceIcon audience={campaign.targetAudience} />
+                <span>{audienceText[campaign.targetAudience]}</span>
+            </div>
+             <div className="flex items-center justify-between text-sm pt-3 border-t">
+                <Badge variant={campaign.status === 'sent' ? 'default' : 'secondary'} className="capitalize">{campaign.status}</Badge>
+                <span className="text-muted-foreground">{campaign.sentAt ? format(new Date(campaign.sentAt), 'P') : 'Not sent'}</span>
+            </div>
+        </CardContent>
+    </Card>
+);
 
 export default function CampaignsPage() {
   const { firestore } = useFirebase();
@@ -70,6 +107,15 @@ export default function CampaignsPage() {
     toast({ title: "Campaign Deleted" });
     setCampaignToDelete(null);
   };
+  
+  const sortedCampaigns = useMemo(() => {
+    if (!campaigns) return [];
+    return [...campaigns].sort((a,b) => {
+        const aDate = a.sentAt ? new Date(a.sentAt).getTime() : new Date(a.id.substring(0,8)).getTime();
+        const bDate = b.sentAt ? new Date(b.sentAt).getTime() : new Date(b.id.substring(0,8)).getTime();
+        return bDate - aDate;
+    })
+  }, [campaigns]);
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -98,56 +144,65 @@ export default function CampaignsPage() {
             {isLoading ? (
                 <p>Loading campaigns...</p>
             ) : campaigns && campaigns.length > 0 ? (
-              <Table>
-                <TableHeader>
-                    <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Audience</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Sent At</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {campaigns.map(campaign => (
-                        <TableRow key={campaign.id}>
-                            <TableCell className="font-medium">{campaign.name}</TableCell>
-                            <TableCell>
-                                <Badge variant="outline" className="capitalize flex items-center gap-1.5">
-                                    {campaign.type === 'email' ? <Mail className="w-3 h-3" /> : <MessageSquare className="w-3 h-3" />}
-                                    {campaign.type}
-                                </Badge>
-                            </TableCell>
-                             <TableCell>
-                                <div className="flex items-center">
-                                    <AudienceIcon audience={campaign.targetAudience} />
-                                    <span>{audienceText[campaign.targetAudience]}</span>
-                                </div>
-                            </TableCell>
-                            <TableCell>
-                                <Badge variant={campaign.status === 'sent' ? 'default' : 'secondary'} className="capitalize">{campaign.status}</Badge>
-                            </TableCell>
-                            <TableCell>{campaign.sentAt ? format(new Date(campaign.sentAt), 'PPp') : 'Not sent'}</TableCell>
-                            <TableCell className="text-right">
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent>
-                                        <DropdownMenuItem onClick={() => handleSendCampaign(campaign.id)} disabled={campaign.status === 'sent'}>
-                                            <Send className="mr-2 h-4 w-4" /> Send Now
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem className="text-destructive" onClick={() => handleDeleteClick(campaign)}>
-                                            <Trash2 className="mr-2 h-4 w-4" /> Delete
-                                        </DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
-                            </TableCell>
-                        </TableRow>
+              <>
+                <div className="hidden md:block">
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Name</TableHead>
+                                <TableHead>Type</TableHead>
+                                <TableHead>Audience</TableHead>
+                                <TableHead>Status</TableHead>
+                                <TableHead>Sent At</TableHead>
+                                <TableHead className="text-right">Actions</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {sortedCampaigns.map(campaign => (
+                                <TableRow key={campaign.id}>
+                                    <TableCell className="font-medium">{campaign.name}</TableCell>
+                                    <TableCell>
+                                        <Badge variant="outline" className="capitalize flex items-center gap-1.5">
+                                            {campaign.type === 'email' ? <Mail className="w-3 h-3" /> : <MessageSquare className="w-3 h-3" />}
+                                            {campaign.type}
+                                        </Badge>
+                                    </TableCell>
+                                    <TableCell>
+                                        <div className="flex items-center">
+                                            <AudienceIcon audience={campaign.targetAudience} />
+                                            <span>{audienceText[campaign.targetAudience]}</span>
+                                        </div>
+                                    </TableCell>
+                                    <TableCell>
+                                        <Badge variant={campaign.status === 'sent' ? 'default' : 'secondary'} className="capitalize">{campaign.status}</Badge>
+                                    </TableCell>
+                                    <TableCell>{campaign.sentAt ? format(new Date(campaign.sentAt), 'PPp') : 'Not sent'}</TableCell>
+                                    <TableCell className="text-right">
+                                        <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                                <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent>
+                                                <DropdownMenuItem onClick={() => handleSendCampaign(campaign.id)} disabled={campaign.status === 'sent'}>
+                                                    <Send className="mr-2 h-4 w-4" /> Send Now
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem className="text-destructive" onClick={() => handleDeleteClick(campaign)}>
+                                                    <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                                </DropdownMenuItem>
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                </div>
+                <div className="md:hidden space-y-4">
+                    {sortedCampaigns.map(campaign => (
+                        <CampaignCard key={campaign.id} campaign={campaign} onSend={handleSendCampaign} onDelete={handleDeleteClick} />
                     ))}
-                </TableBody>
-              </Table>
+                </div>
+              </>
             ) : (
               <div className="text-center py-20 px-6 border-2 border-dashed rounded-lg">
                 <Megaphone className="mx-auto h-12 w-12 text-muted-foreground" />

@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState } from 'react';
@@ -99,23 +100,23 @@ export default function NewCampaignPage() {
             <AppHeader title="New Campaign" />
             <main className="flex-1 p-4 md:p-8">
                 <form>
-                    <div className="flex items-center justify-between gap-4 mb-8">
-                        <Button variant="outline" asChild>
-                            <Link href="/campaigns">
-                                <ArrowLeft className="mr-2 h-4 w-4" />
-                                Back to Campaigns
-                            </Link>
-                        </Button>
-                        <div className="flex items-center gap-2">
-                             <Button type="button" variant="outline" onClick={handleSubmit((data) => processSubmit(data, 'draft'))} disabled={isSaving || isSending}>
+                     <div className="flex flex-col-reverse sm:flex-row items-center justify-between gap-4 mb-8">
+                        <div className="flex items-center gap-2 w-full sm:w-auto">
+                             <Button type="button" variant="outline" onClick={handleSubmit((data) => processSubmit(data, 'draft'))} disabled={isSaving || isSending} className="flex-1 sm:flex-auto">
                                 {isSaving ? <Loader className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                                Save as Draft
+                                Save Draft
                             </Button>
-                            <Button type="button" onClick={handleSubmit((data) => processSubmit(data, 'sent'))} disabled={isSaving || isSending}>
+                            <Button type="button" onClick={handleSubmit((data) => processSubmit(data, 'sent'))} disabled={isSaving || isSending} className="flex-1 sm:flex-auto">
                                 {isSending ? <Loader className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-                                Save and Send
+                                Send
                             </Button>
                         </div>
+                        <Button variant="outline" asChild className="w-full sm:w-auto self-start sm:self-center">
+                            <Link href="/campaigns">
+                                <ArrowLeft className="mr-2 h-4 w-4" />
+                                Back
+                            </Link>
+                        </Button>
                     </div>
 
                     <Card>
@@ -186,7 +187,7 @@ export default function NewCampaignPage() {
                                             <Label htmlFor="discountId">Attach Discount (Optional)</Label>
                                             <Select 
                                                 onValueChange={(value) => field.onChange(value === 'none' ? undefined : value)} 
-                                                value={field.value || ''}
+                                                value={field.value || 'none'}
                                             >
                                                 <SelectTrigger id="discountId"><SelectValue placeholder="Select a discount code" /></SelectTrigger>
                                                 <SelectContent>
