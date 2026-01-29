@@ -162,9 +162,15 @@
         "portfolioUrl": { "type": "string", "format": "uri", "description": "Link to an external portfolio or website."},
         "yearsOfExperience": { "type": "number", "description": "The staff member's years of experience in the industry." },
         "clientCount": { "type": "number", "description": "The approximate number of clients the staff member has served." },
+        "skillLevel": {
+            "type": "string",
+            "enum": ["junior", "senior", "master"],
+            "description": "The skill level of the staff member, used for tiered pricing."
+        },
         "role": { "type": "string", "enum": ["admin", "staff"] },
         "payStructure": { "type": "string", "enum": ["commission", "hourly", "salary"] },
         "commissionRate": { "type": "number", "description": "Commission rate as a percentage (e.g., 40 for 40%)." },
+        "retailCommissionRate": { "type": "number", "description": "Commission rate on retail sales as a percentage." },
         "hourlyRate": { "type": "number", "description": "Hourly pay rate." },
         "emergencyContact": {
             "type": "object",
@@ -201,25 +207,6 @@
                 "licenseExpiry": { "type": "string", "format": "date" },
                 "documentUrl": { "type": "string", "format": "uri" }
             }
-        },
-        "documents": {
-            "type": "array",
-            "description": "A list of important documents for the staff member, like contracts or certifications.",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "id": { "type": "string" },
-                    "name": { "type": "string" },
-                    "url": { "type": "string", "format": "uri" },
-                    "uploadedAt": { "type": "string", "format": "date-time" }
-                },
-                "required": ["id", "name", "url", "uploadedAt"]
-            }
-        },
-        "assignedFormIds": {
-            "type": "array",
-            "description": "A list of consent form IDs that this staff member needs to sign.",
-            "items": { "type": "string" }
         },
         "active": { "type": "boolean", "description": "Whether the staff member is currently active and schedulable." },
         "onBreak": { "type": "boolean", "description": "Whether the staff member is currently on a break." },
@@ -274,8 +261,17 @@
         "durationMinutes": {
           "type": "number"
         },
-        "price": {
-          "type": "number"
+        "pricingTiers": {
+            "type": "array",
+            "description": "Tiered pricing based on stylist skill level.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "level": { "type": "string", "enum": ["junior", "senior", "master"] },
+                    "price": { "type": "number" }
+                },
+                "required": ["level", "price"]
+            }
         },
         "category": { "type": "string", "description": "The category of the service (e.g., nails, hair)." },
         "requiredSkills": {
@@ -304,8 +300,7 @@
       "required": [
         "id",
         "name",
-        "durationMinutes",
-        "price"
+        "durationMinutes"
       ]
     },
     "Resource": {
@@ -326,28 +321,17 @@
       "type": "object",
       "description": "Represents a product used or sold by a tenant.",
       "properties": {
-        "id": {
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        },
-        "description": {
-          "type": "string"
-        },
-        "cost": {
-          "type": "number"
-        },
-        "quantity": {
-          "type": "number"
-        }
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "cost": { "type": "number" },
+        "quantity": { "type": "number" },
+        "msrp": { "type": "number", "description": "Manufacturer's Suggested Retail Price (DTC Price)." },
+        "wholesalePrice": { "type": "number", "description": "Price for wholesale transactions." },
+        "packagingCost": { "type": "number", "description": "Cost of packaging per item for DTC sales." },
+        "shippingCostToCustomer": { "type": "number", "description": "Average shipping cost per item for DTC sales." }
       },
-      "required": [
-        "id",
-        "name",
-        "cost",
-        "quantity"
-      ]
+      "required": [ "id", "name", "cost", "quantity" ]
     },
     "Client": {
       "title": "Client",
@@ -568,7 +552,24 @@
             "required": ["productId", "productName", "quantity", "costPerUnit"]
           }
         },
-        "notes": { "type": "string" }
+        "notes": { "type": "string" },
+        "invoiceUrl": { "type": "string", "format": "uri" },
+        "paymentMethod": {
+          "type": "string",
+          "description": "The method of payment used for the purchase."
+        },
+        "paymentContext": {
+          "type": "string",
+          "enum": ["Business", "Personal"],
+          "description": "The financial context of the payment."
+        },
+        "paymentMethodIdentifier": {
+          "type": "string",
+          "description": "An identifier for the payment method (e.g., last 4 digits of a card)."
+        },
+        "shippingCost": { "type": "number" },
+        "taxCost": { "type": "number" },
+        "discounts": { "type": "number" }
       },
       "required": ["id", "supplier", "orderDate", "status", "items"]
     },
@@ -708,8 +709,16 @@
           "type": "string",
           "description": "The method of payment used for the transaction."
         },
+        "paymentMethodIdentifier": {
+            "type": "string",
+            "description": "An identifier for the payment method (e.g., last 4 digits of a card)."
+        },
         "hasReceipt": {
           "type": "boolean"
+        },
+        "receiptUrl": {
+          "type": "string",
+          "format": "uri"
         },
         "staffId": {
             "type": "string",
@@ -730,6 +739,10 @@
         "reversalOf": {
             "type": "string",
             "description": "The ID of the transaction this entry is reversing."
+        },
+        "relatedBillInstanceId": {
+            "type": "string",
+            "description": "The ID of the bill instance this payment is for."
         }
       },
       "required": ["id", "date", "description", "type", "context", "category", "amount", "paymentMethod"]
@@ -853,10 +866,6 @@
       },
       "description": "Staff members belonging to a specific tenant."
     },
-    "/tenants/{tenantId}/staff/{staffId}/documents/{documentId}": {
-        "schema": { "$ref": "#/entities/SignedDocument" },
-        "description": "Signed documents or uploaded files specific to a staff member."
-    },
     "/tenants/{tenantId}/activityLogs/{logId}": {
         "schema": {
             "$ref": "#/entities/ActivityLog"
@@ -959,5 +968,6 @@
     }
   }
 }
+
 
 

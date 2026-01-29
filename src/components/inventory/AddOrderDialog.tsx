@@ -2,7 +2,7 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,7 @@ import { nanoid } from 'nanoid';
 import { ImageUpload } from '../shared/ImageUpload';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 
 
 interface AddOrderDialogProps {
@@ -47,6 +48,11 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({
     const [invoiceUrl, setInvoiceUrl] = useState('');
     const [items, setItems] = useState<OrderItem[]>([]);
     const [customItemName, setCustomItemName] = useState('');
+    
+    // New state for landed cost calculation
+    const [shippingCost, setShippingCost] = useState(0);
+    const [taxCost, setTaxCost] = useState(0);
+    const [discounts, setDiscounts] = useState(0);
 
     const [paymentContext, setPaymentContext] = useState<'Business' | 'Personal'>('Business');
     const [paymentMethod, setPaymentMethod] = useState('');
@@ -100,11 +106,40 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({
         setItems(prev => prev.filter(item => item.productId !== productId));
     }
 
+    const { itemsSubtotal, totalLandedCost, itemsWithLandedCost } = useMemo(() => {
+        const subtotal = items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
+        const otherCosts = shippingCost + taxCost - discounts;
+        const total = subtotal + otherCosts;
+
+        const itemsWithCosts = items.map(item => {
+            const itemSubtotal = item.quantity * item.costPerUnit;
+            const proportionOfSubtotal = subtotal > 0 ? itemSubtotal / subtotal : 0;
+            const proportionalOtherCosts = otherCosts * proportionOfSubtotal;
+            const totalItemCost = itemSubtotal + proportionalOtherCosts;
+            const landedCostPerUnit = item.quantity > 0 ? totalItemCost / item.quantity : 0;
+            return {
+                ...item,
+                landedCostPerUnit: isNaN(landedCostPerUnit) ? item.costPerUnit : landedCostPerUnit,
+            };
+        });
+
+        return { itemsSubtotal: subtotal, totalLandedCost: total, itemsWithLandedCost: itemsWithCosts };
+    }, [items, shippingCost, taxCost, discounts]);
+
+
     const handleSave = () => {
         let finalTrackingUrl = trackingUrl;
         if (finalTrackingUrl && !/^https?:\/\//i.test(finalTrackingUrl)) {
             finalTrackingUrl = `https://${finalTrackingUrl}`;
         }
+        
+        // Use the calculated landed cost for each item
+        const finalItems = itemsWithLandedCost.map(item => ({
+            productId: item.productId,
+            productName: item.productName,
+            quantity: item.quantity,
+            costPerUnit: item.landedCostPerUnit,
+        }));
 
         const newOrder: Omit<Order, 'id'> = {
             supplier,
@@ -113,12 +148,15 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({
             trackingNumber,
             trackingUrl: finalTrackingUrl,
             notes,
-            items: items,
+            items: finalItems,
             invoiceUrl,
             expectedArrivalDate: expectedDate ? expectedDate.toISOString() : undefined,
             paymentMethod,
             paymentContext,
             paymentMethodIdentifier,
+            shippingCost, // New field
+            taxCost,      // New field
+            discounts,    // New field
         };
 
         onSave(newOrder);
@@ -128,7 +166,7 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({
     return (
         <>
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-lg">
+            <DialogContent className="sm:max-w-2xl">
                 <DialogHeader>
                     <DialogTitle>Create New Purchase Order</DialogTitle>
                 </DialogHeader>
@@ -161,6 +199,23 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({
                         </div>
                         <Button variant="outline" className="mt-2 w-full" type="button" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2"/>Add from Inventory</Button>
                     </div>
+
+                    <Card>
+                        <CardHeader><CardTitle className="text-base">Landed Cost Calculator</CardTitle></CardHeader>
+                        <CardContent className="space-y-4">
+                            <div className="flex justify-between text-sm"><span>Items Subtotal:</span><span className="font-mono">${itemsSubtotal.toFixed(2)}</span></div>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                <div className="space-y-2"><Label>Shipping Cost</Label><Input type="number" value={shippingCost || ''} onChange={e => setShippingCost(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
+                                <div className="space-y-2"><Label>Taxes</Label><Input type="number" value={taxCost || ''} onChange={e => setTaxCost(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
+                                <div className="space-y-2"><Label>Discounts</Label><Input type="number" value={discounts || ''} onChange={e => setDiscounts(parseFloat(e.target.value) || 0)} placeholder="0.00" /></div>
+                            </div>
+                            <div className="p-3 bg-muted rounded-md flex items-center justify-between">
+                                <span className="font-medium">Total Landed Cost:</span>
+                                <span className="text-lg font-bold text-primary">${totalLandedCost.toFixed(2)}</span>
+                            </div>
+                        </CardContent>
+                    </Card>
+
 
                     <div className="space-y-2">
                         <Label htmlFor="supplier">Supplier</Label>

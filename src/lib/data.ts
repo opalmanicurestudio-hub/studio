@@ -350,6 +350,9 @@ export type Order = {
   paymentMethod?: string;
   paymentContext?: 'Business' | 'Personal';
   paymentMethodIdentifier?: string;
+  shippingCost?: number;
+  taxCost?: number;
+  discounts?: number;
 };
 
 export type Quote = {
