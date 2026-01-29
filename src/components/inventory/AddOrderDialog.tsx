@@ -7,8 +7,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Calendar } from '@/components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { type Order, type InventoryItem } from '@/lib/data';
 import { CalendarIcon, PlusCircle, Trash2, DollarSign } from 'lucide-react';
 import { format } from 'date-fns';
@@ -116,11 +114,19 @@ export const AddOrderDialog: React.FC<AddOrderDialogProps> = ({
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                              <Label>Order Date</Label>
-                            <Popover><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal">{orderDate ? format(orderDate, 'PPP') : 'Select date'}</Button></PopoverTrigger><PopoverContent><Calendar mode="single" selected={orderDate} onSelect={setOrderDate} /></PopoverContent></Popover>
+                            <Input
+                                type="date"
+                                value={orderDate ? format(orderDate, 'yyyy-MM-dd') : ''}
+                                onChange={(e) => setOrderDate(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined)}
+                            />
                         </div>
                         <div className="space-y-2">
                             <Label>Expected Arrival</Label>
-                            <Popover><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal">{expectedDate ? format(expectedDate, 'PPP') : 'Select date'}</Button></PopoverTrigger><PopoverContent><Calendar mode="single" selected={expectedDate} onSelect={setExpectedDate} /></PopoverContent></Popover>
+                            <Input
+                                type="date"
+                                value={expectedDate ? format(expectedDate, 'yyyy-MM-dd') : ''}
+                                onChange={(e) => setExpectedDate(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined)}
+                            />
                         </div>
                     </div>
                      <div className="space-y-2">
