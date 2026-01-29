@@ -73,8 +73,10 @@ export const InventorySidebar = ({
                 const purchaseCost = item.costPerUnit || 0;
                 const lifespanMonths = (item.lifespanYears || 5) * 12;
                 const monthlyDepreciation = lifespanMonths > 0 ? purchaseCost / lifespanMonths : 0;
+                
                 const purchaseDate = item.batches[0]?.receivedDate ? parseISO(item.batches[0].receivedDate) : new Date();
                 const monthsInService = differenceInMonths(new Date(), purchaseDate);
+                
                 const accumulatedDepreciation = Math.min(monthlyDepreciation * monthsInService, purchaseCost);
                 const bookValue = purchaseCost - accumulatedDepreciation;
                 equipVal += bookValue;
@@ -91,12 +93,14 @@ export const InventorySidebar = ({
             });
         });
 
+        const totalValue = profVal + retVal + overVal + equipVal;
+
         return {
             professionalValue: profVal,
             retailValue: retVal,
             overheadValue: overVal,
             equipmentValue: equipVal,
-            totalValue: profVal + retVal + overVal + equipVal,
+            totalValue: totalValue,
             expiredValue: expVal,
             expiredItemsCount: expCount,
             activeExperiments: activeExp,
