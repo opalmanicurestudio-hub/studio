@@ -508,6 +508,7 @@ export type Discount = {
   isActive: boolean;
   validFrom?: string;
   validUntil?: string;
+  applicableServiceIds?: string[];
 };
 
 
@@ -1181,4 +1182,5 @@ export { nanoid };
     
 
     
+
 

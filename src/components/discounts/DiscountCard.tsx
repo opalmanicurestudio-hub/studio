@@ -48,6 +48,9 @@ export const DiscountCard: React.FC<DiscountCardProps> = ({ discount, onEdit, on
           </span>
           <Badge variant={discount.isActive ? 'default' : 'secondary'}>{discount.isActive ? 'Active' : 'Inactive'}</Badge>
         </div>
+        {discount.applicableServiceIds && discount.applicableServiceIds.length > 0 && (
+          <Badge variant="outline">Applies to {discount.applicableServiceIds.length} service(s)</Badge>
+        )}
         <div>
           <div className="flex justify-between text-xs mb-1 text-muted-foreground">
             <span>Usage</span>

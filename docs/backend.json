@@ -859,7 +859,12 @@
         "usageCount": { "type": "number", "description": "How many times the code has been used." },
         "isActive": { "type": "boolean", "description": "Whether the discount is currently active." },
         "validFrom": { "type": "string", "format": "date-time", "description": "The date the discount becomes valid." },
-        "validUntil": { "type": "string", "format": "date-time", "description": "The date the discount expires." }
+        "validUntil": { "type": "string", "format": "date-time", "description": "The date the discount expires." },
+        "applicableServiceIds": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "A list of service IDs this discount applies to. If empty, it applies to the entire sale."
+        }
       },
       "required": ["id", "code", "type", "value"]
     }
