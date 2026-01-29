@@ -36,7 +36,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { type InventoryItem, type Location, type Resource } from '@/lib/data';
+import { type InventoryItem, type Location, type ConsentForm, type Resource } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2 } from 'lucide-react';
 import { type Service } from '@/lib/data';
@@ -47,7 +47,7 @@ import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { BrowseConsentFormsDialog } from '../services/BrowseConsentFormsDialog';
 import { Switch } from '../ui/switch';
 import { useInventory } from '@/context/InventoryContext';
-import { SelectAddOnsDialog as NewSelectAddonsDialog } from '../services/SelectAddOnsDialog';
+import { SelectResourcesDialog as NewSelectResourcesDialog } from '../services/SelectResourcesDialog';
 import { cn } from '@/lib/utils';
 import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
 import { format, parseISO } from 'date-fns';
@@ -113,9 +113,13 @@ const Step1_BasicDetails = ({
     
     return (
   <div className="grid gap-6 py-4">
+    <div className="flex items-center justify-between p-4 border rounded-lg">
+        <div className='space-y-1'><Label htmlFor="is-addon-edit">Is this an Add-on Service?</Label><p className='text-sm text-muted-foreground'>Add-ons can be appended to primary services.</p></div>
+        <Controller name="isAddon" control={control} render={({ field }) => ( <Switch id="is-addon-edit" checked={field.value} onCheckedChange={field.onChange} /> )}/>
+    </div>
     <div className="space-y-2">
       <Label htmlFor="product-name-edit">Product Name</Label>
-      <Input id="product-name-edit" {...register('name')} />
+      <Input id="product-name-edit" placeholder="e.g., Hydrating Shampoo" {...register('name')} />
        {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
     </div>
     <Controller name="type" control={control} render={({ field }) => ( <input type="hidden" {...field} /> )}/>
@@ -144,13 +148,31 @@ const Step1_BasicDetails = ({
       )}
        {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
     </div>
-    <div className="space-y-2">
-      <Label>Product Image</Label>
-       <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/>
+
+    <div className="grid grid-cols-3 gap-4">
+        <div className="space-y-2">
+            <Label htmlFor="duration-edit">Duration (min)</Label>
+            <Input id="duration-edit" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>
+            {errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}
+        </div>
+        <div className="space-y-2">
+            <Label htmlFor="pad-before-edit">Pad Before (min)</Label>
+            <Input id="pad-before-edit" type="number" placeholder="e.g., 0" {...register('padBefore', { valueAsNumber: true })} />
+        </div>
+        <div className="space-y-2">
+            <Label htmlFor="pad-after-edit">Pad After (min)</Label>
+            <Input id="pad-after-edit" type="number" placeholder="e.g., 15" {...register('padAfter', { valueAsNumber: true })} />
+        </div>
     </div>
-     <div className="space-y-2">
-      <Label htmlFor="internal-notes-edit">Internal Notes</Label>
-      <Textarea id="internal-notes-edit" placeholder="Private usage instructions, formulation tips..." {...register('internalNotes')} />
+    
+    <div className="space-y-2">
+      <Label htmlFor="description-edit">Description</Label>
+      <Textarea id="description-edit" placeholder="Describe the service for your booking page..." {...register('description')} />
+    </div>
+
+    <div className="space-y-2">
+      <Label>Service Image</Label>
+       <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/>
     </div>
   </div>
     );
@@ -185,7 +207,7 @@ const Step2_CostingPricing = () => {
         const profit = price - landedCostPerItem;
         return (profit / price) * 100;
     }, [msrp, landedCostPerItem]);
-
+    
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
              <Card>
@@ -239,7 +261,7 @@ const Step3_InventorySupplier = ({ onAddLocationClick, locations }: { onAddLocat
                 <CardContent className="space-y-4">
                     <div className="space-y-2"><Label htmlFor="vendor-edit">Vendor</Label><Input id="vendor-edit" placeholder="e.g., SalonCentric" {...register('supplier')} /></div>
                     <div className="space-y-2"><Label htmlFor="sku-edit">SKU / Barcode</Label><Input id="sku-edit" placeholder="Product identifier" {...register('sku')} /></div>
-                    <div className="space-y-2"><Label htmlFor="purchase-link-edit">Purchase Link</Label><Input id="purchase-link-edit" type="url" placeholder="https://..." {...register('purchaseLink')} /></div>
+                    <div className="space-y-2"><Label htmlFor="purchase-link-edit">Purchase Link</Label><Input id="purchase-link-edit" type="text" placeholder="www.example.com" {...register('purchaseLink')} /></div>
                 </CardContent>
             </Card>
             <Card>
@@ -354,6 +376,8 @@ export const EditProductDialog: React.FC<EditProductDialogProps> = ({
     }
   }, [product, open, methods]);
 
+  const { watch, trigger, handleSubmit } = methods;
+  
   const onSubmit = (data: ProductFormData) => {
     const costPerUnit = (data.numUnits || 1) > 0 ? ((data.totalPurchaseCost || 0) + (data.shippingCost || 0) + (data.taxCost || 0) - (data.discounts || 0)) / (data.numUnits || 1) : 0;
     
@@ -367,7 +391,7 @@ export const EditProductDialog: React.FC<EditProductDialogProps> = ({
     }
 
     let finalPurchaseLink = data.purchaseLink;
-    if (finalPurchaseLink && !/^https?:\/\//i.test(finalPurchaseLink)) {
+    if (finalPurchaseLink && !/^(https?:\/\/)/i.test(finalPurchaseLink)) {
         finalPurchaseLink = `https://${finalPurchaseLink}`;
     }
 
@@ -382,25 +406,32 @@ export const EditProductDialog: React.FC<EditProductDialogProps> = ({
     onOpenChange(false);
   };
   
-  const handleNext = async (e: React.MouseEvent<HTMLButtonElement>) => {
-    e.preventDefault();
-    const fieldsToValidate: (keyof ProductFormData)[] = [];
-    if (step === 1) {
-      fieldsToValidate.push('name', 'category');
-    }
-    
-    const isValid = fieldsToValidate.length > 0 ? await methods.trigger(fieldsToValidate) : true;
-    
-    if (isValid && step < totalSteps) {
-      setStep(step + 1);
-    }
-  };
+    const handleNext = async (e: React.MouseEvent<HTMLButtonElement>) => {
+        e.preventDefault();
+        const fieldsToValidate: (keyof ServiceFormData)[] = [];
+        if (step === 1) {
+        fieldsToValidate.push('name', 'category', 'duration');
+        }
+        if (step === 3) {
+        fieldsToValidate.push('pricingTiers');
+        }
+        
+        const isValid = fieldsToValidate.length > 0 ? await trigger(fieldsToValidate) : true;
+        
+        if (isValid && step < totalSteps) {
+        setStep(step + 1);
+        }
+    };
 
-  const handleBack = (e: React.MouseEvent<HTMLButtonElement>) => {
-    e.preventDefault();
-    if (step > 1) {
-      setStep(step - 1);
-    }
+    const handleBack = (e: React.MouseEvent<HTMLButtonElement>) => {
+        e.preventDefault();
+        if (step > 1) {
+            setStep(step - 1);
+        }
+    };
+  
+  const handleOpenChange = (isOpen: boolean) => {
+    onOpenChange(isOpen);
   };
 
   const getStepContent = () => {
@@ -418,7 +449,7 @@ export const EditProductDialog: React.FC<EditProductDialogProps> = ({
 
   const formBody = (
     <FormProvider {...methods}>
-      <form id={formId} onSubmit={methods.handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+      <form id={formId} onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
         <DialogHeader className={isMobile ? "p-4 border-b text-left" : "p-6 pb-4"}>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
@@ -448,7 +479,7 @@ export const EditProductDialog: React.FC<EditProductDialogProps> = ({
 
   if (isMobile) {
     return (
-      <Sheet open={open} onOpenChange={onOpenChange}>
+      <Sheet open={open} onOpenChange={handleOpenChange}>
         <SheetContent side="bottom" className="max-h-[90dvh] flex flex-col p-0">
           {formBody}
         </SheetContent>
@@ -457,7 +488,7 @@ export const EditProductDialog: React.FC<EditProductDialogProps> = ({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col p-0">
         {formBody}
       </DialogContent>

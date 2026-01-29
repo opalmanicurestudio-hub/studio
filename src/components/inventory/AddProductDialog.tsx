@@ -19,7 +19,7 @@ import {
   SheetDescription,
   SheetFooter,
 } from '@/components/ui/sheet';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -80,7 +80,7 @@ const productSchema = z.object({
 
   supplier: z.string().optional(),
   sku: z.string().optional(),
-  purchaseLink: z.string().url({ message: "Please enter a valid URL." }).optional().or(z.literal('')),
+  purchaseLink: z.string().optional(),
   reorderPoint: z.coerce.number().optional(),
   initialStock: z.coerce.number().min(1, 'Initial stock is required'),
   expirationDate: z.date().optional(),
@@ -113,6 +113,10 @@ const Step1_BasicDetails = ({
     
     return (
   <div className="grid gap-6 py-4">
+    <div className="flex items-center justify-between p-4 border rounded-lg">
+        <div className='space-y-1'><Label htmlFor="is-addon">Is this an Add-on Service?</Label><p className='text-sm text-muted-foreground'>Add-ons can be appended to primary services.</p></div>
+        <Controller name="isAddon" control={control} render={({ field }) => ( <Switch id="is-addon" checked={field.value} onCheckedChange={field.onChange} /> )}/>
+    </div>
     <div className="space-y-2">
       <Label htmlFor="product-name">Product Name</Label>
       <Input id="product-name" placeholder="e.g., Hydrating Shampoo" {...register('name')} />
@@ -144,13 +148,37 @@ const Step1_BasicDetails = ({
       )}
        {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
     </div>
-    <div className="space-y-2">
-      <Label>Product Image</Label>
-       <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/>
+
+    <div className="grid grid-cols-3 gap-4">
+        <div className="space-y-2">
+            <Label htmlFor="duration">Duration (min)</Label>
+            <Input id="duration" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>
+            {errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}
+        </div>
+        <div className="space-y-2">
+            <Label htmlFor="pad-before">Pad Before (min)</Label>
+            <Input id="pad-before" type="number" placeholder="e.g., 0" {...register('padBefore', { valueAsNumber: true })} />
+        </div>
+        <div className="space-y-2">
+            <Label htmlFor="pad-after">Pad After (min)</Label>
+            <Input id="pad-after" type="number" placeholder="e.g., 15" {...register('padAfter', { valueAsNumber: true })} />
+        </div>
     </div>
+     <div className="space-y-2">
+        <Label htmlFor="capacity">Capacity</Label>
+        <Input id="capacity" type="number" placeholder="1" {...register('capacity', { valueAsNumber: true })}/>
+        <p className="text-xs text-muted-foreground">Max number of clients for this service at the same time. Set to 1 for individual services.</p>
+        {errors.capacity && <p className="text-sm text-destructive">{errors.capacity.message}</p>}
+    </div>
+    
     <div className="space-y-2">
-      <Label htmlFor="internal-notes">Internal Notes</Label>
-      <Textarea id="internal-notes" placeholder="Private usage instructions, formulation tips..." {...register('internalNotes')} />
+      <Label htmlFor="description">Description</Label>
+      <Textarea id="description" placeholder="Describe the service for your booking page..." {...register('description')} />
+    </div>
+
+    <div className="space-y-2">
+      <Label>Service Image</Label>
+       <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )}/>
     </div>
   </div>
     );
@@ -242,7 +270,7 @@ const Step3_InventorySupplier = ({ onAddLocationClick, locations }: { onAddLocat
                 <CardContent className="space-y-4">
                     <div className="space-y-2"><Label htmlFor="vendor">Vendor</Label><Input id="vendor" placeholder="e.g., SalonCentric" {...register('supplier')} /></div>
                     <div className="space-y-2"><Label htmlFor="sku">SKU / Barcode</Label><Input id="sku" placeholder="Product identifier" {...register('sku')} /></div>
-                    <div className="space-y-2"><Label htmlFor="purchase-link">Purchase Link</Label><Input id="purchase-link" type="url" placeholder="https://..." {...register('purchaseLink')} /></div>
+                    <div className="space-y-2"><Label htmlFor="purchase-link">Purchase Link</Label><Input id="purchase-link" type="text" placeholder="www.example.com" {...register('purchaseLink')} /></div>
                 </CardContent>
             </Card>
             <Card>
@@ -345,7 +373,7 @@ export const AddProductDialog: React.FC<{
     const costPerUnit = (data.numUnits || 1) > 0 ? ((data.totalPurchaseCost || 0) + (data.shippingCost || 0) + (data.taxCost || 0) - (data.discounts || 0)) / (data.numUnits || 1) : 0;
     
     let finalPurchaseLink = data.purchaseLink;
-    if (finalPurchaseLink && !/^https?:\/\//i.test(finalPurchaseLink)) {
+    if (finalPurchaseLink && !/^(https?:\/\/)/i.test(finalPurchaseLink)) {
         finalPurchaseLink = `https://${finalPurchaseLink}`;
     }
 
@@ -383,12 +411,12 @@ export const AddProductDialog: React.FC<{
   
     const handleNext = async (e: React.MouseEvent<HTMLButtonElement>) => {
         e.preventDefault();
-        const fieldsToValidate: (keyof ProductFormData)[] = [];
+        const fieldsToValidate: (keyof ServiceFormData)[] = [];
         if (step === 1) {
-        fieldsToValidate.push('name', 'category');
+        fieldsToValidate.push('name', 'category', 'duration');
         }
         if (step === 3) {
-        fieldsToValidate.push('initialStock');
+        fieldsToValidate.push('pricingTiers');
         }
         
         const isValid = fieldsToValidate.length > 0 ? await trigger(fieldsToValidate) : true;
@@ -430,7 +458,7 @@ export const AddProductDialog: React.FC<{
 
   const formBody = (
      <FormProvider {...methods}>
-      <form id={formId} onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+      <form id={formId} onSubmit={methods.handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
         <DialogHeader className={isMobile ? "p-4 border-b text-left" : "p-6 pb-4"}>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
