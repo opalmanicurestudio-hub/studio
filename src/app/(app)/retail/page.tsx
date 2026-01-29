@@ -1356,6 +1356,7 @@ export default function RetailPage() {
             setPromoCode(code);
             handleApplyPromo(code);
         }}
+        cartServiceIds={[]}
     />
     </>
   );

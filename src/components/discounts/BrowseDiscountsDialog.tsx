@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -16,12 +16,14 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { type Discount } from '@/lib/data';
 import { Search, Tag } from 'lucide-react';
 import { Badge } from '../ui/badge';
+import { cn } from '@/lib/utils';
 
 interface BrowseDiscountsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (code: string) => void;
   allDiscounts: Discount[];
+  cartServiceIds?: string[];
 }
 
 export const BrowseDiscountsDialog: React.FC<BrowseDiscountsDialogProps> = ({
@@ -29,15 +31,44 @@ export const BrowseDiscountsDialog: React.FC<BrowseDiscountsDialogProps> = ({
   onOpenChange,
   onSelect,
   allDiscounts,
+  cartServiceIds = [],
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
 
-  const filteredDiscounts = allDiscounts.filter(d =>
-    d.isActive &&
-    (d.usageLimit === 0 || d.usageCount < d.usageLimit) &&
-    (d.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (d.description || '').toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  const isCompatible = (discount: Discount): boolean => {
+    // Cart-wide discounts are always compatible.
+    if (!discount.applicableServiceIds || discount.applicableServiceIds.length === 0) {
+        return true;
+    }
+    // If the cart has services, check for a match.
+    if (cartServiceIds.length > 0) {
+        return discount.applicableServiceIds.some(id => cartServiceIds.includes(id));
+    }
+    // A service-specific discount is not compatible if the cart has no services.
+    return false;
+  };
+
+  const sortedAndFilteredDiscounts = useMemo(() => {
+    return allDiscounts
+        .filter(d =>
+            d.isActive &&
+            (d.usageLimit === 0 || d.usageCount < d.usageLimit) &&
+            (d.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (d.description || '').toLowerCase().includes(searchTerm.toLowerCase()))
+        )
+        .map(d => ({
+            ...d,
+            isCompatible: isCompatible(d)
+        }))
+        .sort((a, b) => {
+            // Sort compatible discounts to the top
+            if (a.isCompatible && !b.isCompatible) return -1;
+            if (!a.isCompatible && b.isCompatible) return 1;
+            // Then sort by code alphabetically
+            return a.code.localeCompare(b.code);
+        });
+  }, [allDiscounts, searchTerm, cartServiceIds]);
+
 
   const handleSelect = (code: string) => {
     onSelect(code);
@@ -63,7 +94,7 @@ export const BrowseDiscountsDialog: React.FC<BrowseDiscountsDialogProps> = ({
           </div>
           <ScrollArea className="h-72">
             <div className="space-y-2 pr-4">
-              {filteredDiscounts.map(discount => (
+              {sortedAndFilteredDiscounts.map(discount => (
                 <div
                   key={discount.id}
                   className="flex items-center space-x-3 p-3 rounded-md hover:bg-muted cursor-pointer"
@@ -73,7 +104,10 @@ export const BrowseDiscountsDialog: React.FC<BrowseDiscountsDialogProps> = ({
                     <Tag className="w-5 h-5 text-primary" />
                   </div>
                   <div className="flex-1">
-                    <p className="text-sm font-semibold">{discount.code}</p>
+                    <p className="text-sm font-semibold flex items-center gap-2">
+                        {discount.code}
+                        {discount.isCompatible && <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900/50">Compatible</Badge>}
+                    </p>
                     <p className="text-xs text-muted-foreground">{discount.description}</p>
                   </div>
                   <div>
@@ -83,7 +117,7 @@ export const BrowseDiscountsDialog: React.FC<BrowseDiscountsDialogProps> = ({
                   </div>
                 </div>
               ))}
-              {filteredDiscounts.length === 0 && (
+              {sortedAndFilteredDiscounts.length === 0 && (
                 <p className="text-center text-sm text-muted-foreground pt-10">No active discounts found.</p>
               )}
             </div>

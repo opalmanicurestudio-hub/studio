@@ -46,6 +46,7 @@ import { Badge } from '../ui/badge';
 import { nanoid } from 'nanoid';
 import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { doc, collection } from 'firebase/firestore';
+import { BrowseDiscountsDialog } from '../discounts/BrowseDiscountsDialog';
 
 
 type EditableFormulaItem = {
@@ -134,6 +135,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   const [promoCode, setPromoCode] = useState('');
   const [discount, setDiscount] = useState(0);
   const [membershipDiscount, setMembershipDiscount] = useState(0);
+  const [isDiscountBrowserOpen, setIsDiscountBrowserOpen] = useState(false);
 
   const [serviceStaffOverrides, setServiceStaffOverrides] = useState<Record<string, string>>({});
   const [tipAllocations, setTipAllocations] = useState<Record<string, number>>({});
@@ -278,18 +280,6 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   const grandTotal = subtotalAfterDiscounts + mockTax + tipAmount;
   
   const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - grandTotal : 0;
-
-  const involvedStaff = useMemo(() => {
-    if (!staff) return [];
-    const staffIds = new Set(Object.values(serviceStaffOverrides));
-    return staff.filter(s => staffIds.has(s.id));
-  }, [serviceStaffOverrides, staff]);
-
-  const remainingTip = useMemo(() => {
-      const allocatedTip = Object.values(tipAllocations).reduce((sum, amount) => sum + amount, 0);
-      return tipAmount - allocatedTip;
-  }, [tipAmount, tipAllocations]);
-
 
   const handleApplyPromo = () => {
     const code = promoCode.trim().toUpperCase();
@@ -628,6 +618,14 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     setAmountTendered(prev => prev + amount);
   };
   
+  const handleKeepTheChange = () => {
+    if (changeDue > 0) {
+        setTipAmount(prevTip => prevTip + changeDue);
+        setAmountTendered(grandTotal + changeDue); 
+        toast({ title: "Tip Added!", description: `$${changeDue.toFixed(2)} has been added as a tip.` });
+    }
+  };
+  
   const actualServiceDuration = useMemo(() => {
     if (appointment.actualStartTime && appointment.actualEndTime) {
       return differenceInMinutes(parseISO(appointment.actualEndTime), parseISO(appointment.actualStartTime));
@@ -803,8 +801,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                     })}
                 </div>
                 <div className='flex gap-2'>
-                  <Button variant="outline" size="sm" onClick={() => setIsProductBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Browse Library</Button>
-                  <Button variant="outline" size="sm" onClick={() => setIsScannerOpen(true)}><QrCode className="mr-2 h-4 w-4"/>Scan Product</Button>
+                  <Button variant="outline" size="sm" onClick={() => setIsProductBrowserOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4"/>Browse Library</Button>
+                  <Button variant="outline" size="sm" onClick={() => setIsScannerOpen(true)} type="button"><QrCode className="mr-2 h-4 w-4"/>Scan Product</Button>
                 </div>
             </CardContent>
         </Card>
@@ -819,7 +817,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                 <div className="space-y-2 text-sm">
                     {selectedAddOns.map((item) => (<div key={item.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md"><p className="font-medium">{item.name}</p><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}
                 </div>
-                <Button variant="outline" size="sm" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4"/>Select Add-ons</Button>
+                <Button variant="outline" size="sm" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button>
                 <Separator className="my-4"/>
                 <h4 className="font-medium text-sm">Retail Products</h4>
                 <div className="space-y-2 text-sm">
@@ -893,7 +891,8 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                     <Label htmlFor="promo-code">Promo Code</Label>
                     <div className="flex gap-2">
                         <Input id="promo-code" value={promoCode} onChange={e => setPromoCode(e.target.value)} placeholder="e.g., NEWCLIENT15" />
-                        <Button variant="outline" onClick={handleApplyPromo}>Apply</Button>
+                        <Button variant="outline" type="button" onClick={() => setIsDiscountBrowserOpen(true)}>Browse</Button>
+                        <Button variant="secondary" type="button" onClick={handleApplyPromo}>Apply</Button>
                     </div>
                 </div>
                 <div className="p-4 rounded-lg bg-muted/50 space-y-2 text-sm">
@@ -1155,7 +1154,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                     <AlertTriangle className="h-4 w-4" />
                     <AlertTitle>Camera Access Required</AlertTitle>
                     <AlertDescription>
-                        Please enable camera access in your browser settings to use the scanner.
+                        Please enable camera permissions in your browser settings to use the scanner.
                     </AlertDescription>
                 </Alert>
             )}
@@ -1165,6 +1164,16 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+        <BrowseDiscountsDialog
+            open={isDiscountBrowserOpen}
+            onOpenChange={setIsDiscountBrowserOpen}
+            allDiscounts={discounts}
+            onSelect={(code) => {
+                setPromoCode(code);
+                handleApplyPromo();
+            }}
+            cartServiceIds={allServicesForAppointment.map(s => s.id)}
+        />
     </>
   );
 };
