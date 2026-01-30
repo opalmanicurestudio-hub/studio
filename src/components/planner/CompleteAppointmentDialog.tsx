@@ -1,3 +1,5 @@
+
+
 'use client';
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
@@ -425,88 +427,92 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
       const product = tempInventory[productIndex];
       let quantityToDeduct = item.quantity;
       
-      if (!product.costingMethod) {
-          if (product.totalStock < quantityToDeduct) {
-             warnings.push(`Insufficient stock for ${product.name}. Required: ${quantityToDeduct}, Available: ${product.totalStock}`);
-             return;
+      const sortedBatches = [...(product.batches || [])].sort((a, b) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime());
+      
+      let totalAvailableStock = sortedBatches.reduce((acc, b) => acc + b.stock, 0);
+
+      if (product.type === 'retail') { // Retail products are always per-unit
+          if (totalAvailableStock < quantityToDeduct) {
+              warnings.push(`Insufficient stock for ${product.name}. Required: ${quantityToDeduct}, Available: ${totalAvailableStock}`);
+              return;
           }
-          product.totalStock -= quantityToDeduct;
-           newCorrections.push({
-                id: `sc-${appointment.id}-${item.id}-${Date.now()}`,
-                productId: item.id,
-                date: new Date().toISOString(),
-                change: -quantityToDeduct,
-                unit: product.unit || 'units',
-                reason: `Appointment #${appointment.id.slice(-4)}`
-            });
-            tempInventory[productIndex] = product;
-            return;
+      } else { // Professional products can have partials
+          if (product.costingMethod === 'size' || product.costingMethod === 'uses') {
+              const unitsPerContainer = product.costingMethod === 'uses' ? product.estimatedUses || 1 : product.size || 1;
+              const partialUnits = product.costingMethod === 'uses' ? product.partialContainerUses || 0 : product.partialContainerSize || 0;
+              totalAvailableStock = (totalAvailableStock * unitsPerContainer) + partialUnits;
+
+              if (totalAvailableStock < quantityToDeduct) {
+                  warnings.push(`Insufficient stock for ${product.name}. Required: ${quantityToDeduct}, Available: ${totalAvailableStock}`);
+                  return;
+              }
+          } else { // Unit-based professional products
+              if (totalAvailableStock < quantityToDeduct) {
+                  warnings.push(`Insufficient stock for ${product.name}. Required: ${quantityToDeduct}, Available: ${totalAvailableStock}`);
+                  return;
+              }
+          }
+      }
+      
+      let remainingToDeduct = quantityToDeduct;
+      let unit = product.unit || 'units';
+
+      if (product.costingMethod === 'size' || product.costingMethod === 'uses') {
+        const partialField = product.costingMethod === 'uses' ? 'partialContainerUses' : 'partialContainerSize';
+        const unitsPerContainer = product.costingMethod === 'uses' ? product.estimatedUses || 1 : product.size || 1;
+        unit = product.costingMethod === 'uses' ? product.useUnit || 'uses' : product.unit || 'unit';
+
+        let partialUnits = product[partialField] || 0;
+
+        const deductFromPartial = Math.min(partialUnits, remainingToDeduct);
+        partialUnits -= deductFromPartial;
+        remainingToDeduct -= deductFromPartial;
+        
+        product[partialField] = partialUnits;
+
+        if (remainingToDeduct > 0) {
+           for (const batch of sortedBatches) {
+              if (remainingToDeduct <= 0) break;
+              if (batch.stock <= 0) continue;
+
+              const unitsInBatch = batch.stock * unitsPerContainer;
+              const deductFromBatch = Math.min(unitsInBatch, remainingToDeduct);
+              
+              const remainingInBatch = unitsInBatch - deductFromBatch;
+              
+              batch.stock = Math.floor(remainingInBatch / unitsPerContainer);
+              product[partialField] = (product[partialField] || 0) + (remainingInBatch % unitsPerContainer);
+              
+              remainingToDeduct -= deductFromBatch;
+           }
+        }
+      } else { // Unit-based items
+          for (const batch of sortedBatches) {
+              if (remainingToDeduct <= 0) break;
+              const deductFromBatch = Math.min(batch.stock, remainingToDeduct);
+              batch.stock -= deductFromBatch;
+              remainingToDeduct -= deductFromBatch;
+          }
       }
 
-      if (product.costingMethod === 'uses') {
-        const unit = product.useUnit || 'uses';
-        let currentUses = product.partialContainerUses || 0;
-        let totalStock = product.totalStock;
-        const usesPerContainer = product.estimatedUses || 1;
-        let totalAvailableUses = (totalStock * usesPerContainer) + currentUses;
+      product.batches = sortedBatches;
+      product.totalStock = product.batches.reduce((acc, b) => acc + b.stock, 0);
 
-        if (totalAvailableUses < quantityToDeduct) {
-            warnings.push(`Insufficient stock for ${product.name}. Required: ${quantityToDeduct}, Available: ${totalAvailableUses}`);
-            return;
-        }
-
-        currentUses -= quantityToDeduct;
-        while(currentUses < 0 && totalStock > 0) {
-            totalStock -= 1;
-            currentUses += usesPerContainer;
-        }
-        product.totalStock = totalStock;
-        product.partialContainerUses = currentUses;
-
-        newCorrections.push({
-            id: `sc-${appointment.id}-${item.id}-${Date.now()}`,
-            productId: item.id,
-            date: new Date().toISOString(),
-            change: -quantityToDeduct,
-            unit: unit,
-            reason: `Appointment #${appointment.id.slice(-4)}`
-        });
-
-      } else if (product.costingMethod === 'size') {
-        const unit = product.unit || 'ml';
-        let currentSize = product.partialContainerSize || 0;
-        let totalStock = product.totalStock;
-        const sizePerContainer = product.size || 1;
-        let totalAvailableSize = (totalStock * sizePerContainer) + currentSize;
-
-        if (totalAvailableSize < quantityToDeduct) {
-            warnings.push(`Insufficient stock for ${product.name}. Required: ${quantityToDeduct}, Available: ${totalAvailableSize}`);
-            return;
-        }
-
-        currentSize -= quantityToDeduct;
-        while(currentSize < 0 && totalStock > 0) {
-            totalStock -= 1;
-            currentSize += sizePerContainer;
-        }
-        product.totalStock = totalStock;
-        product.partialContainerSize = currentSize;
-
-        newCorrections.push({
-            id: `sc-${appointment.id}-${item.id}-${Date.now()}`,
-            productId: item.id,
-            date: new Date().toISOString(),
-            change: -quantityToDeduct,
-            unit: unit,
-            reason: `Appointment #${appointment.id.slice(-4)}`
-        });
-      }
+      newCorrections.push({
+          id: `sc-${appointment.id}-${item.id}-${Date.now()}`,
+          productId: item.id,
+          date: new Date().toISOString(),
+          change: -item.quantity,
+          unit: unit,
+          reason: `Appointment #${appointment.id.slice(-4)}`
+      });
 
       tempInventory[productIndex] = product;
     });
 
     return { updatedInventory: tempInventory, newCorrections, warnings };
   }, [editableFormula, retailItems, inventory, appointment.id]);
+  
   
   const handleFinalizeAndShowRebook = async () => {
     let incidentData: IncidentFormData | undefined = undefined;
@@ -723,10 +729,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                         )
                     })}
                 </div>
-                <div className='flex gap-2'>
-                  <Button variant="outline" size="sm" onClick={() => setIsProductBrowserOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4"/>Browse Library</Button>
-                  <Button variant="outline" size="sm" onClick={() => setIsScannerOpen(true)} type="button"><QrCode className="mr-2 h-4 w-4"/>Scan Product</Button>
-                </div>
+                <div className='flex gap-2'><Button variant="outline" size="sm" onClick={() => setIsProductBrowserOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4"/>Browse Library</Button><Button variant="outline" size="sm" onClick={() => setIsScannerOpen(true)} type="button"><QrCode className="mr-2 h-4 w-4"/>Scan Product</Button></div>
             </CardContent>
         </Card>
         
@@ -1033,4 +1036,4 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   );
 };
 
-    
+```
