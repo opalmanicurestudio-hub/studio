@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -56,7 +55,6 @@ import {
   DropdownMenuPortal,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
   Dialog,
@@ -599,20 +597,23 @@ export function AppointmentCard({
         </div>
         <div className="mt-1 flex items-end justify-between">
             <div className="flex flex-col items-start gap-1">
-                {!isCompact && (
+                {isCompact ? (
+                    <p className="text-[10px] text-muted-foreground font-medium">{format(appointment.startTime, 'h:mm a')}</p>
+                ) : (
                   <>
                     {appointment.status === 'servicing' && elapsedTime ? (
                         <p className="font-mono text-sm font-semibold text-yellow-600 dark:text-yellow-400 mt-1">{elapsedTime}</p>
                     ) : finalDuration !== null ? (
                         <div className="text-[10px] text-muted-foreground space-y-0.5 mt-1">
-                            <p>Scheduled: {format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
+                            <p>Scheduled: {format(appointment.startTime, 'h:mm a')} - {format(appointment.endTime, 'h:mm a')}</p>
                             <p>Actual: <span className="font-semibold text-foreground">{finalDuration} min</span></p>
                         </div>
                     ) : (
-                        <p className="text-[10px] text-muted-foreground">{format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
+                        <p className="text-[10px] text-muted-foreground">{format(appointment.startTime, 'h:mm a')} - {format(appointment.endTime, 'h:mm a')}</p>
                     )}
                   </>
                 )}
+                
                 <div className="flex items-center gap-1 flex-wrap">
                     {appointment.status !== 'ready_for_checkout' && (
                         <Badge
@@ -686,7 +687,7 @@ export function AppointmentCard({
   )};
 
 
-  const DialogOrSheet = isMobile ? Sheet : Sheet;
+  const DialogOrSheet = isMobile ? Sheet : Dialog;
   const DialogOrSheetContent = isMobile ? SheetContent : DialogContent;
   const imageUrl = appointment.inspirationPhotoUrl || client.inspirationPhotoUrl;
 
