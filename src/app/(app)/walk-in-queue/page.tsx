@@ -1200,8 +1200,8 @@ export default function WalkInQueuePage() {
     const clientData = clients.find(c => c.id === checkoutAppointment.clientId);
     const serviceData = services.find(s => s.id === checkoutAppointment.serviceId);
 
-    const walkInClientName = checkoutAppointment.isWalkIn ?
-      (walkIns?.find(w => `apt-walkin-${w.id}` === checkoutAppointment.id))?.customerName || 'Walk-in'
+    const walkInClientName = checkoutAppointment.isWalkIn && walkIns ? 
+      (walkIns.find(w => `apt-walkin-${w.id}` === checkoutAppointment.id))?.customerName || 'Walk-in' 
       : 'Unknown Client';
 
     const displayClient = clientData || {
@@ -1245,6 +1245,21 @@ export default function WalkInQueuePage() {
         actualEndTime: new Date().toISOString(),
     });
     
+    const staffIdsInvolved = new Set(Object.values(checkoutState.serviceStaffOverrides || {}));
+    const appointment = appointments.find(apt => apt.id === appointmentId);
+    if (appointment?.staffId) {
+      staffIdsInvolved.add(appointment.staffId);
+    }
+
+    staffIdsInvolved.forEach(staffId => {
+      if (staffId) {
+        const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
+        updateDocumentNonBlocking(staffDocRef, {
+          status: 'idle',
+        });
+      }
+    });
+
     const walkInId = appointmentId.replace('apt-walkin-', '');
     if (walkIns?.find(w => w.id === walkInId)) {
         const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
