@@ -541,9 +541,9 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
   const [tmhr, setTmhr] = useState(0);
   const { inventory } = useInventory();
   
-  const { firestore, useMemoFirebase: useMemoFirebaseHook } = useFirebase();
+  const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
-  const consentFormsQuery = useMemoFirebaseHook(() => {
+  const consentFormsQuery = useMemoFirebase(() => {
       if (!firestore || !selectedTenant) return null;
       return collection(firestore, `tenants/${selectedTenant.id}/consentForms`);
   }, [firestore, selectedTenant]);
