@@ -1146,6 +1146,39 @@ function PlannerPageContent() {
                 <TabsTrigger value="resources">Resource View</TabsTrigger>
               </TabsList>
             </Tabs>
+             {isMobile && activeView === 'staff' && (
+                <div className="pt-4 border-t">
+                    <Label htmlFor="staff-selector" className="mb-1">Viewing Schedule For</Label>
+                    <Select value={mobileSelectedStaffId} onValueChange={setMobileSelectedStaffId}>
+                    <SelectTrigger id="staff-selector" className="mt-1">
+                        {mobileSelectedStaffId && staff?.find(s => s.id === mobileSelectedStaffId) ? (
+                        <div className="flex items-center gap-2">
+                            <Avatar className="w-6 h-6">
+                            <AvatarImage src={staff.find(s => s.id === mobileSelectedStaffId)?.avatarUrl} />
+                            <AvatarFallback>{staff.find(s => s.id === mobileSelectedStaffId)?.name.charAt(0)}</AvatarFallback>
+                            </Avatar>
+                            <span>{staff.find(s => s.id === mobileSelectedStaffId)?.name}</span>
+                        </div>
+                        ) : (
+                        <SelectValue placeholder="Select a staff member" />
+                        )}
+                    </SelectTrigger>
+                    <SelectContent>
+                        {(staff || []).map(s => (
+                        <SelectItem key={s.id} value={s.id}>
+                            <div className="flex items-center gap-2">
+                                <Avatar className="w-6 h-6">
+                                    <AvatarImage src={s.avatarUrl} />
+                                    <AvatarFallback>{s.name.charAt(0)}</AvatarFallback>
+                                </Avatar>
+                                <span>{s.name}</span>
+                            </div>
+                        </SelectItem>
+                        ))}
+                    </SelectContent>
+                    </Select>
+                </div>
+            )}
           </AccordionContent>
         </AccordionItem>
       </Accordion>
@@ -1239,40 +1272,6 @@ function PlannerPageContent() {
     </div>
       
       <main className="flex-1 flex flex-col min-h-0">
-          {isMobile && activeView === 'staff' && (
-            <div className="p-4 border-b">
-              <Label htmlFor="staff-selector">Viewing Schedule For</Label>
-              <Select value={mobileSelectedStaffId} onValueChange={setMobileSelectedStaffId}>
-                <SelectTrigger id="staff-selector" className="mt-1">
-                    {mobileSelectedStaffId && staff?.find(s => s.id === mobileSelectedStaffId) ? (
-                    <div className="flex items-center gap-2">
-                        <Avatar className="w-6 h-6">
-                        <AvatarImage src={staff.find(s => s.id === mobileSelectedStaffId)?.avatarUrl} />
-                        <AvatarFallback>{staff.find(s => s.id === mobileSelectedStaffId)?.name.charAt(0)}</AvatarFallback>
-                        </Avatar>
-                        <span>{staff.find(s => s.id === mobileSelectedStaffId)?.name}</span>
-                    </div>
-                    ) : (
-                    <SelectValue placeholder="Select a staff member" />
-                    )}
-                </SelectTrigger>
-                <SelectContent>
-                  {(staff || []).map(s => (
-                    <SelectItem key={s.id} value={s.id}>
-                        <div className="flex items-center gap-2">
-                            <Avatar className="w-6 h-6">
-                                <AvatarImage src={s.avatarUrl} />
-                                <AvatarFallback>{s.name.charAt(0)}</AvatarFallback>
-                            </Avatar>
-                            <span>{s.name}</span>
-                        </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
            {activeView === 'staff' && (
             <DayTimeline 
                 date={currentDate} 
@@ -1549,6 +1548,3 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
-
-
-    
