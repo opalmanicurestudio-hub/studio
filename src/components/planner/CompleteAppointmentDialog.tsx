@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
@@ -868,7 +867,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                       <div className="flex gap-2">
                           <Input id="promo-code" value={promoCode} onChange={e => setPromoCode(e.target.value)} placeholder="e.g., NEWCLIENT15" />
                           <Button variant="outline" type="button" onClick={() => setIsDiscountBrowserOpen(true)}>Browse</Button>
-                          <Button variant="secondary" type="button" onClick={() => handleApplyPromo()}>Apply</Button>
+                          <Button variant="secondary" type="button" onClick={handleApplyPromo}>Apply</Button>
                       </div>
                   </div>
                 <div className="p-4 rounded-lg bg-muted/50 space-y-2 text-sm">
@@ -1035,5 +1034,3 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     </>
   );
 };
-
-```
