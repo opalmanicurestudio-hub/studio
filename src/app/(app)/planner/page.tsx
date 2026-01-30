@@ -441,6 +441,7 @@ function PlannerPageContent() {
     if (!selectedAppointment || !firestore || !tenantId) return;
     
     const {
+      updatedInventory,
       serviceStaffOverrides,
       tipAllocations,
       retailItems,
@@ -450,7 +451,8 @@ function PlannerPageContent() {
       newCorrections,
       incident,
       redeemedOffer,
-      appliedDiscountId
+      appliedDiscountId,
+      discountAmount,
     } = data;
 
     const allPerformedServices = [services?.find(s => s.id === selectedAppointment.serviceId), ...addOns].filter((s): s is Service => !!s);
@@ -525,6 +527,25 @@ function PlannerPageContent() {
     // 4. Update stock corrections
     newCorrections.forEach((correction) => {
         addDocumentNonBlocking(collection(firestore, 'tenants', tenantId, 'stockCorrections'), correction);
+    });
+
+    // 4.5 NEW LOGIC TO UPDATE INVENTORY ITEMS
+    updatedInventory.forEach(item => {
+        const originalItem = inventory.find(i => i.id === item.id);
+        if (!originalItem) return;
+
+        const stockChanged = item.totalStock !== originalItem.totalStock ||
+                             item.partialContainerSize !== originalItem.partialContainerSize ||
+                             item.partialContainerUses !== originalItem.partialContainerUses;
+
+        if (stockChanged) {
+            const itemDocRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
+            updateDocumentNonBlocking(itemDocRef, {
+                totalStock: item.totalStock,
+                partialContainerUses: item.partialContainerUses,
+                partialContainerSize: item.partialContainerSize,
+            });
+        }
     });
     
     // 5. Update appointment
@@ -1527,3 +1548,4 @@ export default function PlannerPageWrapper() {
   )
 }
 
+    
