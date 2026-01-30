@@ -422,8 +422,8 @@ export function AppointmentCard({
         
         let productsToUse: { productId?: string; quantityUsed: number; productName?: string; costPerUnit?: number; id?:string }[] = s.products || [];
         totalProductCost += productsToUse.reduce((sum, p) => {
-            const productData = inventory.find(i => i.id === (p.id || p.productId));
-            return sum + ((productData?.costPerUnit || 0) * (p.quantityUsed || 1));
+            const product = inventory.find(i => i.id === (p.id || p.productId));
+            return sum + ((product?.costPerUnit || 0) * (p.quantityUsed || 1));
         }, 0);
 
         totalEquipmentCost += (s.equipment || []).reduce((sum, e) => {
@@ -673,6 +673,3 @@ export function AppointmentCard({
     </div>
   );
 }
-
-
-```
