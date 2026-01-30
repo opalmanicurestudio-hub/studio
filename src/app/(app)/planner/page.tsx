@@ -530,15 +530,16 @@ function PlannerPageContent() {
         addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), correction);
     });
 
-    // 4.5 NEW LOGIC TO UPDATE INVENTORY ITEMS
+    // 4.5 Updated to persist batch data
     updatedInventory.forEach(item => {
         if (!inventory) return;
         const originalItem = inventory.find(i => i.id === item.id);
         if (!originalItem) return;
 
         const stockChanged = item.totalStock !== originalItem.totalStock ||
+                             item.partialContainerUses !== originalItem.partialContainerUses ||
                              item.partialContainerSize !== originalItem.partialContainerSize ||
-                             item.partialContainerUses !== originalItem.partialContainerUses;
+                             JSON.stringify(item.batches) !== JSON.stringify(originalItem.batches);
 
         if (stockChanged) {
             const itemDocRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
@@ -546,19 +547,22 @@ function PlannerPageContent() {
                 totalStock: item.totalStock,
                 partialContainerUses: item.partialContainerUses,
                 partialContainerSize: item.partialContainerSize,
+                batches: item.batches,
             });
         }
     });
     
     // 5. Update appointment
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id);
-    const updateData: any = {
+    const updateData: Partial<Appointment> = {
         status: 'completed',
         absorbedCost: absorbedCost,
-        inventoryProcessed: true,
+        inventoryProcessed: true, // Mark as processed
     };
     if (incident) {
-        updateData.incident = incident;
+        // In a real app, this might be a subcollection. Here, we embed.
+        const incidentToSave: Incident = { ...incident, id: nanoid(), date: new Date().toISOString() };
+        updateData.incident = incidentToSave;
     }
     updateDocumentNonBlocking(appointmentRef, updateData);
 
@@ -1540,7 +1544,7 @@ export default function PlannerPageWrapper() {
   return (
     <Suspense fallback={
         <div className="flex h-screen w-full flex-col">
-            <AppHeader />
+            <AppHeader title="Planner" />
             <div className="flex items-center justify-center flex-1">
                 <Loader className="h-8 w-8 animate-spin" />
             </div>
