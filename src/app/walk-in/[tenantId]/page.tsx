@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -29,7 +30,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { format, parse, getDay } from 'date-fns';
+import { format, getDay } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
 import { FormFieldRenderer } from '@/components/consents/FormFieldRenderer';
@@ -68,6 +69,30 @@ type BusinessHours = {
 };
 
 
+const parseLenientTime = (timeStr: string, date: Date): Date => {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+
+    if (!timeStr) {
+        return d;
+    }
+
+    const [time, period] = timeStr.split(' ');
+    let [hours, minutes] = time.split(':').map(Number);
+    
+    if (period) {
+      if (period.toUpperCase() === 'PM' && hours < 12) {
+          hours += 12;
+      }
+      if (period.toUpperCase() === 'AM' && hours === 12) {
+          hours = 0;
+      }
+    }
+
+    d.setHours(hours, minutes);
+    return d;
+};
+
 function isBusinessOpen(now: Date, scheduleProfile: { week: BusinessHours } | null): { open: boolean, nextOpen?: { day: string, time: string } } {
     if (!scheduleProfile) {
         return { open: false };
@@ -80,8 +105,8 @@ function isBusinessOpen(now: Date, scheduleProfile: { week: BusinessHours } | nu
     const todayHours = hours[dayOfWeek as keyof BusinessHours];
 
     if (todayHours && todayHours.enabled) {
-        const openTime = parse(todayHours.start, 'h:mm a', now);
-        const closeTime = parse(todayHours.end, 'h:mm a', now);
+        const openTime = parseLenientTime(todayHours.start, now);
+        const closeTime = parseLenientTime(todayHours.end, now);
         openTime.setFullYear(now.getFullYear(), now.getMonth(), now.getDate());
         closeTime.setFullYear(now.getFullYear(), now.getMonth(), now.getDate());
 
@@ -96,7 +121,7 @@ function isBusinessOpen(now: Date, scheduleProfile: { week: BusinessHours } | nu
         const nextDayName = days[nextDayIndex];
         const nextDayHours = hours[nextDayName as keyof BusinessHours];
         if (nextDayHours && nextDayHours.enabled) {
-            const closeTime = parse(nextDayHours.end, 'h:mm a', now);
+            const closeTime = parseLenientTime(nextDayHours.end, now);
             closeTime.setFullYear(now.getFullYear(), now.getMonth(), now.getDate());
             if (i === 0 && now > closeTime) continue;
 
@@ -609,3 +634,5 @@ export default function WalkInPage() {
     </div>
   );
 }
+
+    
