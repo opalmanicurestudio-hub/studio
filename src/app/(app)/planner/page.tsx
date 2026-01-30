@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -339,6 +337,8 @@ function PlannerPageContent() {
     });
 
   }, [currentDate, appointments, resources, services]);
+  
+  const itemsByColumn = activeView === 'staff' ? itemsByStaff : itemsByResource;
 
   const staffToDisplay = useMemo(() => {
     if (isMobile) {
@@ -1062,8 +1062,6 @@ function PlannerPageContent() {
 }, [isScannerOpen, handleScan, toast]);
   
   const showStaffColumnHeader = !isMobile;
-  const itemsByColumn = activeView === 'staff' ? itemsByStaff : itemsByResource;
-
   const isDataLoading = isLoading || isUserLoading || isTenantLoading || scheduleProfilesLoading || resourcesLoading;
 
   if (isDataLoading) {
@@ -1087,7 +1085,7 @@ function PlannerPageContent() {
             <div>{format(currentDate, 'EEEE, MMMM d')}</div>
           </AccordionTrigger>
           <AccordionContent className="p-4 pt-0 space-y-4">
-             <div className="flex items-center justify-between gap-4">
+            <div className="grid grid-cols-[1fr,auto] items-center gap-4">
                 <h2 className="text-2xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
                 <div className="flex items-center gap-2">
                     <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
@@ -1110,17 +1108,6 @@ function PlannerPageContent() {
                             }}
                         />
                     </div>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button size="sm" variant="outline">
-                          Actions
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                         <DropdownMenuItem onClick={() => setIsAddAppointmentOpen(true)}>New Appointment</DropdownMenuItem>
-                         <DropdownMenuItem onClick={() => setIsAddEventOpen(true)}>New Event</DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
                 </div>
             </div>
             
@@ -1149,45 +1136,58 @@ function PlannerPageContent() {
               </ScrollArea>
             </div>
             
-            <Tabs value={activeView} onValueChange={setActiveView} className="w-full">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="staff">Staff View</TabsTrigger>
-                <TabsTrigger value="resources">Resource View</TabsTrigger>
-              </TabsList>
-            </Tabs>
-             {isMobile && activeView === 'staff' && (
-                <div className="pt-4 border-t">
-                    <Label htmlFor="staff-selector" className="mb-1">Viewing Schedule For</Label>
-                    <Select value={mobileSelectedStaffId} onValueChange={setMobileSelectedStaffId}>
-                    <SelectTrigger id="staff-selector" className="mt-1">
-                        {mobileSelectedStaffId && staff?.find(s => s.id === mobileSelectedStaffId) ? (
-                        <div className="flex items-center gap-2">
-                            <Avatar className="w-6 h-6">
-                            <AvatarImage src={staff.find(s => s.id === mobileSelectedStaffId)?.avatarUrl} />
-                            <AvatarFallback>{staff.find(s => s.id === mobileSelectedStaffId)?.name.charAt(0)}</AvatarFallback>
-                            </Avatar>
-                            <span>{staff.find(s => s.id === mobileSelectedStaffId)?.name}</span>
-                        </div>
-                        ) : (
-                        <SelectValue placeholder="Select a staff member" />
-                        )}
-                    </SelectTrigger>
-                    <SelectContent>
-                        {(staff || []).map(s => (
-                        <SelectItem key={s.id} value={s.id}>
-                            <div className="flex items-center gap-2">
-                                <Avatar className="w-6 h-6">
-                                    <AvatarImage src={s.avatarUrl} />
-                                    <AvatarFallback>{s.name.charAt(0)}</AvatarFallback>
-                                </Avatar>
-                                <span>{s.name}</span>
-                            </div>
-                        </SelectItem>
-                        ))}
-                    </SelectContent>
-                    </Select>
-                </div>
-            )}
+            <div className="flex flex-col gap-4">
+              <Tabs value={activeView} onValueChange={setActiveView} className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="staff">Staff View</TabsTrigger>
+                  <TabsTrigger value="resources">Resource View</TabsTrigger>
+                </TabsList>
+              </Tabs>
+              {isMobile && activeView === 'staff' && (
+                  <div className="space-y-1">
+                      <Label htmlFor="staff-selector" className="text-xs">Viewing Schedule For</Label>
+                      <Select value={mobileSelectedStaffId} onValueChange={setMobileSelectedStaffId}>
+                      <SelectTrigger id="staff-selector" className="mt-1">
+                          {mobileSelectedStaffId && staff?.find(s => s.id === mobileSelectedStaffId) ? (
+                          <div className="flex items-center gap-2">
+                              <Avatar className="w-6 h-6">
+                              <AvatarImage src={staff.find(s => s.id === mobileSelectedStaffId)?.avatarUrl} />
+                              <AvatarFallback>{staff.find(s => s.id === mobileSelectedStaffId)?.name.charAt(0)}</AvatarFallback>
+                              </Avatar>
+                              <span>{staff.find(s => s.id === mobileSelectedStaffId)?.name}</span>
+                          </div>
+                          ) : (
+                          <SelectValue placeholder="Select a staff member" />
+                          )}
+                      </SelectTrigger>
+                      <SelectContent>
+                          {(staff || []).map(s => (
+                          <SelectItem key={s.id} value={s.id}>
+                              <div className="flex items-center gap-2">
+                                  <Avatar className="w-6 h-6">
+                                      <AvatarImage src={s.avatarUrl} />
+                                      <AvatarFallback>{s.name.charAt(0)}</AvatarFallback>
+                                  </Avatar>
+                                  <span>{s.name}</span>
+                              </div>
+                          </SelectItem>
+                          ))}
+                      </SelectContent>
+                      </Select>
+                  </div>
+              )}
+               <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" variant="outline" className="w-full">
+                    Actions
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => setIsAddAppointmentOpen(true)}>New Appointment</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setIsAddEventOpen(true)}>New Event</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </AccordionContent>
         </AccordionItem>
       </Accordion>
@@ -1342,7 +1342,7 @@ function PlannerPageContent() {
                 onOpenPickingList={() => setIsPickingListOpen(true)}
                 onStartService={handleStartService}
                 onFinishService={handleFinishService}
-                onBookNewForClient={handleBookNewAppointmentForClient}
+                onBookNewForClient={handleBookNewForClient}
                 walkIns={walkIns}
                 clients={clients}
                 services={services}
