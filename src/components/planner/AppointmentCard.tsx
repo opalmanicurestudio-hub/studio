@@ -319,6 +319,15 @@ export function AppointmentCard({
   const { toast } = useToast();
   const { inventory } = useInventory();
   
+  const scheduledDuration = useMemo(() => {
+    if (!appointment.startTime || !appointment.endTime) return 0;
+    const start = typeof appointment.startTime === 'string' ? parseISO(appointment.startTime) : appointment.startTime;
+    const end = typeof appointment.endTime === 'string' ? parseISO(appointment.endTime) : appointment.endTime;
+    return differenceInMinutes(end, start);
+  }, [appointment.startTime, appointment.endTime]);
+
+  const isCompact = scheduledDuration < 30;
+
   const isBirthday = useMemo(() => {
     if (!client?.birthday) return false;
     try {
@@ -458,9 +467,11 @@ export function AppointmentCard({
   
 
   const MainContent = () => {
-    const serviceNameDisplay = addOnServices.length > 0
-        ? `${service.name} + ${addOnServices.length} add-on(s)`
-        : service.name;
+    const serviceNameDisplay = isCompact
+      ? service.name
+      : addOnServices.length > 0
+      ? `${service.name} + ${addOnServices.length} add-on(s)`
+      : service.name;
 
     const handleCardClick = () => {
       setIsDetailsOpen(true);
@@ -512,7 +523,7 @@ export function AppointmentCard({
                   {client.name}
                 </p>
                 <p className="text-[11px] text-muted-foreground truncate">{serviceNameDisplay}</p>
-                 {requiredResources.length > 0 && (
+                 {!isCompact && requiredResources.length > 0 && (
                     <div className="flex items-center gap-1.5 mt-1">
                         {requiredResources.map(resource => (
                             <TooltipProvider key={resource.id} delayDuration={0}>
@@ -627,15 +638,19 @@ export function AppointmentCard({
                         </Badge>
                     )}
                 </div>
-                {appointment.status === 'servicing' && elapsedTime ? (
-                    <p className="font-mono text-sm font-semibold text-yellow-600 dark:text-yellow-400 mt-1">{elapsedTime}</p>
-                ) : finalDuration !== null ? (
-                    <div className="text-[10px] text-muted-foreground space-y-0.5 mt-1">
-                        <p>Scheduled: {format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
-                        <p>Actual: <span className="font-semibold text-foreground">{finalDuration} min</span></p>
-                    </div>
-                ) : (
-                    <p className="text-[10px] text-muted-foreground">{format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
+                {!isCompact && (
+                  <>
+                    {appointment.status === 'servicing' && elapsedTime ? (
+                        <p className="font-mono text-sm font-semibold text-yellow-600 dark:text-yellow-400 mt-1">{elapsedTime}</p>
+                    ) : finalDuration !== null ? (
+                        <div className="text-[10px] text-muted-foreground space-y-0.5 mt-1">
+                            <p>Scheduled: {format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
+                            <p>Actual: <span className="font-semibold text-foreground">{finalDuration} min</span></p>
+                        </div>
+                    ) : (
+                        <p className="text-[10px] text-muted-foreground">{format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
+                    )}
+                  </>
                 )}
             </div>
              {appointment.status === 'confirmed' && (
