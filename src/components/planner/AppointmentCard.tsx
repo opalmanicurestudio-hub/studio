@@ -53,7 +53,6 @@ import {
   DropdownMenuItem,
   DropdownMenuSub,
   DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuPortal,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -543,8 +542,9 @@ export function AppointmentCard({
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
-                  variant="ghost"
+                  aria-haspopup="true"
                   size="icon"
+                  variant="ghost"
                   className="h-6 w-6 flex-shrink-0 -mr-1"
                   onClick={(e) => e.stopPropagation()}
                 >
@@ -552,28 +552,25 @@ export function AppointmentCard({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
-                <DropdownMenuItem
-                  onClick={() => {
-                    if (appointment.status === 'completed') {
-                      toast({
-                        title: 'Already Completed',
-                        description: 'This appointment has already been checked out.',
-                      });
-                    } else {
-                      onCompleteClick(appointment);
-                    }
-                  }}
-                >
-                  <CheckCircle className="mr-2" /> Checkout
-                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setIsDetailsOpen(true)}>
                     <FileText className="mr-2" /> View Details
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={handleCheckoutClick}
+                >
+                  <CheckCircle className="mr-2" /> Checkout
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleShareLink}>
                     <LinkIcon className="mr-2 h-4 w-4" /> Share Check-in Link
                 </DropdownMenuItem>
                  <DropdownMenuItem onClick={() => onPrintTicket({ appointment, client, service })}>
                     <TicketIcon className="mr-2" /> Print Ticket
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => onEdit(appointment)}>
+                    <Edit className="mr-2" />
+                    Edit Details
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onReschedule(appointment)}>
                     <Calendar className="mr-2" /> Reschedule
@@ -592,9 +589,6 @@ export function AppointmentCard({
                         </DropdownMenuSubContent>
                     </DropdownMenuPortal>
                 </DropdownMenuSub>
-                 <DropdownMenuItem onClick={() => onPrintReceipt({} as any)} disabled={appointment.status !== 'completed'}>
-                    <Printer className="mr-2" /> Print Receipt
-                </DropdownMenuItem>
                 <Separator />
                 <DropdownMenuItem className="text-destructive" onClick={() => onDelete(appointment.id)}>
                     <Trash2 className="mr-2" /> Delete Appointment
@@ -604,21 +598,34 @@ export function AppointmentCard({
         </div>
         <div className="mt-1 flex items-end justify-between">
             <div className="flex flex-col items-start gap-1">
+                {!isCompact && (
+                  <>
+                    {appointment.status === 'servicing' && elapsedTime ? (
+                        <p className="font-mono text-sm font-semibold text-yellow-600 dark:text-yellow-400 mt-1">{elapsedTime}</p>
+                    ) : finalDuration !== null ? (
+                        <div className="text-[10px] text-muted-foreground space-y-0.5 mt-1">
+                            <p>Scheduled: {format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
+                            <p>Actual: <span className="font-semibold text-foreground">{finalDuration} min</span></p>
+                        </div>
+                    ) : (
+                        <p className="text-[10px] text-muted-foreground">{format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
+                    )}
+                  </>
+                )}
                 <div className="flex items-center gap-1 flex-wrap">
-                    <Badge
-                        variant="secondary"
-                        className={cn(
-                            "text-[10px] h-5 px-1.5 capitalize",
-                            statusDisplay[appointment.status]?.className,
-                            statusDisplay[appointment.status]?.bgClassName,
-                            appointment.status === 'ready_for_checkout' && 'cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-orange-500'
-                        )}
-                        onClick={appointment.status === 'ready_for_checkout' ? handleCheckoutClick : undefined}
-                    >
-                        {appointment.status === 'ready_for_checkout' && <DollarSign className="w-3 h-3 mr-1" />}
-                        {appointment.status === 'servicing' && <Clock className="w-3 h-3 mr-1 animate-spin" />}
-                        {statusDisplay[appointment.status]?.text}
-                    </Badge>
+                    {appointment.status !== 'ready_for_checkout' && (
+                        <Badge
+                            variant="secondary"
+                            className={cn(
+                                "text-[10px] h-5 px-1.5 capitalize",
+                                statusDisplay[appointment.status]?.className,
+                                statusDisplay[appointment.status]?.bgClassName
+                            )}
+                        >
+                            {appointment.status === 'servicing' && <Clock className="w-3 h-3 mr-1 animate-spin" />}
+                            {statusDisplay[appointment.status]?.text}
+                        </Badge>
+                    )}
                      {appointment.checkInStatus === 'on_my_way' && (
                         <Badge variant="outline" className="text-[10px] h-5 px-1.5 capitalize border-blue-500/30 text-blue-800 dark:text-blue-300 bg-blue-500/10">
                             <Car className="w-3 h-3 mr-1" />
@@ -638,31 +645,34 @@ export function AppointmentCard({
                         </Badge>
                     )}
                 </div>
-                {!isCompact && (
-                  <>
-                    {appointment.status === 'servicing' && elapsedTime ? (
-                        <p className="font-mono text-sm font-semibold text-yellow-600 dark:text-yellow-400 mt-1">{elapsedTime}</p>
-                    ) : finalDuration !== null ? (
-                        <div className="text-[10px] text-muted-foreground space-y-0.5 mt-1">
-                            <p>Scheduled: {format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
-                            <p>Actual: <span className="font-semibold text-foreground">{finalDuration} min</span></p>
-                        </div>
-                    ) : (
-                        <p className="text-[10px] text-muted-foreground">{format(appointment.startTime, 'h:mm')} - {format(appointment.endTime, 'h:mm a')}</p>
-                    )}
-                  </>
-                )}
             </div>
-             {appointment.status === 'confirmed' && (
+             <div className="flex items-center gap-2">
+                {appointment.status === 'ready_for_checkout' && (
+                    <Badge
+                        variant="secondary"
+                        className={cn(
+                            "text-[10px] h-5 px-1.5 capitalize",
+                            statusDisplay[appointment.status]?.className,
+                            statusDisplay[appointment.status]?.bgClassName,
+                            'cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-orange-500'
+                        )}
+                        onClick={handleCheckoutClick}
+                    >
+                        <DollarSign className="w-3 h-3 mr-1" />
+                        {statusDisplay[appointment.status]?.text}
+                    </Badge>
+                )}
+                 {appointment.status === 'confirmed' && (
                   <Button variant="ghost" size="icon" className="rounded-full bg-primary text-primary-foreground h-7 w-7 hover:bg-primary/90" onClick={handleStartClick}>
                     <Play className="w-3 h-3 fill-current" />
                   </Button>
-              )}
-               {appointment.status === 'servicing' && (
+                )}
+                {appointment.status === 'servicing' && (
                   <Button variant="ghost" size="icon" className="rounded-full bg-primary text-primary-foreground h-7 w-7 hover:bg-primary/90" onClick={handleFinishClick}>
                     <Square className="w-3 h-3 fill-current" />
                   </Button>
-              )}
+                )}
+            </div>
         </div>
       </div>
     </div>
@@ -733,3 +743,5 @@ export function AppointmentCard({
     </div>
   );
 }
+
+```)
