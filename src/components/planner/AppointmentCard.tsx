@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -325,7 +326,7 @@ export function AppointmentCard({
     return differenceInMinutes(end, start);
   }, [appointment.startTime, appointment.endTime]);
 
-  const isCompact = scheduledDuration < 30;
+  const isCompact = scheduledDuration < 50;
 
   const isBirthday = useMemo(() => {
     if (!client?.birthday) return false;
@@ -648,19 +649,25 @@ export function AppointmentCard({
             </div>
              <div className="flex items-center gap-2">
                  {appointment.status === 'ready_for_checkout' ? (
-                    <Badge
-                        variant="secondary"
-                        className={cn(
-                            "text-xs h-7 px-2.5 capitalize font-semibold",
-                            statusDisplay[appointment.status]?.className,
-                            statusDisplay[appointment.status]?.bgClassName,
-                            'cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-orange-500'
-                        )}
-                        onClick={handleCheckoutClick}
-                    >
-                        <DollarSign className="w-3 h-3 mr-1.5" />
-                        {statusDisplay[appointment.status]?.text}
-                    </Badge>
+                    isCompact ? (
+                        <Button variant="ghost" size="icon" className="rounded-full bg-orange-100 dark:bg-orange-500/10 text-orange-600 dark:text-orange-300 h-8 w-8 hover:bg-orange-200 dark:hover:bg-orange-500/20" onClick={handleCheckoutClick}>
+                            <DollarSign className="w-4 h-4" />
+                        </Button>
+                    ) : (
+                        <Button
+                            size="sm"
+                            className={cn(
+                                'capitalize font-semibold h-7 px-3',
+                                statusDisplay[appointment.status]?.className,
+                                statusDisplay[appointment.status]?.bgClassName,
+                                'hover:ring-2 hover:ring-offset-1 hover:ring-orange-500 hover:bg-orange-500/20'
+                            )}
+                            onClick={handleCheckoutClick}
+                        >
+                            <DollarSign className="w-4 h-4 mr-1.5" />
+                            {statusDisplay[appointment.status]?.text}
+                        </Button>
+                    )
                 ) : null}
                  {appointment.status === 'confirmed' && (
                   <Button variant="ghost" size="icon" className="rounded-full bg-primary text-primary-foreground h-7 w-7 hover:bg-primary/90" onClick={handleStartClick}>
