@@ -527,11 +527,12 @@ function PlannerPageContent() {
     
     // 4. Update stock corrections
     newCorrections.forEach((correction) => {
-        addDocumentNonBlocking(collection(firestore, 'tenants', tenantId, 'stockCorrections'), correction);
+        addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), correction);
     });
 
     // 4.5 NEW LOGIC TO UPDATE INVENTORY ITEMS
     updatedInventory.forEach(item => {
+        if (!inventory) return;
         const originalItem = inventory.find(i => i.id === item.id);
         if (!originalItem) return;
 
@@ -1280,7 +1281,7 @@ function PlannerPageContent() {
                 itemsByColumn={staffItemsToDisplay}
                 showColumnHeader={showStaffColumnHeader}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={onUpdateStatus}
+                onUpdateStatus={handleUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1312,7 +1313,7 @@ function PlannerPageContent() {
                 itemsByColumn={itemsByColumn}
                 showColumnHeader={true}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={onUpdateStatus}
+                onUpdateStatus={handleUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1549,5 +1550,3 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
-
-    
