@@ -126,6 +126,7 @@ interface AppointmentCardProps {
   onStartService: (appointmentId: string) => void;
   onFinishService: (appointment: Appointment) => void;
   onBookNewForClient: (clientId: string) => void;
+  onUpdateFormula: (appointment: Appointment) => void;
 }
 
 const AppointmentDetails = ({
@@ -343,6 +344,7 @@ export function AppointmentCard({
   onStartService,
   onFinishService,
   onBookNewForClient,
+  onUpdateFormula,
 }: AppointmentCardProps) {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
@@ -488,6 +490,12 @@ export function AppointmentCard({
       <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
         <DropdownMenuItem onClick={() => setIsDetailsOpen(true)}><FileText className="mr-2" /> View Details</DropdownMenuItem>
         <DropdownMenuSeparator />
+        {appointment.status === 'servicing' && (
+          <DropdownMenuItem onClick={() => onUpdateFormula(appointment)}>
+            <FlaskConical className="mr-2 h-4 w-4" />
+            Update Formula
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem onClick={handleCheckoutClick}><CheckCircle className="mr-2" /> Checkout</DropdownMenuItem>
         <DropdownMenuItem onClick={handleShareLink}><LinkIcon className="mr-2 h-4 w-4" /> Share Check-in Link</DropdownMenuItem>
         <DropdownMenuItem onClick={() => onPrintTicket({ appointment, client, service })}><TicketIcon className="mr-2" /> Print Ticket</DropdownMenuItem>
@@ -666,3 +674,5 @@ export function AppointmentCard({
   );
 }
 
+
+```
