@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -139,12 +140,12 @@ const AddAppointmentForm = ({
 
     const { register, handleSubmit, control, watch, formState: { errors }, setValue, reset } = useForm({
         defaultValues: {
-            clientId: initialClientId || '',
+            clientId: '',
             serviceId: '',
-            staffId: initialStaffId || '',
+            staffId: '',
             date: new Date(),
             startTime: '',
-            addOnIds: [],
+            addOnIds: [] as string[],
             isRecurring: false,
             recurrence: {
                 frequency: 'weekly',
@@ -186,7 +187,7 @@ const AddAppointmentForm = ({
     const selectedService = useMemo(() => services?.find(s => s.id === serviceId), [services, serviceId]);
     const selectedClient = useMemo(() => clients?.find(c => c.id === clientId), [clients, clientId]);
     const selectedStaff = useMemo(() => staff?.find(s => s.id === staffId), [staff, staffId]);
-    const selectedAddOns = useMemo(() => services?.filter(s => addOnIds.includes(s.id)), [services, addOnIds]);
+    const selectedAddOns = useMemo(() => (services || []).filter(s => (addOnIds || []).includes(s.id)), [services, addOnIds]);
     
     const handleAddOnsChange = (newAddOns: Service[]) => {
         setValue('addOnIds', newAddOns.map(s => s.id));
@@ -428,7 +429,7 @@ const AddAppointmentForm = ({
 
                     <div className="space-y-4">
                         <h3 className="text-lg font-medium">Add-on Services</h3>
-                        {selectedAddOns.length > 0 ? (
+                        {selectedAddOns && selectedAddOns.length > 0 ? (
                             <Card><CardContent className="p-2 space-y-2">{selectedAddOns.map(item => (<div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50"><span className="text-sm font-medium">{item.name}</span><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}</CardContent></Card>
                         ) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No add-ons selected.</CardContent></Card>)}
                         <Button variant="outline" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button>
