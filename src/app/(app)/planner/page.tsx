@@ -859,6 +859,21 @@ function PlannerPageContent() {
         checkoutState,
         actualEndTime: new Date().toISOString(),
     });
+
+    const staffIdsInvolved = new Set(Object.values(checkoutState.serviceStaffOverrides || {}));
+    const appointment = appointments.find(apt => apt.id === appointmentId);
+    if (appointment?.staffId) {
+      staffIdsInvolved.add(appointment.staffId);
+    }
+
+    staffIdsInvolved.forEach(staffId => {
+      if (staffId) {
+        const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
+        updateDocumentNonBlocking(staffDocRef, {
+          status: 'idle',
+        });
+      }
+    });
     
     const walkInId = appointmentId.replace('apt-walkin-', '');
     if (walkIns?.find(w => w.id === walkInId)) {
