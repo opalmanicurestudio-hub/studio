@@ -47,8 +47,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { CalendarIcon, PlusCircle, Trash2, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Client, Service, Appointment, Staff, Event } from '@/lib/data';
-import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, getDay, parse, isToday, addDays, addMonths, endOfDay } from 'date-fns';
+import { Client, Service, Appointment, Staff, Event, Resource } from '@/lib/data';
+import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, getDay, parse, isToday, addDays, addMonths, endOfDay, parseISO } from 'date-fns';
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Card, CardContent } from '../ui/card';
 import { nanoid } from 'nanoid';
@@ -65,9 +65,6 @@ import { collection, query, where } from 'firebase/firestore';
 interface AddAppointmentDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  clients: Client[];
-  services: Service[];
-  staff: Staff[];
   onConfirm: (apt: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date, recurrence?: { frequency: string, endDate: Date }}) => void;
   initialClientId?: string;
   appointmentToRebook?: Appointment | null;
@@ -98,17 +95,20 @@ const timeStringToDate = (timeStr: string, date: Date): Date => {
 }
 
 const AddAppointmentForm = ({ 
-    clients, 
-    services,
-    staff,
     onConfirm,
     initialClientId,
     appointmentToRebook,
-}: Omit<AddAppointmentDialogProps, 'open' | 'onOpenChange'>) => {
+    initialStartTime,
+    initialStaffId
+}: Omit<AddAppointmentDialogProps, 'open' | 'onOpenChange'> & { initialStartTime?: Date, initialStaffId?: string }) => {
     const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
     const tenantId = selectedTenant?.id;
     
+    const { data: clients, isLoading: clientsLoading } = useCollection<Client>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/clients`) : null, [firestore, tenantId]));
+    const { data: services, isLoading: servicesLoading } = useCollection<Service>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/services`) : null, [firestore, tenantId]));
+    const { data: staff, isLoading: staffLoading } = useCollection<Staff>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/staff`) : null, [firestore, tenantId]));
+
     const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(
         useMemoFirebase(() => tenantId ? query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true)) : null, [firestore, tenantId])
     );
@@ -137,15 +137,14 @@ const AddAppointmentForm = ({
         }));
       }, [eventsFromDB]);
 
-
-    const { register, handleSubmit, control, watch, formState: { errors }, setValue } = useForm({
+    const { register, handleSubmit, control, watch, formState: { errors }, setValue, reset } = useForm({
         defaultValues: {
-            clientId: appointmentToRebook ? appointmentToRebook.clientId : initialClientId || '',
-            serviceId: appointmentToRebook ? appointmentToRebook.serviceId : '',
-            staffId: appointmentToRebook ? (appointmentToRebook.staffId || staff[0]?.id || '') : (staff[0]?.id || ''),
-            date: appointmentToRebook ? new Date(appointmentToRebook.startTime) : new Date(),
-            startTime: appointmentToRebook ? format(new Date(appointmentToRebook.startTime), 'HH:mm') : '',
-            addOnIds: appointmentToRebook ? (appointmentToRebook.addOnIds || []) : [],
+            clientId: initialClientId || '',
+            serviceId: '',
+            staffId: initialStaffId || '',
+            date: new Date(),
+            startTime: '',
+            addOnIds: [],
             isRecurring: false,
             recurrence: {
                 frequency: 'weekly',
@@ -153,6 +152,25 @@ const AddAppointmentForm = ({
             }
         }
     });
+
+    useEffect(() => {
+        if (staff && !staffLoading) {
+            const defaultValues = {
+                clientId: appointmentToRebook ? appointmentToRebook.clientId : initialClientId || '',
+                serviceId: appointmentToRebook ? appointmentToRebook.serviceId : '',
+                staffId: appointmentToRebook ? (appointmentToRebook.staffId || staff[0]?.id || '') : (initialStaffId || staff[0]?.id || ''),
+                date: appointmentToRebook ? new Date(appointmentToRebook.startTime) : (initialStartTime || new Date()),
+                startTime: appointmentToRebook ? format(new Date(appointmentToRebook.startTime), 'HH:mm') : (initialStartTime ? format(initialStartTime, 'HH:mm') : ''),
+                addOnIds: appointmentToRebook ? (appointmentToRebook.addOnIds || []) : [],
+                isRecurring: false,
+                recurrence: {
+                    frequency: 'weekly',
+                    endDate: addMonths(new Date(), 3),
+                }
+            };
+            reset(defaultValues);
+        }
+    }, [staff, staffLoading, appointmentToRebook, initialClientId, initialStartTime, initialStaffId, reset]);
 
     const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
     const [isOverlapping, setIsOverlapping] = useState(false);
@@ -165,10 +183,10 @@ const AddAppointmentForm = ({
     const startTime = watch('startTime');
     const addOnIds = watch('addOnIds');
     
-    const selectedService = useMemo(() => services.find(s => s.id === serviceId), [services, serviceId]);
-    const selectedClient = useMemo(() => clients.find(c => c.id === clientId), [clients, clientId]);
-    const selectedStaff = useMemo(() => staff.find(s => s.id === staffId), [staff, staffId]);
-    const selectedAddOns = useMemo(() => services.filter(s => addOnIds.includes(s.id)), [services, addOnIds]);
+    const selectedService = useMemo(() => services?.find(s => s.id === serviceId), [services, serviceId]);
+    const selectedClient = useMemo(() => clients?.find(c => c.id === clientId), [clients, clientId]);
+    const selectedStaff = useMemo(() => staff?.find(s => s.id === staffId), [staff, staffId]);
+    const selectedAddOns = useMemo(() => services?.filter(s => addOnIds.includes(s.id)), [services, addOnIds]);
     
     const handleAddOnsChange = (newAddOns: Service[]) => {
         setValue('addOnIds', newAddOns.map(s => s.id));
@@ -183,7 +201,7 @@ const AddAppointmentForm = ({
     const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
 
     const timeSlots = useMemo(() => {
-        if (!selectedService || !date || !publicScheduleProfile) return [];
+        if (!selectedService || !date || !publicScheduleProfile || !staff || !services) return [];
 
         const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
         const dayName = format(date, 'eeee').toLowerCase();
@@ -280,7 +298,7 @@ const AddAppointmentForm = ({
     }, [date, staffId, selectedService, staff, appointments, events, publicScheduleProfile, services, appointmentToRebook]);
 
     useEffect(() => {
-        if (!selectedService || !date || !startTime) {
+        if (!selectedService || !date || !startTime || !services || !appointments) {
             setIsOverlapping(false);
             return;
         }
@@ -293,7 +311,7 @@ const AddAppointmentForm = ({
 
         const newInterval = { start: startDateTime, end: endDateTime };
 
-        const hasOverlap = (appointments || []).some(apt => {
+        const hasOverlap = appointments.some(apt => {
             if (appointmentToRebook && apt.id === appointmentToRebook.id) return false;
             const service = services.find(s => s.id === apt.serviceId);
             const padBefore = service?.padBefore || 0;
@@ -308,7 +326,7 @@ const AddAppointmentForm = ({
     }, [date, startTime, selectedService, appointments, services, appointmentToRebook]);
 
     const confirmAndSubmit = (data: any) => {
-        if (!data.clientId || !data.serviceId || !data.date || !data.startTime) return;
+        if (!data.clientId || !data.serviceId || !data.date || !data.startTime || !services) return;
 
         const [hours, minutes] = data.startTime.split(':').map(Number);
         const startDateTime = setMinutes(setHours(startOfDay(data.date), hours), minutes);
@@ -368,7 +386,7 @@ const AddAppointmentForm = ({
                                                 )}
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {clients.map(c => <SelectItem key={c.id} value={c.id}><div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={c.avatarUrl} /><AvatarFallback>{c.name.charAt(0)}</AvatarFallback></Avatar><span>{c.name}</span></div></SelectItem>)}
+                                                {(clients || []).map(c => <SelectItem key={c.id} value={c.id}><div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={c.avatarUrl} /><AvatarFallback>{c.name.charAt(0)}</AvatarFallback></Avatar><span>{c.name}</span></div></SelectItem>)}
                                             </SelectContent>
                                         </Select>
                                     )}
@@ -387,7 +405,7 @@ const AddAppointmentForm = ({
                                             {selectedStaff ? (<div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={selectedStaff.avatarUrl} /><AvatarFallback>{selectedStaff.name.charAt(0)}</AvatarFallback></Avatar><span>{selectedStaff.name}</span></div>) : (<SelectValue placeholder="Select a staff member" />)}
                                         </SelectTrigger>
                                         <SelectContent>
-                                            {staff.map(s => <SelectItem key={s.id} value={s.id}><div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={s.avatarUrl} /><AvatarFallback>{s.name.charAt(0)}</AvatarFallback></Avatar><span>{s.name}</span></div></SelectItem>)}
+                                            {(staff || []).map(s => <SelectItem key={s.id} value={s.id}><div className="flex items-center gap-2"><Avatar className="w-6 h-6"><AvatarImage src={s.avatarUrl} /><AvatarFallback>{s.name.charAt(0)}</AvatarFallback></Avatar><span>{s.name}</span></div></SelectItem>)}
                                         </SelectContent>
                                     </Select>
                                 )}
@@ -401,7 +419,7 @@ const AddAppointmentForm = ({
                                 render={({ field }) => (
                                     <Select onValueChange={field.onChange} value={field.value}>
                                         <SelectTrigger id="service"><SelectValue placeholder="Select a service" /></SelectTrigger>
-                                        <SelectContent>{services.filter(s => s.type === 'service').map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+                                        <SelectContent>{(services || []).filter(s => s.type === 'service').map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
                                     </Select>
                                 )}
                             />
@@ -494,7 +512,7 @@ const AddAppointmentForm = ({
             <SelectAddOnsDialog 
                 open={isAddOnSelectorOpen} 
                 onOpenChange={setIsAddOnSelectorOpen} 
-                allAddOns={services.filter(s => s.type === 'addon')} 
+                allAddOns={(services || []).filter(s => s.type === 'addon')} 
                 initialSelected={selectedAddOns} 
                 onSelect={handleAddOnsChange} 
             />
@@ -508,7 +526,7 @@ const AddAppointmentForm = ({
     )
 }
 
-export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, clients, services, staff, onConfirm, initialClientId, appointmentToRebook, initialStartTime, initialStaffId }) => {
+export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, onConfirm, initialClientId, appointmentToRebook, initialStartTime, initialStaffId }) => {
   const isMobile = useIsMobile();
 
   const formKey = useMemo(() => {
@@ -520,12 +538,11 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
   
   const FormContent = <AddAppointmentForm 
     key={formKey}
-    clients={clients} 
-    services={services} 
-    staff={staff}
     onConfirm={onConfirm} 
     initialClientId={initialClientId} 
     appointmentToRebook={appointmentToRebook}
+    initialStartTime={initialStartTime}
+    initialStaffId={initialStaffId}
     />;
 
   if (isMobile) {
