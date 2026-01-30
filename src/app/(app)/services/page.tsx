@@ -76,9 +76,9 @@ const InlineProfitTester = ({ service, tmhr, onPriceUpdate }: { service: Service
     const equipmentDepreciation = (service.requiredResourceIds || []).reduce((acc, resourceId) => {
         const equipmentItem = inventory.find(i => i.id === resourceId && i.type === 'equipment');
         if (!equipmentItem || !equipmentItem.lifespanYears || equipmentItem.lifespanYears === 0) return acc;
-
+    
         const annualDepreciation = (equipmentItem.costPerUnit || 0) / equipmentItem.lifespanYears;
-        const hourlyDepreciation = annualDepreciation / 2080; // Assuming 2080 work hours per year
+        const hourlyDepreciation = annualDepreciation / 2080; // Assuming 2080 work hours per year (40/wk * 52)
         const serviceDurationHours = totalDuration / 60;
         
         return acc + (hourlyDepreciation * serviceDurationHours);
@@ -826,5 +826,3 @@ export default function ServicesPage() {
     </div>
   );
 }
-
-```
