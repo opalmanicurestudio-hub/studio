@@ -44,6 +44,7 @@ import {
   Building,
   HardHat,
   Cake,
+  Globe,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -56,7 +57,6 @@ import {
   DropdownMenuPortal,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
   Dialog,
@@ -198,6 +198,12 @@ const AppointmentDetails = ({
                     <div className='flex flex-col'>
                       <span className='font-medium'>{format(appointment.startTime, 'EEEE, LLL d, yyyy')}</span>
                       <span>{format(appointment.startTime, 'h:mm a')} - {format(appointment.endTime, 'h:mm a')}</span>
+                    </div>
+                    <div className="flex items-center gap-2 pt-1">
+                        {appointment.source === 'online' && <Globe className="w-4 h-4"/>}
+                        {appointment.source === 'walk-in' && <Users className="w-4 h-4"/>}
+                        {(appointment.source === 'manual' || !appointment.source) && <Phone className="w-4 h-4"/>}
+                        <span className="capitalize">{appointment.source || 'Manual'}</span>
                     </div>
                     {requiredResources.length > 0 && (
                         <div className="flex items-center gap-2">
