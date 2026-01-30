@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -58,6 +57,10 @@ import { Calendar } from '../ui/calendar';
 import { useForm, Controller } from 'react-hook-form';
 import { Switch } from '../ui/switch';
 import { useToast } from '@/hooks/use-toast';
+import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
+import { useTenant } from '@/context/TenantContext';
+import { collection, query, where } from 'firebase/firestore';
+
 
 interface AddAppointmentDialogProps {
   open: boolean;
@@ -67,7 +70,6 @@ interface AddAppointmentDialogProps {
   staff: Staff[];
   appointments: Appointment[];
   events: Event[];
-  scheduleProfiles: any[];
   onConfirm: (apt: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date, recurrence?: { frequency: string, endDate: Date }}) => void;
   initialClientId?: string;
   appointmentToRebook?: Appointment | null;
@@ -103,11 +105,20 @@ const AddAppointmentForm = ({
     staff,
     appointments,
     events,
-    scheduleProfiles,
     onConfirm,
     initialClientId,
     appointmentToRebook,
-}: Omit<AddAppointmentDialogProps, 'open' | 'onOpenChange' | 'initialStartTime' | 'initialStaffId'>) => {
+}: Omit<AddAppointmentDialogProps, 'open' | 'onOpenChange' | 'scheduleProfiles'>) => {
+    const { firestore } = useFirebase();
+    const { selectedTenant } = useTenant();
+    const tenantId = selectedTenant?.id;
+    
+    const scheduleProfilesQuery = useMemoFirebase(() => {
+        if (!firestore || !tenantId) return null;
+        return query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true));
+    }, [firestore, tenantId]);
+    const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
+
     const { register, handleSubmit, control, watch, formState: { errors }, setValue } = useForm({
         defaultValues: {
             clientId: appointmentToRebook ? appointmentToRebook.clientId : initialClientId || '',
@@ -148,7 +159,7 @@ const AddAppointmentForm = ({
         setValue('addOnIds', addOnIds.filter(id => id !== addOnId));
     };
 
-    const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
+    const publicScheduleProfile = useMemo(() => scheduleProfiles?.[0], [scheduleProfiles]);
     const weekStart = useMemo(() => startOfWeek(date, { weekStartsOn: 0 }), [date]);
     const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
 
@@ -390,7 +401,7 @@ const AddAppointmentForm = ({
                         <h3 className="text-lg font-medium">Date & Time</h3>
                         <div className="rounded-lg border space-y-4 p-4">
                             <div className="flex items-center justify-between">
-                                <Button variant="outline" size="icon" onClick={() => setValue('date', subWeeks(date, 1))} type="button"><ChevronLeft className="w-4 h-4" /></Button>
+                                <Button variant="outline" size="icon" onClick={() => setValue('date', subWeeks(date, 1))} type="button"><ChevronLeft className="w-4 w-4" /></Button>
                                 <span className="font-semibold text-center">{format(weekStart, 'MMMM yyyy')}</span>
                                 <Button variant="outline" size="icon" onClick={() => setValue('date', addWeeks(date, 1))} type="button"><ChevronRight className="w-4 w-4" /></Button>
                             </div>
@@ -478,7 +489,7 @@ const AddAppointmentForm = ({
     )
 }
 
-export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, clients, services, staff, appointments, events, scheduleProfiles, onConfirm, initialClientId, appointmentToRebook, initialStartTime, initialStaffId }) => {
+export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, clients, services, staff, appointments, events, onConfirm, initialClientId, appointmentToRebook, initialStartTime, initialStaffId }) => {
   const isMobile = useIsMobile();
 
   const formKey = useMemo(() => {
@@ -495,7 +506,6 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
     staff={staff}
     appointments={appointments} 
     events={events}
-    scheduleProfiles={scheduleProfiles}
     onConfirm={onConfirm} 
     initialClientId={initialClientId} 
     appointmentToRebook={appointmentToRebook}

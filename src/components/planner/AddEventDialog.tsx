@@ -52,13 +52,17 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '../ui/checkbox';
 import { Switch } from '../ui/switch';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
+import { useTenant } from '@/context/TenantContext';
+import { collection, query, where } from 'firebase/firestore';
+
 
 const timeStringToDate = (timeStr: string, date: Date): Date => {
     const d = new Date(date);
     d.setHours(0, 0, 0, 0);
 
     if (!timeStr) {
-    return d;
+      return d;
     }
 
     const [time, period] = timeStr.split(' ');
@@ -79,15 +83,23 @@ const AddEventForm = ({
     onConfirm,
     appointments,
     events,
-    staff,
-    scheduleProfiles
+    staff
 }: {
     onConfirm: (event: Omit<Event, 'id'>) => void;
     appointments: Appointment[];
     events: Event[];
     staff: Staff[];
-    scheduleProfiles: any[];
 }) => {
+    const { firestore } = useFirebase();
+    const { selectedTenant } = useTenant();
+    const tenantId = selectedTenant?.id;
+    
+    const scheduleProfilesQuery = useMemoFirebase(() => {
+        if (!firestore || !tenantId) return null;
+        return query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true));
+      }, [firestore, tenantId]);
+    const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
+
     const [title, setTitle] = useState('');
     const [type, setType] = useState<'personal' | 'business' | 'blocked'>('business');
     const [date, setDate] = useState<Date>(new Date());
@@ -105,7 +117,7 @@ const AddEventForm = ({
     
     const weekStart = useMemo(() => startOfWeek(date, { weekStartsOn: 0 }), [date]);
     const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
-    const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
+    const publicScheduleProfile = useMemo(() => scheduleProfiles?.[0], [scheduleProfiles]);
 
     const selectedStaff = useMemo(() => staff.find(s => s.id === staffId), [staff, staffId]);
 
@@ -367,7 +379,7 @@ const AddEventForm = ({
                                 <span className="font-semibold text-center">
                                     {format(weekStart, 'MMMM yyyy')}
                                 </span>
-                                <Button variant="outline" size="icon" onClick={() => setDate(prev => addWeeks(prev, 1))} type="button"><ChevronRight className="w-4 h-4" /></Button>
+                                <Button variant="outline" size="icon" onClick={() => setDate(prev => addWeeks(prev, 1))} type="button"><ChevronRight className="w-4 w-4" /></Button>
                             </div>
                             <div className="grid grid-cols-7 gap-2">
                                 {weekDays.map(day => (
@@ -477,21 +489,20 @@ const AddEventForm = ({
     )
 }
 
-export const AddEventDialog = ({ open, onOpenChange, onConfirm, appointments, events, staff, scheduleProfiles }: { 
+export const AddEventDialog = ({ open, onOpenChange, onConfirm, appointments, events, staff }: { 
     open: boolean; 
     onOpenChange: (open: boolean) => void; 
     onConfirm: (event: Omit<Event, 'id'>) => void;
     appointments: Appointment[];
     events: Event[];
     staff: Staff[];
-    scheduleProfiles: any[];
 }) => {
   const isMobile = useIsMobile();
 
   const title = "Add New Event";
   const description = "Add a personal or business event to your calendar.";
   
-  const FormContent = <AddEventForm onConfirm={onConfirm} appointments={appointments} events={events} staff={staff} scheduleProfiles={scheduleProfiles} />;
+  const FormContent = <AddEventForm onConfirm={onConfirm} appointments={appointments} events={events} staff={staff} />;
 
   if (isMobile) {
     return (
@@ -501,7 +512,7 @@ export const AddEventDialog = ({ open, onOpenChange, onConfirm, appointments, ev
             <SheetTitle>{title}</SheetTitle>
             <SheetDescription>{description}</SheetDescription>
           </SheetHeader>
-          <div className="flex-1 overflow-y-auto p-4">{FormContent}</div>
+          <div className="py-4 flex-1 overflow-y-auto px-4">{FormContent}</div>
           <SheetFooter className="p-4 border-t">
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button type="submit" form="add-event-form" className="w-full">Save Event</Button>

@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -163,11 +164,6 @@ function PlannerPageContent() {
     return collection(firestore, `tenants/${tenantId}/events`);
   }, [firestore, tenantId]);
 
-  const scheduleProfilesQuery = useMemoFirebase(() => {
-    if (!firestore || !tenantId) return null;
-    return query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true));
-  }, [firestore, tenantId]);
-
   const resourcesQuery = useMemoFirebase(() => {
     if (!firestore || !tenantId) return null;
     return collection(firestore, `tenants/${tenantId}/resources`);
@@ -178,7 +174,6 @@ function PlannerPageContent() {
     return collection(firestore, `tenants/${tenantId}/inventory`);
   }, [firestore, tenantId]);
 
-  const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
   const { data: fetchedBillDefinitions, isLoading: billDefinitionsLoading } = useCollection<BillDefinition>(billDefinitionsQuery);
   const { data: fetchedBillInstances, isLoading: billInstancesLoading } = useCollection<BillInstance>(billInstancesQuery);
   const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
@@ -190,18 +185,7 @@ function PlannerPageContent() {
   const { data: fetchedResources, isLoading: resourcesLoading } = useCollection<Resource>(resourcesQuery);
   const { data: inventory } = useCollection<InventoryItem>(inventoryQuery);
   
-  const publicScheduleProfile = useMemo(() => scheduleProfiles?.[0], [scheduleProfiles]);
-
-  const resources = useMemo(() => (fetchedResources && fetchedResources.length > 0) ? fetchedResources : mockResources, [fetchedResources]);
-
-
-  useEffect(() => {
-    if (staff && staff.length > 0 && !mobileSelectedStaffId) {
-      setMobileSelectedStaffId(staff[0].id);
-    }
-  }, [staff, mobileSelectedStaffId]);
-
- const appointments = useMemo(() => {
+  const appointments = useMemo(() => {
     if (!appointmentsFromDB) return [];
     return appointmentsFromDB.map(apt => {
         // Ensure startTime and endTime are Date objects
@@ -233,6 +217,12 @@ const events = useMemo(() => {
   const billDefinitions = useMemo(() => (fetchedBillDefinitions && fetchedBillDefinitions.length > 0) ? fetchedBillDefinitions : [], [fetchedBillDefinitions]);
   const billInstances = useMemo(() => (fetchedBillInstances && fetchedBillInstances.length > 0) ? fetchedBillInstances : [], [fetchedBillInstances]);
 
+
+  useEffect(() => {
+    if (staff && staff.length > 0 && !mobileSelectedStaffId) {
+      setMobileSelectedStaffId(staff[0].id);
+    }
+  }, [staff, mobileSelectedStaffId]);
 
   const weekStart = useMemo(() => {
     return startOfWeek(currentDate, { weekStartsOn: 0 });
@@ -402,7 +392,6 @@ const events = useMemo(() => {
       items.sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
     });
 
-    return map;
   }, [currentDate, appointments, resources, services]); // Add services to dependency array
 
   const staffToDisplay = useMemo(() => {
@@ -1122,9 +1111,9 @@ const events = useMemo(() => {
   
   const showStaffColumnHeader = !isMobile;
 
-  const isLoading = isUserLoading || isTenantLoading || appointmentsLoading || servicesLoading || clientsLoading || walkInsLoading || staffLoading || eventsLoading || billDefinitionsLoading || billInstancesLoading || scheduleProfilesLoading || resourcesLoading;
+  const isLoading = isUserLoading || isTenantLoading || appointmentsLoading || servicesLoading || clientsLoading || walkInsLoading || staffLoading || eventsLoading || billDefinitionsLoading || billInstancesLoading || !hasMounted;
 
-  if (!hasMounted || isLoading) {
+  if (isLoading) {
     return (
       <div className="flex h-screen w-full flex-col">
         <AppHeader />
@@ -1380,7 +1369,7 @@ const events = useMemo(() => {
                 walkIns={walkIns}
                 clients={clients}
                 services={services}
-                resources={resources || []}
+                resources={fetchedResources || []}
                 publicScheduleProfile={publicScheduleProfile}
                 onTimeSlotClick={handleTimeSlotClick}
             />
@@ -1389,7 +1378,7 @@ const events = useMemo(() => {
           {activeView === 'resources' && (
              <DayTimeline 
                 date={currentDate} 
-                columns={resources || []}
+                columns={fetchedResources || []}
                 itemsByColumn={itemsByResource}
                 showColumnHeader={true}
                 onCompleteClick={handleCompleteClick} 
@@ -1412,7 +1401,7 @@ const events = useMemo(() => {
                 walkIns={walkIns}
                 clients={clients}
                 services={services}
-                resources={resources || []}
+                resources={fetchedResources || []}
                 publicScheduleProfile={publicScheduleProfile}
                 onTimeSlotClick={() => {}} // Not implemented for resource view
             />
@@ -1459,7 +1448,6 @@ const events = useMemo(() => {
         staff={staff || []}
         appointments={appointments || []}
         events={events || []}
-        scheduleProfiles={scheduleProfiles || []}
         onConfirm={handleAddAppointment}
         initialClientId={appointmentToRebook ? appointmentToRebook.clientId : initialClientIdForNewApt}
         appointmentToRebook={appointmentToRebook}
@@ -1495,7 +1483,6 @@ const events = useMemo(() => {
         appointments={appointments || []}
         events={events || []}
         staff={staff || []}
-        scheduleProfiles={scheduleProfiles || []}
       />
        {selectedEvent && (
         <EditEventDialog
@@ -1640,5 +1627,3 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
-
-    
