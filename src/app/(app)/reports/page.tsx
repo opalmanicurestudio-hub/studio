@@ -11,11 +11,11 @@ import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 import { ArrowLeft, Printer, BarChart, DollarSign, Package, Store, Hammer, Recycle, TrendingUp, AlertTriangle, Download, Target, Ban, Repeat, UserPlus, Users, Wallet, ShoppingCart, Activity, Ban as BanIcon } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
-import { format, isPast, parseISO, subDays, startOfDay, endOfDay, differenceInMinutes, differenceInDays, getHours, setHours } from 'date-fns';
+import { format, isPast, parseISO, differenceInMonths, subDays, startOfDay, endOfDay, differenceInMinutes, differenceInDays, getHours, setHours } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { type InventoryItem, type Appointment, type Service, type Staff, type WalkIn, type Transaction, type ActivityLog } from '@/lib/data';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartConfig } from '@/components/ui/chart';
-import { Bar, BarChart as RechartsBarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart as RechartsBarChart, PieChart as RechartsPieChart, Pie, Cell } from 'recharts';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { DateRange } from 'react-day-picker';
@@ -427,6 +427,21 @@ export default function ReportsPage() {
         .sort((a,b) => b.totalRevenue - a.totalRevenue);
   }, [services, appointments, dateRange]);
 
+    const bookingSourceData = useMemo(() => {
+        if (!appointments) return [];
+        const counts = appointments.reduce((acc, apt) => {
+            const source = apt.source || (apt.isWalkIn ? 'walk-in' : 'manual');
+            acc[source] = (acc[source] || 0) + 1;
+            return acc;
+        }, { online: 0, 'walk-in': 0, manual: 0 } as Record<string, number>);
+
+        return [
+            { name: 'Online', value: counts.online, fill: 'hsl(var(--chart-1))' },
+            { name: 'Walk-in', value: counts['walk-in'], fill: 'hsl(var(--chart-2))' },
+            { name: 'Manual', value: counts.manual, fill: 'hsl(var(--chart-3))' },
+        ];
+    }, [appointments]);
+
   const handlePrint = () => {
     window.print();
   };
@@ -640,8 +655,8 @@ export default function ReportsPage() {
               </CardContent>
           </Card>
 
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-7">
-            <Card className="lg:col-span-4">
+          <div className="grid gap-6 md:grid-cols-2">
+            <Card>
               <CardHeader>
                 <CardTitle>Stylist Effectiveness</CardTitle>
                 <CardDescription>
@@ -664,7 +679,7 @@ export default function ReportsPage() {
                       <TableRow key={data.id}>
                         <TableCell className="font-medium">{data.name}</TableCell>
                         <TableCell className="text-right font-mono">{data.stats.utilizationRate.toFixed(1)}%</TableCell>
-                        <TableCell className="text-right font-mono">${data.stats.avgTicket.toFixed(2)}</TableCell>
+                        <TableCell className="text-right font-mono">${data.stats.avgSalePerAppointment.toFixed(2)}</TableCell>
                         <TableCell className="text-right font-mono">{data.stats.retailAttachmentRate.toFixed(1)}%</TableCell>
                         <TableCell className={cn('text-right font-mono text-xs', data.stats.avgVariance > 0 ? 'text-destructive' : 'text-green-500')}>
                           {data.stats.avgVariance > 0 ? '+' : ''}{data.stats.avgVariance.toFixed(1)} min
@@ -675,35 +690,23 @@ export default function ReportsPage() {
                 </Table>
               </CardContent>
             </Card>
-            <Card className="lg:col-span-3">
-              <CardHeader>
-                <CardTitle>Walk-in Wait Time by Hour</CardTitle>
-                <CardDescription>Average wait time for walk-in customers throughout the day.</CardDescription>
-              </CardHeader>
-              <CardContent className="pl-2">
-                  <ChartContainer config={chartConfig} className="h-[300px] w-full">
-                      <RechartsBarChart accessibilityLayer data={waitTimeData.chartData}>
-                      <CartesianGrid vertical={false} />
-                      <XAxis
-                          dataKey="hour"
-                          tickLine={false}
-                          tickMargin={10}
-                          axisLine={false}
-                      />
-                      <YAxis
-                          tickLine={false}
-                          axisLine={false}
-                          tickMargin={10}
-                          tickFormatter={(value) => `${value}m`}
-                      />
-                      <ChartTooltip
-                          cursor={false}
-                          content={<ChartTooltipContent />}
-                      />
-                      <Bar dataKey="waitTime" fill="var(--color-waitTime)" radius={8} />
-                      </RechartsBarChart>
-                  </ChartContainer>
-              </CardContent>
+            <Card>
+                <CardHeader>
+                    <CardTitle>Booking Source</CardTitle>
+                    <CardDescription>Breakdown of appointments by how they were booked.</CardDescription>
+                </CardHeader>
+                <CardContent className="flex justify-center">
+                    <ChartContainer config={{}} className="h-[250px] w-[250px]">
+                        <RechartsPieChart>
+                            <ChartTooltip content={<ChartTooltipContent hideLabel />} />
+                            <Pie data={bookingSourceData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
+                                {bookingSourceData.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={entry.fill} />
+                                ))}
+                            </Pie>
+                        </RechartsPieChart>
+                    </ChartContainer>
+                </CardContent>
             </Card>
           </div>
         </main>
@@ -740,3 +743,4 @@ export default function ReportsPage() {
     </>
   );
 }
+

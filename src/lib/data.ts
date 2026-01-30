@@ -290,10 +290,12 @@ export type Appointment = {
   startTime: any;
   endTime: any;
   status: 'confirmed' | 'completed' | 'cancelled' | 'deposit_pending' | 'ready_for_checkout' | 'servicing';
+  source?: 'online' | 'walk-in' | 'manual';
   addOnIds?: string[];
   inspirationPhotoUrl?: string;
   absorbedCost?: number;
   incident?: Incident;
+  inventoryProcessed?: boolean;
   isWalkIn?: boolean;
   actualStartTime?: string;
   actualEndTime?: string;
@@ -1209,6 +1211,7 @@ export { nanoid };
     
 
     
+
 
 
 

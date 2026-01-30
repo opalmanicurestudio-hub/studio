@@ -827,6 +827,7 @@ export default function WalkInQueuePage() {
             startTime: now,
             endTime: appointmentEndTime,
             status: 'confirmed',
+            source: 'walk-in',
             isWalkIn: true,
             addOnIds: walkIn.serviceIds.slice(1),
             checkInToken: nanoid(16),

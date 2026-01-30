@@ -676,6 +676,7 @@ function PlannerPageContent() {
                 endTime: currentEndTime.toISOString(),
                 checkInToken: checkInToken,
                 recurrenceId: recurrenceId,
+                source: 'manual'
             };
             batch.set(appointmentRef, appointmentToSave);
 
@@ -719,6 +720,7 @@ function PlannerPageContent() {
             checkInToken: checkInToken,
             startTime: baseAppointment.startTime.toISOString(),
             endTime: baseAppointment.endTime.toISOString(),
+            source: 'manual'
         };
         
         await setDoc(appointmentRef, appointmentToSave);
