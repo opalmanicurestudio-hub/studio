@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -84,6 +85,29 @@ import { type TicketData } from './PrintTicket';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import { useInventory } from '@/context/InventoryContext';
 
+interface AppointmentDetailsProps {
+    appointment: Appointment;
+    client: Client;
+    service: Service;
+    tmhr: number;
+    revenue: number;
+    breakEvenCost: number;
+    netProfit: number;
+    timeCost: number;
+    productCost: number;
+    equipmentCost: number;
+    addOnServices: Service[];
+    requiredResources: Resource[];
+    onEdit: (appointment: Appointment) => void;
+    onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void;
+    onDelete: (appointmentId: string) => void;
+    onReschedule: (appointment: Appointment) => void;
+    onBookNewForClient: (clientId: string) => void;
+    onStartService: (appointmentId: string) => void;
+    onFinishService: (appointment: Appointment) => void;
+    elapsedTime: string | null;
+}
+
 interface AppointmentCardProps {
   appointment: Appointment;
   client: Client;
@@ -122,30 +146,33 @@ const AppointmentDetails = ({
     onDelete,
     onReschedule,
     onBookNewForClient,
-}: {
-    appointment: Appointment;
-    client: Client;
-    service: Service;
-    tmhr: number;
-    revenue: number;
-    breakEvenCost: number;
-    netProfit: number;
-    timeCost: number;
-    productCost: number;
-    equipmentCost: number;
-    addOnServices: Service[];
-    requiredResources: Resource[];
-    onEdit: (appointment: Appointment) => void;
-    onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void;
-    onDelete: (appointmentId: string) => void;
-    onReschedule: (appointment: Appointment) => void;
-    onBookNewForClient: (clientId: string) => void;
-}) => {
+    onStartService,
+    onFinishService,
+    elapsedTime,
+}: AppointmentDetailsProps) => {
     const { toast } = useToast();
 
   return (
     <ScrollArea className="h-[80vh] p-6">
         <div className="space-y-6">
+            
+            {appointment.status === 'confirmed' && (
+                <Button onClick={() => onStartService(appointment.id)} className="w-full" size="lg">
+                    <Play className="mr-2 h-4 w-4" /> Start Service
+                </Button>
+            )}
+            {appointment.status === 'servicing' && (
+                <Card className="bg-yellow-500/10 border-yellow-500/20">
+                    <CardContent className="p-4 text-center space-y-2">
+                        <p className="text-sm font-medium text-yellow-800 dark:text-yellow-300">Service in Progress</p>
+                        <p className="text-4xl font-bold font-mono text-yellow-900 dark:text-yellow-200">{elapsedTime || '00:00'}</p>
+                        <Button onClick={() => onFinishService(appointment)} className="w-full mt-2">
+                            <Square className="mr-2 h-4 w-4" /> Finish Service
+                        </Button>
+                    </CardContent>
+                </Card>
+            )}
+
              <div className="space-y-2">
                 <div className="flex justify-between items-start gap-4">
                     <h3 className="font-semibold text-lg">{client.name}</h3>
@@ -451,7 +478,7 @@ export function AppointmentCard({
     completed: { text: 'Completed', className: 'border-green-500/30 text-green-800 dark:text-green-300', bgClassName: 'bg-green-500/10' },
     cancelled: { text: 'Cancelled', className: 'border-red-500/30 text-red-800 dark:text-red-300', bgClassName: 'bg-red-500/10' },
     deposit_pending: { text: 'Awaiting Payment', className: 'border-pink-500/30 text-pink-800 dark:text-pink-300', bgClassName: 'bg-pink-500/10' },
-    ready_for_checkout: { text: 'Checkout', className: 'border-orange-500/30 text-orange-800 dark:text-orange-300 animate-pulse', bgClassName: 'bg-orange-500/10' },
+    ready_for_checkout: { text: 'Checkout', className: 'border-orange-500/30 text-orange-800 dark:text-orange-300', bgClassName: 'bg-orange-500/10' },
   };
 
   const hasPadBefore = (service.padBefore || 0) > 0;
@@ -479,8 +506,6 @@ export function AppointmentCard({
       setIsDetailsOpen(true);
     };
 
-    const handleStartClick = (e: React.MouseEvent) => { e.stopPropagation(); onStartService(appointment.id); };
-    const handleFinishClick = (e: React.MouseEvent) => { e.stopPropagation(); onFinishService(appointment); };
     const handleCheckoutClick = (e: React.MouseEvent) => { e.stopPropagation(); onCompleteClick(appointment); };
     
     const dropdownContent = (
@@ -527,19 +552,11 @@ export function AppointmentCard({
           </div>
           
           <div className="flex items-center gap-1 flex-shrink-0">
-            {appointment.status === 'ready_for_checkout' ? (
+            {appointment.status === 'ready_for_checkout' && (
               <Button variant="ghost" size="icon" className="rounded-full bg-orange-100 dark:bg-orange-500/10 text-orange-600 dark:text-orange-300 h-7 w-7 hover:bg-orange-200 dark:hover:bg-orange-500/20" onClick={handleCheckoutClick}>
                 <DollarSign className="w-4 h-4" />
               </Button>
-            ) : appointment.status === 'confirmed' ? (
-              <Button variant="ghost" size="icon" className="rounded-full bg-primary text-primary-foreground h-7 w-7 hover:bg-primary/90" onClick={handleStartClick}>
-                <Play className="w-3 h-3 fill-current" />
-              </Button>
-            ) : appointment.status === 'servicing' ? (
-              <Button variant="ghost" size="icon" className="rounded-full bg-primary text-primary-foreground h-7 w-7 hover:bg-primary/90" onClick={handleFinishClick}>
-                <Square className="w-3 h-3 fill-current" />
-              </Button>
-            ) : null}
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button aria-haspopup="true" size="icon" variant="ghost" className="h-7 w-7" onClick={(e) => e.stopPropagation()}>
@@ -579,27 +596,20 @@ export function AppointmentCard({
                 <div className="flex flex-col items-start gap-1">
                     <p className="text-[10px] text-muted-foreground font-medium">{format(appointment.startTime, 'h:mm a')}</p>
                      <div className="flex items-center gap-1 flex-wrap">
-                        {appointment.status !== 'ready_for_checkout' && (
-                            <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[appointment.status]?.className, statusDisplay[appointment.status]?.bgClassName)}>
-                                {appointment.status === 'servicing' && <Clock className="w-3 h-3 mr-1 animate-spin" />}
-                                {statusDisplay[appointment.status]?.text}
-                            </Badge>
-                        )}
+                        <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[appointment.status]?.className, statusDisplay[appointment.status]?.bgClassName)}>
+                            {statusDisplay[appointment.status]?.text}
+                        </Badge>
                         {appointment.checkInStatus === 'on_my_way' && (<Badge variant="outline" className="text-[10px] h-5 px-1.5 capitalize border-blue-500/30 text-blue-800 dark:text-blue-300 bg-blue-500/10"><Car className="w-3 h-3 mr-1" />On My Way</Badge>)}
                         {appointment.checkInStatus === 'arrived' && (<Badge variant="outline" className="text-[10px] h-5 px-1.5 capitalize border-green-500/30 text-green-800 dark:text-green-300 bg-green-500/10"><CheckCircle className="w-3 h-3 mr-1" />Arrived</Badge>)}
                         {appointment.checkInStatus === 'running_late' && (<Badge variant="destructive" className="text-[10px] h-5 px-1.5 capitalize"><AlertTriangle className="w-3 h-3 mr-1" />{appointment.lateTimeMinutes}m late</Badge>)}
                     </div>
                 </div>
-                <div className="flex items-center gap-2">
-                    {appointment.status === 'ready_for_checkout' ? (
+                 {appointment.status === 'ready_for_checkout' && (
                        <Button size="sm" className={cn('capitalize font-semibold h-7 px-3', statusDisplay[appointment.status]?.className, statusDisplay[appointment.status]?.bgClassName, 'hover:ring-2 hover:ring-offset-1 hover:ring-orange-500 hover:bg-orange-500/20')} onClick={handleCheckoutClick}>
                          <DollarSign className="w-4 h-4 mr-1.5" />
                          {statusDisplay[appointment.status]?.text}
                        </Button>
-                    ) : null}
-                    {appointment.status === 'confirmed' && ( <Button variant="ghost" size="icon" className="rounded-full bg-primary text-primary-foreground h-7 w-7 hover:bg-primary/90" onClick={handleStartClick}><Play className="w-3 h-3 fill-current" /></Button> )}
-                    {appointment.status === 'servicing' && ( <Button variant="ghost" size="icon" className="rounded-full bg-primary text-primary-foreground h-7 w-7 hover:bg-primary/90" onClick={handleFinishClick}><Square className="w-3 h-3 fill-current" /></Button> )}
-                </div>
+                    )}
             </div>
         </div>
     );
@@ -626,7 +636,7 @@ export function AppointmentCard({
       )}
       
       <DialogOrSheet open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
-        <DialogOrSheetContent className={cn(isMobile ? "h-[90vh] flex flex-col p-0" : "p-0")}>
+        <DialogOrSheetContent className={cn(isMobile ? "h-[90vh] flex flex-col p-0" : "p-0 sm:max-w-md")}>
           <SheetHeader className="p-6 pb-0">
             <SheetTitle>Appointment Details</SheetTitle>
             <SheetDescription>
@@ -651,6 +661,9 @@ export function AppointmentCard({
             onDelete={onDelete}
             onReschedule={onReschedule}
             onBookNewForClient={onBookNewForClient}
+            onStartService={onStartService}
+            onFinishService={onFinishService}
+            elapsedTime={elapsedTime}
           />
         </DialogOrSheetContent>
       </DialogOrSheet>
@@ -670,4 +683,3 @@ export function AppointmentCard({
     </div>
   );
 }
-
