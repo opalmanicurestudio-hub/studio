@@ -101,12 +101,6 @@ function PlannerPageContent() {
       billInstances,
       isLoading
   } = useInventory();
-
-  const resourcesQuery = useMemoFirebase(() => {
-    if (!firestore || !tenantId) return null;
-    return collection(firestore, 'tenants', tenantId, 'resources');
-  }, [firestore, tenantId]);
-  const { data: resources, isLoading: resourcesLoading } = useCollection<Resource>(resourcesQuery);
   
   const appointments = useMemo(() => {
     if (!appointmentsFromInventory) return [];
@@ -163,8 +157,14 @@ function PlannerPageContent() {
     if (!firestore || !tenantId) return null;
     return query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true));
   }, [firestore, tenantId]);
+
+  const resourcesQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, 'tenants', tenantId, 'resources');
+  }, [firestore, tenantId]);
   
   const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
+  const { data: resources, isLoading: resourcesLoading } = useCollection<Resource>(resourcesQuery);
   const publicScheduleProfile = useMemo(() => scheduleProfiles?.[0], [scheduleProfiles]);
 
   useEffect(() => {
@@ -1076,15 +1076,11 @@ function PlannerPageContent() {
     <div className="flex h-screen w-full flex-col">
       <AppHeader />
       
-      <Accordion type="single" collapsible className="w-full border-b md:hidden" defaultValue="item-1">
-        <AccordionItem value="item-1" className="border-b-0">
-          <AccordionTrigger className="p-4 text-lg font-semibold hover:no-underline flex-1">
-            <div>{format(currentDate, 'EEEE, MMMM d')}</div>
-          </AccordionTrigger>
-          <AccordionContent className="p-4 pt-0 space-y-4">
-             <div className="grid grid-cols-[1fr,auto,auto] items-center gap-4">
-                 <h2 className="text-2xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
-                 <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-8">Today</Button>
+       <div className="md:hidden">
+          <div className="p-4 space-y-4 border-b">
+            <div className="grid grid-cols-[1fr,auto,auto] items-center gap-4">
+                <h2 className="text-2xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
+                <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-8">Today</Button>
                 <div className="relative h-8 w-8">
                     <Button variant="outline" size="icon" className="h-8 w-8" asChild>
                         <label htmlFor="date-picker-mobile" className="cursor-pointer">
@@ -1105,87 +1101,91 @@ function PlannerPageContent() {
                     />
                 </div>
             </div>
-            
-            <div className="border-b -mx-4">
-              <ScrollArea className="w-full md:whitespace-normal">
-                  <div className="flex w-full px-4">
-                      {weekDays.map(day => (
-                          <button
-                              key={day.toISOString()}
-                              onClick={() => setCurrentDate(day)}
-                              className={cn(
-                                  "flex-1 py-2 text-center transition-colors hover:bg-muted/50 rounded-t-md",
-                                  isSameDay(day, currentDate) && "border-b-2 border-primary"
-                              )}
-                          >
-                              <p className={cn("text-xs", isSameDay(day, currentDate) ? "text-primary font-semibold" : "text-muted-foreground")}>
-                                  {format(day, 'EEE')}
-                              </p>
-                              <p className={cn("text-lg font-bold mt-1", !isSameDay(day, currentDate) && "text-muted-foreground")}>
-                                  {format(day, 'd')}
-                              </p>
-                          </button>
-                      ))}
-                  </div>
-                  <ScrollBar orientation="horizontal" />
-              </ScrollArea>
+            <div className="-mx-4">
+                <ScrollArea className="w-full">
+                    <div className="flex w-full px-4">
+                        {weekDays.map(day => (
+                            <button
+                                key={day.toISOString()}
+                                onClick={() => setCurrentDate(day)}
+                                className={cn(
+                                    "flex-1 py-2 text-center transition-colors hover:bg-muted/50 rounded-t-md",
+                                    isSameDay(day, currentDate) && "border-b-2 border-primary"
+                                )}
+                            >
+                                <p className={cn("text-xs", isSameDay(day, currentDate) ? "text-primary font-semibold" : "text-muted-foreground")}>
+                                    {format(day, 'EEE')}
+                                </p>
+                                <p className={cn("text-lg font-bold mt-1", !isSameDay(day, currentDate) && "text-muted-foreground")}>
+                                    {format(day, 'd')}
+                                </p>
+                            </button>
+                        ))}
+                    </div>
+                    <ScrollBar orientation="horizontal" />
+                </ScrollArea>
             </div>
-            
-            <div className="flex flex-col gap-4">
-              <Tabs value={activeView} onValueChange={setActiveView} className="w-full">
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="staff">Staff View</TabsTrigger>
-                  <TabsTrigger value="resources">Resource View</TabsTrigger>
-                </TabsList>
-              </Tabs>
-              {isMobile && activeView === 'staff' && (
-                  <div className="space-y-1">
-                      <Label htmlFor="staff-selector" className="text-xs">Viewing Schedule For</Label>
-                      <Select value={mobileSelectedStaffId} onValueChange={setMobileSelectedStaffId}>
-                      <SelectTrigger id="staff-selector" className="mt-1">
-                          {mobileSelectedStaffId && staff?.find(s => s.id === mobileSelectedStaffId) ? (
-                          <div className="flex items-center gap-2">
-                              <Avatar className="w-6 h-6">
-                              <AvatarImage src={staff.find(s => s.id === mobileSelectedStaffId)?.avatarUrl} />
-                              <AvatarFallback>{staff.find(s => s.id === mobileSelectedStaffId)?.name.charAt(0)}</AvatarFallback>
-                              </Avatar>
-                              <span>{staff.find(s => s.id === mobileSelectedStaffId)?.name}</span>
-                          </div>
-                          ) : (
-                          <SelectValue placeholder="Select a staff member" />
-                          )}
-                      </SelectTrigger>
-                      <SelectContent>
-                          {(staff || []).map(s => (
-                          <SelectItem key={s.id} value={s.id}>
-                              <div className="flex items-center gap-2">
-                                  <Avatar className="w-6 h-6">
-                                      <AvatarImage src={s.avatarUrl} />
-                                      <AvatarFallback>{s.name.charAt(0)}</AvatarFallback>
-                                  </Avatar>
-                                  <span>{s.name}</span>
-                              </div>
-                          </SelectItem>
-                          ))}
-                      </SelectContent>
-                      </Select>
-                  </div>
-              )}
-               <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="outline" className="w-full">
-                    Actions
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => setIsAddAppointmentOpen(true)}>New Appointment</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setIsAddEventOpen(true)}>New Event</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
+        </div>
+        <Accordion type="single" collapsible className="w-full border-b md:hidden">
+            <AccordionItem value="view-options" className="border-b-0">
+                <AccordionTrigger className="p-4 text-base font-semibold hover:no-underline flex-1">View Options</AccordionTrigger>
+                <AccordionContent className="p-4 pt-0 space-y-4">
+                     <div className="flex flex-col gap-4">
+                        <Tabs value={activeView} onValueChange={setActiveView} className="w-full">
+                            <TabsList className="grid w-full grid-cols-2">
+                            <TabsTrigger value="staff">Staff View</TabsTrigger>
+                            <TabsTrigger value="resources">Resource View</TabsTrigger>
+                            </TabsList>
+                        </Tabs>
+                        {isMobile && activeView === 'staff' && (
+                            <div className="space-y-1">
+                                <Label htmlFor="staff-selector" className="text-xs">Viewing Schedule For</Label>
+                                <Select value={mobileSelectedStaffId} onValueChange={setMobileSelectedStaffId}>
+                                <SelectTrigger id="staff-selector" className="mt-1">
+                                    {mobileSelectedStaffId && staff?.find(s => s.id === mobileSelectedStaffId) ? (
+                                    <div className="flex items-center gap-2">
+                                        <Avatar className="w-6 h-6">
+                                        <AvatarImage src={staff.find(s => s.id === mobileSelectedStaffId)?.avatarUrl} />
+                                        <AvatarFallback>{staff.find(s => s.id === mobileSelectedStaffId)?.name.charAt(0)}</AvatarFallback>
+                                        </Avatar>
+                                        <span>{staff.find(s => s.id === mobileSelectedStaffId)?.name}</span>
+                                    </div>
+                                    ) : (
+                                    <SelectValue placeholder="Select a staff member" />
+                                    )}
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {(staff || []).map(s => (
+                                    <SelectItem key={s.id} value={s.id}>
+                                        <div className="flex items-center gap-2">
+                                            <Avatar className="w-6 h-6">
+                                                <AvatarImage src={s.avatarUrl} />
+                                                <AvatarFallback>{s.name.charAt(0)}</AvatarFallback>
+                                            </Avatar>
+                                            <span>{s.name}</span>
+                                        </div>
+                                    </SelectItem>
+                                    ))}
+                                </SelectContent>
+                                </Select>
+                            </div>
+                        )}
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                            <Button size="sm" variant="outline" className="w-full">
+                                Actions
+                            </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => setIsAddAppointmentOpen(true)}>New Appointment</DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => setIsAddEventOpen(true)}>New Event</DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
+                </AccordionContent>
+            </AccordionItem>
+        </Accordion>
+      </div>
       
       <div className="hidden md:block p-4 border-b space-y-4">
         <div className="flex items-center justify-between gap-4">
