@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { format, differenceInMinutes, isPast, parseISO, differenceInSeconds } from 'date-fns';
 import {
   ShieldPlus,
@@ -86,6 +86,7 @@ import { type ReceiptData } from './PrintReceipt';
 import { type TicketData } from './PrintTicket';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import { useInventory } from '@/context/InventoryContext';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface AppointmentDetailsProps {
     appointment: Appointment;
@@ -675,5 +676,3 @@ export function AppointmentCard({
     </div>
   );
 }
-
-    
