@@ -58,6 +58,7 @@ import { CalendarIcon } from 'lucide-react';
 import { ScrollArea } from '../ui/scroll-area';
 import { useFirebase, useMemoFirebase, useCollection } from '@/firebase';
 import { collection } from 'firebase/firestore';
+import { useTenant } from '@/context/TenantContext';
 
 
 const serviceSchema = z.object({
@@ -429,18 +430,10 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
     );
 };
 
-const Step4_VisibilityConfirmation = () => {
+const Step4_VisibilityConfirmation = ({ consentForms }: { consentForms: ConsentForm[] }) => {
     const { register, control, setValue, watch } = useFormContext<ServiceFormData>();
     const requiredFormIds = watch('requiredFormIds') || [];
     const [isConsentFormBrowserOpen, setIsConsentFormBrowserOpen] = useState(false);
-    
-    const { firestore } = useFirebase();
-    const { selectedTenant } = useTenant();
-    const consentFormsQuery = useMemoFirebase(() => {
-        if (!firestore || !selectedTenant) return null;
-        return collection(firestore, `tenants/${selectedTenant.id}/consentForms`);
-    }, [firestore, selectedTenant]);
-    const { data: consentForms } = useCollection<ConsentForm>(consentFormsQuery);
     
     const requiredForms = consentForms?.filter(f => requiredFormIds.includes(f.id)) || [];
 
