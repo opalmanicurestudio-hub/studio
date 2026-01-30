@@ -213,6 +213,8 @@ const events = useMemo(() => {
       return ({ ...evt, startTime, endTime });
     });
   }, [fetchedEvents]);
+
+  const resources = useMemo(() => fetchedResources || [], [fetchedResources]);
   
   const billDefinitions = useMemo(() => (fetchedBillDefinitions && fetchedBillDefinitions.length > 0) ? fetchedBillDefinitions : [], [fetchedBillDefinitions]);
   const billInstances = useMemo(() => (fetchedBillInstances && fetchedBillInstances.length > 0) ? fetchedBillInstances : [], [fetchedBillInstances]);
@@ -392,7 +394,7 @@ const events = useMemo(() => {
       items.sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
     });
 
-  }, [currentDate, appointments, resources, services]); // Add services to dependency array
+  }, [currentDate, appointments, resources, services]);
 
   const staffToDisplay = useMemo(() => {
     if (isMobile) {
@@ -1111,7 +1113,7 @@ const events = useMemo(() => {
   
   const showStaffColumnHeader = !isMobile;
 
-  const isLoading = isUserLoading || isTenantLoading || appointmentsLoading || servicesLoading || clientsLoading || walkInsLoading || staffLoading || eventsLoading || billDefinitionsLoading || billInstancesLoading || !hasMounted;
+  const isLoading = isUserLoading || isTenantLoading || appointmentsLoading || servicesLoading || clientsLoading || walkInsLoading || staffLoading || eventsLoading || billDefinitionsLoading || billInstancesLoading || resourcesLoading || !hasMounted;
 
   if (isLoading) {
     return (
@@ -1369,7 +1371,7 @@ const events = useMemo(() => {
                 walkIns={walkIns}
                 clients={clients}
                 services={services}
-                resources={fetchedResources || []}
+                resources={resources}
                 publicScheduleProfile={publicScheduleProfile}
                 onTimeSlotClick={handleTimeSlotClick}
             />
@@ -1378,7 +1380,7 @@ const events = useMemo(() => {
           {activeView === 'resources' && (
              <DayTimeline 
                 date={currentDate} 
-                columns={fetchedResources || []}
+                columns={resources}
                 itemsByColumn={itemsByResource}
                 showColumnHeader={true}
                 onCompleteClick={handleCompleteClick} 
@@ -1401,7 +1403,7 @@ const events = useMemo(() => {
                 walkIns={walkIns}
                 clients={clients}
                 services={services}
-                resources={fetchedResources || []}
+                resources={resources}
                 publicScheduleProfile={publicScheduleProfile}
                 onTimeSlotClick={() => {}} // Not implemented for resource view
             />
@@ -1416,7 +1418,6 @@ const events = useMemo(() => {
             }}
             appointmentData={selectedAppointmentData}
             onConfirmCheckout={handleCheckout}
-            onSendToFrontDesk={handleSendToFrontDesk}
             onRebook={handleRebook}
             staff={staff || []}
         />
