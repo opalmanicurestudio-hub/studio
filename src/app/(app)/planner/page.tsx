@@ -1,3 +1,4 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -159,6 +160,7 @@ function PlannerPageContent() {
   }, [firestore, tenantId]);
   
   const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
+  const publicScheduleProfile = useMemo(() => scheduleProfiles?.[0], [scheduleProfiles]);
 
   useEffect(() => {
     if (staff && staff.length > 0 && !mobileSelectedStaffId) {
@@ -1053,8 +1055,6 @@ function PlannerPageContent() {
 }, [isScannerOpen, handleScan, toast]);
   
   const showStaffColumnHeader = !isMobile;
-  
-  const publicScheduleProfile = useMemo(() => scheduleProfiles?.[0], [scheduleProfiles]);
 
   if (isLoading || isUserLoading || isTenantLoading || scheduleProfilesLoading) {
     return (
@@ -1073,17 +1073,15 @@ function PlannerPageContent() {
       
       <div className="p-4 border-b space-y-4">
         <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <h2 className="text-2xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
-            </div>
+            <h2 className="text-2xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
+        </div>
 
-            {/* Mobile: date nav under month/year */}
-             <div className="md:hidden flex items-center gap-2">
+        <div className="md:hidden flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
                 <Button variant="outline" onClick={() => setCurrentDate(subWeeks(currentDate, 1))} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
                 <Button variant="outline" onClick={() => setCurrentDate(addWeeks(currentDate, 1))} size="icon" className="h-8 w-8"><ChevronRight /></Button>
-                <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
                 <DropdownMenu>
-                     <DropdownMenuTrigger asChild>
+                    <DropdownMenuTrigger asChild>
                         <Button variant="outline" size="icon" className="h-8 w-8"><CalendarIcon className="h-4 w-4" /><span className="sr-only">Jump To...</span></Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
@@ -1102,59 +1100,59 @@ function PlannerPageContent() {
                         <DropdownMenuItem onClick={() => handleJumpTo(-12)}>- 12 Weeks</DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
-            </div>
-        </div>
-
-        <div className="md:hidden flex items-center justify-end gap-2">
-            <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
-              <QrCode className="w-4 h-4"/>
-              <span className="sr-only">Scan</span>
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm">
-                  <MoreHorizontal className="mr-2 h-4 w-4" />
-                  Actions
+                <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
+                  <QrCode className="w-4 h-4"/>
+                  <span className="sr-only">Scan</span>
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                 <DropdownMenuItem onClick={() => setIsAddAppointmentOpen(true)}>
-                    <PlusCircle className="mr-2 h-4 w-4" />
-                    New Appointment
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setIsAddEventOpen(true)}>
-                    <PlusCircle className="mr-2 h-4 w-4" />
-                    New Event
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                    <Link href={`/book/${tenantId}`} target="_blank">
-                        <Globe className="mr-2 h-4 w-4" />
-                        Booking Page
-                    </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                    <Link href={`/walk-in/${tenantId}`} target="_blank">
-                        <Users className="mr-2 h-4 w-4" />
-                        Walk-in Kiosk
-                    </Link>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => setIsKpiSheetOpen(true)}>
-                    <BarChart className="mr-2 h-4 w-4" />
-                    Weekly KPIs
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setIsBillsSheetOpen(true)}>
-                    <BellRing className="mr-2 h-4 w-4" />
-                    Bills Due
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setIsPickingListOpen(true)}>
-                    <List className="mr-2 h-4 w-4" />
-                    Picking List
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+            </div>
+            <div className="flex items-center gap-2">
+                <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm">
+                      <MoreHorizontal className="mr-2 h-4 w-4" />
+                      Actions
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                     <DropdownMenuItem onClick={() => setIsAddAppointmentOpen(true)}>
+                        <PlusCircle className="mr-2 h-4 w-4" />
+                        New Appointment
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setIsAddEventOpen(true)}>
+                        <PlusCircle className="mr-2 h-4 w-4" />
+                        New Event
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                        <Link href={`/book/${tenantId}`} target="_blank">
+                            <Globe className="mr-2 h-4 w-4" />
+                            Booking Page
+                        </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                        <Link href={`/walk-in/${tenantId}`} target="_blank">
+                            <Users className="mr-2 h-4 w-4" />
+                            Walk-in Kiosk
+                        </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setIsKpiSheetOpen(true)}>
+                        <BarChart className="mr-2 h-4 w-4" />
+                        Weekly KPIs
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setIsBillsSheetOpen(true)}>
+                        <BellRing className="mr-2 h-4 w-4" />
+                        Bills Due
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setIsPickingListOpen(true)}>
+                        <List className="mr-2 h-4 w-4" />
+                        Picking List
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+        </div>
 
         <div className="hidden md:block space-y-4">
             <div className="flex items-center justify-between gap-4">
