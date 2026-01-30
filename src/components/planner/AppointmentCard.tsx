@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -647,21 +646,21 @@ export function AppointmentCard({
                 </div>
             </div>
              <div className="flex items-center gap-2">
-                {appointment.status === 'ready_for_checkout' && (
+                 {appointment.status === 'ready_for_checkout' ? (
                     <Badge
                         variant="secondary"
                         className={cn(
-                            "text-[10px] h-5 px-1.5 capitalize",
+                            "text-xs h-7 px-2.5 capitalize font-semibold",
                             statusDisplay[appointment.status]?.className,
                             statusDisplay[appointment.status]?.bgClassName,
                             'cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-orange-500'
                         )}
                         onClick={handleCheckoutClick}
                     >
-                        <DollarSign className="w-3 h-3 mr-1" />
+                        <DollarSign className="w-3 h-3 mr-1.5" />
                         {statusDisplay[appointment.status]?.text}
                     </Badge>
-                )}
+                ) : null}
                  {appointment.status === 'confirmed' && (
                   <Button variant="ghost" size="icon" className="rounded-full bg-primary text-primary-foreground h-7 w-7 hover:bg-primary/90" onClick={handleStartClick}>
                     <Play className="w-3 h-3 fill-current" />
@@ -679,7 +678,7 @@ export function AppointmentCard({
   )};
 
 
-  const DialogOrSheet = isMobile ? Sheet : Dialog;
+  const DialogOrSheet = isMobile ? Sheet : Sheet;
   const DialogOrSheetContent = isMobile ? SheetContent : DialogContent;
   const imageUrl = appointment.inspirationPhotoUrl || client.inspirationPhotoUrl;
 
@@ -743,5 +742,4 @@ export function AppointmentCard({
     </div>
   );
 }
-
-```)
+    
