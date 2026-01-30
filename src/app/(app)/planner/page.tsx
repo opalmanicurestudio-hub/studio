@@ -91,6 +91,7 @@ function PlannerPageContent() {
   const tenantId = selectedTenant?.id;
   
   const { 
+      inventory,
       clients, 
       services, 
       staff, 
@@ -737,7 +738,7 @@ function PlannerPageContent() {
     setAppointmentToRebook(rebookAppointmentData);
     setIsAddAppointmentOpen(true);
   };
-
+  
   const handleBookNewForClient = (clientId: string) => {
     setAppointmentToRebook(null);
     setInitialClientIdForNewApt(clientId);
@@ -1076,209 +1077,177 @@ function PlannerPageContent() {
     <div className="flex h-screen w-full flex-col">
       <AppHeader />
       
-       <div className="md:hidden">
-          <div className="p-4 space-y-4 border-b">
-            <div className="grid grid-cols-[1fr,auto,auto] items-center gap-4">
-                <h2 className="text-2xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
-                <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-8">Today</Button>
-                <div className="relative h-8 w-8">
-                    <Button variant="outline" size="icon" className="h-8 w-8" asChild>
-                        <label htmlFor="date-picker-mobile" className="cursor-pointer">
-                            <CalendarIcon className="h-4 w-4" />
-                            <span className="sr-only">Jump To...</span>
-                        </label>
-                    </Button>
-                    <input
-                        id="date-picker-mobile"
-                        type="date"
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                        value={format(currentDate, 'yyyy-MM-dd')}
-                        onChange={(e) => {
-                            if (e.target.value) {
-                                handleDateSelect(new Date(e.target.value.replace(/-/g, '/')));
-                            }
-                        }}
-                    />
-                </div>
-            </div>
-            <div className="-mx-4">
-                <ScrollArea className="w-full">
-                    <div className="flex w-full px-4">
-                        {weekDays.map(day => (
-                            <button
-                                key={day.toISOString()}
-                                onClick={() => setCurrentDate(day)}
-                                className={cn(
-                                    "flex-1 py-2 text-center transition-colors hover:bg-muted/50 rounded-t-md",
-                                    isSameDay(day, currentDate) && "border-b-2 border-primary"
-                                )}
-                            >
-                                <p className={cn("text-xs", isSameDay(day, currentDate) ? "text-primary font-semibold" : "text-muted-foreground")}>
-                                    {format(day, 'EEE')}
-                                </p>
-                                <p className={cn("text-lg font-bold mt-1", !isSameDay(day, currentDate) && "text-muted-foreground")}>
-                                    {format(day, 'd')}
-                                </p>
-                            </button>
-                        ))}
-                    </div>
-                    <ScrollBar orientation="horizontal" />
-                </ScrollArea>
-            </div>
-        </div>
-        <Accordion type="single" collapsible className="w-full border-b md:hidden">
-            <AccordionItem value="view-options" className="border-b-0">
-                <AccordionTrigger className="p-4 text-base font-semibold hover:no-underline flex-1">View Options</AccordionTrigger>
-                <AccordionContent className="p-4 pt-0 space-y-4">
-                     <div className="flex flex-col gap-4">
-                        <Tabs value={activeView} onValueChange={setActiveView} className="w-full">
-                            <TabsList className="grid w-full grid-cols-2">
-                            <TabsTrigger value="staff">Staff View</TabsTrigger>
-                            <TabsTrigger value="resources">Resource View</TabsTrigger>
-                            </TabsList>
-                        </Tabs>
-                        {isMobile && activeView === 'staff' && (
-                            <div className="space-y-1">
-                                <Label htmlFor="staff-selector" className="text-xs">Viewing Schedule For</Label>
-                                <Select value={mobileSelectedStaffId} onValueChange={setMobileSelectedStaffId}>
-                                <SelectTrigger id="staff-selector" className="mt-1">
-                                    {mobileSelectedStaffId && staff?.find(s => s.id === mobileSelectedStaffId) ? (
-                                    <div className="flex items-center gap-2">
-                                        <Avatar className="w-6 h-6">
-                                        <AvatarImage src={staff.find(s => s.id === mobileSelectedStaffId)?.avatarUrl} />
-                                        <AvatarFallback>{staff.find(s => s.id === mobileSelectedStaffId)?.name.charAt(0)}</AvatarFallback>
-                                        </Avatar>
-                                        <span>{staff.find(s => s.id === mobileSelectedStaffId)?.name}</span>
-                                    </div>
-                                    ) : (
-                                    <SelectValue placeholder="Select a staff member" />
-                                    )}
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {(staff || []).map(s => (
-                                    <SelectItem key={s.id} value={s.id}>
-                                        <div className="flex items-center gap-2">
-                                            <Avatar className="w-6 h-6">
-                                                <AvatarImage src={s.avatarUrl} />
-                                                <AvatarFallback>{s.name.charAt(0)}</AvatarFallback>
-                                            </Avatar>
-                                            <span>{s.name}</span>
-                                        </div>
-                                    </SelectItem>
-                                    ))}
-                                </SelectContent>
-                                </Select>
-                            </div>
-                        )}
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                            <Button size="sm" variant="outline" className="w-full">
-                                Actions
+      <div className="p-4 border-b">
+            <div className="flex flex-col gap-4">
+                {isMobile ? (
+                    <div className="grid grid-cols-[1fr,auto,auto] items-center gap-4">
+                        <h2 className="text-2xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
+                        <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-8">Today</Button>
+                        <div className="relative h-8 w-8">
+                            <Button variant="outline" size="icon" className="h-8 w-8" asChild>
+                                <label htmlFor="date-picker-mobile" className="cursor-pointer">
+                                    <CalendarIcon className="h-4 w-4" />
+                                    <span className="sr-only">Jump To...</span>
+                                </label>
                             </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => setIsAddAppointmentOpen(true)}>New Appointment</DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => setIsAddEventOpen(true)}>New Event</DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
+                            <input
+                                id="date-picker-mobile"
+                                type="date"
+                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                value={format(currentDate, 'yyyy-MM-dd')}
+                                onChange={(e) => {
+                                    if (e.target.value) {
+                                        handleDateSelect(new Date(e.target.value.replace(/-/g, '/')));
+                                    }
+                                }}
+                            />
+                        </div>
                     </div>
-                </AccordionContent>
-            </AccordionItem>
-        </Accordion>
+                ) : (
+                     <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-2">
+                            <Button variant="outline" onClick={() => setCurrentDate(subDays(currentDate, 1))} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
+                            <Button variant="outline" onClick={() => setCurrentDate(addDays(currentDate, 1))} size="icon" className="h-8 w-8"><ChevronRight /></Button>
+                            <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-8">Today</Button>
+                            <div className="relative h-8">
+                                <Button variant="outline" size="icon" className="h-8 w-8" asChild>
+                                    <label htmlFor="date-picker-desktop" className="cursor-pointer">
+                                        <CalendarIcon className="h-4 w-4" />
+                                        <span className="sr-only">Jump To...</span>
+                                    </label>
+                                </Button>
+                                <input
+                                    id="date-picker-desktop"
+                                    type="date"
+                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                    value={format(currentDate, 'yyyy-MM-dd')}
+                                    onChange={(e) => {
+                                        if (e.target.value) {
+                                            handleDateSelect(new Date(e.target.value.replace(/-/g, '/')));
+                                        }
+                                    }}
+                                />
+                            </div>
+                        </div>
+                         <div className="flex items-center justify-end gap-2">
+                            <TooltipProvider>
+                                <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="w-4 h-4" /><span className="sr-only">Weekly KPIs</span></Button></TooltipTrigger><TooltipContent><p>Weekly KPIs</p></TooltipContent></Tooltip>
+                                <Tooltip><TooltipTrigger asChild>
+                                    <Button variant="outline" size="icon" className="relative" onClick={() => setIsBillsSheetOpen(true)}>
+                                        <BellRing className={cn("h-4 w-4", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
+                                        {dailyBillInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
+                                        <span className="sr-only">Bills Due Today</span>
+                                    </Button>
+                                </TooltipTrigger><TooltipContent><p>Bills Due Today</p></TooltipContent></Tooltip>
+                                <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsPickingListOpen(true)}><List className="w-4 h-4" /><span className="sr-only">Picking List</span></Button></TooltipTrigger><TooltipContent><p>Picking List</p></TooltipContent></Tooltip>
+                                <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}><QrCode className="w-4 h-4" /><span className="sr-only">Scan Ticket</span></Button></TooltipTrigger><TooltipContent><p>Scan Ticket</p></TooltipContent></Tooltip>
+                            </TooltipProvider>
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="outline">
+                                        <Globe className="mr-2 h-4 w-4" />
+                                        Public Pages
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                    <DropdownMenuItem asChild>
+                                        <Link href={`/book/${tenantId}`} target="_blank">View Booking Page</Link>
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem asChild>
+                                        <Link href={`/walk-in-queue`}>View Walk-in Kiosk</Link>
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                            <Button size="sm" onClick={() => setIsAddEventOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Event</Button>
+                            <Button size="sm" onClick={() => setIsAddAppointmentOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Appointment</Button>
+                        </div>
+                    </div>
+                )}
+                 <div className="-mx-4 md:m-0">
+                    <ScrollArea className="w-full">
+                        <div className="flex w-full px-4 md:px-0">
+                            {weekDays.map(day => (
+                                <button
+                                    key={day.toISOString()}
+                                    onClick={() => setCurrentDate(day)}
+                                    className={cn(
+                                        "flex-1 py-2 text-center md:p-3 transition-colors hover:bg-muted/50 rounded-md",
+                                         isSameDay(day, currentDate) && "bg-muted"
+                                    )}
+                                >
+                                    <p className={cn("text-xs", isSameDay(day, currentDate) ? "text-primary font-semibold" : "text-muted-foreground")}>
+                                        {format(day, 'EEE')}
+                                    </p>
+                                    <p className={cn("text-lg md:text-2xl font-bold mt-1", !isSameDay(day, currentDate) && "text-muted-foreground")}>
+                                        {format(day, 'd')}
+                                    </p>
+                                </button>
+                            ))}
+                        </div>
+                        <ScrollBar orientation="horizontal" className="md:hidden" />
+                    </ScrollArea>
+                </div>
+                 <Accordion type="single" collapsible className="w-full border-b md:hidden">
+                    <AccordionItem value="view-options" className="border-b-0">
+                        <AccordionTrigger className="p-0 pt-2 text-base font-semibold hover:no-underline flex-1">View Options</AccordionTrigger>
+                        <AccordionContent className="p-4 pt-2 space-y-4">
+                            <div className="flex flex-col gap-4">
+                                <Tabs value={activeView} onValueChange={setActiveView} className="w-full">
+                                    <TabsList className="grid w-full grid-cols-2">
+                                    <TabsTrigger value="staff">Staff View</TabsTrigger>
+                                    <TabsTrigger value="resources">Resource View</TabsTrigger>
+                                    </TabsList>
+                                </Tabs>
+                                {isMobile && activeView === 'staff' && (
+                                    <div className="space-y-1">
+                                        <Label htmlFor="staff-selector" className="text-xs">Viewing Schedule For</Label>
+                                        <Select value={mobileSelectedStaffId} onValueChange={setMobileSelectedStaffId}>
+                                        <SelectTrigger id="staff-selector" className="mt-1">
+                                            {mobileSelectedStaffId && staff?.find(s => s.id === mobileSelectedStaffId) ? (
+                                            <div className="flex items-center gap-2">
+                                                <Avatar className="w-6 h-6">
+                                                <AvatarImage src={staff.find(s => s.id === mobileSelectedStaffId)?.avatarUrl} />
+                                                <AvatarFallback>{staff.find(s => s.id === mobileSelectedStaffId)?.name.charAt(0)}</AvatarFallback>
+                                                </Avatar>
+                                                <span>{staff.find(s => s.id === mobileSelectedStaffId)?.name}</span>
+                                            </div>
+                                            ) : (
+                                            <SelectValue placeholder="Select a staff member" />
+                                            )}
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {(staff || []).map(s => (
+                                            <SelectItem key={s.id} value={s.id}>
+                                                <div className="flex items-center gap-2">
+                                                    <Avatar className="w-6 h-6">
+                                                        <AvatarImage src={s.avatarUrl} />
+                                                        <AvatarFallback>{s.name.charAt(0)}</AvatarFallback>
+                                                    </Avatar>
+                                                    <span>{s.name}</span>
+                                                </div>
+                                            </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                        </Select>
+                                    </div>
+                                )}
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                    <Button size="sm" variant="outline" className="w-full">
+                                        Actions
+                                    </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                        <DropdownMenuItem onClick={() => setIsAddAppointmentOpen(true)}>New Appointment</DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => setIsAddEventOpen(true)}>New Event</DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            </div>
+                        </AccordionContent>
+                    </AccordionItem>
+                </Accordion>
+            </div>
       </div>
-      
-      <div className="hidden md:block p-4 border-b space-y-4">
-        <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2">
-                <Button variant="outline" onClick={() => setCurrentDate(subDays(currentDate, 1))} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
-                <Button variant="outline" onClick={() => setCurrentDate(addDays(currentDate, 1))} size="icon" className="h-8 w-8"><ChevronRight /></Button>
-                <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-8">Today</Button>
-                <div className="relative h-8">
-                  <Button variant="outline" size="icon" className="h-8 w-8" asChild>
-                      <label htmlFor="date-picker-desktop" className="cursor-pointer">
-                          <CalendarIcon className="h-4 w-4" />
-                          <span className="sr-only">Jump To...</span>
-                      </label>
-                  </Button>
-                  <input
-                      id="date-picker-desktop"
-                      type="date"
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                      value={format(currentDate, 'yyyy-MM-dd')}
-                      onChange={(e) => {
-                          if (e.target.value) {
-                              handleDateSelect(new Date(e.target.value.replace(/-/g, '/')));
-                          }
-                      }}
-                  />
-              </div>
-            </div>
-             <div className="flex items-center justify-end gap-2">
-                <TooltipProvider>
-                    <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="w-4 h-4" /><span className="sr-only">Weekly KPIs</span></Button></TooltipTrigger><TooltipContent><p>Weekly KPIs</p></TooltipContent></Tooltip>
-                    <Tooltip><TooltipTrigger asChild>
-                        <Button variant="outline" size="icon" className="relative" onClick={() => setIsBillsSheetOpen(true)}>
-                            <BellRing className={cn("h-4 w-4", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
-                            {dailyBillInstances.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />}
-                            <span className="sr-only">Bills Due Today</span>
-                        </Button>
-                    </TooltipTrigger><TooltipContent><p>Bills Due Today</p></TooltipContent></Tooltip>
-                    <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsPickingListOpen(true)}><List className="w-4 h-4" /><span className="sr-only">Picking List</span></Button></TooltipTrigger><TooltipContent><p>Picking List</p></TooltipContent></Tooltip>
-                    <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}><QrCode className="w-4 h-4" /><span className="sr-only">Scan Ticket</span></Button></TooltipTrigger><TooltipContent><p>Scan Ticket</p></TooltipContent></Tooltip>
-                </TooltipProvider>
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button variant="outline">
-                            <Globe className="mr-2 h-4 w-4" />
-                            Public Pages
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                        <DropdownMenuItem asChild>
-                            <Link href={`/book/${tenantId}`} target="_blank">View Booking Page</Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                            <Link href={`/walk-in-queue`}>View Walk-in Kiosk</Link>
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
-                <Button size="sm" onClick={() => setIsAddEventOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Event</Button>
-                <Button size="sm" onClick={() => setIsAddAppointmentOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Appointment</Button>
-            </div>
-        </div>
-
-        <Tabs value={activeView} onValueChange={setActiveView} className="w-full mt-4">
-          <TabsList className="grid w-full grid-cols-2 md:inline-flex md:w-auto">
-            <TabsTrigger value="staff">Staff View</TabsTrigger>
-            <TabsTrigger value="resources">Resource View</TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
-
-       <div className="hidden md:block border-b">
-        <ScrollArea className="w-full md:whitespace-normal">
-            <div className="flex w-full">
-                {weekDays.map(day => (
-                    <button
-                        key={day.toISOString()}
-                        onClick={() => setCurrentDate(day)}
-                        className={cn(
-                            "flex-1 p-2 text-center md:p-3 transition-colors hover:bg-muted/50",
-                             isSameDay(day, currentDate) && "bg-muted"
-                        )}
-                    >
-                        <p className={cn("text-xs", isSameDay(day, currentDate) ? "text-primary font-semibold" : "text-muted-foreground")}>
-                            {format(day, 'EEE')}
-                        </p>
-                        <p className={cn("text-lg md:text-2xl font-bold mt-1", !isSameDay(day, currentDate) && "text-muted-foreground")}>
-                            {format(day, 'd')}
-                        </p>
-                    </button>
-                ))}
-            </div>
-            <ScrollBar orientation="horizontal" className="md:hidden" />
-        </ScrollArea>
-    </div>
       
       <main className="flex-1 flex flex-col min-h-0">
            {activeView === 'staff' && (
@@ -1558,4 +1527,3 @@ export default function PlannerPageWrapper() {
   )
 }
 
-    
