@@ -90,6 +90,19 @@ function PlannerPageContent() {
   const { selectedTenant, isLoading: isTenantLoading } = useTenant();
   const tenantId = selectedTenant?.id;
   
+  const { 
+      clients, 
+      services, 
+      staff, 
+      appointments, 
+      events, 
+      resources,
+      walkIns,
+      billDefinitions,
+      billInstances,
+      isLoading
+  } = useInventory();
+  
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
   const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
@@ -122,111 +135,6 @@ function PlannerPageContent() {
   const [scannedData, setScannedData] = useState<string | null>(null);
 
   const [activeView, setActiveView] = useState(viewParam === 'resources' ? 'resources' : 'staff');
-
-  // --- Data Fetching ---
-  const billDefinitionsQuery = useMemoFirebase(() => {
-    if (!firestore || !tenantId) return null;
-    return collection(firestore, 'tenants', tenantId, 'bills');
-  }, [firestore, tenantId]);
-
-  const billInstancesQuery = useMemoFirebase(() => {
-    if (!firestore || !tenantId) return null;
-    return collection(firestore, 'tenants', tenantId, 'billInstances');
-  }, [firestore, tenantId]);
-
-  const appointmentsQuery = useMemoFirebase(() => {
-    if (!firestore || !tenantId) return null;
-    return collection(firestore, 'tenants', tenantId, 'appointments');
-  }, [firestore, tenantId]);
-
-  const clientsQuery = useMemoFirebase(() => {
-    if (!firestore || !tenantId) return null;
-    return collection(firestore, 'tenants', tenantId, 'clients');
-  }, [firestore, tenantId]);
-
-  const walkInsQuery = useMemoFirebase(() => {
-    if (!firestore || !tenantId) return null;
-    return collection(firestore, 'tenants', tenantId, 'walkIns');
-  }, [firestore, tenantId]);
-
-  const servicesQuery = useMemoFirebase(() => {
-    if (!firestore || !tenantId) return null;
-    return collection(firestore, `tenants/${tenantId}/services`);
-  }, [firestore, tenantId]);
-
-  const staffQuery = useMemoFirebase(() => {
-    if (!firestore || !tenantId) return null;
-    return collection(firestore, `tenants/${tenantId}/staff`);
-  }, [firestore, tenantId]);
-
-  const eventsQuery = useMemoFirebase(() => {
-    if (!firestore || !tenantId) return null;
-    return collection(firestore, `tenants/${tenantId}/events`);
-  }, [firestore, tenantId]);
-  
-  const resourcesQuery = useMemoFirebase(() => {
-    if (!firestore || !tenantId) return null;
-    return collection(firestore, `tenants/${tenantId}/resources`);
-  }, [firestore, tenantId]);
-
-  const inventoryQuery = useMemoFirebase(() => {
-    if (!firestore || !tenantId) return null;
-    return collection(firestore, `tenants/${tenantId}/inventory`);
-  }, [firestore, tenantId]);
-  
-  const scheduleProfilesQuery = useMemoFirebase(() => {
-    if (!firestore || !tenantId) return null;
-    return query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true));
-  }, [firestore, tenantId]);
-
-
-  const { data: fetchedBillDefinitions, isLoading: billDefinitionsLoading } = useCollection<BillDefinition>(billDefinitionsQuery);
-  const { data: fetchedBillInstances, isLoading: billInstancesLoading } = useCollection<BillInstance>(billInstancesQuery);
-  const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
-  const { data: clients, isLoading: clientsLoading } = useCollection<Client>(clientsQuery);
-  const { data: walkIns, isLoading: walkInsLoading } = useCollection<WalkIn>(walkInsQuery);
-  const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
-  const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
-  const { data: fetchedEvents, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
-  const { data: fetchedResources, isLoading: resourcesLoading } = useCollection<Resource>(resourcesQuery);
-  const { data: inventory } = useCollection<InventoryItem>(inventoryQuery);
-  const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
-  
-  const appointments = useMemo(() => {
-    if (!appointmentsFromDB) return [];
-    return appointmentsFromDB.map(apt => {
-        // Ensure startTime and endTime are Date objects
-        const startTime = (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime as any);
-        const endTime = (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any);
-
-        // Dynamically add requiredResourceIds if they are missing
-        let requiredResourceIds = apt.requiredResourceIds;
-        if ((!requiredResourceIds || requiredResourceIds.length === 0) && services) {
-            const mainService = services.find(s => s.id === apt.serviceId);
-            const addOnServices = (apt.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
-            const allServices = [mainService, ...addOnServices].filter(Boolean);
-            requiredResourceIds = [...new Set(allServices.flatMap(s => s.requiredResourceIds || []))];
-        }
-
-        return { ...apt, startTime, endTime, requiredResourceIds };
-    });
-}, [appointmentsFromDB, services]);
-
-const events = useMemo(() => {
-    if (!fetchedEvents) return [];
-    return fetchedEvents.map(evt => {
-      const startTime = (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : parseISO(evt.startTime as any);
-      const endTime = (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : parseISO(evt.endTime as any);
-      return ({ ...evt, startTime, endTime });
-    });
-  }, [fetchedEvents]);
-
-  const resources = useMemo(() => fetchedResources || [], [fetchedResources]);
-  
-  const billDefinitions = useMemo(() => (fetchedBillDefinitions && fetchedBillDefinitions.length > 0) ? fetchedBillDefinitions : [], [fetchedBillDefinitions]);
-  const billInstances = useMemo(() => (fetchedBillInstances && fetchedBillInstances.length > 0) ? fetchedBillInstances : [], [fetchedBillInstances]);
-  const publicScheduleProfile = useMemo(() => scheduleProfiles?.[0], [scheduleProfiles]);
-
 
   useEffect(() => {
     if (staff && staff.length > 0 && !mobileSelectedStaffId) {
@@ -271,7 +179,7 @@ const events = useMemo(() => {
             return { ...instance, definition: definition! };
         })
         .filter(item => item.definition)
-        .sort((a,b) => parseISO(a.dueDate).getTime() - b.dueDate.getTime());
+        .sort((a,b) => parseISO(a.dueDate).getTime() - (parseISO(b.dueDate)).getTime());
     }, [currentDate, billInstances, billDefinitions]);
 
 
@@ -378,8 +286,6 @@ const events = useMemo(() => {
     (appointments || [])
       .filter(apt => isSameDay(apt.startTime, currentDate))
       .forEach(apt => {
-        // If the appointment is missing resource IDs, dynamically look them up from the service.
-        // This patches data for older appointments that were created before the save logic was fixed.
         const resourceIds = apt.requiredResourceIds && apt.requiredResourceIds.length > 0
           ? apt.requiredResourceIds
           : [...new Set([
@@ -390,13 +296,11 @@ const events = useMemo(() => {
         if (resourceIds && resourceIds.length > 0) {
           resourceIds.forEach(resourceId => {
             if (map.has(resourceId)) {
-              map.get(resourceId)!.push({ ...apt, itemType: 'appointment' });
+              map.get(resourceId)!.push({ ...apt, itemType: 'appointment' } as Appointment);
             }
           });
         }
       });
-
-    // Events don't currently have resources, so we only handle appointments.
 
     map.forEach(items => {
       items.sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
@@ -789,7 +693,7 @@ const events = useMemo(() => {
     let rebookAppointmentData: Appointment = { ...appointment };
 
     if (weeksOut) {
-        rebookAppointmentData.startTime = addWeeks(rebookAppointmentData.startTime, weeksOut).toISOString();
+        rebookAppointmentData.startTime = addWeeks(appointment.startTime, weeksOut);
     }
     
     setAppointmentToRebook(rebookAppointmentData);
@@ -1052,9 +956,14 @@ const events = useMemo(() => {
         const appointmentId = `apt-walkin-${walkInId}`;
         const appointmentToCheckout = appointments.find(apt => apt.id === appointmentId);
 
-        if (appointmentToCheckout) {
+        if (appointmentToCheckout && appointmentToCheckout.status === 'ready_for_checkout') {
             setSelectedAppointment(appointmentToCheckout);
             setIsCheckoutOpen(true);
+        } else if (appointmentToCheckout) {
+          toast({
+            title: 'Appointment Not Ready',
+            description: "This appointment is not yet marked as ready for checkout.",
+          });
         } else {
             toast({
                 variant: 'destructive',
@@ -1120,10 +1029,10 @@ const events = useMemo(() => {
 }, [isScannerOpen, handleScan, toast]);
   
   const showStaffColumnHeader = !isMobile;
+  
+  const publicScheduleProfile = useMemo(() => scheduleProfiles?.[0], [scheduleProfiles]);
 
-  const isLoading = isUserLoading || isTenantLoading || appointmentsLoading || servicesLoading || clientsLoading || walkInsLoading || staffLoading || eventsLoading || billDefinitionsLoading || billInstancesLoading || resourcesLoading || scheduleProfilesLoading || !hasMounted;
-
-  if (isLoading) {
+  if (isLoading || isUserLoading || isTenantLoading) {
     return (
       <div className="flex h-screen w-full flex-col">
         <AppHeader />
@@ -1187,11 +1096,11 @@ const events = useMemo(() => {
               <DropdownMenuContent align="end">
                  <DropdownMenuItem onClick={() => setIsAddAppointmentOpen(true)}>
                     <PlusCircle className="mr-2 h-4 w-4" />
-                    <span>New Appointment</span>
+                    New Appointment
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setIsAddEventOpen(true)}>
                     <PlusCircle className="mr-2 h-4 w-4" />
-                    <span>New Event</span>
+                    New Event
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
@@ -1452,14 +1361,11 @@ const events = useMemo(() => {
             }
             setIsAddAppointmentOpen(isOpen);
         }}
-        clients={clients || []}
-        services={services || []}
-        staff={staff || []}
-        onConfirm={handleAddAppointment}
         initialClientId={appointmentToRebook ? appointmentToRebook.clientId : initialClientIdForNewApt}
         appointmentToRebook={appointmentToRebook}
         initialStartTime={newAppointmentSlot?.startTime}
         initialStaffId={newAppointmentSlot?.staffId}
+        onConfirm={handleAddAppointment}
       />
        {selectedAppointment && (
         <EditAppointmentDialog 

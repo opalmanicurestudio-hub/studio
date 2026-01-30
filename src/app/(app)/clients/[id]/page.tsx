@@ -45,7 +45,7 @@ import { Label } from '@/components/ui/label';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog';
 import { nanoid } from 'nanoid';
-import { useFirebase, useCollection, useDoc, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useCollection, useDoc, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc, arrayUnion, query, where } from 'firebase/firestore';
 import type { Client, Appointment, Service, CustomFormula, Incident, Membership, Package, ConsentForm, Event } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
@@ -328,9 +328,9 @@ export default function ClientDetailPage() {
   };
 
   const handleAddAppointment = (newAppointment: Omit<Appointment, 'id'>) => {
-    const newAptWithId: Appointment = { ...newAppointment, id: `apt-${nanoid()}`, absorbedCost: 0, status: 'confirmed' };
-    // This part should be handled by Firestore now
-    // setAppointments(prev => [...prev, newAptWithId].sort((a,b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()));
+    const newAptWithId: Appointment = { ...newAppointment, id: `apt-${nanoid()}`, absorbedCost: 0, status: 'confirmed' } as Appointment;
+    addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/appointments`), newAptWithId);
+    
     toast({
         title: "Appointment Booked",
         description: `Appointment for ${allClients?.find(c => c.id === newAppointment.clientId)?.name} has been added.`
@@ -796,10 +796,6 @@ export default function ClientDetailPage() {
                 }
                 setIsAddAppointmentOpen(isOpen);
             }}
-            clients={allClients || []}
-            services={services || []}
-            staff={staff || []}
-            onConfirm={handleAddAppointment}
             initialClientId={client.id}
             appointmentToRebook={appointmentToRebook}
         />
