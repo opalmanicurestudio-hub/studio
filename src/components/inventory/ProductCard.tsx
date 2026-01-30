@@ -6,7 +6,7 @@ import React, { useMemo } from 'react';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, ShieldPlus, AlertTriangle, Ear, Package, Hammer, Pipette, PackageX, Truck } from 'lucide-react';
+import { MoreHorizontal, ShieldPlus, AlertTriangle, Ear, Package, Hammer, Pipette, PackageX, Truck, DollarSign } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { type InventoryItem } from '@/lib/data';
 import Link from 'next/link';
@@ -20,13 +20,14 @@ import { Printer } from 'lucide-react';
 import { Edit } from 'lucide-react';
 import Image from 'next/image';
 
-export const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onLogUse, onWriteOff, isSelected, onSelect, isOrdered }: { 
+export const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onLogUse, onWriteOff, onLogSale, isSelected, onSelect, isOrdered }: { 
     item: InventoryItem, 
     onEdit: (item: InventoryItem) => void, 
     onToggleExperiment: (item: InventoryItem) => void, 
     onEndExperiment: (item: InventoryItem) => void, 
     onLogUse: (item: InventoryItem) => void,
     onWriteOff: (item: InventoryItem) => void,
+    onLogSale: (item: InventoryItem) => void,
     isSelected: boolean, 
     onSelect: () => void, 
     isOrdered: boolean 
@@ -143,9 +144,14 @@ export const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment,
                 </div>
             </CardContent>
              <CardFooter className="p-2 border-t bg-muted/50">
-                <div className={cn("grid gap-2 w-full", item.type === 'professional' || item.type === 'overhead' ? "grid-cols-2" : "grid-cols-1")}>
+                <div className={cn("grid gap-2 w-full", item.type === 'equipment' ? 'grid-cols-1' : 'grid-cols-2')}>
                     {(item.type === 'professional' || item.type === 'overhead') && (
                         <Button variant="ghost" size="sm" className="w-full" onClick={() => onLogUse(item)}><Pipette className="mr-2 h-4 w-4"/>Log Use</Button>
+                    )}
+                    {item.type === 'retail' && (
+                        <Button variant="ghost" size="sm" className="w-full" onClick={() => onLogSale(item)}>
+                            <DollarSign className="mr-2 h-4 w-4"/> Log Sale
+                        </Button>
                     )}
                     <Button variant="ghost" size="sm" className="w-full" onClick={() => onWriteOff(item)}><PackageX className="mr-2 h-4 w-4"/>Write-off</Button>
                 </div>

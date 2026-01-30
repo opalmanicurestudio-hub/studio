@@ -89,6 +89,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { LogSaleDialog } from '@/components/inventory/LogSaleDialog';
 
 
 const OrderCard = ({ order, onSelect, onTrack, onReceive }: { order: Order, onSelect: (order: Order) => void, onTrack: (e: React.MouseEvent, url?: string) => void, onReceive: (order: Order) => void }) => {
@@ -716,6 +717,7 @@ export default function InventoryPage() {
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
 
   const [isLogUseOpen, setIsLogUseOpen] = useState(false);
+  const [isLogSaleOpen, setIsLogSaleOpen] = useState(false);
   const [isWriteOffOpen, setIsWriteOffOpen] = useState(false);
   const [isEndExperimentOpen, setIsEndExperimentOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<InventoryItem | null>(null);
@@ -967,6 +969,11 @@ export default function InventoryPage() {
     setSelectedProduct(item);
     setIsLogUseOpen(true);
   }
+
+  const handleOpenLogSale = (item: InventoryItem) => {
+    setSelectedProduct(item);
+    setIsLogSaleOpen(true);
+  };
   
   const handleOpenOverheadLogUse = () => {
     setLogUseDialogType('overhead');
@@ -1098,6 +1105,50 @@ export default function InventoryPage() {
     addDocumentNonBlocking(stockCorrectionsRef, newCorrection);
     
     return { success: true, message: `${quantity} ${unit} of ${product.name} logged.` };
+  };
+
+  const handleLogSaleConfirm = (productId: string, quantity: number, paymentMethod: string): { success: boolean; message: string; } => {
+    if (!firestore || !tenantId || !inventory) return { success: false, message: 'Firestore not available' };
+
+    const product = inventory.find(p => p.id === productId);
+    if (!product) return { success: false, message: 'Product not found.' };
+
+    if (product.totalStock < quantity) {
+      return { success: false, message: `Not enough stock. Only ${product.totalStock} available.` };
+    }
+
+    const productRef = doc(firestore, `tenants/${tenantId}/inventory`, productId);
+    const newTotalStock = product.totalStock - quantity;
+    updateDocumentNonBlocking(productRef, { totalStock: newTotalStock });
+    
+    const stockCorrection: Omit<StockCorrection, 'id'> = {
+      productId: productId,
+      date: new Date().toISOString(),
+      change: -quantity,
+      unit: 'units',
+      reason: 'Manual Retail Sale',
+    };
+    addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), stockCorrection);
+
+    const saleAmount = (product.msrp || product.costPerUnit || 0) * quantity;
+    const transaction: Omit<Transaction, 'id' | 'date'> = {
+      description: `Retail Sale: ${quantity} x ${product.name}`,
+      clientOrVendor: 'In-Store Customer',
+      type: 'income',
+      context: 'Business',
+      category: 'Retail',
+      amount: saleAmount,
+      paymentMethod: paymentMethod,
+      hasReceipt: false,
+    };
+    addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/transactions`), { ...transaction, date: new Date().toISOString() });
+
+    toast({
+        title: "Sale Logged",
+        description: `${quantity} unit(s) of ${product.name} sold for $${saleAmount.toFixed(2)}.`,
+    });
+
+    return { success: true, message: "Sale logged successfully." };
   };
   
   const handleSpoilageConfirm = (items: SpoilageItem[], notes?: string, imageUrl?: string) => {
@@ -1312,7 +1363,7 @@ export default function InventoryPage() {
                   inventory={inventory || []}
                   stockCorrections={stockCorrections || []}
                   onSpoilageConfirm={handleSpoilageConfirm} 
-                  onLogOverheadUse={handleOpenOverheadLogUse} 
+                  onLogOverheadUse={handleOpenLogUse} 
                 />
             </div>
 
@@ -1336,7 +1387,7 @@ export default function InventoryPage() {
                                       inventory={inventory || []}
                                       stockCorrections={stockCorrections || []}
                                       onSpoilageConfirm={handleSpoilageConfirm}
-                                      onLogOverheadUse={handleOpenOverheadLogUse}
+                                      onLogOverheadUse={handleOpenLogUse}
                                      />
                                 </div>
                             </ScrollArea>
@@ -1440,6 +1491,7 @@ export default function InventoryPage() {
                                             onEndExperiment={handleEndExperiment} 
                                             onLogUse={handleOpenLogUse}
                                             onWriteOff={handleOpenWriteOff}
+                                            onLogSale={handleOpenLogSale}
                                             isSelected={selectedItems.has(item.id)}
                                             onSelect={() => handleItemSelect(item.id)}
                                             isOrdered={orderedProductIds.has(item.id)}
@@ -1561,6 +1613,12 @@ export default function InventoryPage() {
         onConfirm={handleLogUseConfirm}
         dialogType={logUseDialogType}
       />
+      <LogSaleDialog
+        open={isLogSaleOpen}
+        onOpenChange={setIsLogSaleOpen}
+        product={selectedProduct}
+        onConfirm={handleLogSaleConfirm}
+      />
 
       {selectedProduct && (
         <WriteOffDialog
@@ -1640,3 +1698,4 @@ export default function InventoryPage() {
 
 
     
+
