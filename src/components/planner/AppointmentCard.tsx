@@ -388,37 +388,6 @@ export function AppointmentCard({
     });
   };
 
-  useEffect(() => {
-    let timer: NodeJS.Timeout | undefined;
-
-    if (appointment.status === 'servicing' && appointment.actualStartTime) {
-      const startTime = parseISO(appointment.actualStartTime as string);
-      timer = setInterval(() => {
-        const now = new Date();
-        const diffInSeconds = differenceInSeconds(now, startTime);
-        
-        const hours = Math.floor(diffInSeconds / 3600);
-        const minutes = Math.floor((diffInSeconds % 3600) / 60);
-        const seconds = diffInSeconds % 60;
-
-        if (hours > 0) {
-            setElapsedTime(`${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
-        } else {
-            setElapsedTime(`${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
-        }
-
-      }, 1000);
-    } else {
-      setElapsedTime(null);
-    }
-
-    return () => {
-      if (timer) {
-        clearInterval(timer);
-      }
-    };
-  }, [appointment.status, appointment.actualStartTime]);
-
   const finalDuration = useMemo(() => {
     if (appointment.actualStartTime && appointment.actualEndTime) {
       const start = parseISO(appointment.actualStartTime);
@@ -491,6 +460,7 @@ export function AppointmentCard({
 
   const MainContent = () => {
     const isCompact = scheduledDuration < 50;
+    const needsReconciliation = appointment.status === 'completed' && !appointment.inventoryProcessed;
 
     const serviceNameDisplay = isCompact
       ? service.name
@@ -546,9 +516,12 @@ export function AppointmentCard({
                 {isBirthday && (
                     <TooltipProvider><Tooltip><TooltipTrigger><Cake className="h-4 w-4 text-pink-500" /></TooltipTrigger><TooltipContent><p>It's {client.name.split(' ')[0]}'s Birthday!</p></TooltipContent></Tooltip></TooltipProvider>
                 )}
+                {needsReconciliation && (
+                    <TooltipProvider><Tooltip><TooltipTrigger><AlertTriangle className="h-4 w-4 text-amber-500" /></TooltipTrigger><TooltipContent><p>Inventory not deducted.</p></TooltipContent></Tooltip></TooltipProvider>
+                )}
               {client.name}
             </p>
-            <p className="text-[10px] text-muted-foreground font-medium">{format(appointment.startTime, 'h:mm a')}</p>
+            <p className="text-[11px] text-muted-foreground font-medium">{format(appointment.startTime, 'h:mm a')}</p>
           </div>
           
           <div className="flex items-center gap-1 flex-shrink-0">
@@ -581,6 +554,9 @@ export function AppointmentCard({
                     <p className="font-semibold text-xs leading-tight truncate flex items-center gap-1.5">
                       {appointment.isWalkIn && <Users className="h-3 w-3 text-muted-foreground" />}
                       {isBirthday && (<TooltipProvider><Tooltip><TooltipTrigger><Cake className="h-4 w-4 text-pink-500" /></TooltipTrigger><TooltipContent><p>It's {client.name.split(' ')[0]}'s Birthday!</p></TooltipContent></Tooltip></TooltipProvider>)}
+                      {needsReconciliation && (
+                        <TooltipProvider><Tooltip><TooltipTrigger><AlertTriangle className="h-4 w-4 text-amber-500" /></TooltipTrigger><TooltipContent><p>Inventory not deducted for this appointment.</p></TooltipContent></Tooltip></TooltipProvider>
+                      )}
                       {client.name}
                     </p>
                     <p className="text-[11px] text-muted-foreground truncate">{serviceNameDisplay}</p>
@@ -605,8 +581,8 @@ export function AppointmentCard({
                     </div>
                 </div>
                  {appointment.status === 'ready_for_checkout' && (
-                       <Button size="sm" className={cn('capitalize font-semibold h-7 px-3', statusDisplay[appointment.status]?.className, statusDisplay[appointment.status]?.bgClassName, 'hover:ring-2 hover:ring-offset-1 hover:ring-orange-500 hover:bg-orange-500/20')} onClick={handleCheckoutClick}>
-                         <DollarSign className="w-4 h-4 mr-1.5" />
+                       <Button size="xs" className={cn('capitalize font-semibold h-7 px-2', statusDisplay[appointment.status]?.className, statusDisplay[appointment.status]?.bgClassName, 'hover:ring-2 hover:ring-offset-1 hover:ring-orange-500 hover:bg-orange-500/20')} onClick={handleCheckoutClick}>
+                         <DollarSign className="w-3 h-3 mr-1" />
                          {statusDisplay[appointment.status]?.text}
                        </Button>
                     )}
@@ -683,3 +659,4 @@ export function AppointmentCard({
     </div>
   );
 }
+

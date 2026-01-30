@@ -492,10 +492,18 @@
             "type": "boolean",
             "description": "Indicates if an automated reschedule option has been offered to a late client."
         },
+        "inventoryProcessed": {
+            "type": "boolean",
+            "description": "Indicates if inventory has been deducted for this appointment."
+        },
         "requiredResourceIds": {
             "type": "array",
             "description": "A list of resource IDs required for this appointment.",
             "items": { "type": "string" }
+        },
+        "recurrenceId": {
+            "type": "string",
+            "description": "A unique ID grouping a series of recurring appointments."
         }
       },
       "required": [
@@ -913,13 +921,14 @@
         "id": { "type": "string" },
         "name": { "type": "string" },
         "subject": { "type": "string" },
+        "subjectB": { "type": "string", "description": "An alternate subject line for A/B testing." },
         "body": { "type": "string" },
         "imageUrl": {
             "type": "string",
             "format": "uri",
             "description": "URL for an optional image to include in email campaigns."
         },
-        "targetAudience": { "type": "string", "enum": ["all", "new", "loyal", "inactive_90", "specific"] },
+        "targetAudience": { "type": "string", "enum": ["all", "new", "loyal", "inactive_90", "specific", "birthday"] },
         "targetClientIds": {
             "type": "array",
             "items": { "type": "string" },
@@ -1085,14 +1094,4 @@
     }
   }
 }
-
-
-
-
-
-
     
-
-
-
-

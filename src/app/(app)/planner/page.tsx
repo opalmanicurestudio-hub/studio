@@ -1,7 +1,8 @@
 
+
 'use client';
 
-import { AppHeader } from '@/components/shared/AppHeader';
+import { AppHeaderClient } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, QrCode, Globe, Building, HardHat } from 'lucide-react';
 import { type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState, type Resource } from '@/lib/data';
@@ -553,6 +554,7 @@ function PlannerPageContent() {
     const updateData: any = {
         status: 'completed',
         absorbedCost: absorbedCost,
+        inventoryProcessed: true,
     };
     if (incident) {
         updateData.incident = incident;
@@ -1278,7 +1280,7 @@ function PlannerPageContent() {
                 itemsByColumn={staffItemsToDisplay}
                 showColumnHeader={showStaffColumnHeader}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1310,7 +1312,7 @@ function PlannerPageContent() {
                 itemsByColumn={itemsByColumn}
                 showColumnHeader={true}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1548,4 +1550,3 @@ export default function PlannerPageWrapper() {
   )
 }
 
-    
