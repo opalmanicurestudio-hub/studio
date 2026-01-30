@@ -695,6 +695,7 @@ export default function InventoryPage() {
     locations, 
     locationTypes,
     transactions,
+    services,
     isLoading: isInventoryLoading
   } = useInventory();
   
@@ -798,22 +799,47 @@ export default function InventoryPage() {
     setIsBulkDeleteConfirmOpen(true);
   };
   
-  const handleBulkDeleteConfirm = useCallback(() => {
-    if (!firestore || !tenantId) return;
+  const handleBulkDeleteConfirm = useCallback(async () => {
+    if (!firestore || !tenantId || !services) return;
     const itemCount = selectedItems.size;
-    const batch = writeBatch(firestore);
-    selectedItems.forEach(id => {
-      const itemDoc = doc(firestore, `tenants/${tenantId}/inventory`, id);
-      batch.delete(itemDoc);
-    });
-    batch.commit();
-    setSelectedItems(new Set());
-    setIsBulkDeleteConfirmOpen(false);
-    toast({
-        title: "Items Deleted",
-        description: `${itemCount} item(s) have been removed from your inventory.`,
-    })
-  }, [selectedItems, toast, firestore, tenantId]);
+    
+    try {
+        const batch = writeBatch(firestore);
+
+        // Delete the selected inventory items
+        selectedItems.forEach(id => {
+          const itemDoc = doc(firestore, `tenants/${tenantId}/inventory`, id);
+          batch.delete(itemDoc);
+        });
+        
+        // Find and update any services that use the deleted items
+        services.forEach(service => {
+            const hasDeletedProduct = service.products?.some(p => selectedItems.has(p.id));
+            if (hasDeletedProduct) {
+                const updatedProducts = service.products?.filter(p => !selectedItems.has(p.id));
+                const serviceDocRef = doc(firestore, `tenants/${tenantId}/services`, service.id);
+                batch.update(serviceDocRef, { products: updatedProducts });
+            }
+        });
+        
+        await batch.commit();
+
+        setSelectedItems(new Set());
+        setIsBulkDeleteConfirmOpen(false);
+        toast({
+            title: "Items Deleted",
+            description: `${itemCount} item(s) have been removed and service formulas updated.`,
+        })
+
+    } catch (error) {
+        console.error("Error during bulk delete and service update:", error);
+        toast({
+            variant: "destructive",
+            title: "Deletion Failed",
+            description: "There was a problem deleting the items. Please try again.",
+        })
+    }
+  }, [selectedItems, services, toast, firestore, tenantId]);
   
     const handleBulkArchive = useCallback(() => {
         if (!firestore || !tenantId) return;
@@ -985,7 +1011,7 @@ export default function InventoryPage() {
     setIsWriteOffOpen(true);
   };
 
-  const handleWriteOffConfirm = (productId: string, batchId: string, quantity: number, reason: string): { success: boolean, message: string } => {
+  const handleWriteOffConfirm = useCallback((productId: string, batchId: string, quantity: number, reason: string): { success: boolean, message: string } => {
     if (!firestore || !tenantId || !inventory) return { success: false, message: 'Firestore not available' };
 
     const product = inventory.find(p => p.id === productId);
@@ -1005,10 +1031,17 @@ export default function InventoryPage() {
     const updatedBatches = [...product.batches];
     updatedBatches[batchToIndex] = { ...batchToUpdate, stock: batchToUpdate.stock - quantity };
     const newTotalStock = updatedBatches.reduce((acc, b) => acc + b.stock, 0);
-    const updatedData = {
+    
+    const updatedData: Partial<InventoryItem> = {
       batches: updatedBatches,
       totalStock: newTotalStock
     };
+
+    if (newTotalStock === 0) {
+        updatedData.partialContainerUses = 0;
+        updatedData.partialContainerSize = 0;
+    }
+
     updateDocumentNonBlocking(productRef, updatedData);
     
     const stockCorrection: Omit<StockCorrection, 'id'> = {
@@ -1038,7 +1071,7 @@ export default function InventoryPage() {
     });
 
     return { success: true, message: "Write-off successful." };
-  };
+  }, [inventory, firestore, tenantId, toast]);
   
   const handleLogUseConfirm = (productId: string, quantity: number, notes: string): { success: boolean, message: string } => {
     if (!firestore || !tenantId || !inventory) return { success: false, message: 'Firestore not available' };
@@ -1118,8 +1151,23 @@ export default function InventoryPage() {
     }
 
     const productRef = doc(firestore, `tenants/${tenantId}/inventory`, productId);
-    const newTotalStock = product.totalStock - quantity;
-    updateDocumentNonBlocking(productRef, { totalStock: newTotalStock });
+    
+    const sortedBatches = [...product.batches].sort((a,b) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime());
+    let remainingToDeduct = quantity;
+    
+    for (const batch of sortedBatches) {
+        if (remainingToDeduct <= 0) break;
+        const deductFromBatch = Math.min(batch.stock, remainingToDeduct);
+        batch.stock -= deductFromBatch;
+        remainingToDeduct -= deductFromBatch;
+    }
+    
+    const newTotalStock = sortedBatches.reduce((acc, b) => acc + b.stock, 0);
+
+    updateDocumentNonBlocking(productRef, { 
+      totalStock: newTotalStock,
+      batches: sortedBatches,
+    });
     
     const stockCorrection: Omit<StockCorrection, 'id'> = {
       productId: productId,
@@ -1163,11 +1211,12 @@ export default function InventoryPage() {
             const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.productId);
             const updatedBatches = product.batches.map(b => {
                 if (b.id === item.batchId) {
-                    return { ...b, stock: 0 };
+                    totalLoss += item.stock * item.costPerUnit;
+                    return { ...b, stock: 0 }; // Set stock of this batch to 0
                 }
                 return b;
             });
-
+            
             const newTotalStock = updatedBatches.reduce((acc, b) => acc + b.stock, 0);
 
             const updatePayload: Partial<InventoryItem> = {
@@ -1192,9 +1241,6 @@ export default function InventoryPage() {
             };
             const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
             batch.set(scRef, stockCorrection);
-            
-            const lossAmount = item.stock * item.costPerUnit;
-            totalLoss += lossAmount;
         }
     });
     
@@ -1357,12 +1403,11 @@ export default function InventoryPage() {
       <AppHeader title="Inventory Hub" />
       <main className="flex-1 p-4 md:p-8">
         
-        <div className="grid lg:grid-cols-4 gap-8">
+        <div className="grid lg:grid-cols-4 gap-8 items-start">
             <div className="hidden lg:block lg:col-span-1">
                 <InventorySidebar
                   inventory={inventory || []}
                   stockCorrections={stockCorrections || []}
-                  onSpoilageConfirm={handleSpoilageConfirm} 
                   onLogOverheadUse={handleOpenLogUse} 
                 />
             </div>
@@ -1386,7 +1431,6 @@ export default function InventoryPage() {
                                      <InventorySidebar
                                       inventory={inventory || []}
                                       stockCorrections={stockCorrections || []}
-                                      onSpoilageConfirm={handleSpoilageConfirm}
                                       onLogOverheadUse={handleOpenLogUse}
                                      />
                                 </div>
@@ -1698,4 +1742,6 @@ export default function InventoryPage() {
 
 
     
+
+
 
