@@ -1,3 +1,4 @@
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -260,17 +261,37 @@ function PlannerPageContent() {
     }
   }, [currentDate, appointments, weekStart, billDefinitions, services]);
   
-   const itemsByStaff = useMemo(() => {
+   const itemsByColumnRaw = useMemo(() => {
     const map = new Map<string, (Appointment | Event & { itemType: string })[]>();
-    (staff || []).forEach(s => map.set(s.id, []));
+    
+    const columnsToProcess = activeView === 'staff' ? (staff || []) : (resources || []);
+
+    columnsToProcess.forEach(s => map.set(s.id, []));
 
     // Process appointments
     (appointments || [])
       .filter(apt => isSameDay(apt.startTime, currentDate))
       .forEach(apt => {
-        const staffId = apt.staffId || (staff || [])[0]?.id;
-        if (staffId && map.has(staffId)) {
-          map.get(staffId)!.push({ ...apt, itemType: 'appointment' });
+        if (activeView === 'staff') {
+            const staffId = apt.staffId || (staff || [])[0]?.id;
+            if (staffId && map.has(staffId)) {
+                map.get(staffId)!.push({ ...apt, itemType: 'appointment' });
+            }
+        } else { // resource view
+            const resourceIds = apt.requiredResourceIds && apt.requiredResourceIds.length > 0
+              ? apt.requiredResourceIds
+              : [...new Set([
+                  ...(services?.find(s => s.id === apt.serviceId)?.requiredResourceIds || []),
+                  ...(apt.addOnIds || []).flatMap(id => services?.find(s => s.id === id)?.requiredResourceIds || [])
+                ])];
+
+            if (resourceIds && resourceIds.length > 0) {
+              resourceIds.forEach(resourceId => {
+                if (map.has(resourceId)) {
+                  map.get(resourceId)!.push({ ...apt, itemType: 'appointment' });
+                }
+              });
+            }
         }
       });
 
@@ -283,21 +304,22 @@ function PlannerPageContent() {
               startTime: evt.startTime,
               endTime: evt.endTime,
           };
-
-          if (evt.staffId && map.has(evt.staffId)) {
-              // Event with specific staff
-              map.get(evt.staffId)!.push({ ...eventWithDateObjects, itemType: 'event' });
-          } else if (evt.type === 'blocked' && !evt.staffId) {
-              // Block all staff
-              (staff || []).forEach(s => {
-                  map.get(s.id)!.push({ ...eventWithDateObjects, itemType: 'event' });
-              });
-          } else {
-              // Personal/Business event for the owner (first staff member)
-              const ownerId = (staff || [])[0]?.id;
-              if (ownerId) {
-                  map.get(ownerId)!.push({ ...eventWithDateObjects, itemType: 'event' });
-              }
+          if (activeView === 'staff') {
+            if (evt.staffId && map.has(evt.staffId)) {
+                // Event with specific staff
+                map.get(evt.staffId)!.push({ ...eventWithDateObjects, itemType: 'event' });
+            } else if (evt.type === 'blocked' && !evt.staffId) {
+                // Block all staff
+                (staff || []).forEach(s => {
+                    map.get(s.id)!.push({ ...eventWithDateObjects, itemType: 'event' });
+                });
+            } else {
+                // Personal/Business event for the owner (first staff member)
+                const ownerId = (staff || [])[0]?.id;
+                if (ownerId) {
+                    map.get(ownerId)!.push({ ...eventWithDateObjects, itemType: 'event' });
+                }
+            }
           }
       });
 
@@ -306,39 +328,22 @@ function PlannerPageContent() {
     });
 
     return map;
-  }, [currentDate, appointments, events, staff]);
+  }, [currentDate, appointments, events, staff, resources, activeView, services]);
   
-  const itemsByResource = useMemo(() => {
-    const map = new Map<string, (Appointment | Event)[]>();
-    if (!resources || !services) return map;
-    resources.forEach(res => map.set(res.id, []));
+  const itemsByColumn = useMemo(() => {
+    if(!itemsByColumnRaw) return new Map(); // Guard against undefined
+    const map = new Map<string, (Appointment | Event & { itemType: string })[]>();
+    
+    const columnsToUse = activeView === 'staff' ? staff : resources;
+    (columnsToUse || []).forEach(s => map.set(s.id, []));
 
-    (appointments || [])
-      .filter(apt => isSameDay(apt.startTime, currentDate))
-      .forEach(apt => {
-        const resourceIds = apt.requiredResourceIds && apt.requiredResourceIds.length > 0
-          ? apt.requiredResourceIds
-          : [...new Set([
-              ...(services.find(s => s.id === apt.serviceId)?.requiredResourceIds || []),
-              ...(apt.addOnIds || []).flatMap(id => services.find(s => s.id === id)?.requiredResourceIds || [])
-            ])];
-
-        if (resourceIds && resourceIds.length > 0) {
-          resourceIds.forEach(resourceId => {
-            if (map.has(resourceId)) {
-              map.get(resourceId)!.push({ ...apt, itemType: 'appointment' } as Appointment);
-            }
-          });
+    for(const [columnId, items] of itemsByColumnRaw.entries()) {
+        if (map.has(columnId)) {
+            map.set(columnId, items);
         }
-      });
-
-    map.forEach(items => {
-      items.sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
-    });
-
-  }, [currentDate, appointments, resources, services]);
-  
-  const itemsByColumn = activeView === 'staff' ? itemsByStaff : itemsByResource;
+    }
+    return map;
+  }, [itemsByColumnRaw, activeView, staff, resources]);
 
   const staffToDisplay = useMemo(() => {
     if (isMobile) {
@@ -351,12 +356,12 @@ function PlannerPageContent() {
 
   const staffItemsToDisplay = useMemo(() => {
       if (!itemsByColumn) return new Map();
-      if (isMobile) {
+      if (isMobile && activeView === 'staff') {
           if (!mobileSelectedStaffId || !itemsByColumn.has(mobileSelectedStaffId)) return new Map();
           return new Map([[mobileSelectedStaffId, itemsByColumn.get(mobileSelectedStaffId)!]]);
       }
       return itemsByColumn;
-  }, [isMobile, mobileSelectedStaffId, itemsByColumn]);
+  }, [isMobile, mobileSelectedStaffId, itemsByColumn, activeView]);
 
 
   const handleCompleteClick = (appointment: Appointment) => {
@@ -733,7 +738,7 @@ function PlannerPageContent() {
     setIsAddAppointmentOpen(true);
   };
 
-  const handleBookNewAppointmentForClient = (clientId: string) => {
+  const handleBookNewForClient = (clientId: string) => {
     setAppointmentToRebook(null);
     setInitialClientIdForNewApt(clientId);
     setIsAddAppointmentOpen(true);
@@ -918,14 +923,6 @@ function PlannerPageContent() {
       updateDocumentNonBlocking(eventRef, { checklist: updatedChecklist });
   };
 
-  const handleJumpTo = (weeks: number) => {
-    setCurrentDate(prevDate => addWeeks(prevDate, weeks));
-  };
-  
-  const handleToday = () => {
-    setCurrentDate(new Date());
-  };
-
   const handleDateSelect = (date: Date | undefined) => {
     if (date) {
       setCurrentDate(date);
@@ -1085,29 +1082,27 @@ function PlannerPageContent() {
             <div>{format(currentDate, 'EEEE, MMMM d')}</div>
           </AccordionTrigger>
           <AccordionContent className="p-4 pt-0 space-y-4">
-            <div className="grid grid-cols-[1fr,auto] items-center gap-4">
-                <h2 className="text-2xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
-                <div className="flex items-center gap-2">
-                    <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
-                    <div className="relative h-8 w-8">
-                        <Button variant="outline" size="icon" className="h-8 w-8" asChild>
-                            <label htmlFor="date-picker-mobile" className="cursor-pointer">
-                                <CalendarIcon className="h-4 w-4" />
-                                <span className="sr-only">Jump To...</span>
-                            </label>
-                        </Button>
-                        <input
-                            id="date-picker-mobile"
-                            type="date"
-                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                            value={format(currentDate, 'yyyy-MM-dd')}
-                            onChange={(e) => {
-                                if (e.target.value) {
-                                    handleDateSelect(new Date(e.target.value.replace(/-/g, '/')));
-                                }
-                            }}
-                        />
-                    </div>
+             <div className="grid grid-cols-[1fr,auto,auto] items-center gap-4">
+                 <h2 className="text-2xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
+                 <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-8">Today</Button>
+                <div className="relative h-8 w-8">
+                    <Button variant="outline" size="icon" className="h-8 w-8" asChild>
+                        <label htmlFor="date-picker-mobile" className="cursor-pointer">
+                            <CalendarIcon className="h-4 w-4" />
+                            <span className="sr-only">Jump To...</span>
+                        </label>
+                    </Button>
+                    <input
+                        id="date-picker-mobile"
+                        type="date"
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        value={format(currentDate, 'yyyy-MM-dd')}
+                        onChange={(e) => {
+                            if (e.target.value) {
+                                handleDateSelect(new Date(e.target.value.replace(/-/g, '/')));
+                            }
+                        }}
+                    />
                 </div>
             </div>
             
@@ -1194,7 +1189,30 @@ function PlannerPageContent() {
       
       <div className="hidden md:block p-4 border-b space-y-4">
         <div className="flex items-center justify-between gap-4">
-            <h2 className="text-2xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
+            <div className="flex items-center gap-2">
+                <Button variant="outline" onClick={() => setCurrentDate(subDays(currentDate, 1))} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
+                <Button variant="outline" onClick={() => setCurrentDate(addDays(currentDate, 1))} size="icon" className="h-8 w-8"><ChevronRight /></Button>
+                <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-8">Today</Button>
+                <div className="relative h-8">
+                  <Button variant="outline" size="icon" className="h-8 w-8" asChild>
+                      <label htmlFor="date-picker-desktop" className="cursor-pointer">
+                          <CalendarIcon className="h-4 w-4" />
+                          <span className="sr-only">Jump To...</span>
+                      </label>
+                  </Button>
+                  <input
+                      id="date-picker-desktop"
+                      type="date"
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      value={format(currentDate, 'yyyy-MM-dd')}
+                      onChange={(e) => {
+                          if (e.target.value) {
+                              handleDateSelect(new Date(e.target.value.replace(/-/g, '/')));
+                          }
+                      }}
+                  />
+              </div>
+            </div>
              <div className="flex items-center justify-end gap-2">
                 <TooltipProvider>
                     <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="w-4 h-4" /><span className="sr-only">Weekly KPIs</span></Button></TooltipTrigger><TooltipContent><p>Weekly KPIs</p></TooltipContent></Tooltip>
@@ -1208,25 +1226,6 @@ function PlannerPageContent() {
                     <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsPickingListOpen(true)}><List className="w-4 h-4" /><span className="sr-only">Picking List</span></Button></TooltipTrigger><TooltipContent><p>Picking List</p></TooltipContent></Tooltip>
                     <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}><QrCode className="w-4 h-4" /><span className="sr-only">Scan Ticket</span></Button></TooltipTrigger><TooltipContent><p>Scan Ticket</p></TooltipContent></Tooltip>
                 </TooltipProvider>
-                <div className="relative h-8 w-8">
-                    <Button variant="outline" size="icon" className="h-8 w-8" asChild>
-                        <label htmlFor="date-picker-desktop" className="cursor-pointer">
-                            <CalendarIcon className="h-4 w-4" />
-                            <span className="sr-only">Jump To...</span>
-                        </label>
-                    </Button>
-                    <input
-                        id="date-picker-desktop"
-                        type="date"
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                        value={format(currentDate, 'yyyy-MM-dd')}
-                        onChange={(e) => {
-                            if (e.target.value) {
-                                handleDateSelect(new Date(e.target.value.replace(/-/g, '/')));
-                            }
-                        }}
-                    />
-                </div>
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button variant="outline">
@@ -1239,19 +1238,13 @@ function PlannerPageContent() {
                             <Link href={`/book/${tenantId}`} target="_blank">View Booking Page</Link>
                         </DropdownMenuItem>
                         <DropdownMenuItem asChild>
-                            <Link href={`/walk-in/${tenantId}`} target="_blank">View Walk-in Kiosk</Link>
+                            <Link href={`/walk-in-queue`}>View Walk-in Kiosk</Link>
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
                 <Button size="sm" onClick={() => setIsAddEventOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Event</Button>
                 <Button size="sm" onClick={() => setIsAddAppointmentOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Appointment</Button>
             </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => setCurrentDate(subWeeks(currentDate, 1))} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
-            <Button variant="outline" onClick={() => setCurrentDate(addWeeks(currentDate, 1))} size="icon" className="h-8 w-8"><ChevronRight /></Button>
-            <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
         </div>
 
         <Tabs value={activeView} onValueChange={setActiveView} className="w-full mt-4">
@@ -1310,7 +1303,7 @@ function PlannerPageContent() {
                 onOpenPickingList={() => setIsPickingListOpen(true)}
                 onStartService={handleStartService}
                 onFinishService={handleFinishService}
-                onBookNewForClient={handleBookNewAppointmentForClient}
+                onBookNewForClient={handleBookNewForClient}
                 walkIns={walkIns}
                 clients={clients}
                 services={services}
@@ -1324,7 +1317,7 @@ function PlannerPageContent() {
              <DayTimeline 
                 date={currentDate} 
                 columns={resources || []}
-                itemsByColumn={itemsByResource}
+                itemsByColumn={itemsByColumn}
                 showColumnHeader={true}
                 onCompleteClick={handleCompleteClick} 
                 onUpdateStatus={handleUpdateStatus}
@@ -1564,3 +1557,5 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
+
+    
