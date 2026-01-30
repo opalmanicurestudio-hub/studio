@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -352,7 +353,7 @@ export default function StaffDetailPage() {
                     <div id="services" className="space-y-4 pt-6">
                         <h2 className="text-2xl font-bold text-center">Services</h2>
                         {staffServices.map(service => (
-                            <ServiceCard key={service.id} service={service} onBookNow={handleBookNow} />
+                            <ServiceCard key={service.id} service={service} onBookNow={handleServiceSelect} />
                         ))}
                     </div>
 
@@ -404,7 +405,4 @@ export default function StaffDetailPage() {
         )}
     </div>
   );
-
 }
-
-    

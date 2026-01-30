@@ -47,7 +47,7 @@ import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog'
 import { nanoid } from 'nanoid';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { collection, doc, arrayUnion, query, where } from 'firebase/firestore';
-import type { Client, Appointment, Service, CustomFormula, Incident, Membership, Package, ConsentForm } from '@/lib/data';
+import type { Client, Appointment, Service, CustomFormula, Incident, Membership, Package, ConsentForm, Event } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 
 
@@ -185,11 +185,11 @@ export default function ClientDetailPage() {
   }, [firestore, tenantId]);
   const { data: allClients, isLoading: allClientsLoading } = useCollection<Client>(allClientsQuery);
   
-  const appointmentsQuery = useMemoFirebase(() => {
-      if (!firestore || !clientId || !tenantId) return null;
-      return query(collection(firestore, `tenants/${tenantId}/appointments`), where('clientId', '==', clientId));
-  }, [firestore, tenantId, clientId]);
-  const { data: clientAppointmentsData, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
+  const allAppointmentsQuery = useMemoFirebase(() => {
+      if (!firestore || !tenantId) return null;
+      return collection(firestore, `tenants/${tenantId}/appointments`);
+  }, [firestore, tenantId]);
+  const { data: allAppointments, isLoading: appointmentsLoading } = useCollection<Appointment>(allAppointmentsQuery);
   
   const servicesQuery = useMemoFirebase(() => {
       if (!firestore || !tenantId) return null;
@@ -227,6 +227,18 @@ export default function ClientDetailPage() {
   }, [firestore, tenantId, clientId]);
   const { data: signedConsents, isLoading: signedConsentsLoading } = useCollection<any>(signedConsentsQuery);
 
+  const eventsQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, `tenants/${tenantId}/events`);
+  }, [firestore, tenantId]);
+  const { data: events, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
+  
+  const scheduleProfilesQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, `tenants/${tenantId}/scheduleProfiles`);
+  }, [firestore, tenantId]);
+  const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
+
 
   const { toast } = useToast();
   const [isAddFormulaOpen, setIsAddFormulaOpen] = useState(false);
@@ -248,14 +260,16 @@ export default function ClientDetailPage() {
 
 
   const clientAppointments = useMemo(() => {
-    if (!clientAppointmentsData || !services) return [];
-    return clientAppointmentsData.map(apt => ({
-      ...apt,
-      startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : new Date(apt.startTime),
-      endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : new Date(apt.endTime),
-      service: services.find(s => s.id === apt.serviceId)
-    }));
-  }, [clientAppointmentsData, services]);
+    if (!allAppointments || !services || !clientId) return [];
+    return allAppointments
+      .filter(apt => apt.clientId === clientId)
+      .map(apt => ({
+        ...apt,
+        startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : new Date(apt.startTime),
+        endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : new Date(apt.endTime),
+        service: services.find(s => s.id === apt.serviceId)
+      }));
+  }, [allAppointments, services, clientId]);
 
   useEffect(() => {
     if (client) {
@@ -278,7 +292,7 @@ export default function ClientDetailPage() {
       setIsCodeDirty(false);
   }, [client?.referralCode]);
 
-  const isLoading = isUserLoading || isTenantLoading || clientLoading || appointmentsLoading || servicesLoading || allClientsLoading || staffLoading || consentFormsLoading || signedConsentsLoading;
+  const isLoading = isUserLoading || isTenantLoading || clientLoading || appointmentsLoading || servicesLoading || allClientsLoading || staffLoading || consentFormsLoading || signedConsentsLoading || eventsLoading || scheduleProfilesLoading;
 
   if (isLoading) {
       return (
@@ -798,7 +812,9 @@ export default function ClientDetailPage() {
             clients={allClients || []}
             services={services || []}
             staff={staff || []}
-            appointments={clientAppointmentsData || []}
+            appointments={allAppointments || []}
+            events={events || []}
+            scheduleProfiles={scheduleProfiles || []}
             onConfirm={handleAddAppointment}
             initialClientId={client.id}
             appointmentToRebook={appointmentToRebook}
@@ -861,27 +877,4 @@ export default function ClientDetailPage() {
         </Dialog>
     </div>
   );
-
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    
-
-    
-
-
-
-
-    
+}
