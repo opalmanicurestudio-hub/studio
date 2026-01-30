@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
@@ -20,6 +21,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuPortal,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -135,6 +140,9 @@ export const DayTimeline = ({
 
     const positionedItemsByColumn = useMemo(() => {
         const positionedMap = new Map<string, any[]>();
+        if (!itemsByColumn) {
+          return positionedMap;
+        }
         for (const [columnId, items] of itemsByColumn.entries()) {
             let layoutInfo = items.map(item => ({
                 ...item,
