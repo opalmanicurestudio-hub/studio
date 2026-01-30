@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -1196,13 +1197,13 @@ const events = useMemo(() => {
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                    <Link href="/book/tenant-abc" target="_blank">
+                    <Link href={`/book/${tenantId}`} target="_blank">
                         <Globe className="mr-2 h-4 w-4" />
                         Booking Page
                     </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                    <Link href="/walk-in" target="_blank">
+                    <Link href={`/walk-in/${tenantId}`} target="_blank">
                         <Users className="mr-2 h-4 w-4" />
                         Walk-in Kiosk
                     </Link>
@@ -1273,10 +1274,10 @@ const events = useMemo(() => {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                             <DropdownMenuItem asChild>
-                                <Link href="/book/tenant-abc" target="_blank">View Booking Page</Link>
+                                <Link href={`/book/${tenantId}`} target="_blank">View Booking Page</Link>
                             </DropdownMenuItem>
                             <DropdownMenuItem asChild>
-                                <Link href="/walk-in" target="_blank">View Walk-in Kiosk</Link>
+                                <Link href={`/walk-in/${tenantId}`} target="_blank">View Walk-in Kiosk</Link>
                             </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
@@ -1640,3 +1641,5 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
+
+    

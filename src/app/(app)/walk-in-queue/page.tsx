@@ -410,7 +410,7 @@ const ServicingCustomerCard = ({ walkIn, services, resources, staff, onStatusCha
 };
 
 const ReadyForCheckoutCard = ({ walkIn, services, resources, staff, onCheckoutClick }: { walkIn: WalkIn, services: Service[], resources: Resource[], staff: Staff[], onCheckoutClick: (walkIn: WalkIn) => void }) => {
-    const walkInServices = services.filter(s => walkIn.serviceIds.includes(s.id));
+    const walkInServices = services.filter(s => s.id === walkIn.serviceIds[0]);
     const assignedStaff = staff.find(s => s.id === walkIn.assignedStaffId);
      const requiredResourceIds = useMemo(() => {
         return [...new Set(walkInServices.flatMap(s => s.requiredResourceIds || []))];
@@ -1340,20 +1340,20 @@ export default function WalkInQueuePage() {
             <CardContent>
                 <div className="flex flex-col sm:flex-row items-center gap-2">
                     <div className="relative flex-grow w-full">
-                         <Input value={`${typeof window !== 'undefined' ? window.location.origin : ''}/walk-in`} readOnly className="pl-9"/>
+                         <Input value={`${typeof window !== 'undefined' ? window.location.origin : ''}/walk-in/${tenantId}`} readOnly className="pl-9"/>
                          <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     </div>
                     <div className="grid grid-cols-2 gap-2 w-full sm:w-auto">
                     <Button variant="outline" className="w-full" onClick={() => {
-                        const url = `${window.location.origin}/walk-in`;
+                        const url = `${window.location.origin}/walk-in/${tenantId}`;
                         navigator.clipboard.writeText(url);
                         toast({ title: 'Link Copied!', description: 'The public check-in link has been copied to your clipboard.' });
                     }}>
                         Copy
                     </Button>
                     <Button asChild className="w-full">
-                        <Link href="/walk-in" target="_blank">
-                            Open
+                        <Link href={`/walk-in/${tenantId}`} target="_blank">
+                            Open Kiosk
                         </Link>
                     </Button>
                     </div>
@@ -1641,3 +1641,6 @@ export default function WalkInQueuePage() {
 }
 
 
+
+
+    
