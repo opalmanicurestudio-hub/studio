@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -16,9 +17,9 @@ import {
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { useFirebase, addDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
-import { collection, getDocs, query, where } from 'firebase/firestore';
-import { type Service, type Staff, type ConsentForm } from '@/lib/data';
+import { useFirebase, addDocumentNonBlocking, useCollection, useMemoFirebase, useDoc } from '@/firebase';
+import { collection, getDocs, query, where, doc } from 'firebase/firestore';
+import { type Service, type Staff, type ConsentForm, type Tenant } from '@/lib/data';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { Progress } from '@/components/ui/progress';
 import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock } from 'lucide-react';
@@ -156,6 +157,12 @@ export default function WalkInPage() {
   const { toast } = useToast();
   const params = useParams();
   const tenantId = params.tenantId as string;
+
+  const tenantDocRef = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return doc(firestore, `tenants/${tenantId}`);
+  }, [firestore, tenantId]);
+  const { data: tenant, isLoading: tenantLoading } = useDoc<Tenant>(tenantDocRef);
 
   const servicesQuery = useMemoFirebase(() => {
     if (!firestore || !tenantId) return null;
@@ -327,7 +334,7 @@ export default function WalkInPage() {
     setIsSubmitting(false);
   };
   
-  const isLoading = servicesLoading || staffLoading || scheduleProfilesLoading || consentFormsLoading || !hasMounted;
+  const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || consentFormsLoading || !hasMounted;
   
   if (isLoading) {
     return (
@@ -346,7 +353,7 @@ export default function WalkInPage() {
                         <div className="inline-block p-3 bg-card rounded-full shadow-md mb-4">
                             <ClarityFlowLogo />
                         </div>
-                        <h1 className="text-3xl font-bold tracking-tight">ClarityFlow Salon</h1>
+                        <h1 className="text-3xl font-bold tracking-tight">{tenant?.name || 'ClarityFlow Salon'}</h1>
                     </header>
                     <Card>
                         <CardHeader>
@@ -390,7 +397,7 @@ export default function WalkInPage() {
           <div className="inline-block p-3 bg-card rounded-full shadow-md mb-4">
             <ClarityFlowLogo />
           </div>
-          <h1 className="text-3xl font-bold tracking-tight">ClarityFlow Salon</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{tenant?.name || 'ClarityFlow Salon'}</h1>
           <p className="text-muted-foreground">Walk-in Check-in</p>
         </header>
 
@@ -634,5 +641,3 @@ export default function WalkInPage() {
     </div>
   );
 }
-
-    
