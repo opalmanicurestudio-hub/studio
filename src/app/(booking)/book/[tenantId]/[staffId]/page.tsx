@@ -101,6 +101,10 @@ export default function StaffDetailPage() {
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Fetch tenant
+  const tenantDocRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
+  const { data: tenant, isLoading: tenantLoading } = useDoc<Tenant>(tenantDocRef);
+
   // Fetch staff member
   const staffDocRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}/staff/${staffId}`), [firestore, tenantId, staffId]);
   const { data: staffMember, isLoading: staffLoading } = useDoc<Staff>(staffDocRef);
@@ -114,13 +118,11 @@ export default function StaffDetailPage() {
   const eventsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/events`), [firestore, tenantId]);
   const scheduleProfilesQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isPublic", "==", true)), [firestore, tenantId]);
   const consentFormsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/consentForms`), [firestore, tenantId]);
-  const tenantDocRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
-
+  
   const { data: appointments, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
   const { data: events, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
   const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
   const { data: consentForms, isLoading: consentFormsLoading } = useCollection<ConsentForm>(consentFormsQuery);
-  const { data: tenant, isLoading: tenantLoading } = useDoc<Tenant>(tenantDocRef);
   const allStaffQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
   const { data: staff, isLoading: allStaffLoading } = useCollection<Staff>(allStaffQuery);
 
@@ -133,9 +135,11 @@ export default function StaffDetailPage() {
         .filter(service => staffMember.services?.includes(service.id) && !service.isPrivate)
         .map(service => {
             const tierPrice = service.pricingTiers?.find(t => t.level === staffSkillLevel)?.price;
+            // Fallback to senior price or base price if specific tier not found
+            const finalPrice = tierPrice ?? service.pricingTiers?.find(t => t.level === 'senior')?.price ?? service.price;
             return {
                 ...service,
-                price: tierPrice || service.price 
+                price: finalPrice, // Override the service price with the correct tier price
             };
         });
   }, [staffMember, allServices]);
@@ -255,120 +259,123 @@ export default function StaffDetailPage() {
 
   return (
     <div className="w-full">
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-4 bg-muted/80 px-4 backdrop-blur-sm md:px-6 print:hidden">
+        <header className="sticky top-0 z-30 flex h-16 items-center gap-4 bg-background/80 px-4 backdrop-blur-sm md:px-6 print:hidden">
             <Button variant="outline" size="icon" asChild>
                  <Link href={`/book/${tenantId}`}>
                     <ArrowLeft className="h-4 w-4" />
                 </Link>
             </Button>
+            <div className="flex-1 text-center font-semibold">{tenant?.name}</div>
+            <div className="w-9"></div> {/* Spacer for balance */}
         </header>
 
-      <main className="flex-1 p-4 md:p-6 space-y-6">
-           <div className="text-center space-y-4">
-                <Avatar className="w-28 h-28 text-4xl border-4 border-background mx-auto shadow-lg">
-                    <AvatarImage src={staffMember.avatarUrl} alt={staffMember.name} />
-                    <AvatarFallback>{staffMember.name.substring(0, 2)}</AvatarFallback>
-                </Avatar>
-                <div>
-                    <h1 className="text-3xl font-bold">{staffMember.name}</h1>
-                    <p className="text-lg text-muted-foreground">{staffMember.specialties?.join(', ')}</p>
-                    <p className="text-sm flex items-center justify-center gap-1 mt-1 text-muted-foreground"><Star className="w-4 h-4 text-amber-400 fill-amber-400" /> 4.9 (462 reviews)</p>
+      <main className="flex-1 p-4 md:p-6 space-y-6 pb-24">
+            <Tabs defaultValue="overview">
+                <div className="text-center space-y-4">
+                    <Avatar className="w-28 h-28 text-4xl border-4 border-background mx-auto shadow-lg">
+                        <AvatarImage src={staffMember.avatarUrl} alt={staffMember.name} />
+                        <AvatarFallback>{staffMember.name.substring(0, 2)}</AvatarFallback>
+                    </Avatar>
+                    <div>
+                        <h1 className="text-3xl font-bold">{staffMember.name}</h1>
+                        <p className="text-lg text-muted-foreground">{staffMember.specialties?.join(', ')}</p>
+                        <p className="text-sm flex items-center justify-center gap-1 mt-1 text-muted-foreground"><Star className="w-4 h-4 text-amber-400 fill-amber-400" /> 4.9 (462 reviews)</p>
+                    </div>
+                    <div className="flex items-center justify-center gap-2">
+                        {staffMember.instagramUrl && <a href={staffMember.instagramUrl} target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "outline", size: "icon" }))}><Instagram className="h-5 w-5" /></a>}
+                        {staffMember.facebookUrl && <a href={staffMember.facebookUrl} target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "outline", size: "icon" }))}><Facebook className="h-5 w-5" /></a>}
+                        {staffMember.twitterUrl && <a href={staffMember.twitterUrl} target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "outline", size: "icon" }))}><Twitter className="h-5 w-5" /></a>}
+                        {staffMember.tiktokUrl && <a href={staffMember.tiktokUrl} target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "outline", size: "icon" }))}><Film className="h-5 w-5" /></a>}
+                        {staffMember.pinterestUrl && <a href={staffMember.pinterestUrl} target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "outline", size: "icon" }))}><Pin className="h-5 w-5" /></a>}
+                        {staffMember.youtubeUrl && <a href={staffMember.youtubeUrl} target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "outline", size: "icon" }))}><Youtube className="h-5 w-5" /></a>}
+                        {staffMember.portfolioUrl && <a href={staffMember.portfolioUrl} target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "outline", size: "icon" }))}><LinkIcon className="h-5 w-5" /></a>}
+                    </div>
                 </div>
-                 <div className="flex items-center justify-center gap-2">
-                    {staffMember.instagramUrl && <a href={staffMember.instagramUrl} target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "outline", size: "icon" }))}><Instagram className="h-5 w-5" /></a>}
-                    {staffMember.facebookUrl && <a href={staffMember.facebookUrl} target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "outline", size: "icon" }))}><Facebook className="h-5 w-5" /></a>}
-                    {staffMember.twitterUrl && <a href={staffMember.twitterUrl} target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "outline", size: "icon" }))}><Twitter className="h-5 w-5" /></a>}
-                    {staffMember.tiktokUrl && <a href={staffMember.tiktokUrl} target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "outline", size: "icon" }))}><Film className="h-5 w-5" /></a>}
-                    {staffMember.pinterestUrl && <a href={staffMember.pinterestUrl} target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "outline", size: "icon" }))}><Pin className="h-5 w-5" /></a>}
-                    {staffMember.youtubeUrl && <a href={staffMember.youtubeUrl} target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "outline", size: "icon" }))}><Youtube className="h-5 w-5" /></a>}
-                    {staffMember.portfolioUrl && <a href={staffMember.portfolioUrl} target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "outline", size: "icon" }))}><LinkIcon className="h-5 w-5" /></a>}
-                </div>
-            </div>
+                <TabsContent value="overview" className="max-w-lg mx-auto space-y-6 mt-6">
+                    <div className="grid grid-cols-3 gap-2 md:gap-4 text-center">
+                        <Card>
+                            <CardContent className="p-3 space-y-1">
+                                <Users className="w-5 h-5 text-primary mx-auto" />
+                                <p className="text-lg font-bold">{staffMember.clientCount || 200}+</p>
+                                <p className="text-[10px] md:text-xs text-muted-foreground">Clients</p>
+                            </CardContent>
+                        </Card>
+                        <Card>
+                            <CardContent className="p-3 space-y-1">
+                                <Award className="w-5 h-5 text-primary mx-auto" />
+                                <p className="text-lg font-bold">{staffMember.yearsOfExperience || 5}+</p>
+                                <p className="text-[10px] md:text-xs text-muted-foreground">Years Exp.</p>
+                            </CardContent>
+                        </Card>
+                        <Card>
+                            <CardContent className="p-3 space-y-1">
+                                <Star className="w-5 h-5 text-primary mx-auto" />
+                                <p className="text-lg font-bold">4.9</p>
+                                <p className="text-[10px] md:text-xs text-muted-foreground">Rating</p>
+                            </CardContent>
+                        </Card>
+                    </div>
+                    
+                    <Card>
+                        <CardHeader><CardTitle>About {staffMember.name.split(' ')[0]}</CardTitle></CardHeader>
+                        <CardContent><p className="text-muted-foreground">{staffMember.bio || 'A passionate professional dedicated to their craft and clients.'}</p></CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader><CardTitle>Working Time</CardTitle></CardHeader>
+                        <CardContent className="space-y-2">
+                            {staffMember?.availability?.week ? (
+                                weekOrder.map(day => {
+                                    const hours = staffMember.availability.week[day as keyof typeof staffMember.availability.week];
+                                    if (!hours) return null;
+                                    return (
+                                        <div key={day} className="flex justify-between items-center text-sm">
+                                            <span className="capitalize font-medium">{day.charAt(0).toUpperCase() + day.slice(1)}</span>
+                                            <span className="text-muted-foreground flex items-center gap-2">
+                                                {hours.enabled ? (
+                                                    <>
+                                                        <Clock className="w-4 h-4" />
+                                                        <span>{hours.start} - {hours.end}</span>
+                                                    </>
+                                                ) : (
+                                                    'Closed'
+                                                )}
+                                            </span>
+                                        </div>
+                                    )
+                                })
+                            ) : (
+                                <p className="text-muted-foreground">Not available</p>
+                            )}
+                        </CardContent>
+                    </Card>
 
-            <div className="grid grid-cols-3 gap-2 md:gap-4 max-w-lg mx-auto text-center">
-                <Card>
-                    <CardContent className="p-3 space-y-1">
-                        <Users className="w-5 h-5 text-primary mx-auto" />
-                        <p className="text-lg font-bold">{staffMember.clientCount || 200}+</p>
-                        <p className="text-[10px] md:text-xs text-muted-foreground">Clients</p>
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardContent className="p-3 space-y-1">
-                        <Award className="w-5 h-5 text-primary mx-auto" />
-                        <p className="text-lg font-bold">{staffMember.yearsOfExperience || 5}+</p>
-                        <p className="text-[10px] md:text-xs text-muted-foreground">Years Exp.</p>
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardContent className="p-3 space-y-1">
-                        <Star className="w-5 h-5 text-primary mx-auto" />
-                        <p className="text-lg font-bold">4.9</p>
-                        <p className="text-[10px] md:text-xs text-muted-foreground">Rating</p>
-                    </CardContent>
-                </Card>
-            </div>
-            
-            <div className="max-w-lg mx-auto space-y-6">
-                <Card>
-                    <CardHeader><CardTitle>About {staffMember.name.split(' ')[0]}</CardTitle></CardHeader>
-                    <CardContent><p className="text-muted-foreground">{staffMember.bio || 'A passionate professional dedicated to their craft and clients.'}</p></CardContent>
-                </Card>
-                <Card>
-                    <CardHeader><CardTitle>Working Time</CardTitle></CardHeader>
-                    <CardContent className="space-y-2">
-                        {staffMember?.availability?.week ? (
-                            weekOrder.map(day => {
-                                const hours = staffMember.availability.week[day as keyof typeof staffMember.availability.week];
-                                if (!hours) return null;
-                                return (
-                                    <div key={day} className="flex justify-between items-center text-sm">
-                                        <span className="capitalize font-medium">{day.charAt(0).toUpperCase() + day.slice(1)}</span>
-                                        <span className="text-muted-foreground flex items-center gap-2">
-                                            {hours.enabled ? (
-                                                <>
-                                                    <Clock className="w-4 h-4" />
-                                                    <span>{hours.start} - {hours.end}</span>
-                                                </>
-                                            ) : (
-                                                'Closed'
-                                            )}
-                                        </span>
-                                    </div>
-                                )
-                            })
-                        ) : (
-                            <p className="text-muted-foreground">Not available</p>
-                        )}
-                    </CardContent>
-                </Card>
+                    <div id="services" className="space-y-4 pt-6">
+                        <h2 className="text-2xl font-bold text-center">Services</h2>
+                        {staffServices.map(service => (
+                            <ServiceCard key={service.id} service={service} onBookNow={handleBookNow} />
+                        ))}
+                    </div>
 
-                 <div id="services" className="space-y-4 pt-6">
-                    <h2 className="text-2xl font-bold text-center">Services</h2>
-                    {staffServices.map(service => (
-                        <ServiceCard key={service.id} service={service} onBookNow={handleServiceSelect} />
-                    ))}
-                 </div>
-
-                 <div className="space-y-4 pt-6">
-                    <h2 className="text-2xl font-bold text-center">Portfolio</h2>
-                    <ScrollArea>
-                        <div className="flex space-x-4 pb-4">
-                            {portfolioImages.map((url, index) => (
-                            <div key={index} className="relative aspect-square w-64 h-64 md:w-80 md:h-80 flex-shrink-0 rounded-xl overflow-hidden group">
-                                <Image
-                                src={url}
-                                alt={`Portfolio image ${index + 1}`}
-                                fill
-                                className="object-cover transition-transform duration-300 group-hover:scale-110"
-                                />
+                    <div className="space-y-4 pt-6">
+                        <h2 className="text-2xl font-bold text-center">Portfolio</h2>
+                        <ScrollArea>
+                            <div className="flex space-x-4 pb-4">
+                                {portfolioImages.map((url, index) => (
+                                <div key={index} className="relative aspect-square w-64 h-64 md:w-80 md:h-80 flex-shrink-0 rounded-xl overflow-hidden group">
+                                    <Image
+                                    src={url}
+                                    alt={`Portfolio image ${index + 1}`}
+                                    fill
+                                    className="object-cover transition-transform duration-300 group-hover:scale-110"
+                                    />
+                                </div>
+                                ))}
                             </div>
-                            ))}
-                        </div>
-                        <ScrollBar orientation="horizontal" />
-                    </ScrollArea>
-                 </div>
-            </div>
+                            <ScrollBar orientation="horizontal" />
+                        </ScrollArea>
+                    </div>
+                </TabsContent>
+            </Tabs>
       </main>
       
         <footer className="sticky bottom-0 z-30 p-4 border-t bg-background/80 backdrop-blur-sm print:hidden">
@@ -399,3 +406,5 @@ export default function StaffDetailPage() {
   );
 
 }
+
+    
