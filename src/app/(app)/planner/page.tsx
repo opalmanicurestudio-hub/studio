@@ -350,12 +350,13 @@ function PlannerPageContent() {
   }, [isMobile, mobileSelectedStaffId, staff]);
 
   const staffItemsToDisplay = useMemo(() => {
+      if (!itemsByColumn) return new Map();
       if (isMobile) {
-          if (!mobileSelectedStaffId || !itemsByStaff.has(mobileSelectedStaffId)) return new Map();
-          return new Map([[mobileSelectedStaffId, itemsByStaff.get(mobileSelectedStaffId)!]]);
+          if (!mobileSelectedStaffId || !itemsByColumn.has(mobileSelectedStaffId)) return new Map();
+          return new Map([[mobileSelectedStaffId, itemsByColumn.get(mobileSelectedStaffId)!]]);
       }
-      return itemsByStaff;
-  }, [isMobile, mobileSelectedStaffId, itemsByStaff]);
+      return itemsByColumn;
+  }, [isMobile, mobileSelectedStaffId, itemsByColumn]);
 
 
   const handleCompleteClick = (appointment: Appointment) => {
@@ -1061,6 +1062,7 @@ function PlannerPageContent() {
 }, [isScannerOpen, handleScan, toast]);
   
   const showStaffColumnHeader = !isMobile;
+  const itemsByColumn = activeView === 'staff' ? itemsByStaff : itemsByResource;
 
   const isDataLoading = isLoading || isUserLoading || isTenantLoading || scheduleProfilesLoading || resourcesLoading;
 
@@ -1089,18 +1091,25 @@ function PlannerPageContent() {
                 <h2 className="text-2xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
                 <div className="flex items-center gap-2">
                     <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
-                    <Popover>
-                        <PopoverTrigger asChild>
-                        <Button variant="outline" size="icon" className="h-8 w-8"><CalendarIcon className="h-4 w-4" /></Button>
-                        </PopoverTrigger>
-                        <PopoverContent align="end" className="w-auto p-0">
-                        <Calendar
-                            mode="single"
-                            selected={currentDate}
-                            onSelect={(date) => handleDateSelect(date)}
+                    <div className="relative h-8 w-8">
+                        <Button variant="outline" size="icon" className="h-8 w-8" asChild>
+                            <label htmlFor="date-picker-mobile" className="cursor-pointer">
+                                <CalendarIcon className="h-4 w-4" />
+                                <span className="sr-only">Jump To...</span>
+                            </label>
+                        </Button>
+                        <input
+                            id="date-picker-mobile"
+                            type="date"
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            value={format(currentDate, 'yyyy-MM-dd')}
+                            onChange={(e) => {
+                                if (e.target.value) {
+                                    handleDateSelect(new Date(e.target.value.replace(/-/g, '/')));
+                                }
+                            }}
                         />
-                        </PopoverContent>
-                    </Popover>
+                    </div>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button size="sm" variant="outline">
@@ -1199,6 +1208,25 @@ function PlannerPageContent() {
                     <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsPickingListOpen(true)}><List className="w-4 h-4" /><span className="sr-only">Picking List</span></Button></TooltipTrigger><TooltipContent><p>Picking List</p></TooltipContent></Tooltip>
                     <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}><QrCode className="w-4 h-4" /><span className="sr-only">Scan Ticket</span></Button></TooltipTrigger><TooltipContent><p>Scan Ticket</p></TooltipContent></Tooltip>
                 </TooltipProvider>
+                <div className="relative h-8 w-8">
+                    <Button variant="outline" size="icon" className="h-8 w-8" asChild>
+                        <label htmlFor="date-picker-desktop" className="cursor-pointer">
+                            <CalendarIcon className="h-4 w-4" />
+                            <span className="sr-only">Jump To...</span>
+                        </label>
+                    </Button>
+                    <input
+                        id="date-picker-desktop"
+                        type="date"
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        value={format(currentDate, 'yyyy-MM-dd')}
+                        onChange={(e) => {
+                            if (e.target.value) {
+                                handleDateSelect(new Date(e.target.value.replace(/-/g, '/')));
+                            }
+                        }}
+                    />
+                </div>
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button variant="outline">
@@ -1224,18 +1252,6 @@ function PlannerPageContent() {
             <Button variant="outline" onClick={() => setCurrentDate(subWeeks(currentDate, 1))} size="icon" className="h-8 w-8"><ChevronLeft /></Button>
             <Button variant="outline" onClick={() => setCurrentDate(addWeeks(currentDate, 1))} size="icon" className="h-8 w-8"><ChevronRight /></Button>
             <Button variant="outline" onClick={handleToday} className="h-8">Today</Button>
-             <Popover>
-                <PopoverTrigger asChild>
-                    <Button variant="outline" size="icon" className="h-8 w-8"><CalendarIcon className="h-4 w-4" /><span className="sr-only">Jump To...</span></Button>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="w-auto p-0">
-                    <Calendar
-                        mode="single"
-                        selected={currentDate}
-                        onSelect={(date) => handleDateSelect(date)}
-                    />
-                </PopoverContent>
-            </Popover>
         </div>
 
         <Tabs value={activeView} onValueChange={setActiveView} className="w-full mt-4">
