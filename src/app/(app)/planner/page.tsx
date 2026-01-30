@@ -163,7 +163,7 @@ function PlannerPageContent() {
     if (!firestore || !tenantId) return null;
     return collection(firestore, `tenants/${tenantId}/events`);
   }, [firestore, tenantId]);
-
+  
   const resourcesQuery = useMemoFirebase(() => {
     if (!firestore || !tenantId) return null;
     return collection(firestore, `tenants/${tenantId}/resources`);
@@ -1455,8 +1455,6 @@ const events = useMemo(() => {
         clients={clients || []}
         services={services || []}
         staff={staff || []}
-        appointments={appointments || []}
-        events={events || []}
         onConfirm={handleAddAppointment}
         initialClientId={appointmentToRebook ? appointmentToRebook.clientId : initialClientIdForNewApt}
         appointmentToRebook={appointmentToRebook}
@@ -1489,8 +1487,6 @@ const events = useMemo(() => {
         open={isAddEventOpen}
         onOpenChange={setIsAddEventOpen}
         onConfirm={handleAddEvent}
-        appointments={appointments || []}
-        events={events || []}
         staff={staff || []}
       />
        {selectedEvent && (

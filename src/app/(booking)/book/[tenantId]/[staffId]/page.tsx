@@ -80,7 +80,7 @@ const ServiceCard = ({ service, onBookNow }: { service: Service, onBookNow: (ser
                 </div>
                 <div className="flex items-center gap-2 font-medium text-foreground">
                 <DollarSign className="w-4 h-4" />
-                <span>{service.price.toFixed(2)}</span>
+                <span>From ${service.price.toFixed(2)}</span>
                 </div>
             </div>
             </CardContent>
@@ -114,15 +114,8 @@ export default function StaffDetailPage() {
   const servicesQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/services`), [firestore, tenantId]);
   const { data: allServices, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
   
-  // Other data needed for BookingSheet
-  const appointmentsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/appointments`), [firestore, tenantId]);
-  const eventsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/events`), [firestore, tenantId]);
-  const scheduleProfilesQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isPublic", "==", true)), [firestore, tenantId]);
   const consentFormsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/consentForms`), [firestore, tenantId]);
   
-  const { data: appointments, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
-  const { data: events, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
-  const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
   const { data: consentForms, isLoading: consentFormsLoading } = useCollection<ConsentForm>(consentFormsQuery);
   const allStaffQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
   const { data: staff, isLoading: allStaffLoading } = useCollection<Staff>(allStaffQuery);
@@ -220,7 +213,7 @@ export default function StaffDetailPage() {
     }
   };
 
-  const isLoading = staffLoading || servicesLoading || appointmentsLoading || eventsLoading || scheduleProfilesLoading || consentFormsLoading || tenantLoading || allStaffLoading;
+  const isLoading = staffLoading || servicesLoading || consentFormsLoading || tenantLoading || allStaffLoading;
 
   if (isLoading) {
     return (
@@ -394,10 +387,6 @@ export default function StaffDetailPage() {
                 service={selectedService}
                 staff={staff}
                 initialStaffId={staffId}
-                appointments={appointments || []}
-                events={events || []}
-                scheduleProfiles={scheduleProfiles || []}
-                services={allServices || []}
                 consentForms={consentForms || []}
                 tenant={tenant || null}
                 onConfirm={handleConfirmBooking}
@@ -405,4 +394,5 @@ export default function StaffDetailPage() {
         )}
     </div>
   );
+
 }

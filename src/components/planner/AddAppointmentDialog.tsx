@@ -68,8 +68,6 @@ interface AddAppointmentDialogProps {
   clients: Client[];
   services: Service[];
   staff: Staff[];
-  appointments: Appointment[];
-  events: Event[];
   onConfirm: (apt: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date, recurrence?: { frequency: string, endDate: Date }}) => void;
   initialClientId?: string;
   appointmentToRebook?: Appointment | null;
@@ -103,21 +101,42 @@ const AddAppointmentForm = ({
     clients, 
     services,
     staff,
-    appointments,
-    events,
     onConfirm,
     initialClientId,
     appointmentToRebook,
-}: Omit<AddAppointmentDialogProps, 'open' | 'onOpenChange' | 'scheduleProfiles'>) => {
+}: Omit<AddAppointmentDialogProps, 'open' | 'onOpenChange'>) => {
     const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
     const tenantId = selectedTenant?.id;
     
-    const scheduleProfilesQuery = useMemoFirebase(() => {
-        if (!firestore || !tenantId) return null;
-        return query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true));
-    }, [firestore, tenantId]);
-    const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
+    const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(
+        useMemoFirebase(() => tenantId ? query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true)) : null, [firestore, tenantId])
+    );
+    const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(
+        useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/appointments`) : null, [firestore, tenantId])
+    );
+    const { data: eventsFromDB, isLoading: eventsLoading } = useCollection<Event>(
+        useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/events`) : null, [firestore, tenantId])
+    );
+    
+    const appointments = useMemo(() => {
+        if (!appointmentsFromDB) return [];
+        return appointmentsFromDB.map(apt => ({
+          ...apt,
+          startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : new Date(apt.startTime),
+          endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : new Date(apt.endTime),
+        }));
+      }, [appointmentsFromDB]);
+    
+      const events = useMemo(() => {
+        if (!eventsFromDB) return [];
+        return eventsFromDB.map(evt => ({
+            ...evt,
+            startTime: (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : new Date(evt.startTime),
+            endTime: (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : new Date(evt.endTime),
+        }));
+      }, [eventsFromDB]);
+
 
     const { register, handleSubmit, control, watch, formState: { errors }, setValue } = useForm({
         defaultValues: {
@@ -191,7 +210,7 @@ const AddAppointmentForm = ({
         
         const busyIntervals: { start: Date, end: Date }[] = [];
 
-        appointments
+        (appointments || [])
           .filter(apt => {
             if (!isSameDay(apt.startTime, date)) return false;
             if (appointmentToRebook && apt.id === appointmentToRebook.id) return false;
@@ -208,7 +227,7 @@ const AddAppointmentForm = ({
             });
           });
 
-        events
+        (events || [])
           .filter(evt => {
             if (!isSameDay(evt.startTime, date)) return false;
             if (evt.type !== 'blocked') return false;
@@ -274,7 +293,7 @@ const AddAppointmentForm = ({
 
         const newInterval = { start: startDateTime, end: endDateTime };
 
-        const hasOverlap = appointments.some(apt => {
+        const hasOverlap = (appointments || []).some(apt => {
             if (appointmentToRebook && apt.id === appointmentToRebook.id) return false;
             const service = services.find(s => s.id === apt.serviceId);
             const padBefore = service?.padBefore || 0;
@@ -401,9 +420,9 @@ const AddAppointmentForm = ({
                         <h3 className="text-lg font-medium">Date & Time</h3>
                         <div className="rounded-lg border space-y-4 p-4">
                             <div className="flex items-center justify-between">
-                                <Button variant="outline" size="icon" onClick={() => setValue('date', subWeeks(date, 1))} type="button"><ChevronLeft className="w-4 w-4" /></Button>
+                                <Button variant="outline" size="icon" onClick={() => setValue('date', subWeeks(date, 1))} type="button"><ChevronLeft className="w-4 h-4" /></Button>
                                 <span className="font-semibold text-center">{format(weekStart, 'MMMM yyyy')}</span>
-                                <Button variant="outline" size="icon" onClick={() => setValue('date', addWeeks(date, 1))} type="button"><ChevronRight className="w-4 w-4" /></Button>
+                                <Button variant="outline" size="icon" onClick={() => setValue('date', addWeeks(date, 1))} type="button"><ChevronRight className="w-4 h-4" /></Button>
                             </div>
                             <div className="grid grid-cols-7 gap-2">{weekDays.map(day => (<button key={day.toISOString()} onClick={() => setValue('date', day)} disabled={isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))} className={cn("flex flex-col items-center justify-center p-2 rounded-lg border w-full aspect-square transition-colors", isSameDay(day, date) ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-accent", (isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))) && "opacity-50 cursor-not-allowed")} type="button"><span className="text-xs">{format(day, 'E')}</span><span className="font-bold text-lg">{format(day, 'd')}</span></button>))}</div>
                         </div>
@@ -489,7 +508,7 @@ const AddAppointmentForm = ({
     )
 }
 
-export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, clients, services, staff, appointments, events, onConfirm, initialClientId, appointmentToRebook, initialStartTime, initialStaffId }) => {
+export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, clients, services, staff, onConfirm, initialClientId, appointmentToRebook, initialStartTime, initialStaffId }) => {
   const isMobile = useIsMobile();
 
   const formKey = useMemo(() => {
@@ -504,8 +523,6 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
     clients={clients} 
     services={services} 
     staff={staff}
-    appointments={appointments} 
-    events={events}
     onConfirm={onConfirm} 
     initialClientId={initialClientId} 
     appointmentToRebook={appointmentToRebook}

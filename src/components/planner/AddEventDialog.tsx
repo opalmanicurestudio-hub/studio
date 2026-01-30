@@ -81,24 +81,35 @@ const timeStringToDate = (timeStr: string, date: Date): Date => {
 
 const AddEventForm = ({
     onConfirm,
-    appointments,
-    events,
     staff
 }: {
-    onConfirm: (event: Omit<Event, 'id'>) => void;
-    appointments: Appointment[];
-    events: Event[];
+    onConfirm: (event: Omit<Event, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date}) => void;
     staff: Staff[];
 }) => {
     const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
     const tenantId = selectedTenant?.id;
+
+    const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/appointments`) : null, [firestore, tenantId]));
+    const { data: eventsFromDB, isLoading: eventsLoading } = useCollection<Event>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/events`) : null, [firestore, tenantId]));
+
+    const appointments = useMemo(() => {
+        if (!appointmentsFromDB) return [];
+        return appointmentsFromDB.map(apt => ({
+          ...apt,
+          startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : new Date(apt.startTime),
+          endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : new Date(apt.endTime),
+        }));
+      }, [appointmentsFromDB]);
     
-    const scheduleProfilesQuery = useMemoFirebase(() => {
-        if (!firestore || !tenantId) return null;
-        return query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true));
-      }, [firestore, tenantId]);
-    const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
+      const events = useMemo(() => {
+        if (!eventsFromDB) return [];
+        return eventsFromDB.map(evt => ({
+            ...evt,
+            startTime: (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : new Date(evt.startTime),
+            endTime: (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : new Date(evt.endTime),
+        }));
+      }, [eventsFromDB]);
 
     const [title, setTitle] = useState('');
     const [type, setType] = useState<'personal' | 'business' | 'blocked'>('business');
@@ -115,10 +126,6 @@ const AddEventForm = ({
     const [isOverlapping, setIsOverlapping] = useState(false);
     const [showConfirmation, setShowConfirmation] = useState(false);
     
-    const weekStart = useMemo(() => startOfWeek(date, { weekStartsOn: 0 }), [date]);
-    const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
-    const publicScheduleProfile = useMemo(() => scheduleProfiles?.[0], [scheduleProfiles]);
-
     const selectedStaff = useMemo(() => staff.find(s => s.id === staffId), [staff, staffId]);
 
     useEffect(() => {
@@ -145,7 +152,7 @@ const AddEventForm = ({
 
         const newInterval = { start: startDateTime, end: endDateTime };
 
-        const allCalendarItems = [...appointments, ...events];
+        const allCalendarItems = [...(appointments || []), ...(events || [])];
 
         const hasOverlap = allCalendarItems.some(item => {
             const itemInterval = { start: item.startTime, end: item.endTime };
@@ -154,103 +161,6 @@ const AddEventForm = ({
 
         setIsOverlapping(hasOverlap);
     }, [date, startTime, duration, appointments, events]);
-
-    const timeSlots = useMemo(() => {
-        if (!duration || !date || !publicScheduleProfile) return [];
-
-        const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
-        const dayName = format(date, 'eeee').toLowerCase();
-        
-        const selectedStaffMember = staff.find(s => s.id === staffId);
-        let workingHours: { enabled: boolean; start: string; end: string; };
-
-        const staffDaySchedule = selectedStaffMember?.availability?.week?.[dayName as keyof typeof selectedStaffMember.availability.week];
-
-        if (staffDaySchedule && staffDaySchedule.enabled) {
-            workingHours = staffDaySchedule;
-        } else if (!staffDaySchedule && publicScheduleProfile?.week?.[dayName]) {
-            workingHours = publicScheduleProfile.week[dayName];
-        } else {
-            return []; // Staff is explicitly not available or no schedule found
-        }
-        
-        if (!workingHours || !workingHours.enabled) {
-          return [];
-        }
-        
-        const dayStartWithBusinessHours = timeStringToDate(workingHours.start, date);
-        const dayEndWithBusinessHours = timeStringToDate(workingHours.end, date);
-        
-        const busyIntervals: { start: Date, end: Date }[] = [];
-
-        appointments
-          .filter(apt => {
-            if (!isSameDay(apt.startTime, date)) return false;
-            if (staffId && staffId !== 'all' && apt.staffId !== staffId) return false;
-            return true;
-          })
-          .forEach(apt => {
-            const service = allServices.find(s => s.id === apt.serviceId);
-            const padBefore = service?.padBefore || 0;
-            const padAfter = service?.padAfter || 0;
-            busyIntervals.push({
-              start: addMinutes(apt.startTime, -padBefore),
-              end: addMinutes(apt.endTime, padAfter),
-            });
-          });
-
-        events
-          .filter(evt => {
-            if (!isSameDay(evt.startTime, date)) return false;
-            if (evt.type !== 'blocked') return false;
-            return !evt.staffId || evt.staffId === 'all' || (staffId && staffId !== 'all' && evt.staffId === staffId);
-          })
-          .forEach(evt => {
-            busyIntervals.push({ start: evt.startTime, end: evt.endTime });
-          });
-
-        const options: string[] = [];
-        
-        let earliestBookableTime = dayStartWithBusinessHours;
-        const now = new Date();
-
-        if (isToday(date) && now > dayStartWithBusinessHours) {
-            const minutesSinceStartOfDay = (now.getHours() * 60) + now.getMinutes();
-            const businessStartMinutes = (earliestBookableTime.getHours() * 60) + earliestBookableTime.getMinutes();
-            const intervalsToSkip = Math.ceil((minutesSinceStartOfDay - businessStartMinutes) / bookingInterval);
-            if (intervalsToSkip > 0) {
-                earliestBookableTime = addMinutes(dayStartWithBusinessHours, intervalsToSkip * bookingInterval);
-            }
-        }
-        
-        let currentTime = earliestBookableTime;
-
-        while (currentTime < dayEndWithBusinessHours) {
-            const potentialStartTime = currentTime;
-            const totalDuration = duration;
-            const potentialEndTime = addMinutes(potentialStartTime, totalDuration);
-            
-            if (potentialEndTime > dayEndWithBusinessHours) {
-                break;
-            }
-            
-            const isOverlapping = busyIntervals.some((interval) =>
-                areIntervalsOverlapping(
-                    { start: potentialStartTime, end: potentialEndTime },
-                    interval,
-                    { inclusive: false }
-                )
-            );
-
-            if (!isOverlapping) {
-                options.push(format(potentialStartTime, 'HH:mm'));
-            }
-
-            currentTime = addMinutes(currentTime, bookingInterval);
-        }
-        return options;
-    }, [date, staffId, duration, staff, appointments, events, publicScheduleProfile]);
-
 
     const handleAddChecklistItem = () => {
         if (newChecklistItem.trim()) {
@@ -277,7 +187,7 @@ const AddEventForm = ({
         const startDateTime = setMinutes(setHours(startOfDay(date), startHours), startMinutes);
         const endDateTime = addMinutes(startDateTime, duration);
 
-        const newEvent: Omit<Event, 'id'> = {
+        const newEvent: Omit<Event, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date} = {
             title,
             type,
             startTime: startDateTime,
@@ -314,22 +224,22 @@ const AddEventForm = ({
                             <Label>Type</Label>
                             <RadioGroup value={type} onValueChange={(v: any) => setType(v)} className="grid grid-cols-3 gap-2">
                                 <div>
-                                    <RadioGroupItem value="business" id="business" className="peer sr-only" />
-                                    <Label htmlFor="business" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
+                                    <RadioGroupItem value="business" id="business-add-event" className="peer sr-only" />
+                                    <Label htmlFor="business-add-event" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
                                         <Briefcase className="w-5 h-5 mb-2"/>
                                         Business
                                     </Label>
                                 </div>
                                 <div>
-                                    <RadioGroupItem value="personal" id="personal" className="peer sr-only" />
-                                    <Label htmlFor="personal" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
+                                    <RadioGroupItem value="personal" id="personal-add-event" className="peer sr-only" />
+                                    <Label htmlFor="personal-add-event" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
                                         <User className="w-5 h-5 mb-2"/>
                                         Personal
                                     </Label>
                                 </div>
                                 <div>
-                                    <RadioGroupItem value="blocked" id="blocked" className="peer sr-only" />
-                                    <Label htmlFor="blocked" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
+                                    <RadioGroupItem value="blocked" id="blocked-add-event" className="peer sr-only" />
+                                    <Label htmlFor="blocked-add-event" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">
                                         <Lock className="w-5 h-5 mb-2"/>
                                         Blocked
                                     </Label>
@@ -373,57 +283,46 @@ const AddEventForm = ({
 
                     <div className="space-y-4">
                         <h3 className="text-lg font-medium">Date & Time</h3>
-                         <div className="rounded-lg border space-y-4 p-4">
-                            <div className="flex items-center justify-between">
-                                <Button variant="outline" size="icon" onClick={() => setDate(prev => subWeeks(prev, 1))} type="button"><ChevronLeft className="w-4 h-4" /></Button>
-                                <span className="font-semibold text-center">
-                                    {format(weekStart, 'MMMM yyyy')}
-                                </span>
-                                <Button variant="outline" size="icon" onClick={() => setDate(prev => addWeeks(prev, 1))} type="button"><ChevronRight className="w-4 w-4" /></Button>
-                            </div>
-                            <div className="grid grid-cols-7 gap-2">
-                                {weekDays.map(day => (
-                                    <button
-                                        key={day.toISOString()}
-                                        onClick={() => setDate(day)}
-                                        disabled={isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))}
+                        <div className="space-y-2">
+                            <Label htmlFor="event-date">Date</Label>
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                        variant={"outline"}
                                         className={cn(
-                                            "flex flex-col items-center justify-center p-2 rounded-lg border w-full aspect-square transition-colors",
-                                            isSameDay(day, date)
-                                                ? "bg-primary text-primary-foreground border-primary"
-                                                : "bg-background hover:bg-accent",
-                                            (isBefore(day, startOfDay(new Date())) && !isSameDay(day, startOfDay(new Date()))) && "opacity-50 cursor-not-allowed"
+                                        "w-full justify-start text-left font-normal",
+                                        !date && "text-muted-foreground"
                                         )}
-                                        type="button"
                                     >
-                                        <span className="text-xs">{format(day, 'E')}</span>
-                                        <span className="font-bold text-lg">{format(day, 'd')}</span>
-                                    </button>
-                                ))}
-                            </div>
+                                        <span className="flex items-center">
+                                            <CalendarIcon className="mr-2 h-4 w-4" />
+                                            {date ? format(date, 'PPP') : "Pick a date"}
+                                        </span>
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0">
+                                    <Calendar
+                                        mode="single"
+                                        selected={date}
+                                        onSelect={(d) => setDate(d || new Date())}
+                                        initialFocus
+                                    />
+                                </PopoverContent>
+                            </Popover>
                         </div>
                          <div className="flex items-center justify-between">
-                            <Label htmlFor="all-day">All Day Event</Label>
-                            <Switch id="all-day" checked={allDay} onCheckedChange={setAllDay} />
+                            <Label htmlFor="all-day-event">All Day Event</Label>
+                            <Switch id="all-day-event" checked={allDay} onCheckedChange={setAllDay} />
                         </div>
                         {!allDay ? (
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
-                                    <Label htmlFor="start-time">Start Time</Label>
-                                    <Select onValueChange={setStartTime} value={startTime}>
-                                        <SelectTrigger id="start-time">
-                                            <SelectValue placeholder="Select a time" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {timeSlots.map(time => (
-                                                <SelectItem key={`start-${time}`} value={time}>{format(setMinutes(setHours(new Date(), parseInt(time.split(':')[0])), parseInt(time.split(':')[1])), 'h:mm a')}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                    <Label htmlFor="start-time-event">Start Time</Label>
+                                    <Input id="start-time-event" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label htmlFor="duration">Duration (minutes)</Label>
-                                    <Input id="duration" type="number" value={duration} onChange={(e) => setDuration(Number(e.target.value))} placeholder="e.g., 60" />
+                                    <Label htmlFor="duration-event">Duration (minutes)</Label>
+                                    <Input id="duration-event" type="number" value={duration} onChange={(e) => setDuration(Number(e.target.value))} placeholder="e.g., 60" />
                                 </div>
                             </div>
                         ) : null}
@@ -441,9 +340,10 @@ const AddEventForm = ({
                     <div className="space-y-4">
                         <h3 className="text-lg font-medium">Important Details</h3>
                         <div className="space-y-2">
-                            <Label htmlFor="location">Location</Label>
-                            <Input id="location" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g., 123 Main St or 'Zoom'" />
+                            <Label htmlFor="location-event">Location</Label>
+                            <Input id="location-event" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g., 123 Main St or 'Zoom'" />
                         </div>
+                        
                         <div className="space-y-2">
                             <Label>Checklist</Label>
                             <div className='space-y-2'>
@@ -465,8 +365,8 @@ const AddEventForm = ({
                             </div>
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="notes">Notes</Label>
-                            <Textarea id="notes" rows={4} placeholder="Add any event-specific notes..." value={notes} onChange={(e) => setNotes(e.target.value)} />
+                            <Label htmlFor="notes-event">Notes</Label>
+                            <Textarea id="notes-event" rows={4} placeholder="Add any event-specific notes..." value={notes} onChange={(e) => setNotes(e.target.value)} />
                         </div>
                     </div>
                 </div>
@@ -489,12 +389,10 @@ const AddEventForm = ({
     )
 }
 
-export const AddEventDialog = ({ open, onOpenChange, onConfirm, appointments, events, staff }: { 
+export const AddEventDialog = ({ open, onOpenChange, onConfirm, staff }: { 
     open: boolean; 
     onOpenChange: (open: boolean) => void; 
-    onConfirm: (event: Omit<Event, 'id'>) => void;
-    appointments: Appointment[];
-    events: Event[];
+    onConfirm: (event: Omit<Event, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date}) => void;
     staff: Staff[];
 }) => {
   const isMobile = useIsMobile();
@@ -502,7 +400,7 @@ export const AddEventDialog = ({ open, onOpenChange, onConfirm, appointments, ev
   const title = "Add New Event";
   const description = "Add a personal or business event to your calendar.";
   
-  const FormContent = <AddEventForm onConfirm={onConfirm} appointments={appointments} events={events} staff={staff} />;
+  const FormContent = <AddEventForm onConfirm={onConfirm} staff={staff} />;
 
   if (isMobile) {
     return (

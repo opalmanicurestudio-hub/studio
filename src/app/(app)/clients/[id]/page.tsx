@@ -226,12 +226,6 @@ export default function ClientDetailPage() {
     return collection(firestore, `tenants/${tenantId}/clients/${clientId}/signedConsents`);
   }, [firestore, tenantId, clientId]);
   const { data: signedConsents, isLoading: signedConsentsLoading } = useCollection<any>(signedConsentsQuery);
-
-  const eventsQuery = useMemoFirebase(() => {
-    if (!firestore || !tenantId) return null;
-    return collection(firestore, `tenants/${tenantId}/events`);
-  }, [firestore, tenantId]);
-  const { data: events, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
   
   const { toast } = useToast();
   const [isAddFormulaOpen, setIsAddFormulaOpen] = useState(false);
@@ -285,7 +279,7 @@ export default function ClientDetailPage() {
       setIsCodeDirty(false);
   }, [client?.referralCode]);
 
-  const isLoading = isUserLoading || isTenantLoading || clientLoading || appointmentsLoading || servicesLoading || allClientsLoading || staffLoading || consentFormsLoading || signedConsentsLoading || eventsLoading;
+  const isLoading = isUserLoading || isTenantLoading || clientLoading || appointmentsLoading || servicesLoading || allClientsLoading || staffLoading || consentFormsLoading || signedConsentsLoading;
 
   if (isLoading) {
       return (
@@ -805,8 +799,6 @@ export default function ClientDetailPage() {
             clients={allClients || []}
             services={services || []}
             staff={staff || []}
-            appointments={allAppointments || []}
-            events={events || []}
             onConfirm={handleAddAppointment}
             initialClientId={client.id}
             appointmentToRebook={appointmentToRebook}
