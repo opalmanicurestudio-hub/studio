@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -77,6 +75,7 @@ import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDia
 import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useTenant } from '@/context/TenantContext';
+import { useInventory } from '@/context/InventoryContext';
 
 
 function PlannerPageContent() {
@@ -94,8 +93,8 @@ function PlannerPageContent() {
       clients, 
       services, 
       staff, 
-      appointments, 
-      events, 
+      appointments: appointmentsFromInventory, 
+      events: eventsFromInventory, 
       resources,
       walkIns,
       billDefinitions,
@@ -103,6 +102,24 @@ function PlannerPageContent() {
       isLoading
   } = useInventory();
   
+  const appointments = useMemo(() => {
+    if (!appointmentsFromInventory) return [];
+    return appointmentsFromInventory.map(apt => ({
+        ...apt,
+        startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : new Date(apt.startTime),
+        endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : new Date(apt.endTime),
+    }));
+  }, [appointmentsFromInventory]);
+  
+  const events = useMemo(() => {
+    if (!eventsFromInventory) return [];
+    return eventsFromInventory.map(evt => ({
+        ...evt,
+        startTime: (evt.startTime as any)?.toDate ? (evt.startTime as any).toDate() : new Date(evt.startTime),
+        endTime: (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : new Date(evt.endTime),
+    }));
+  }, [eventsFromInventory]);
+
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
   const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
@@ -135,6 +152,13 @@ function PlannerPageContent() {
   const [scannedData, setScannedData] = useState<string | null>(null);
 
   const [activeView, setActiveView] = useState(viewParam === 'resources' ? 'resources' : 'staff');
+    
+  const scheduleProfilesQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true));
+  }, [firestore, tenantId]);
+  
+  const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
 
   useEffect(() => {
     if (staff && staff.length > 0 && !mobileSelectedStaffId) {
@@ -1032,7 +1056,7 @@ function PlannerPageContent() {
   
   const publicScheduleProfile = useMemo(() => scheduleProfiles?.[0], [scheduleProfiles]);
 
-  if (isLoading || isUserLoading || isTenantLoading) {
+  if (isLoading || isUserLoading || isTenantLoading || scheduleProfilesLoading) {
     return (
       <div className="flex h-screen w-full flex-col">
         <AppHeader />
@@ -1288,7 +1312,7 @@ function PlannerPageContent() {
                 walkIns={walkIns}
                 clients={clients}
                 services={services}
-                resources={resources}
+                resources={resources || []}
                 publicScheduleProfile={publicScheduleProfile}
                 onTimeSlotClick={handleTimeSlotClick}
             />
@@ -1297,7 +1321,7 @@ function PlannerPageContent() {
           {activeView === 'resources' && (
              <DayTimeline 
                 date={currentDate} 
-                columns={resources}
+                columns={resources || []}
                 itemsByColumn={itemsByResource}
                 showColumnHeader={true}
                 onCompleteClick={handleCompleteClick} 
@@ -1320,7 +1344,7 @@ function PlannerPageContent() {
                 walkIns={walkIns}
                 clients={clients}
                 services={services}
-                resources={resources}
+                resources={resources || []}
                 publicScheduleProfile={publicScheduleProfile}
                 onTimeSlotClick={() => {}} // Not implemented for resource view
             />
@@ -1538,3 +1562,5 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
+
+    
