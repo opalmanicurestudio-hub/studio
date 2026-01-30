@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
@@ -47,8 +46,9 @@ import { nanoid } from 'nanoid';
 import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { doc, collection } from 'firebase/firestore';
 import { BrowseDiscountsDialog } from '../discounts/BrowseDiscountsDialog';
+import { ScrollArea } from '../ui/scroll-area';
 
-
+// ... (keep all existing types and interfaces)
 type EditableFormulaItem = {
     id: string; // productId
     name: string;
@@ -91,6 +91,7 @@ interface CompleteAppointmentDialogProps {
   staff: Staff[];
 }
 
+
 export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps> = ({
   open,
   onOpenChange,
@@ -102,8 +103,9 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
 }) => {
   const { inventory, services, memberships, packages, clients, discounts } = useInventory();
   const { appointment, client, service } = appointmentData;
-  const [formulaName, setFormulaName] = useState('Default Service Formula');
   const { toast } = useToast();
+
+  const [mobileStep, setMobileStep] = useState<'review' | 'payment'>('review');
 
   const [editableFormula, setEditableFormula] = useState<EditableFormulaItem[]>([]);
   const [retailItems, setRetailItems] = useState<EditableFormulaItem[]>([]);
@@ -114,9 +116,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   const [amountTendered, setAmountTendered] = useState<number>(0);
   const [tipAmount, setTipAmount] = useState<number>(0);
 
-  const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
-  const videoRef = useRef<HTMLVideoElement>(null);
   
   const [actualDuration, setActualDuration] = useState(service?.duration || 0);
   const [applyAdditionalCharges, setApplyAdditionalCharges] = useState(true);
@@ -146,17 +146,20 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   const [checkoutData, setCheckoutData] = useState<CheckoutData | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const applicableOffers = useMemo(() => {
+  // ... (all existing useEffect, useMemo, and handler functions)
+    const [formulaName, setFormulaName] = useState('Default Service Formula');
+    const [isScannerOpen, setIsScannerOpen] = useState(false);
+    const videoRef = useRef<HTMLVideoElement>(null);
+
+    const applicableOffers = useMemo(() => {
     if (!client || !service) return [];
     const offers: { type: 'membership' | 'package'; offer: any; sessionsRemaining?: number }[] = [];
-    // Membership check
     if (client.activeMembershipId) {
         const membership = memberships.find(m => m.id === client.activeMembershipId);
         if (membership?.includedServices?.some(s => s.id === service.id)) {
             offers.push({ type: 'membership', offer: membership });
         }
     }
-    // Package check
     if (client.activePackages) {
         client.activePackages.forEach(p => {
             if (p.sessionsRemaining > 0) {
@@ -170,12 +173,12 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     return offers;
 }, [client, service, memberships, packages]);
 
-  // This would be dynamic in a real app, based on client's transaction history for the month
   const hasRedeemedThisMonth = true;
 
-  useEffect(() => {
+    useEffect(() => {
     if (open && service && appointment) {
         setView('checkout');
+        setMobileStep('review');
         setCheckoutData(null);
         setIsSubmitting(false);
         const checkoutState = appointment.checkoutState;
@@ -278,12 +281,12 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
 
   const totalDiscount = discount + membershipDiscount;
   const subtotalAfterDiscounts = subtotal > totalDiscount ? subtotal - totalDiscount : 0;
-  const mockTax = subtotalAfterDiscounts * 0.07; // 7% tax for demo
+  const mockTax = subtotalAfterDiscounts * 0.07;
   const grandTotal = subtotalAfterDiscounts + mockTax + tipAmount;
   
   const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - grandTotal : 0;
 
-  const handleApplyPromo = () => {
+    const handleApplyPromo = () => {
     const code = promoCode.trim().toUpperCase();
     if (!code) return;
 
@@ -353,7 +356,6 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
           newAllocations[s.id] = amountPerStaff;
       });
 
-      // Adjust for rounding errors
       const totalAllocated = amountPerStaff * involvedStaff.length;
       const remainder = tipAmount - totalAllocated;
       if (remainder !== 0) {
@@ -573,7 +575,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   const handleSendToFrontDesk = () => {
     if (!client || !service || !onSendToFrontDesk) return;
 
-    const currentCheckoutState: AppointmentCheckoutState = {
+    const checkoutState: AppointmentCheckoutState = {
         formula: editableFormula,
         retailItems: [], // Retail is handled at front desk
         addOns: selectedAddOns,
@@ -582,46 +584,24 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         tipAllocations: {},
         tipAmount: 0,
     };
-    onSendToFrontDesk(appointment.id, currentCheckoutState);
+    onSendToFrontDesk(appointment.id, checkoutState);
   }
 
   const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
   const [isRetailBrowserOpen, setIsRetailBrowserOpen] = useState(false);
   
-   useEffect(() => {
-    if (isScannerOpen) {
-      const getCameraPermission = async () => {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-          setHasCameraPermission(true);
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-          }
-        } catch (error) {
-          console.error('Error accessing camera:', error);
-          setHasCameraPermission(false);
-          toast({
-            variant: 'destructive',
-            title: 'Camera Access Denied',
-            description: 'Please enable camera permissions in your browser settings to use the scanner.',
-          });
-          setIsScannerOpen(false);
-        }
-      };
-      getCameraPermission();
-    } else {
-        if (videoRef.current && videoRef.current.srcObject) {
-            const stream = videoRef.current.srcObject as MediaStream;
-            stream.getTracks().forEach(track => track.stop());
-            videoRef.current.srcObject = null;
-        }
-    }
-  }, [isScannerOpen, toast]);
-  
   const denominations = [100, 50, 20, 10, 5, 1, 0.25, 0.10, 0.05, 0.01];
 
   const handleDenominationClick = (amount: number) => {
     setAmountTendered(prev => prev + amount);
+  };
+  
+  const handleKeepTheChange = () => {
+    if (changeDue > 0) {
+        setTipAmount(prevTip => prevTip + changeDue);
+        setAmountTendered(grandTotal + changeDue); 
+        toast({ title: "Tip Added!", description: `$${changeDue.toFixed(2)} has been added as a tip.` });
+    }
   };
   
   const actualServiceDuration = useMemo(() => {
@@ -646,88 +626,33 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     }
     onRebook(appointment, weeksOut);
   };
+  
+    const handleProceedToPayment = async () => {
+    let isValid = true;
+    if (isValid) {
+        setMobileStep('payment');
+    }
+  }
 
 
   if (!client || !service) {
     return null;
   }
   
-  const FormContent = (
-      <div className="p-6 space-y-6">
+  const ReviewContent = (<div className="space-y-6">
         <Card>
             <CardContent className="p-4 flex items-center gap-4">
-                  <Avatar className="w-12 h-12">
-                    <AvatarImage src={client.avatarUrl} alt={client.name} />
-                    <AvatarFallback>{client.name.substring(0,2)}</AvatarFallback>
-                </Avatar>
+                  <Avatar className="w-12 h-12"><AvatarImage src={client.avatarUrl} alt={client.name} /><AvatarFallback>{client.name.substring(0,2)}</AvatarFallback></Avatar>
                 <div>
                     <p className="font-semibold">{client.name}</p>
                     <p className="text-sm text-muted-foreground">{service.name}</p>
                 </div>
             </CardContent>
         </Card>
-
-          {applicableOffers.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Award className="h-5 w-5 text-primary" />
-                  Available Offers
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <RadioGroup
-                  onValueChange={(value) => {
-                    if (value) {
-                      const [type, id] = value.split(':');
-                      setRedeemedOffer({ type: type as 'membership' | 'package', id });
-                    } else {
-                      setRedeemedOffer(null);
-                    }
-                  }}
-                >
-                  {applicableOffers.map(({ type, offer, sessionsRemaining }) => {
-                    const isMembership = type === 'membership';
-                    const isRedeemed = isMembership && hasRedeemedThisMonth;
-                    return (
-                      <div key={`${type}-${offer.id}`} className="flex items-center space-x-3 py-2">
-                          <RadioGroupItem
-                          value={`${type}:${offer.id}`}
-                          id={`${type}:${offer.id}`}
-                          disabled={isRedeemed}
-                          />
-                          <Label
-                          htmlFor={`${type}:${offer.id}`}
-                          className={cn("flex-1", isRedeemed && "text-muted-foreground")}
-                          >
-                          <div className="flex justify-between items-center">
-                              <div>
-                              <span className="font-medium">{isMembership ? 'Redeem from Membership' : 'Use Package Session'}</span>
-                              <p className="text-xs text-muted-foreground">{offer.name}
-                                  {type === 'package' && ` (${sessionsRemaining} left)`}
-                              </p>
-                              </div>
-                              {isRedeemed && (
-                              <Badge variant="secondary">Redeemed this month</Badge>
-                              )}
-                          </div>
-                          </Label>
-                      </div>
-                    );
-                  })}
-                </RadioGroup>
-              </CardContent>
-            </Card>
-          )}
-        
-          <Card>
+        <Card>
             <CardHeader>
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <div>
-                        <CardTitle>Service Actuals</CardTitle>
-                        <CardDescription>Log what was actually used for this service.</CardDescription>
-                    </div>
-                </div>
+                <CardTitle>Service Actuals</CardTitle>
+                <CardDescription>Log what was actually used for this service.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
                 <div className="space-y-2">
@@ -804,51 +729,56 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                 </div>
             </CardContent>
         </Card>
-
+        
         <Card>
-          <CardHeader>
-            <CardTitle>Retail &amp; Add-ons</CardTitle>
-            <CardDescription>Add any products the client is purchasing or extra services.</CardDescription>
-          </CardHeader>
+          <CardHeader><CardTitle>Add-ons & Staff</CardTitle></CardHeader>
           <CardContent className="space-y-3">
                 <h4 className="font-medium text-sm">Add-on Services</h4>
                 <div className="space-y-2 text-sm">
-                    {selectedAddOns.map((item) => (<div key={item.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md"><p className="font-medium">{item.name}</p><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}
+                    {selectedAddOns.map(item => (<div key={item.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md"><p className="font-medium">{item.name}</p><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}
                 </div>
                 <Button variant="outline" size="sm" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button>
                 <Separator className="my-4"/>
-                <h4 className="font-medium text-sm">Retail Products</h4>
-                <div className="space-y-2 text-sm">
-                    {retailItems.map((item) => {
-                        const product = inventory.find(p => p.id === item.id);
-                        const price = product?.costPerUnit ? product.costPerUnit * 1.75 : 0;
-                        return (
-                        <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md">
-                            <div>
-                                <p className="font-medium">{item.name}</p>
-                                <p className="text-xs text-muted-foreground">Price: ${price.toFixed(2)}</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <Input
-                                    type="number"
-                                    value={item.quantity}
-                                    onChange={(e) => handleRetailQuantityChange(item.id, parseInt(e.target.value) || 0)}
-                                    className="w-16 h-8 text-center"
-                                    min={1}
-                                />
-                                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveRetail(item.id)}>
-                                    <Trash2 className="h-4 w-4" />
-                                </Button>
-                            </div>
+                <h4 className="font-medium text-sm">Staff Assignment</h4>
+                 <div className="space-y-2">
+                    <div className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+                        <span className="text-sm font-medium">{service.name}</span>
+                        <span className="text-sm font-semibold pr-2">{staff.find(s => s.id === appointment.staffId)?.name || 'Unassigned'}</span>
+                    </div>
+                    {selectedAddOns.map(addon => (
+                        <div key={addon.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+                            <span className="text-sm pl-4">+ {addon.name}</span>
+                            <Select value={serviceStaffOverrides[addon.id] || ''} onValueChange={(staffId) => handleStaffOverride(addon.id, staffId)}>
+                                <SelectTrigger className="w-[150px] h-8"><SelectValue placeholder="Select Staff" /></SelectTrigger>
+                                <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+                            </Select>
                         </div>
-                    )})}
-                </div>
-                <div className='flex gap-2'>
-                  <Button variant="outline" size="sm" onClick={() => setIsRetailBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Browse Retail</Button>
-                  <Button variant="outline" size="sm" onClick={() => setIsScannerOpen(true)}><QrCode className="mr-2 h-4 w-4"/>Scan to Add</Button>
+                    ))}
                 </div>
           </CardContent>
         </Card>
+
+         {additionalCharge > 0 && (
+            <Card>
+                <CardHeader>
+                    <CardTitle>Additional Charges</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <Alert>
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertTitle>This service ran over schedule.</AlertTitle>
+                        <AlertDescription>
+                            Based on your TMHR and the actual duration, there is an additional cost of <strong>${additionalCharge.toFixed(2)}</strong>.
+                        </AlertDescription>
+                    </Alert>
+                    <div className="flex items-center justify-between rounded-lg border p-4">
+                        <Label htmlFor="apply-charges">Pass this cost on to the client?</Label>
+                        <Switch id="apply-charges" checked={applyAdditionalCharges} onCheckedChange={setApplyAdditionalCharges} />
+                    </div>
+                     {!applyAdditionalCharges && <p className="text-xs text-muted-foreground">The cost of <strong>${absorbedCost.toFixed(2)}</strong> will be absorbed by the business.</p>}
+                </CardContent>
+            </Card>
+        )}
 
         <Card>
           <CardHeader>
@@ -866,58 +796,86 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
             </CardContent>
           )}
         </Card>
-        
+    </div>
+  );
+
+  const PaymentContent = (
+    <div className="space-y-6">
+        {applicableOffers.length > 0 && (
+            <Card>
+              <CardHeader><CardTitle className="flex items-center gap-2"><Award className="h-5 w-5 text-primary" />Available Offers</CardTitle></CardHeader>
+              <CardContent>
+                <RadioGroup onValueChange={(value) => {
+                    if (value) {
+                      const [type, id] = value.split(':');
+                      setRedeemedOffer({ type: type as 'membership' | 'package', id });
+                    } else {
+                      setRedeemedOffer(null);
+                    }
+                  }}>
+                  {applicableOffers.map(({ type, offer, sessionsRemaining }) => {
+                    const isMembership = type === 'membership';
+                    const isRedeemed = isMembership && hasRedeemedThisMonth;
+                    return (
+                      <div key={`${type}-${offer.id}`} className="flex items-center space-x-3 py-2">
+                          <RadioGroupItem value={`${type}:${offer.id}`} id={`${type}:${offer.id}`} disabled={isRedeemed} />
+                          <Label htmlFor={`${type}:${offer.id}`} className={cn("flex-1", isRedeemed && "text-muted-foreground")}>
+                            <div className="flex justify-between items-center">
+                              <div>
+                                <span className="font-medium">{isMembership ? 'Redeem from Membership' : 'Use Package Session'}</span>
+                                <p className="text-xs text-muted-foreground">{offer.name}
+                                    {type === 'package' && ` (${sessionsRemaining} left)`}
+                                </p>
+                              </div>
+                              {isRedeemed && <Badge variant="secondary">Redeemed this month</Badge>}
+                          </div>
+                          </Label>
+                      </div>
+                    );
+                  })}
+                </RadioGroup>
+              </CardContent>
+            </Card>
+        )}
         <Card>
-            <CardHeader>
-                <CardTitle>Payment &amp; Checkout</CardTitle>
-            </CardHeader>
+          <CardHeader><CardTitle>Retail Sale</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+                <div className="space-y-2 text-sm">
+                    {retailItems.map((item) => {
+                        const product = inventory.find(p => p.id === item.id);
+                        const price = product?.costPerUnit ? product.costPerUnit * 1.75 : 0;
+                        return (
+                        <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md">
+                            <div><p className="font-medium">{item.name}</p><p className="text-xs text-muted-foreground">Price: ${price.toFixed(2)}</p></div>
+                            <div className="flex items-center gap-2">
+                                <Input type="number" value={item.quantity} onChange={(e) => handleRetailQuantityChange(item.id, parseInt(e.target.value) || 0)} className="w-16 h-8 text-center" min={1}/>
+                                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveRetail(item.id)}><Trash2 className="h-4 w-4" /></Button>
+                            </div>
+                        </div>
+                    )})}
+                </div>
+                <div className='flex gap-2'><Button variant="outline" size="sm" onClick={() => setIsRetailBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Browse Retail</Button></div>
+          </CardContent>
+        </Card>
+        <Card>
+            <CardHeader><CardTitle>Payment & Checkout</CardTitle></CardHeader>
             <CardContent className="space-y-4">
                   <div className="space-y-2">
-                      <Label>Staff &amp; Service Assignment</Label>
-                      {allServicesForAppointment.map(currentService => (
-                           <div key={currentService.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
-                            <span className="text-sm font-medium">{currentService.name}</span>
-                            <Select value={serviceStaffOverrides[currentService.id] || ''} onValueChange={(staffId) => handleStaffOverride(currentService.id, staffId)}>
-                                <SelectTrigger className="w-[150px] h-8"><SelectValue placeholder="Select Staff" /></SelectTrigger>
-                                <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
-                            </Select>
-                        </div>
-                      ))}
+                      <Label htmlFor="promo-code">Promo Code</Label>
+                      <div className="flex gap-2">
+                          <Input id="promo-code" value={promoCode} onChange={e => setPromoCode(e.target.value)} placeholder="e.g., NEWCLIENT15" />
+                          <Button variant="outline" type="button" onClick={() => setIsDiscountBrowserOpen(true)}>Browse</Button>
+                          <Button variant="secondary" type="button" onClick={() => handleApplyPromo()}>Apply</Button>
+                      </div>
                   </div>
-
-                <div className="space-y-2">
-                    <Label htmlFor="promo-code">Promo Code</Label>
-                    <div className="flex gap-2">
-                        <Input id="promo-code" value={promoCode} onChange={e => setPromoCode(e.target.value)} placeholder="e.g., NEWCLIENT15" />
-                        <Button variant="outline" type="button" onClick={() => setIsDiscountBrowserOpen(true)}>Browse</Button>
-                        <Button variant="secondary" type="button" onClick={handleApplyPromo}>Apply</Button>
-                    </div>
-                </div>
                 <div className="p-4 rounded-lg bg-muted/50 space-y-2 text-sm">
                   <div className='flex justify-between'><span>Base Service Price:</span><span>${(redeemedOffer ? 0 : service.price).toFixed(2)}</span></div>
-                  {selectedAddOns.map(addon => (
-                      <div key={addon.id} className="flex justify-between pl-4"><span>+ {addon.name}</span><span>${addon.price.toFixed(2)}</span></div>
-                  ))}
+                  {selectedAddOns.map(addon => (<div key={addon.id} className="flex justify-between pl-4"><span>+ {addon.name}</span><span>${addon.price.toFixed(2)}</span></div>))}
                   <div className='flex justify-between'><span>Retail:</span><span>${retailTotal.toFixed(2)}</span></div>
                   
-                  {additionalCharge > 0 && applyAdditionalCharges && (
-                        <div className='flex justify-between text-amber-900 dark:text-amber-300 font-semibold'>
-                          <span>Additional Time:</span>
-                          <span>+${additionalCharge.toFixed(2)}</span>
-                      </div>
-                  )}
-                  {discount > 0 && (
-                      <div className='flex justify-between text-primary font-semibold'>
-                          <span>Referral Discount:</span>
-                          <span>-${discount.toFixed(2)}</span>
-                      </div>
-                  )}
-                  {membershipDiscount > 0 && (
-                    <div className='flex justify-between text-primary font-semibold'>
-                        <span className="flex items-center gap-1.5"><Award className="w-3 h-3" />Membership Discount:</span>
-                        <span>-${membershipDiscount.toFixed(2)}</span>
-                    </div>
-                  )}
+                  {additionalCharge > 0 && applyAdditionalCharges && (<div className='flex justify-between text-amber-900 dark:text-amber-300 font-semibold'><span>Additional Time:</span><span>+${additionalCharge.toFixed(2)}</span></div>)}
+                  {discount > 0 && (<div className='flex justify-between text-primary font-semibold'><span>Referral Discount:</span><span>-${discount.toFixed(2)}</span></div>)}
+                  {membershipDiscount > 0 && (<div className='flex justify-between text-primary font-semibold'><span className="flex items-center gap-1.5"><Award className="w-3 h-3" />Membership Discount:</span><span>-${membershipDiscount.toFixed(2)}</span></div>)}
                     <Separator className="my-2" />
                   <div className='flex justify-between font-semibold'><span>Subtotal:</span><span>${(subtotalAfterDiscounts).toFixed(2)}</span></div>
                   <div className='flex justify-between'><span>Taxes (7%):</span><span>${mockTax.toFixed(2)}</span></div>
@@ -967,167 +925,112 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                   )}
 
                 <Tabs value={paymentTab} onValueChange={setPaymentTab} className="w-full">
-                    <TabsList className="grid w-full grid-cols-3">
-                        <TabsTrigger value="card"><CreditCard className="w-4 h-4 mr-2"/>Card</TabsTrigger>
-                        <TabsTrigger value="cash"><Banknote className="w-4 h-4 mr-2"/>Cash</TabsTrigger>
-                        <TabsTrigger value="other"><Gift className="w-4 h-4 mr-2"/>Other</TabsTrigger>
-                    </TabsList>
+                    <TabsList className="grid w-full grid-cols-3"><TabsTrigger value="card"><CreditCard className="w-4 h-4 mr-2"/>Card</TabsTrigger><TabsTrigger value="cash"><Banknote className="w-4 h-4 mr-2"/>Cash</TabsTrigger><TabsTrigger value="other"><Gift className="w-4 h-4 mr-2"/>Other</TabsTrigger></TabsList>
                     <TabsContent value="card" className="pt-4 space-y-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="tip-amount">Tip Amount</Label>
-                          <div className="relative">
-                              <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                              <Input id="tip-amount" type="number" value={tipAmount || ''} onChange={(e) => setTipAmount(parseFloat(e.target.value) || 0)} className="h-10 text-right pr-2 pl-7" placeholder="0.00" />
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-1">Enter tip after charging the client on your terminal.</p>
-                        </div>
+                        <div className="space-y-2"><Label htmlFor="tip-amount">Tip Amount</Label><div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input id="tip-amount" type="number" value={tipAmount || ''} onChange={(e) => setTipAmount(parseFloat(e.target.value) || 0)} className="h-10 text-right pr-2 pl-7" placeholder="0.00" /></div><p className="text-xs text-muted-foreground mt-1">Enter tip after charging the client on your terminal.</p></div>
                     </TabsContent>
                     <TabsContent value="cash" className="pt-4 space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label>Amount Tendered</Label>
-                                <div className='p-4 text-2xl font-bold text-center bg-muted rounded-md'>
-                                    ${amountTendered.toFixed(2)}
-                                </div>
-                            </div>
-                              <div className="space-y-2">
-                                <Label>Change Due</Label>
-                                  <div className={`p-4 text-2xl font-bold text-center rounded-md ${changeDue >= 0 ? 'bg-green-500/10 text-green-600' : 'bg-red-500/10 text-red-600'}`}>
-                                    ${Math.abs(changeDue).toFixed(2)}
-                                </div>
-                            </div>
-                        </div>
-                          {changeDue > 0 && (
-                          <Button variant="secondary" className="w-full" onClick={handleKeepTheChange}>
-                              <Coins className="w-4 h-4 mr-2" /> Keep the Change as Tip
-                          </Button>
-                          )}
-                        <div className="grid grid-cols-5 gap-2">
-                            {denominations.map(amount => (
-                                <Button key={amount} variant="outline" onClick={() => handleDenominationClick(amount)}>
-                                    {amount >= 1 ? `$${amount}` : `${amount * 100}¢`}
-                                </Button>
-                            ))}
-                        </div>
+                        <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Amount Tendered</Label><div className='p-4 text-2xl font-bold text-center bg-muted rounded-md'>${amountTendered.toFixed(2)}</div></div><div className="space-y-2"><Label>Change Due</Label><div className={`p-4 text-2xl font-bold text-center rounded-md ${changeDue >= 0 ? 'bg-green-500/10 text-green-600' : 'bg-red-500/10 text-red-600'}`}>${Math.abs(changeDue).toFixed(2)}</div></div></div>
+                          {changeDue > 0 && (<Button variant="secondary" className="w-full" onClick={handleKeepTheChange}><Coins className="w-4 h-4 mr-2" /> Keep the Change as Tip</Button>)}
+                        <div className="grid grid-cols-5 gap-2">{denominations.map(amount => (<Button key={amount} variant="outline" onClick={() => handleDenominationClick(amount)}>{amount >= 1 ? `$${amount}` : `${amount * 100}¢`}</Button>))}</div>
                           <Button variant="secondary" className="w-full" onClick={() => setAmountTendered(0)}>Clear</Button>
-                    </TabsContent>
-                    <TabsContent value="other" className="pt-4">
-                          <Button variant="outline" className="w-full" size="lg">Record Manual Payment (Venmo, etc.)</Button>
                     </TabsContent>
                 </Tabs>
             </CardContent>
         </Card>
-      </div>
+    </div>
   );
-
+  
   const DialogComponent = isMobile ? Sheet : Dialog;
   const ContentComponent = isMobile ? SheetContent : DialogContent;
 
   return (
     <>
       <DialogComponent open={open} onOpenChange={onOpenChange}>
-        <ContentComponent className={cn(isMobile ? "h-full flex flex-col p-0" : "sm:max-w-4xl max-h-[90vh] flex flex-col p-0")}>
-          {view === 'checkout' ? (
-            <>
-              <DialogHeader className="p-6 pb-4 border-b flex-shrink-0">
-                <DialogTitle>Complete Appointment & Checkout</DialogTitle>
-                <DialogDescription>
-                  Confirm products used, add retail sales, and finalize the appointment.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="flex-1 min-h-0 overflow-y-auto">
-                {FormContent}
-              </div>
-              <DialogFooter className="p-6 pt-4 border-t flex-shrink-0">
-                <div className="flex flex-col sm:flex-row sm:justify-end gap-2 w-full">
-                  {onSendToFrontDesk && <Button variant="secondary" onClick={handleSendToFrontDesk}>Send to Front Desk</Button>}
-                  <div className="flex-1" />
-                  <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                  <Button onClick={handleFinalizeAndShowRebook} disabled={warnings.length > 0}>
-                    Finalize & Record Sale
-                  </Button>
+        <ContentComponent side={isMobile ? "bottom" : undefined} className={cn(isMobile ? "h-[95vh] flex flex-col p-0" : "sm:max-w-4xl max-h-[90vh] flex flex-col p-0")}>
+           {view === 'checkout' ? (
+                isMobile ? (
+                    // Mobile Stepped View
+                    <>
+                        {mobileStep === 'review' ? (
+                            <>
+                                <SheetHeader className="p-4 border-b text-left">
+                                    <SheetTitle>Review Service</SheetTitle>
+                                    <SheetDescription>Confirm products used and time spent.</SheetDescription>
+                                </SheetHeader>
+                                <ScrollArea className="flex-1"><div className="p-4 space-y-6">{ReviewContent}</div></ScrollArea>
+                                <SheetFooter className="p-4 border-t bg-background">
+                                    <div className="grid grid-cols-2 gap-2 w-full">
+                                        {onSendToFrontDesk && <Button variant="secondary" onClick={handleSendToFrontDesk}>Send to Front Desk</Button>}
+                                        <Button onClick={handleProceedToPayment} className="w-full">Proceed to Checkout</Button>
+                                    </div>
+                                </SheetFooter>
+                            </>
+                        ) : (
+                            <>
+                                <SheetHeader className="p-4 border-b text-left">
+                                    <SheetTitle>Finalize & Checkout</SheetTitle>
+                                    <SheetDescription>Complete the payment process.</SheetDescription>
+                                </SheetHeader>
+                                <ScrollArea className="flex-1"><div className="p-4 space-y-6">{PaymentContent}</div></ScrollArea>
+                                <SheetFooter className="p-4 border-t bg-background">
+                                    <div className="grid grid-cols-2 gap-2 w-full">
+                                        <Button variant="outline" onClick={() => setMobileStep('review')}>Back</Button>
+                                        <Button onClick={handleFinalizeAndShowRebook} disabled={warnings.length > 0}>Finalize & Record Sale</Button>
+                                    </div>
+                                </SheetFooter>
+                            </>
+                        )}
+                    </>
+                ) : (
+                    // Desktop Two-Column View
+                    <>
+                        <DialogHeader className="p-6 pb-4 border-b">
+                            <DialogTitle>Complete Appointment & Checkout</DialogTitle>
+                            <DialogDescription>Confirm products used, add retail sales, and finalize the appointment.</DialogDescription>
+                        </DialogHeader>
+                        <div className="grid md:grid-cols-2 flex-1 min-h-0">
+                            <ScrollArea className="md:border-r"><div className="p-6 space-y-6">{ReviewContent}</div></ScrollArea>
+                            <ScrollArea><div className="p-6 space-y-6">{PaymentContent}</div></ScrollArea>
+                        </div>
+                        <DialogFooter className="p-6 pt-4 border-t">
+                            <div className="flex flex-col sm:flex-row sm:justify-end gap-2 w-full">
+                            {onSendToFrontDesk && <Button variant="secondary" onClick={handleSendToFrontDesk}>Send to Front Desk</Button>}
+                            <div className="flex-1" />
+                            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                            <Button onClick={handleFinalizeAndShowRebook} disabled={warnings.length > 0}>
+                                Finalize & Record Sale
+                            </Button>
+                            </div>
+                        </DialogFooter>
+                    </>
+                )
+            ) : (
+                <div className="flex flex-col items-center justify-center text-center p-8 space-y-4 flex-1">
+                    <CheckCircle className="w-16 h-16 mx-auto text-green-500" />
+                    <h2 className="text-2xl font-bold">Checkout Complete!</h2>
+                    <p className="text-muted-foreground">Book their next appointment?</p>
+                    <div className="grid grid-cols-2 gap-2 pt-4 w-full max-w-sm">
+                        <Button variant="outline" onClick={() => handleRebookClick(2)} disabled={isSubmitting}>2 Weeks</Button>
+                        <Button variant="outline" onClick={() => handleRebookClick(4)} disabled={isSubmitting}>4 Weeks</Button>
+                        <Button variant="outline" onClick={() => handleRebookClick(6)} disabled={isSubmitting}>6 Weeks</Button>
+                        <Button variant="outline" onClick={() => handleRebookClick(8)} disabled={isSubmitting}>8 Weeks</Button>
+                    </div>
+                    <div className="flex flex-col sm:flex-row justify-center gap-2 pt-2 w-full max-w-sm">
+                        <Button onClick={() => handleRebookClick()} className="w-full" disabled={isSubmitting}>Custom Date</Button>
+                        <Button variant="ghost" onClick={handleConfirmAndClose} className="w-full" disabled={isSubmitting}>No, Thanks</Button>
+                    </div>
+                    {isSubmitting && <p className="text-sm text-muted-foreground animate-pulse">Processing...</p>}
                 </div>
-              </DialogFooter>
-            </>
-          ) : (
-            <div className="flex flex-col items-center justify-center text-center p-8 space-y-4 flex-1">
-                <CheckCircle className="w-16 h-16 mx-auto text-green-500" />
-                <h2 className="text-2xl font-bold">Checkout Complete!</h2>
-                <p className="text-muted-foreground">Book their next appointment?</p>
-                <div className="grid grid-cols-2 gap-2 pt-4 w-full max-w-sm">
-                    <Button variant="outline" onClick={() => handleRebookClick(2)} disabled={isSubmitting}>2 Weeks</Button>
-                    <Button variant="outline" onClick={() => handleRebookClick(4)} disabled={isSubmitting}>4 Weeks</Button>
-                    <Button variant="outline" onClick={() => handleRebookClick(6)} disabled={isSubmitting}>6 Weeks</Button>
-                    <Button variant="outline" onClick={() => handleRebookClick(8)} disabled={isSubmitting}>8 Weeks</Button>
-                </div>
-                <div className="flex flex-col sm:flex-row justify-center gap-2 pt-2 w-full max-w-sm">
-                    <Button onClick={() => handleRebookClick()} className="w-full" disabled={isSubmitting}>Custom Date</Button>
-                    <Button variant="ghost" onClick={handleConfirmAndClose} className="w-full" disabled={isSubmitting}>No, Thanks</Button>
-                </div>
-                {isSubmitting && <p className="text-sm text-muted-foreground animate-pulse">Processing...</p>}
-            </div>
-          )}
+            )}
         </ContentComponent>
       </DialogComponent>
-      <SelectAddOnsDialog
-        open={isAddOnSelectorOpen}
-        onOpenChange={setIsAddOnSelectorOpen}
-        onSelect={setSelectedAddOns}
-        allAddOns={services.filter(s => s.type === 'addon')}
-        initialSelected={selectedAddOns}
-      />
-      <BrowseProductsDialog
-        open={isProductBrowserOpen}
-        onOpenChange={setIsProductBrowserOpen}
-        onSelect={handleAddProduct}
-        allProducts={inventory.filter(i => i.type === 'professional')}
-        initialSelected={[]}
-      />
-      <BrowseProductsDialog
-        open={isRetailBrowserOpen}
-        onOpenChange={setIsRetailBrowserOpen}
-        onSelect={handleAddRetail}
-        allProducts={inventory.filter(i => i.type === 'retail')}
-        initialSelected={retailItems}
-      />
-       <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
-        <DialogContent className="sm:max-w-md p-0">
-          <DialogHeader className="p-4 pb-0">
-            <DialogTitle>Scan Product</DialogTitle>
-            <DialogDescription>
-              Position the product's barcode or QR code inside the frame.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="p-4 relative">
-             <video ref={videoRef} className="w-full aspect-square rounded-md bg-muted" autoPlay muted playsInline />
-             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="w-2/3 h-1/2 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
-            </div>
-            {hasCameraPermission === false && (
-                <Alert variant="destructive" className="mt-4">
-                    <AlertTriangle className="h-4 w-4" />
-                    <AlertTitle>Camera Access Required</AlertTitle>
-                    <AlertDescription>
-                        Please enable camera permissions in your browser settings to use the scanner.
-                    </AlertDescription>
-                </Alert>
-            )}
-          </div>
-           <DialogFooter className="p-4 pt-0 flex-col gap-2">
-                <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-        <BrowseDiscountsDialog
-            open={isDiscountBrowserOpen}
-            onOpenChange={setIsDiscountBrowserOpen}
-            allDiscounts={discounts}
-            onSelect={(code) => {
-                setPromoCode(code);
-                handleApplyPromo();
-            }}
-            cartServiceIds={allServicesForAppointment.map(s => s.id)}
-        />
+      <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={setSelectedAddOns} allAddOns={services.filter(s => s.type === 'addon')} initialSelected={selectedAddOns} />
+      <BrowseProductsDialog open={isProductBrowserOpen} onOpenChange={setIsProductBrowserOpen} onSelect={handleAddProduct} allProducts={inventory.filter(i => i.type === 'professional')} initialSelected={[]} />
+      <BrowseProductsDialog open={isRetailBrowserOpen} onOpenChange={setIsRetailBrowserOpen} onSelect={handleAddRetail} allProducts={inventory.filter(i => i.type === 'retail')} initialSelected={retailItems} />
+      <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts} onSelect={(code) => { setPromoCode(code); handleApplyPromo(); }} cartServiceIds={allServicesForAppointment.map(s => s.id)} />
     </>
   );
 };
+
+    
