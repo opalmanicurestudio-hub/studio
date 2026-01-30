@@ -235,7 +235,7 @@ export default function ClientDetailPage() {
   
   const scheduleProfilesQuery = useMemoFirebase(() => {
     if (!firestore || !tenantId) return null;
-    return collection(firestore, `tenants/${tenantId}/scheduleProfiles`);
+    return query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true));
   }, [firestore, tenantId]);
   const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
 
@@ -878,3 +878,5 @@ export default function ClientDetailPage() {
     </div>
   );
 }
+
+    

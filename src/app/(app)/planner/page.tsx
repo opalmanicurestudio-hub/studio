@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -166,7 +165,7 @@ function PlannerPageContent() {
 
   const scheduleProfilesQuery = useMemoFirebase(() => {
     if (!firestore || !tenantId) return null;
-    return collection(firestore, `tenants/${tenantId}/scheduleProfiles`);
+    return query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true));
   }, [firestore, tenantId]);
 
   const resourcesQuery = useMemoFirebase(() => {
@@ -191,7 +190,7 @@ function PlannerPageContent() {
   const { data: fetchedResources, isLoading: resourcesLoading } = useCollection<Resource>(resourcesQuery);
   const { data: inventory } = useCollection<InventoryItem>(inventoryQuery);
   
-  const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
+  const publicScheduleProfile = useMemo(() => scheduleProfiles?.[0], [scheduleProfiles]);
 
   const resources = useMemo(() => (fetchedResources && fetchedResources.length > 0) ? fetchedResources : mockResources, [fetchedResources]);
 
