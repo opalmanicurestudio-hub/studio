@@ -67,7 +67,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import { WalkIn, type Client, type Service, resources as mockResources, memberships as initialMemberships, packages as initialPackages } from '@/lib/data';
+import { WalkIn, type Client, type Service, memberships as initialMemberships, packages as initialPackages } from '@/lib/data';
 import { DayTimeline } from '@/components/planner/DayTimeline';
 import { nanoid } from 'nanoid';
 import { WeeklyKpiSheet } from '@/components/planner/WeeklyKpiSheet';
@@ -173,6 +173,12 @@ function PlannerPageContent() {
     if (!firestore || !tenantId) return null;
     return collection(firestore, `tenants/${tenantId}/inventory`);
   }, [firestore, tenantId]);
+  
+  const scheduleProfilesQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true));
+  }, [firestore, tenantId]);
+
 
   const { data: fetchedBillDefinitions, isLoading: billDefinitionsLoading } = useCollection<BillDefinition>(billDefinitionsQuery);
   const { data: fetchedBillInstances, isLoading: billInstancesLoading } = useCollection<BillInstance>(billInstancesQuery);
@@ -184,6 +190,7 @@ function PlannerPageContent() {
   const { data: fetchedEvents, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
   const { data: fetchedResources, isLoading: resourcesLoading } = useCollection<Resource>(resourcesQuery);
   const { data: inventory } = useCollection<InventoryItem>(inventoryQuery);
+  const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
   
   const appointments = useMemo(() => {
     if (!appointmentsFromDB) return [];
@@ -218,6 +225,7 @@ const events = useMemo(() => {
   
   const billDefinitions = useMemo(() => (fetchedBillDefinitions && fetchedBillDefinitions.length > 0) ? fetchedBillDefinitions : [], [fetchedBillDefinitions]);
   const billInstances = useMemo(() => (fetchedBillInstances && fetchedBillInstances.length > 0) ? fetchedBillInstances : [], [fetchedBillInstances]);
+  const publicScheduleProfile = useMemo(() => scheduleProfiles?.[0], [scheduleProfiles]);
 
 
   useEffect(() => {
@@ -1113,7 +1121,7 @@ const events = useMemo(() => {
   
   const showStaffColumnHeader = !isMobile;
 
-  const isLoading = isUserLoading || isTenantLoading || appointmentsLoading || servicesLoading || clientsLoading || walkInsLoading || staffLoading || eventsLoading || billDefinitionsLoading || billInstancesLoading || resourcesLoading || !hasMounted;
+  const isLoading = isUserLoading || isTenantLoading || appointmentsLoading || servicesLoading || clientsLoading || walkInsLoading || staffLoading || eventsLoading || billDefinitionsLoading || billInstancesLoading || resourcesLoading || scheduleProfilesLoading || !hasMounted;
 
   if (isLoading) {
     return (
