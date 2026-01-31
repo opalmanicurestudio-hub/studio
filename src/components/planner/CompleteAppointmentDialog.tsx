@@ -19,7 +19,7 @@ import {
   SheetDescription,
   SheetFooter,
 } from '@/components/ui/sheet';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
@@ -259,7 +259,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     }, 0);
 
     const actualServiceDuration = appointment.actualEndTime && appointment.actualStartTime
-      ? differenceInMinutes(parseISO(appointment.actualEndTime), parseISO(appointment.actualStartTime))
+      ? differenceInMinutes(parseISO(appointment.actualEndTime as string), parseISO(appointment.actualStartTime as string))
       : actualDuration;
       
     const finalTimeCost = ((actualServiceDuration + (service.padBefore || 0) + (service.padAfter || 0)) / 60) * tmhr;
@@ -730,12 +730,23 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                         const unit = inventoryItem?.costingMethod === 'uses' 
                           ? (inventoryItem.useUnit || 'uses') 
                           : (inventoryItem?.unit || 'unit');
+                        
+                        let costPerUse = 0;
+                        if (inventoryItem) {
+                            if (inventoryItem.costingMethod === 'size' && inventoryItem.size && inventoryItem.size > 0) {
+                                costPerUse = (inventoryItem.costPerUnit || 0) / inventoryItem.size;
+                            } else if (inventoryItem.costingMethod === 'uses' && inventoryItem.estimatedUses && inventoryItem.estimatedUses > 0) {
+                                costPerUse = (inventoryItem.costPerUnit || 0) / inventoryItem.estimatedUses;
+                            } else { // 'unit' or undefined
+                                costPerUse = inventoryItem.costPerUnit || 0;
+                            }
+                        }
                           
                         return (
                           <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md gap-2">
                               <div>
                                   <p className="font-medium">{item.name}</p>
-                                  <p className="text-xs text-muted-foreground">Cost: ${(item.costPerUnit || 0).toFixed(3)}/{unit}</p>
+                                  <p className="text-xs text-muted-foreground">Cost: ${costPerUse.toFixed(3)}/{unit}</p>
                               </div>
                               <div className="flex items-center gap-2">
                                   <Input

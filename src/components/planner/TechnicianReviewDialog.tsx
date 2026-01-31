@@ -158,7 +158,6 @@ const FormContent = ({
         id: p.id, name: p.name, quantity: 1, unit: p.unit || 'unit', costPerUnit: p.costPerUnit || 0, isCustom: true,
       }));
       setEditableFormula(prev => [...prev, ...newItems.filter(newItem => !prev.find(item => item.id === newItem.id))]);
-      setIsProductBrowserOpen(false);
   };
   
   const removeProduct = (productId: string) => {
@@ -257,12 +256,23 @@ const FormContent = ({
                         const unit = inventoryItem?.costingMethod === 'uses' 
                           ? (inventoryItem.useUnit || 'uses') 
                           : (inventoryItem?.unit || 'unit');
+                        
+                        let costPerUse = 0;
+                        if (inventoryItem) {
+                            if (inventoryItem.costingMethod === 'size' && inventoryItem.size && inventoryItem.size > 0) {
+                                costPerUse = (inventoryItem.costPerUnit || 0) / inventoryItem.size;
+                            } else if (inventoryItem.costingMethod === 'uses' && inventoryItem.estimatedUses && inventoryItem.estimatedUses > 0) {
+                                costPerUse = (inventoryItem.costPerUnit || 0) / inventoryItem.estimatedUses;
+                            } else { // 'unit' or undefined
+                                costPerUse = inventoryItem.costPerUnit || 0;
+                            }
+                        }
                           
                         return (
                           <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md gap-2">
                               <div>
                                   <p className="font-medium">{item.name}</p>
-                                  <p className="text-xs text-muted-foreground">Cost: ${(item.costPerUnit || 0).toFixed(3)}/{unit}</p>
+                                  <p className="text-xs text-muted-foreground">Cost: ${costPerUse.toFixed(3)}/{unit}</p>
                               </div>
                               <div className="flex items-center gap-2">
                                   <Input
@@ -295,7 +305,7 @@ const FormContent = ({
                 <div className="space-y-2 text-sm">
                     {selectedAddOns.map(item => (<div key={item.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md"><p className="font-medium">{item.name}</p><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}
                 </div>
-                <Button variant="outline" size="sm" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4"/>Select Add-ons</Button>
+                <Button variant="outline" size="sm" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button>
                 <Separator className="my-4"/>
                 <h4 className="font-medium text-sm">Staff Assignment</h4>
                  <div className="space-y-2">
