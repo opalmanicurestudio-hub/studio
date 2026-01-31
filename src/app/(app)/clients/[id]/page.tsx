@@ -87,7 +87,7 @@ const ClientIntelBanner = ({ client }: { client: Client }) => {
                         <span>Sensory Needs</span>
                     </div>
                 )}
-                 {client.intel?.incidents?.some(i => i.type === 'No-Show') && (
+                 {Array.isArray(client.intel?.incidents) && client.intel.incidents.some(i => i.type === 'No-Show') && (
                     <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-400">
                         <Ban className="w-4 h-4" />
                         <span>No-Show History</span>
@@ -875,3 +875,4 @@ export default function ClientDetailPage() {
     </div>
   );
 }
+
