@@ -217,6 +217,17 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
 
   const allServicesForAppointment = useMemo(() => [service, ...selectedAddOns].filter((s): s is Service => !!s), [service, selectedAddOns]);
   
+    const involvedStaff = useMemo(() => {
+      const staffIds = new Set(Object.values(serviceStaffOverrides));
+      return staff.filter(s => staffIds.has(s.id));
+  }, [serviceStaffOverrides, staff]);
+
+  useEffect(() => {
+    if (involvedStaff.length === 1) {
+      setTipAllocations({ [involvedStaff[0].id]: tipAmount });
+    }
+  }, [tipAmount, involvedStaff]);
+
   const { initialBreakEven, finalBreakEven, additionalCharge, absorbedCost } = useMemo(() => {
     if (!service) return { initialBreakEven: 0, finalBreakEven: 0, additionalCharge: 0, absorbedCost: 0 };
     
@@ -346,11 +357,6 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         toast({ title: 'Discount Applied!', description: `You saved $${discountValue.toFixed(2)}.` });
     }
   }
-
-  const involvedStaff = useMemo(() => {
-      const staffIds = new Set(Object.values(serviceStaffOverrides));
-      return staff.filter(s => staffIds.has(s.id));
-  }, [serviceStaffOverrides, staff]);
 
   const remainingTip = useMemo(() => {
     const allocated = Object.values(tipAllocations).reduce((sum, val) => sum + val, 0);
@@ -933,33 +939,43 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                     </Alert>
                 )}
 
-                  {tipAmount > 0 && (
-                      <div className="space-y-2 pt-4 border-t">
-                          <Label>Tip Allocation</Label>
-                          <div className="space-y-3">
-                              {involvedStaff.map(staffMember => (
-                                  <div key={staffMember.id} className="flex items-center justify-between">
-                                      <Label htmlFor={`tip-${staffMember.id}`} className="text-sm">{staffMember.name}</Label>
-                                      <div className="relative w-28">
-                                          <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                          <Input
-                                              id={`tip-${staffMember.id}`}
-                                              type="number"
-                                              value={tipAllocations[staffMember.id] || ''}
-                                              onChange={(e) => handleTipAllocation(staffMember.id, e.target.value)}
-                                              placeholder="0.00"
-                                              className="h-8 text-right pr-2 pl-7"
-                                          />
-                                      </div>
-                                  </div>
-                              ))}
-                          </div>
-                          <div className="flex justify-between text-xs font-medium pt-2">
-                              <Button variant="link" size="xs" className="p-0 h-auto" onClick={splitTipEvenly}>Split Evenly</Button>
-                              <span>Remaining: <span className={remainingTip < 0 ? 'text-destructive' : ''}>${remainingTip.toFixed(2)}</span></span>
-                          </div>
-                      </div>
-                  )}
+                 {tipAmount > 0 && (
+                    <div className="space-y-2 pt-4 border-t">
+                        <Label>Tip Allocation</Label>
+                        {involvedStaff.length > 1 ? (
+                            <>
+                                <div className="space-y-3">
+                                    {involvedStaff.map(staffMember => (
+                                        <div key={staffMember.id} className="flex items-center justify-between">
+                                            <Label htmlFor={`tip-${staffMember.id}`} className="text-sm">{staffMember.name}</Label>
+                                            <div className="relative w-28">
+                                                <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                                <Input
+                                                    id={`tip-${staffMember.id}`}
+                                                    type="number"
+                                                    value={tipAllocations[staffMember.id] || ''}
+                                                    onChange={(e) => handleTipAllocation(staffMember.id, e.target.value)}
+                                                    placeholder="0.00"
+                                                    className="h-8 text-right pr-2 pl-7"
+                                                />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="flex justify-between text-xs font-medium pt-2">
+                                    <Button variant="link" size="xs" className="p-0 h-auto" onClick={splitTipEvenly}>Split Evenly</Button>
+                                    <span>Remaining: <span className={remainingTip < 0 ? 'text-destructive' : ''}>${remainingTip.toFixed(2)}</span></span>
+                                </div>
+                            </>
+                        ) : involvedStaff.length === 1 ? (
+                            <div className="flex items-center justify-between p-3 rounded-md bg-muted/50">
+                                <span className="text-sm font-medium">{involvedStaff[0].name}</span>
+                                <span className="font-mono font-semibold text-primary">${tipAmount.toFixed(2)}</span>
+                            </div>
+                        ) : null}
+                    </div>
+                )}
+
 
                 <Tabs value={paymentTab} onValueChange={setPaymentTab} className="w-full">
                     <TabsList className="grid w-full grid-cols-3"><TabsTrigger value="card"><CreditCard className="w-4 h-4 mr-2"/>Card</TabsTrigger><TabsTrigger value="cash"><Banknote className="w-4 h-4 mr-2"/>Cash</TabsTrigger><TabsTrigger value="other"><Gift className="w-4 h-4 mr-2"/>Other</TabsTrigger></TabsList>
