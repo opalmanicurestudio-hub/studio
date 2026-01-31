@@ -19,7 +19,7 @@ import { Badge } from '../ui/badge';
 import Link from 'next/link';
 import { ClientOnly } from './ClientOnly';
 import { useInventory } from '@/context/InventoryContext';
-import { differenceInDays, isPast, parseISO } from 'date-fns';
+import { differenceInDays, isPast, parseISO, format } from 'date-fns';
 import { useTenant } from '@/context/TenantContext'; 
 import { Skeleton } from '../ui/skeleton';
 import { cn } from '@/lib/utils';
@@ -34,15 +34,6 @@ type Notification = {
     read: boolean;
     icon: React.ReactNode;
 };
-
-
-// Mock data for notifications
-const baseNotifications: Notification[] = [
-    { id: 1, type: 'stock', message: "Low Stock Alert: 'Red Nail Polish' is at 2 units.", link: '/inventory', read: false, icon: <PackageX className="h-4 w-4 text-destructive" /> },
-    { id: 2, type: 'appointment', message: "New Appointment: Eleanor Vance booked 'Classic Manicure'.", link: '/planner', read: false, icon: <Calendar className="h-4 w-4 text-primary" /> },
-    { id: 3, type: 'bill', message: "Bill Due Soon: 'Studio Rent' is due in 3 days.", link: '/bills', read: true, icon: <Landmark className="h-4 w-4 text-orange-500" /> },
-    { id: 4, type: 'stock', message: "Expired Stock: 'Pro Color Tube 5N' has expired.", link: '/inventory', read: true, icon: <PackageX className="h-4 w-4 text-destructive" /> },
-];
 
 const TenantSwitcher = () => {
     const { tenants, selectedTenant, setSelectedTenant, isLoading } = useTenant();
@@ -88,9 +79,11 @@ const TenantSwitcher = () => {
 }
 
 export function AppHeader({ title }: { title?: string }) {
-  const { staff } = useInventory();
+  const { staff, inventory, billInstances, billDefinitions } = useInventory();
   const { user } = useUser();
   
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+
   const licenseNotifications = useMemo(() => {
     if (!staff) return [];
     return staff.map(member => {
@@ -126,14 +119,93 @@ export function AppHeader({ title }: { title?: string }) {
     }).filter((n): n is NonNullable<typeof n> => n !== null);
   }, [staff]);
 
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const lowStockNotifications = useMemo(() => {
+    if (!inventory) return [];
+    return inventory
+        .filter(item => item.reorderPoint && item.totalStock <= item.reorderPoint)
+        .map(item => ({
+            id: `low-stock-${item.id}`,
+            type: 'stock',
+            message: `Low Stock Alert: '${item.name}' is at ${item.totalStock} units.`,
+            link: `/inventory/${item.id}`,
+            read: false,
+            icon: <PackageX className="h-4 w-4 text-destructive" />
+        }));
+  }, [inventory]);
+
+  const expiredStockNotifications = useMemo(() => {
+    if (!inventory) return [];
+    const expired: Notification[] = [];
+    inventory.forEach(item => {
+        (item.batches || []).forEach(batch => {
+            if (batch.expirationDate && isPast(parseISO(batch.expirationDate)) && batch.stock > 0) {
+                expired.push({
+                    id: `expired-${item.id}-${batch.id}`,
+                    type: 'stock',
+                    message: `Expired Stock: ${batch.stock} units of '${item.name}' expired on ${format(parseISO(batch.expirationDate), 'MMM d')}.`,
+                    link: `/inventory/${item.id}`,
+                    read: false,
+                    icon: <PackageX className="h-4 w-4 text-destructive" />
+                });
+            }
+        });
+    });
+    return expired;
+  }, [inventory]);
+
+  const billsDueSoonNotifications = useMemo(() => {
+    if (!billInstances || !billDefinitions) return [];
+    const today = new Date();
+    return billInstances
+        .filter(instance => {
+            if (instance.status === 'paid') return false;
+            const dueDate = parseISO(instance.dueDate);
+            const daysUntilDue = differenceInDays(dueDate, today);
+            return daysUntilDue >= 0 && daysUntilDue <= 7;
+        })
+        .map(instance => {
+            const definition = billDefinitions.find(def => def.id === instance.billDefinitionId);
+            const daysUntilDue = differenceInDays(parseISO(instance.dueDate), today);
+            const dueText = daysUntilDue === 0 ? 'is due today' : `is due in ${daysUntilDue} days`;
+            return {
+                id: `bill-due-${instance.id}`,
+                type: 'bill',
+                message: `Bill Due: '${definition?.name || 'A bill'}' ${dueText}.`,
+                link: '/bills',
+                read: false,
+                icon: <Landmark className="h-4 w-4 text-orange-500" />
+            };
+        });
+  }, [billInstances, billDefinitions]);
   
   useEffect(() => {
-    const allNotifs = [...licenseNotifications, ...baseNotifications];
-    const uniqueNotifs = Array.from(new Map(allNotifs.map(n => [n.id, n])).values());
-    setNotifications(uniqueNotifs);
-  }, [licenseNotifications]);
+    const backgroundNotifs = [
+        ...licenseNotifications,
+        ...lowStockNotifications,
+        ...expiredStockNotifications,
+        ...billsDueSoonNotifications,
+    ];
 
+    setNotifications(currentNotifs => {
+        const incidentNotifs = currentNotifs.filter(n => n.type === 'incident');
+        const notifMap = new Map<string | number, Notification>();
+        
+        currentNotifs.forEach(n => notifMap.set(n.id, n));
+        backgroundNotifs.forEach(n => notifMap.set(n.id, { ...n, read: notifMap.has(n.id) ? notifMap.get(n.id)!.read : false }));
+        incidentNotifs.forEach(n => notifMap.set(n.id, n));
+        
+        const backgroundIds = new Set(backgroundNotifs.map(n => n.id));
+        currentNotifs.forEach(n => {
+            if (n.type !== 'incident' && !backgroundIds.has(n.id)) {
+                notifMap.delete(n.id);
+            }
+        });
+            
+        return Array.from(notifMap.values()).sort((a,b) => (a.read ? 1 : -1) - (b.read ? 1 : -1));
+    });
+    
+  }, [licenseNotifications, lowStockNotifications, expiredStockNotifications, billsDueSoonNotifications]);
+  
   useEffect(() => {
     const handleNewIncident = ({ clientName, incidentType }: { clientName: string, incidentType: string }) => {
       const newNotification: Notification = {
@@ -169,10 +241,8 @@ export function AppHeader({ title }: { title?: string }) {
       <div className="flex flex-1 items-center gap-2">
         <SidebarTrigger className="md:hidden" />
         
-        {/* On mobile, show title; on desktop, show switcher */}
         {title && <h1 className="text-xl font-semibold truncate md:hidden">{title}</h1>}
         
-        {/* On desktop, show switcher. Also show on mobile if no title exists (dashboard). */}
         <div className={cn(title ? 'hidden md:block' : 'block')}>
             <ClientOnly>
             <TenantSwitcher />
