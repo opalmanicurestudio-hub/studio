@@ -19,7 +19,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { useFirebase, addDocumentNonBlocking, useCollection, useMemoFirebase, useDoc } from '@/firebase';
 import { collection, getDocs, query, where, doc } from 'firebase/firestore';
-import { type Service, type Staff, type ConsentForm, type Tenant } from '@/lib/data';
+import { type Service, type Staff, type ConsentForm, type Tenant, type Client } from '@/lib/data';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { Progress } from '@/components/ui/progress';
 import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock } from 'lucide-react';
@@ -163,6 +163,12 @@ export default function WalkInPage() {
     return doc(firestore, `tenants/${tenantId}`);
   }, [firestore, tenantId]);
   const { data: tenant, isLoading: tenantLoading } = useDoc<Tenant>(tenantDocRef);
+  
+  const clientsQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, `tenants/${tenantId}/clients`);
+  }, [firestore, tenantId]);
+  const { data: clients, isLoading: clientsLoading } = useCollection<Client>(clientsQuery);
 
   const servicesQuery = useMemoFirebase(() => {
     if (!firestore || !tenantId) return null;
@@ -207,6 +213,9 @@ export default function WalkInPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [completedForms, setCompletedForms] = useState<Set<string>>(new Set());
 
+  const [potentialMatches, setPotentialMatches] = useState<Client[]>([]);
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+
   const mainServices = useMemo(() => (services || []).filter(s => s.type === 'service'), [services]);
   const addOnServices = useMemo(() => (services || []).filter(s => s.type === 'addon'), [services]);
 
@@ -219,7 +228,7 @@ export default function WalkInPage() {
   useEffect(() => {
       setHasMounted(true);
   }, []);
-
+  
   useEffect(() => {
     if (birthYear && birthMonth && birthDay) {
         const date = new Date(parseInt(birthYear), parseInt(birthMonth) - 1, parseInt(birthDay));
@@ -232,6 +241,37 @@ export default function WalkInPage() {
         setCustomerBirthday(undefined);
     }
   }, [birthMonth, birthDay, birthYear]);
+  
+  useEffect(() => {
+    if (!clients || (!customerEmail && !customerPhone)) {
+        setPotentialMatches([]);
+        return;
+    }
+
+    const timer = setTimeout(() => {
+        const matches = clients.filter(c => {
+            const emailMatch = customerEmail && c.email && c.email.toLowerCase() === customerEmail.toLowerCase();
+            const phoneMatch = customerPhone && c.phone && c.phone === customerPhone;
+            return emailMatch || phoneMatch;
+        });
+        setPotentialMatches(matches);
+    }, 300); // 300ms debounce
+
+    return () => clearTimeout(timer);
+
+  }, [customerEmail, customerPhone, clients]);
+
+  const handleSelectClient = (client: Client) => {
+    setSelectedClientId(client.id);
+    setCustomerName(client.name);
+    setCustomerEmail(client.email);
+    if (client.phone) setCustomerPhone(client.phone);
+    setPotentialMatches([]);
+  }
+
+  const resetClientSelection = () => {
+      setSelectedClientId(null);
+  }
 
   const handleServiceToggle = (service: Service) => {
     setSelectedServices(prev =>
@@ -283,6 +323,7 @@ export default function WalkInPage() {
       customerPhone,
       customerEmail,
       customerBirthday: customerBirthday?.toISOString(),
+      clientId: selectedClientId,
       serviceIds: selectedServices.map(s => s.id),
       requiredSkills: [...new Set(selectedServices.flatMap(s => s.requiredSkills || []))],
       estimatedDuration: totalDuration,
@@ -330,11 +371,12 @@ export default function WalkInPage() {
     setNotes('');
     setWaitForPreferred(false);
     setCompletedForms(new Set());
+    setSelectedClientId(null);
     setStep('services');
     setIsSubmitting(false);
   };
   
-  const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || consentFormsLoading || !hasMounted;
+  const isLoading = tenantLoading || servicesLoading || staffLoading || scheduleProfilesLoading || consentFormsLoading || clientsLoading || !hasMounted;
   
   if (isLoading) {
     return (
@@ -519,65 +561,65 @@ export default function WalkInPage() {
                         <CardDescription>Just a few more details to get you on the list.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-6">
+                        {selectedClientId && (
+                            <div className="p-3 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <CheckCircle className="w-5 h-5 text-primary" />
+                                    <div>
+                                        <p className="text-sm font-medium">Welcome back, {customerName}!</p>
+                                        <p className="text-xs text-muted-foreground">Continuing with your profile.</p>
+                                    </div>
+                                </div>
+                                <Button variant="ghost" size="sm" onClick={resetClientSelection}>Not you?</Button>
+                            </div>
+                        )}
+                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="phone">Phone Number (for SMS updates)</Label>
+                                <div className="relative">
+                                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                    <Input id="phone" type="tel" value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="(555) 123-4567" className="pl-9" />
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="email">Email Address</Label>
+                                <div className="relative">
+                                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                    <Input id="email" type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="jane.doe@example.com" className="pl-9" />
+                                </div>
+                            </div>
+                        </div>
+
+                        {potentialMatches.length > 0 && !selectedClientId && (
+                            <div className="space-y-3">
+                                <p className="text-sm font-medium text-center">Are you an existing client?</p>
+                                <Card>
+                                    <CardContent className="p-2 space-y-1">
+                                        {potentialMatches.map(client => (
+                                            <Button key={client.id} variant="ghost" className="w-full justify-start h-auto p-3" onClick={() => handleSelectClient(client)}>
+                                                <Avatar className="w-10 h-10 mr-4">
+                                                    <AvatarImage src={client.avatarUrl} />
+                                                    <AvatarFallback>{client.name.charAt(0)}</AvatarFallback>
+                                                </Avatar>
+                                                <div>
+                                                    <p className="font-semibold text-base">{client.name}</p>
+                                                    <p className="text-sm text-muted-foreground">{client.email}</p>
+                                                </div>
+                                            </Button>
+                                        ))}
+                                    </CardContent>
+                                </Card>
+                            </div>
+                        )}
+
                          <div className="space-y-2">
                             <Label htmlFor="name">Your Name</Label>
                             <div className="relative">
                                 <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                <Input id="name" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Jane Doe" required className="pl-9" />
+                                <Input id="name" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Jane Doe" required className="pl-9" disabled={!!selectedClientId} />
                             </div>
                         </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="phone">Phone Number (for SMS updates)</Label>
-                            <div className="relative">
-                                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                <Input id="phone" type="tel" value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="(555) 123-4567" className="pl-9" />
-                            </div>
-                        </div>
-                         <div className="space-y-2">
-                            <Label htmlFor="email">Email Address</Label>
-                            <div className="relative">
-                                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                <Input id="email" type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="jane.doe@example.com" className="pl-9" />
-                            </div>
-                        </div>
-                         <div className="space-y-2">
-                            <Label>Birthday (Optional)</Label>
-                            <div className="grid grid-cols-3 gap-2">
-                                <Select value={birthMonth} onValueChange={setBirthMonth}>
-                                    <SelectTrigger><SelectValue placeholder="Month" /></SelectTrigger>
-                                    <SelectContent>
-                                        {Array.from({ length: 12 }, (_, i) => (
-                                            <SelectItem key={i + 1} value={(i + 1).toString()}>
-                                                {format(new Date(2000, i, 1), 'MMMM')}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                                <Select value={birthDay} onValueChange={setBirthDay}>
-                                    <SelectTrigger><SelectValue placeholder="Day" /></SelectTrigger>
-                                    <SelectContent>
-                                        {Array.from({ length: 31 }, (_, i) => (
-                                            <SelectItem key={i + 1} value={(i + 1).toString()}>
-                                                {i + 1}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                                <Select value={birthYear} onValueChange={setBirthYear}>
-                                    <SelectTrigger><SelectValue placeholder="Year" /></SelectTrigger>
-                                    <SelectContent>
-                                        {Array.from({ length: 100 }, (_, i) => {
-                                            const year = new Date().getFullYear() - i;
-                                            return (
-                                                <SelectItem key={year} value={year.toString()}>
-                                                    {year}
-                                                </SelectItem>
-                                            );
-                                        })}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        </div>
+                        
                          <div className="space-y-2">
                             <Label>Preferred Staff</Label>
                              <RadioGroup value={preferredStaffId} onValueChange={setPreferredStaffId} className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -602,7 +644,7 @@ export default function WalkInPage() {
                             </div>
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="preferences">Notes, Special Requests, or Accommodations (Optional)</Label>
+                            <Label htmlFor="preferences">Notes (Optional)</Label>
                             <Textarea id="preferences" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g., preference for a quiet environment, allergy to certain scents..." />
                         </div>
                     </CardContent>

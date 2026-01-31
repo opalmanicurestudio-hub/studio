@@ -762,40 +762,54 @@ export default function WalkInQueuePage() {
     const staffMember = staff.find(s => s.id === staffId);
 
     if (!walkIn || !staffMember) return;
-
+    
     let finalClientId: string;
     let finalClientName: string;
 
-    const existingClient = clients.find(c => 
-        (walkIn.customerEmail && c.email && c.email.toLowerCase() === walkIn.customerEmail.toLowerCase()) || 
-        (walkIn.customerPhone && c.phone && c.phone === walkIn.customerPhone)
-    );
-
-    if (existingClient) {
-        finalClientId = existingClient.id;
-        finalClientName = existingClient.name;
-    } else {
-        const newId = `cli-${nanoid()}`;
-        const newClientData: Omit<Client, 'id'> = {
-            name: walkIn.customerName,
-            email: walkIn.customerEmail || '',
-            phone: walkIn.customerPhone || '',
-            birthday: walkIn.customerBirthday,
-            avatarUrl: `https://picsum.photos/seed/${nanoid()}/100`,
-            lifetimeValue: 0,
-            lastAppointment: new Date().toISOString(),
-            status: 'active',
-        };
-        const clientDocRef = doc(firestore, 'tenants', tenantId, 'clients', newId);
-        setDocumentNonBlocking(clientDocRef, { ...newClientData, id: newId }, {});
-        
-        finalClientId = newId;
-        finalClientName = newClientData.name;
-        toast({
-            title: "New Client Created",
-            description: `${walkIn.customerName} has been added to your client list.`,
-        });
+    // Prioritize the client identified at check-in
+    if (walkIn.clientId) {
+        const clientFromKiosk = clients.find(c => c.id === walkIn.clientId);
+        if (clientFromKiosk) {
+            finalClientId = clientFromKiosk.id;
+            finalClientName = clientFromKiosk.name;
+        }
     }
+
+    // Fallback: If no client was identified at kiosk, or if that client was deleted,
+    // try to find a match by email/phone again.
+    if (!finalClientId!) {
+        const existingClient = clients.find(c => 
+            (walkIn.customerEmail && c.email && c.email.toLowerCase() === walkIn.customerEmail.toLowerCase()) || 
+            (walkIn.customerPhone && c.phone && c.phone === walkIn.customerPhone)
+        );
+
+        if (existingClient) {
+            finalClientId = existingClient.id;
+            finalClientName = existingClient.name;
+        } else {
+            const newId = `cli-${nanoid()}`;
+            const newClientData: Omit<Client, 'id'> = {
+                name: walkIn.customerName,
+                email: walkIn.customerEmail || '',
+                phone: walkIn.customerPhone || '',
+                birthday: walkIn.customerBirthday,
+                avatarUrl: `https://picsum.photos/seed/${nanoid()}/100`,
+                lifetimeValue: 0,
+                lastAppointment: new Date().toISOString(),
+                status: 'active',
+            };
+            const clientDocRef = doc(firestore, 'tenants', tenantId, 'clients', newId);
+            setDocumentNonBlocking(clientDocRef, { ...newClientData, id: newId }, {});
+            
+            finalClientId = newId;
+            finalClientName = newClientData.name;
+            toast({
+                title: "New Client Created",
+                description: `${walkIn.customerName} has been added to your client list.`,
+            });
+        }
+    }
+
 
     const now = new Date();
     const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
@@ -818,8 +832,8 @@ export default function WalkInQueuePage() {
         const allRequiredResourceIds = [...new Set(allServicesForWalkIn.flatMap(s => s.requiredResourceIds || []))];
 
         const newAppointmentForFirestore: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & { startTime: Date, endTime: Date, clientName: string, clientEmail?: string, clientPhone?: string } = {
-            clientId: finalClientId,
-            clientName: finalClientName,
+            clientId: finalClientId!,
+            clientName: finalClientName!,
             clientEmail: walkIn.customerEmail,
             clientPhone: walkIn.customerPhone,
             serviceId: mainService.id,
@@ -832,6 +846,7 @@ export default function WalkInQueuePage() {
             addOnIds: walkIn.serviceIds.slice(1),
             checkInToken: nanoid(16),
             requiredResourceIds: allRequiredResourceIds,
+            tenantId: tenantId,
         };
         const aptDocRef = doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkIn.id}`);
         setDocumentNonBlocking(aptDocRef, newAppointmentForFirestore, {});
@@ -1003,7 +1018,8 @@ export default function WalkInQueuePage() {
       status: 'servicing',
       isWalkIn: true,
       actualStartTime: walkIn.serviceStartTime,
-      actualEndTime: walkIn.serviceEndTime
+      actualEndTime: walkIn.serviceEndTime,
+      tenantId: tenantId,
     };
     
     setSelectedAppointment(tempAppointment);
@@ -1083,7 +1099,8 @@ export default function WalkInQueuePage() {
       isWalkIn: true,
       addOnIds: walkIn.serviceIds.slice(1),
       actualStartTime: walkIn.serviceStartTime,
-      actualEndTime: walkIn.serviceEndTime
+      actualEndTime: walkIn.serviceEndTime,
+      tenantId: tenantId!,
     };
     setCheckoutAppointment(tempAppointment);
   };
@@ -1237,7 +1254,7 @@ export default function WalkInQueuePage() {
   }, [selectedAppointment, clients, services]);
 
   const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
-    if (!firestore || !tenantId) return;
+    if (!firestore || !tenantId || !appointments) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
     updateDocumentNonBlocking(appointmentRef, {
         status: 'ready_for_checkout',
