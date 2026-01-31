@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -705,96 +704,7 @@ export default function WalkInQueuePage() {
     }
   };
   
-    const canNotifyNext = useMemo(() => {
-        if (!activeStaff || !walkIns || !events || !services || !appointments || !resources) return false;
-
-        const waitingCustomers = walkIns.filter(w => w.status === 'waiting');
-        if (waitingCustomers.length === 0) return false;
-
-        const notifiedCustomers = walkIns.filter(w => w.status === 'notified');
-        const now = new Date();
-
-        const busyResourceIds = new Set<string>();
-        appointments.forEach(apt => {
-            if ((apt.status === 'servicing' || apt.status === 'assigned' || apt.status === 'confirmed') && areIntervalsOverlapping({ start: now, end: addMinutes(now, 1) }, { start: apt.startTime, end: apt.endTime })) {
-                (apt.requiredResourceIds || []).forEach(id => busyResourceIds.add(id));
-            }
-        });
-        
-        const idleStaff = activeStaff.filter(s => {
-            if (s.status !== 'idle' || s.onBreak) return false;
-            
-            const isEventBlocked = events.some(event => 
-                event.type === 'blocked' &&
-                areIntervalsOverlapping({ start: now, end: addMinutes(now, 1) }, { start: event.startTime, end: event.endTime }) &&
-                (!event.staffId || event.staffId === 'all' || event.staffId === s.id)
-            );
-            if (isEventBlocked) return false;
-
-            const isAppointmentBusy = appointments.some(apt =>
-                apt.staffId === s.id &&
-                (apt.status === 'servicing' || apt.status === 'confirmed' || apt.status === 'assigned') &&
-                areIntervalsOverlapping({ start: now, end: addMinutes(now, 1) }, { start: apt.startTime, end: apt.endTime })
-            );
-            if (isAppointmentBusy) return false;
-
-            return true;
-        });
-
-        if (idleStaff.length === 0) return false;
-        if (notifiedCustomers.length >= idleStaff.length) return false;
-
-        const customerToNotify = waitingCustomers[0];
-        const walkInServices = customerToNotify.serviceIds.map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
-        const requiredResourceIds = [...new Set(walkInServices.flatMap(s => s.requiredResourceIds || []))];
-        const areResourcesAvailable = requiredResourceIds.every(id => !busyResourceIds.has(id));
-
-        if (!areResourcesAvailable) return false;
-        
-        const requiredSkills = customerToNotify.requiredSkills || [];
-
-        const qualifiedIdleStaff = idleStaff.filter(s => 
-            requiredSkills.every(skill => (s.skillSet || []).includes(skill))
-        );
-
-        if (qualifiedIdleStaff.length === 0) {
-            return false;
-        }
-
-        if (customerToNotify.preferredStaffId && customerToNotify.waitForPreferredStaff) {
-            return qualifiedIdleStaff.some(s => s.id === customerToNotify.preferredStaffId);
-        }
-
-        return true;
-    }, [activeStaff, walkIns, events, services, appointments, resources]);
-
-    const handleNotifyNext = () => {
-        if (!canNotifyNext) {
-            toast({
-                variant: 'destructive',
-                title: 'Cannot Notify',
-                description: 'No available qualified staff/resources at this time.',
-            });
-            return;
-        }
-
-        if (!walkIns || !firestore || !tenantId) return;
-
-        const waitingCustomers = walkIns.filter(w => w.status === 'waiting').sort((a, b) => (a.waitForPreferredStaff ? 0 : 1) - (b.waitForPreferredStaff ? 0 : 1) || parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
-        const customerToNotify = waitingCustomers[0];
-
-        const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', customerToNotify.id);
-        updateDocumentNonBlocking(walkInDocRef, {
-            status: 'notified',
-            notifiedTimestamp: new Date().toISOString()
-        });
-        toast({
-            title: 'Client Notified',
-            description: `${customerToNotify.customerName} has been notified it's their turn.`,
-        });
-    };
-  
-  const assignWalkIn = useCallback(async (walkInId: string, staffId: string) => {
+    const assignWalkIn = useCallback(async (walkInId: string, staffId: string) => {
     if (!firestore || !tenantId || !walkIns || !staff || !services || !clients) return;
 
     const walkIn = walkIns.find(w => w.id === walkInId);
@@ -889,115 +799,166 @@ export default function WalkInQueuePage() {
     }
   }, [firestore, tenantId, walkIns, staff, services, clients, toast]);
 
-    const nextUpStaffId = useMemo(() => {
-    if (!activeStaff || !events) return null;
-    const now = new Date();
-    
-    const idleStaff = activeStaff.filter(s => {
-        if (s.status !== 'idle' || s.onBreak) return false;
-        
-        const isEventBlocked = events.some(event => {
-            if (event.type !== 'blocked') return false;
-            return areIntervalsOverlapping({ start: now, end: addMinutes(now, 1) }, { start: event.startTime, end: event.endTime }) && (!event.staffId || event.staffId === 'all' || event.staffId === s.id);
+    const availableStaff = useMemo(() => {
+        if (!activeStaff || !events || !appointments) return [];
+        const now = new Date();
+        return activeStaff.filter(s => {
+            if (s.status !== 'idle' || s.onBreak) return false;
+            
+            const isEventBlocked = events.some(event => 
+                event.type === 'blocked' &&
+                areIntervalsOverlapping({ start: now, end: addMinutes(now, 1) }, { start: event.startTime, end: event.endTime }) &&
+                (!event.staffId || event.staffId === 'all' || event.staffId === s.id)
+            );
+            if (isEventBlocked) return false;
+
+            const isAppointmentBusy = appointments.some(apt =>
+                apt.staffId === s.id &&
+                (apt.status === 'servicing' || apt.status === 'confirmed' || apt.status === 'assigned') &&
+                areIntervalsOverlapping({ start: now, end: addMinutes(now, 1) }, { start: apt.startTime, end: apt.endTime })
+            );
+            if (isAppointmentBusy) return false;
+            
+            return true;
         });
+    }, [activeStaff, events, appointments]);
+
+    const nextUpStaffId = useMemo(() => {
+        if (availableStaff.length === 0) return null;
+
+        if (assignmentMode === 'automatic') {
+            const sortedIdleStaff = [...availableStaff].sort((a, b) =>
+                (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) -
+                (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0)
+            );
+            return sortedIdleStaff[0]?.id;
+        } else { // 'ordered'
+            for (const orderedStaffMember of staffOrder) {
+                if (availableStaff.some(s => s.id === orderedStaffMember.id)) {
+                    return orderedStaffMember.id;
+                }
+            }
+            return null; // Should not happen if availableStaff is not empty
+        }
+    }, [availableStaff, assignmentMode, staffOrder]);
+    
+    const canNotifyNext = useMemo(() => {
+        if (!walkIns || !services || !resources) return false;
+
+        const waitingCustomers = walkIns.filter(w => w.status === 'waiting');
+        if (waitingCustomers.length === 0) return false;
+
+        const notifiedCustomers = walkIns.filter(w => w.status === 'notified');
+        if (notifiedCustomers.length >= availableStaff.length) return false;
+
+        const customerToNotify = waitingCustomers[0];
+        const walkInServices = customerToNotify.serviceIds.map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
         
-        return !isEventBlocked;
-    });
+        // Check resource availability
+        const requiredResourceIds = [...new Set(walkInServices.flatMap(s => s.requiredResourceIds || []))];
+        const busyResourceIds = new Set<string>();
+        const now = new Date();
+        appointments.forEach(apt => {
+            if ((apt.status === 'servicing' || apt.status === 'assigned' || apt.status === 'confirmed') && areIntervalsOverlapping({ start: now, end: addMinutes(now, 1) }, { start: apt.startTime, end: apt.endTime })) {
+                (apt.requiredResourceIds || []).forEach(id => busyResourceIds.add(id));
+            }
+        });
+        if (requiredResourceIds.some(id => busyResourceIds.has(id))) return false;
 
-    if (idleStaff.length === 0) return null;
-
-    if (assignmentMode === 'automatic') {
-        const sortedIdleStaff = idleStaff.sort((a, b) =>
-        (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) -
-        (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0)
+        // Check staff availability and qualification
+        const requiredSkills = customerToNotify.requiredSkills || [];
+        const qualifiedAndAvailableStaff = availableStaff.filter(s => 
+            requiredSkills.every(skill => (s.skillSet || []).includes(skill))
         );
-        return sortedIdleStaff[0]?.id;
-    } else { // 'ordered'
-        for (const orderedStaffMember of staffOrder) {
-            if (idleStaff.some(s => s.id === orderedStaffMember.id)) {
-                return orderedStaffMember.id;
+
+        if (qualifiedAndAvailableStaff.length === 0) return false;
+
+        if (customerToNotify.preferredStaffId && customerToNotify.waitForPreferredStaff) {
+            return qualifiedAndAvailableStaff.some(s => s.id === customerToNotify.preferredStaffId);
+        }
+
+        return true;
+    }, [walkIns, services, resources, availableStaff, appointments]);
+    
+    const handleStartServiceFromNotified = useCallback((walkIn: WalkIn) => {
+        if (!services) return;
+        
+        const requiredSkills = walkIn.requiredSkills || [];
+        const qualifiedAndAvailableStaff = availableStaff.filter(s => 
+            requiredSkills.every(skill => (s.skillSet || []).includes(skill))
+        );
+
+        if (qualifiedAndAvailableStaff.length === 0) {
+            toast({ variant: 'destructive', title: 'No Qualified Staff Available' });
+            return;
+        }
+
+        let staffToAssign: Staff | undefined;
+
+        if (walkIn.preferredStaffId) {
+            const preferred = qualifiedAndAvailableStaff.find(s => s.id === walkIn.preferredStaffId);
+            if (preferred) {
+                staffToAssign = preferred;
             }
         }
-        return null;
-    }
-  }, [activeStaff, assignmentMode, staffOrder, events]);
 
-    const handleStartServiceFromNotified = useCallback((walkIn: WalkIn) => {
-    if (!activeStaff || !services || !events || !appointments || !resources || !nextUpStaffId) return;
-    
-    const now = new Date();
-    
-    const busyResourceIds = new Set<string>();
-    appointments.forEach(apt => {
-        if ((apt.status === 'servicing' || apt.status === 'assigned' || apt.status === 'confirmed') && areIntervalsOverlapping({ start: now, end: addMinutes(now, walkIn.estimatedDuration) }, { start: apt.startTime, end: apt.endTime })) {
-            (apt.requiredResourceIds || []).forEach(id => busyResourceIds.add(id));
+        if (!staffToAssign) {
+            if (assignmentMode === 'automatic') {
+                const nextUpIsQualified = qualifiedAndAvailableStaff.find(s => s.id === nextUpStaffId);
+                if (nextUpIsQualified) {
+                    staffToAssign = nextUpIsQualified;
+                } else {
+                     const sortedQualifiedStaff = [...qualifiedAndAvailableStaff].sort((a, b) =>
+                        (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) -
+                        (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0)
+                    );
+                    staffToAssign = sortedQualifiedStaff[0];
+                }
+            } else { // 'ordered'
+                for (const orderedStaffMember of staffOrder) {
+                    const found = qualifiedAndAvailableStaff.find(s => s.id === orderedStaffMember.id);
+                    if (found) {
+                        staffToAssign = found;
+                        break;
+                    }
+                }
+            }
         }
-    });
-
-    const walkInServices = walkIn.serviceIds.map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
-    const requiredResourceIds = [...new Set(walkInServices.flatMap(s => s.requiredResourceIds || []))];
-
-    if (requiredResourceIds.some(id => busyResourceIds.has(id))) {
-        toast({ variant: 'destructive', title: 'Resources Busy', description: 'The required room or equipment for this service is currently in use.' });
-        return;
-    }
-
-    const idleStaff = activeStaff.filter(s => {
-        if (s.status !== 'idle' || s.onBreak) return false;
         
-        const isEventBlocked = events.some(event => 
-            event.type === 'blocked' &&
-            areIntervalsOverlapping({ start: now, end: addMinutes(now, walkIn.estimatedDuration) }, { start: event.startTime, end: event.endTime }) &&
-            (!event.staffId || event.staffId === 'all' || event.staffId === s.id)
-        );
-        if (isEventBlocked) return false;
-
-        const isAppointmentBusy = appointments.some(apt =>
-            apt.staffId === s.id &&
-            (apt.status === 'servicing' || apt.status === 'confirmed' || apt.status === 'assigned') &&
-            areIntervalsOverlapping({ start: now, end: addMinutes(now, walkIn.estimatedDuration) }, { start: apt.startTime, end: apt.endTime })
-        );
-        if (isAppointmentBusy) return false;
-        
-        return true;
-    });
-
-    const qualifiedIdleStaff = idleStaff.filter(s => (walkIn.requiredSkills || []).every(skill => (s.skillSet || []).includes(skill)));
-    
-    if(qualifiedIdleStaff.length === 0) {
-      toast({ variant: 'destructive', title: 'No Qualified Staff Available' });
-      return;
-    }
-    
-    let staffToAssign: Staff | undefined;
-
-    // If client has a preference (even if flexible), and that person is available and qualified, assign them.
-    if (walkIn.preferredStaffId) {
-        const preferred = qualifiedIdleStaff.find(s => s.id === walkIn.preferredStaffId);
-        if (preferred) {
-            staffToAssign = preferred;
+        if (!staffToAssign) {
+            toast({ variant: 'destructive', title: 'Could not determine staff assignment.' });
+            return;
         }
-    }
 
-    // If no preferred staff was assigned
-    if (!staffToAssign) {
-        const nextUpIsQualified = qualifiedIdleStaff.find(s => s.id === nextUpStaffId);
-        if (nextUpIsQualified) {
-            staffToAssign = nextUpIsQualified;
-        } else {
-            // Fallback: if the 'next up' isn't qualified, just take the first available qualified person.
-            staffToAssign = qualifiedIdleStaff[0];
+        assignWalkIn(walkIn.id, staffToAssign.id);
+
+    }, [availableStaff, services, assignWalkIn, toast, nextUpStaffId, staffOrder, assignmentMode]);
+
+    const handleNotifyNext = () => {
+        if (!canNotifyNext) {
+            toast({
+                variant: 'destructive',
+                title: 'Cannot Notify',
+                description: 'No available qualified staff/resources at this time.',
+            });
+            return;
         }
-    }
-    
-    if (!staffToAssign) {
-        toast({ variant: 'destructive', title: 'Could not determine staff assignment.' });
-        return;
-    }
 
-    assignWalkIn(walkIn.id, staffToAssign.id);
+        if (!walkIns || !firestore || !tenantId) return;
 
-  }, [activeStaff, services, events, appointments, assignWalkIn, toast, resources, nextUpStaffId]);
+        const waitingCustomers = walkIns.filter(w => w.status === 'waiting').sort((a, b) => (a.waitForPreferredStaff ? 0 : 1) - (b.waitForPreferredStaff ? 0 : 1) || parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
+        const customerToNotify = waitingCustomers[0];
+
+        const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', customerToNotify.id);
+        updateDocumentNonBlocking(walkInDocRef, {
+            status: 'notified',
+            notifiedTimestamp: new Date().toISOString()
+        });
+        toast({
+            title: 'Client Notified',
+            description: `${customerToNotify.customerName} has been notified it's their turn.`,
+        });
+    };
 
     const handleManualAssign = (staffId: string) => {
     if (walkInToAssign) {
@@ -1702,6 +1663,8 @@ export default function WalkInQueuePage() {
     
 
 
+
+    
 
     
 
