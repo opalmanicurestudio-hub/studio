@@ -730,6 +730,18 @@ export default function ClientDetailPage() {
                                              </div>
                                              <p className="text-sm mt-2">{incident.description}</p>
                                              {incident.actionsTaken && <p className="text-xs mt-2 text-muted-foreground border-t pt-2">Actions Taken: {incident.actionsTaken}</p>}
+                                             {incident.photoUrls && incident.photoUrls.length > 0 && (
+                                                <div className="mt-4">
+                                                    <p className="text-xs font-semibold text-muted-foreground mb-2">Photo Evidence</p>
+                                                    <div className="flex gap-2 flex-wrap">
+                                                        {incident.photoUrls.map((url, index) => (
+                                                            <a key={index} href={url} target="_blank" rel="noopener noreferrer" className="relative w-20 h-20 block">
+                                                                <Image src={url} alt={`Evidence ${index + 1}`} fill className="object-cover rounded-md" />
+                                                            </a>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
                                          </CardContent>
                                      </Card>
                                  ))
@@ -863,4 +875,3 @@ export default function ClientDetailPage() {
     </div>
   );
 }
-

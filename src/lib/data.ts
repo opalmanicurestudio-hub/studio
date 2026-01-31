@@ -11,7 +11,7 @@ export type Incident = {
     severity: 'Minor' | 'Moderate' | 'Severe';
     description: string;
     actionsTaken?: string;
-    photoUrl?: string;
+    photoUrls?: string[];
     appointmentId?: string; // Optional link to an appointment
 };
 
@@ -1083,8 +1083,8 @@ export const events: Event[] = [
 ];
 
 export const stockCorrections: StockCorrection[] = [
-    { id: 'sc-1', productId: 'inv-3', date: '2024-07-20T11:50:00Z', change: -1, unit: 'use', reason: 'Appointment #apt-2' },
-    { id: 'sc-2', productId: 'inv-2', date: '2024-07-20T11:50:00Z', change: -5, unit: 'ml', reason: 'Appointment #apt-2' },
+    { id: 'sc-1', productId: 'inv-3', date: '2024-07-20T11:50:00Z', change: -1, unit: 'use', reason: 'Appointment #apt-2 by Brenda Barnes' },
+    { id: 'sc-2', productId: 'inv-2', date: '2024-07-20T11:50:00Z', change: -5, unit: 'ml', reason: 'Appointment #apt-2 by Brenda Barnes' },
     { id: 'sc-3', productId: 'inv-9', date: '2024-07-19T18:00:00Z', change: -1, unit: 'unit', reason: 'Retail Sale' },
     { id: 'sc-4', productId: 'inv-3', date: '2024-07-18T12:00:00Z', change: 30, unit: 'uses', reason: 'Shipment #SH-001' },
     { id: 'sc-5', productId: 'inv-5', date: '2024-07-17T15:30:00Z', change: -1, unit: 'use', reason: 'Internal Use/Test' },
@@ -1212,19 +1212,3 @@ export const resources: Resource[] = [
 
 
 export { nanoid };
-
-    
-
-    
-
-
-
-
-
-
-
-
-
-
-
-    

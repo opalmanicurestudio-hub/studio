@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React from 'react';
@@ -9,19 +10,36 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ImageUpload } from '@/components/shared/ImageUpload';
+import NextImage from 'next/image';
+import { Button } from '@/components/ui/button';
+import { X } from 'lucide-react';
+
 
 export const incidentSchema = z.object({
   type: z.string().min(1, "Incident type is required."),
   severity: z.string().min(1, "Severity is required."),
   description: z.string().min(1, "A detailed description is required."),
   actionsTaken: z.string().optional(),
-  photoUrl: z.string().optional(),
+  photoUrls: z.array(z.string()).optional(),
 });
 
 export type IncidentFormData = z.infer<typeof incidentSchema>;
 
 export const LogIncidentForm = () => {
-  const { control, formState: { errors } } = useFormContext<IncidentFormData>();
+  const { control, watch, setValue, formState: { errors } } = useFormContext<IncidentFormData>();
+  const photoUrls = watch('photoUrls') || [];
+
+  const handleImageUploaded = (newUrl: string) => {
+    if (newUrl) {
+      const currentUrls = watch('photoUrls') || [];
+      setValue('photoUrls', [...currentUrls, newUrl]);
+    }
+  };
+
+  const handleRemoveImage = (urlToRemove: string) => {
+    const currentUrls = watch('photoUrls') || [];
+    setValue('photoUrls', currentUrls.filter(url => url !== urlToRemove));
+  };
 
   return (
     <div className="space-y-4">
@@ -92,16 +110,31 @@ export const LogIncidentForm = () => {
           </div>
         )}
       />
-      <Controller
-        name="photoUrl"
-        control={control}
-        render={({ field }) => (
-            <div className="space-y-2">
-                <Label>Photo Evidence</Label>
-                <ImageUpload onImageUploaded={field.onChange} />
+      <div className="space-y-2">
+        <Label>Photo Evidence</Label>
+        <div className="grid grid-cols-3 gap-2">
+          {photoUrls.map((url, index) => (
+            <div key={index} className="relative aspect-square">
+              <NextImage src={url} alt={`Evidence ${index + 1}`} fill className="object-cover rounded-md" />
+              <Button
+                type="button"
+                variant="destructive"
+                size="icon"
+                className="absolute -top-2 -right-2 h-6 w-6 rounded-full"
+                onClick={() => handleRemoveImage(url)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
             </div>
-        )}
-      />
+          ))}
+          {photoUrls.length < 5 && (
+            <div className="aspect-square border-2 border-dashed rounded-md flex items-center justify-center">
+                <ImageUpload onImageUploaded={handleImageUploaded} />
+            </div>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground">You can upload up to 5 images.</p>
+      </div>
     </div>
   );
 };
