@@ -1306,7 +1306,7 @@ function PlannerPageContent() {
                 itemsByColumn={staffItemsToDisplay}
                 showColumnHeader={showStaffColumnHeader}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={onUpdateStatus}
+                onUpdateStatus={handleUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1338,7 +1338,7 @@ function PlannerPageContent() {
                 itemsByColumn={itemsByColumn}
                 showColumnHeader={true}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={onUpdateStatus}
+                onUpdateStatus={handleUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
