@@ -49,6 +49,8 @@ import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocu
 import { doc, collection, arrayUnion, increment, writeBatch } from 'firebase/firestore';
 import { BrowseDiscountsDialog } from '../discounts/BrowseDiscountsDialog';
 import { ScrollArea } from '../ui/scroll-area';
+import { useTenant } from '@/context/TenantContext';
+
 
 // ... (keep all existing types and interfaces)
 type EditableFormulaItem = {
@@ -132,7 +134,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
       severity: 'Minor',
       description: '',
       actionsTaken: '',
-      photoUrl: '',
+      photoUrls: [],
     },
   });
 
@@ -362,7 +364,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         toast({ title: 'Discount Applied!', description: `You saved $${discountValue.toFixed(2)}.` });
     }
   }
-
+  
   const remainingTip = useMemo(() => {
     const allocated = Object.values(tipAllocations).reduce((sum, val) => sum + val, 0);
     return tipAmount - allocated;
