@@ -108,7 +108,6 @@ interface AppointmentDetailsProps {
     onBookNewForClient: (clientId: string) => void;
     onStartService: (appointmentId: string) => void;
     onFinishService: (appointment: Appointment) => void;
-    elapsedTime: string | null;
 }
 
 interface AppointmentCardProps {
@@ -152,7 +151,6 @@ const AppointmentDetails = ({
     onBookNewForClient,
     onStartService,
     onFinishService,
-    elapsedTime,
 }: AppointmentDetailsProps) => {
     const { toast } = useToast();
 
@@ -166,15 +164,9 @@ const AppointmentDetails = ({
                 </Button>
             )}
             {appointment.status === 'servicing' && (
-                <Card className="bg-yellow-500/10 border-yellow-500/20">
-                    <CardContent className="p-4 text-center space-y-2">
-                        <p className="text-sm font-medium text-yellow-800 dark:text-yellow-300">Service in Progress</p>
-                        <p className="text-4xl font-bold font-mono text-yellow-900 dark:text-yellow-200">{elapsedTime || '00:00'}</p>
-                        <Button onClick={() => onFinishService(appointment)} className="w-full mt-2">
-                            <Square className="mr-2 h-4 w-4" /> Finish Service
-                        </Button>
-                    </CardContent>
-                </Card>
+                 <Button onClick={() => onFinishService(appointment)} className="w-full" size="lg">
+                    <Square className="mr-2 h-4 w-4" /> Finish Service
+                </Button>
             )}
 
              <div className="space-y-2">
@@ -352,10 +344,42 @@ export function AppointmentCard({
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
   const [elapsedTime, setElapsedTime] = useState<string | null>(null);
+
   const isMobile = useIsMobile();
   const { toast } = useToast();
   const { inventory } = useInventory();
   
+  useEffect(() => {
+    let timer: NodeJS.Timeout | undefined;
+
+    if (appointment.status === 'servicing' && appointment.actualStartTime) {
+      const startTime = parseISO(appointment.actualStartTime);
+      const interval = setInterval(() => {
+        const now = new Date();
+        const diffInSeconds = differenceInSeconds(now, startTime);
+        
+        const hours = Math.floor(diffInSeconds / 3600);
+        const minutes = Math.floor((diffInSeconds % 3600) / 60);
+        const seconds = diffInSeconds % 60;
+
+        if (hours > 0) {
+          setElapsedTime(`${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
+        } else {
+          setElapsedTime(`${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
+        }
+      }, 1000);
+      timer = interval;
+    } else {
+      setElapsedTime(null);
+    }
+
+    return () => {
+      if (timer) {
+        clearInterval(timer);
+      }
+    };
+  }, [appointment.status, appointment.actualStartTime]);
+
   const scheduledDuration = useMemo(() => {
     if (!appointment.startTime || !appointment.endTime) return 0;
     const start = typeof appointment.startTime === 'string' ? parseISO(appointment.startTime) : appointment.startTime;
@@ -469,146 +493,24 @@ export function AppointmentCard({
   const mainHeight = `${(service.duration / totalDurationWithPadding) * 100}%`;
   const afterHeight = hasPadAfter ? `${(service.padAfter! / totalDurationWithPadding) * 100}%` : '0px';
 
-  const MainContent = () => {
-    const isCompact = scheduledDuration < 50;
-    const needsReconciliation = appointment.status === 'completed' && !appointment.inventoryProcessed;
-
-    const serviceNameDisplay = isCompact
+  const isCompact = scheduledDuration < 50;
+  
+  const serviceNameDisplay = isCompact
       ? service.name
       : addOnServices.length > 0
       ? `${service.name} + ${addOnServices.length} add-on(s)`
       : service.name;
 
-    const handleCardClick = (e: React.MouseEvent) => {
-      if ((e.target as HTMLElement).closest('button')) {
-        e.stopPropagation();
-        return;
-      }
-      setIsDetailsOpen(true);
-    };
-
-    const handleCheckoutClick = (e: React.MouseEvent) => { e.stopPropagation(); onCompleteClick(appointment); };
-    
-    const dropdownContent = (
-      <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
-        <DropdownMenuItem onClick={() => setIsDetailsOpen(true)}><FileText className="mr-2" /> View Details</DropdownMenuItem>
-        <DropdownMenuSeparator />
-        {appointment.status === 'servicing' && (
-          <DropdownMenuItem onClick={() => onUpdateFormula(appointment)}>
-            <FlaskConical className="mr-2 h-4 w-4" />
-            Update Formula
-          </DropdownMenuItem>
-        )}
-        <DropdownMenuItem onClick={handleCheckoutClick}><CheckCircle className="mr-2" /> Checkout</DropdownMenuItem>
-        <DropdownMenuItem onClick={handleShareLink}><LinkIcon className="mr-2 h-4 w-4" /> Share Check-in Link</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => onPrintTicket({ appointment, client, service })}><TicketIcon className="mr-2" /> Print Ticket</DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => onEdit(appointment)}><Edit className="mr-2" /> Edit Details</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => onReschedule(appointment)}><Calendar className="mr-2" /> Reschedule</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => onRebook(appointment)}><Repeat className="mr-2 h-4 w-4" /> Rebook</DropdownMenuItem>
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger><Clock10 className="mr-2"/> Change Status</DropdownMenuSubTrigger>
-          <DropdownMenuPortal>
-            <DropdownMenuSubContent>
-              <DropdownMenuItem onClick={() => onUpdateStatus(appointment.id, 'confirmed')}>Confirmed</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onUpdateStatus(appointment.id, 'cancelled')}>Cancelled</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onUpdateStatus(appointment.id, 'deposit_pending')}>Awaiting Payment</DropdownMenuItem>
-            </DropdownMenuSubContent>
-          </DropdownMenuPortal>
-        </DropdownMenuSub>
-        <Separator />
-        <DropdownMenuItem className="text-destructive" onClick={() => onDelete(appointment.id)}><Trash2 className="mr-2" /> Delete Appointment</DropdownMenuItem>
-      </DropdownMenuContent>
-    );
-
-    if (isCompact) {
-      return (
-        <div
-          className={cn('p-2 border rounded-lg w-full h-full flex items-center justify-between cursor-pointer gap-2', statusDisplay[appointment.status]?.bgClassName, statusDisplay[appointment.status]?.className, hasPadBefore ? 'rounded-t-none' : '', hasPadAfter ? 'rounded-b-none' : '')}
-          onClick={handleCardClick}
-          data-is-event-card="true"
-        >
-          <div className="flex-1 min-w-0">
-            <p className="font-semibold text-xs leading-tight truncate flex items-center gap-1">
-                {isBirthday && (
-                    <TooltipProvider><Tooltip><TooltipTrigger><Cake className="h-4 w-4 text-pink-500" /></TooltipTrigger><TooltipContent><p>It's {client.name.split(' ')[0]}'s Birthday!</p></TooltipContent></Tooltip></TooltipProvider>
-                )}
-                {needsReconciliation && (
-                    <TooltipProvider><Tooltip><TooltipTrigger><AlertTriangle className="h-4 w-4 text-amber-500" /></TooltipTrigger><TooltipContent><p>Inventory not deducted.</p></TooltipContent></Tooltip></TooltipProvider>
-                )}
-              {client.name}
-            </p>
-            <p className="text-[11px] text-muted-foreground font-medium">{format(appointment.startTime, 'h:mm a')}</p>
-          </div>
-          
-          <div className="flex items-center gap-1 flex-shrink-0">
-            {appointment.status === 'ready_for_checkout' && (
-              <Button variant="ghost" size="icon" className="rounded-full bg-orange-100 dark:bg-orange-500/10 text-orange-600 dark:text-orange-300 h-7 w-7 hover:bg-orange-200 dark:hover:bg-orange-500/20" onClick={handleCheckoutClick}>
-                <DollarSign className="w-4 h-4" />
-              </Button>
-            )}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button aria-haspopup="true" size="icon" variant="ghost" className="h-7 w-7" onClick={(e) => e.stopPropagation()}>
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              {dropdownContent}
-            </DropdownMenu>
-          </div>
-        </div>
-      );
+  const handleCardClick = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button')) {
+      e.stopPropagation();
+      return;
     }
-    
-    return (
-        <div 
-            className={cn('p-2 border rounded-lg w-full h-full flex flex-col justify-between cursor-pointer', statusDisplay[appointment.status]?.bgClassName, statusDisplay[appointment.status]?.className, hasPadBefore ? 'rounded-t-none' : '', hasPadAfter ? 'rounded-b-none' : '')}
-            onClick={handleCardClick}
-            data-is-event-card="true"
-        >
-            <div className="flex items-start justify-between min-w-0">
-                <div className='flex-1 min-w-0'>
-                    <p className="font-semibold text-xs leading-tight truncate flex items-center gap-1.5">
-                      {appointment.isWalkIn && <Users className="h-3 w-3 text-muted-foreground" />}
-                      {isBirthday && (<TooltipProvider><Tooltip><TooltipTrigger><Cake className="h-4 w-4 text-pink-500" /></TooltipTrigger><TooltipContent><p>It's {client.name.split(' ')[0]}'s Birthday!</p></TooltipContent></Tooltip></TooltipProvider>)}
-                      {needsReconciliation && (
-                        <TooltipProvider><Tooltip><TooltipTrigger><AlertTriangle className="h-4 w-4 text-amber-500" /></TooltipTrigger><TooltipContent><p>Inventory not deducted for this appointment.</p></TooltipContent></Tooltip></TooltipProvider>
-                      )}
-                      {client.name}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground truncate">{serviceNameDisplay}</p>
-                </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button aria-haspopup="true" size="icon" variant="ghost" className="h-6 w-6 flex-shrink-0 -mr-1" onClick={(e) => e.stopPropagation()}><MoreHorizontal className="h-4 w-4" /></Button>
-                  </DropdownMenuTrigger>
-                  {dropdownContent}
-                </DropdownMenu>
-            </div>
-            <div className="flex items-end justify-between">
-                <div className="flex flex-col items-start gap-1">
-                    <p className="text-[10px] text-muted-foreground font-medium">{format(appointment.startTime, 'h:mm a')}</p>
-                     <div className="flex items-center gap-1 flex-wrap">
-                        <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[appointment.status]?.className, statusDisplay[appointment.status]?.bgClassName)}>
-                            {statusDisplay[appointment.status]?.text}
-                        </Badge>
-                        {appointment.checkInStatus === 'on_my_way' && (<Badge variant="outline" className="text-[10px] h-5 px-1.5 capitalize border-blue-500/30 text-blue-800 dark:text-blue-300 bg-blue-500/10"><Car className="w-3 h-3 mr-1" />On My Way</Badge>)}
-                        {appointment.checkInStatus === 'arrived' && (<Badge variant="outline" className="text-[10px] h-5 px-1.5 capitalize border-green-500/30 text-green-800 dark:text-green-300 bg-green-500/10"><CheckCircle className="w-3 h-3 mr-1" />Arrived</Badge>)}
-                        {appointment.checkInStatus === 'running_late' && (<Badge variant="destructive" className="text-[10px] h-5 px-1.5 capitalize"><AlertTriangle className="w-3 h-3 mr-1" />{appointment.lateTimeMinutes}m late</Badge>)}
-                    </div>
-                </div>
-                 {appointment.status === 'ready_for_checkout' && (
-                       <Button size="xs" className={cn('capitalize font-semibold h-7 px-2', statusDisplay[appointment.status]?.className, statusDisplay[appointment.status]?.bgClassName, 'hover:ring-2 hover:ring-offset-1 hover:ring-orange-500 hover:bg-orange-500/20')} onClick={handleCheckoutClick}>
-                         <DollarSign className="w-3 h-3 mr-1" />
-                         {statusDisplay[appointment.status]?.text}
-                       </Button>
-                    )}
-            </div>
-        </div>
-    );
-};
+    setIsDetailsOpen(true);
+  };
 
-
+  const handleCheckoutClick = (e: React.MouseEvent) => { e.stopPropagation(); onCompleteClick(appointment); };
+  
   const DialogOrSheet = isMobile ? Sheet : Dialog;
   const DialogOrSheetContent = isMobile ? SheetContent : DialogContent;
   const imageUrl = appointment.inspirationPhotoUrl || client.inspirationPhotoUrl;
@@ -622,7 +524,153 @@ export function AppointmentCard({
         <div style={{ height: beforeHeight }} className="bg-muted/30 rounded-t-lg flex items-center justify-center text-xs text-muted-foreground bg-[repeating-linear-gradient(-45deg,transparent,transparent_4px,hsl(var(--muted))_4px,hsl(var(--muted))_5px)]" />
       )}
       <div style={{ height: mainHeight }} className="min-h-fit">
-        <MainContent />
+        {isCompact ? (
+          <div
+            className={cn('p-2 border rounded-lg w-full h-full flex items-center justify-between cursor-pointer gap-2', statusDisplay[appointment.status]?.bgClassName, statusDisplay[appointment.status]?.className, hasPadBefore ? 'rounded-t-none' : '', hasPadAfter ? 'rounded-b-none' : '')}
+            onClick={handleCardClick}
+            data-is-event-card="true"
+          >
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-xs leading-tight truncate flex items-center gap-1">
+                {isBirthday && (
+                  <TooltipProvider><Tooltip><TooltipTrigger><Cake className="h-4 w-4 text-pink-500" /></TooltipTrigger><TooltipContent><p>It's {client.name.split(' ')[0]}'s Birthday!</p></TooltipContent></Tooltip></TooltipProvider>
+                )}
+                {appointment.inventoryProcessed === false && (
+                  <TooltipProvider><Tooltip><TooltipTrigger><AlertTriangle className="h-4 w-4 text-amber-500" /></TooltipTrigger><TooltipContent><p>Inventory not deducted.</p></TooltipContent></Tooltip></TooltipProvider>
+                )}
+                {client.name}
+              </p>
+              {appointment.status === 'servicing' && elapsedTime ? (
+                <p className="text-sm font-mono font-semibold text-yellow-600 dark:text-yellow-400">{elapsedTime}</p>
+              ) : (
+                <p className="text-[11px] text-muted-foreground font-medium">{format(appointment.startTime, 'h:mm a')}</p>
+              )}
+            </div>
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {appointment.status === 'ready_for_checkout' && (
+                <Button variant="ghost" size="icon" className="rounded-full bg-orange-100 dark:bg-orange-500/10 text-orange-600 dark:text-orange-300 h-7 w-7 hover:bg-orange-200 dark:hover:bg-orange-500/20" onClick={handleCheckoutClick}>
+                  <DollarSign className="w-4 h-4" />
+                </Button>
+              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button aria-haspopup="true" size="icon" variant="ghost" className="h-7 w-7" onClick={(e) => e.stopPropagation()}>
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
+                  <DropdownMenuItem onClick={() => setIsDetailsOpen(true)}><FileText className="mr-2" /> View Details</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {appointment.status === 'servicing' && (
+                    <DropdownMenuItem onClick={() => onUpdateFormula(appointment)}>
+                      <FlaskConical className="mr-2 h-4 w-4" />
+                      Update Formula
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onClick={handleCheckoutClick}><CheckCircle className="mr-2" /> Checkout</DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleShareLink}><LinkIcon className="mr-2 h-4 w-4" /> Share Check-in Link</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onPrintTicket({ appointment, client, service })}><TicketIcon className="mr-2" /> Print Ticket</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => onEdit(appointment)}><Edit className="mr-2" /> Edit Details</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onReschedule(appointment)}><Calendar className="mr-2" /> Reschedule</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onRebook(appointment)}><Repeat className="mr-2 h-4 w-4" /> Rebook</DropdownMenuItem>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger><Clock10 className="mr-2"/> Change Status</DropdownMenuSubTrigger>
+                    <DropdownMenuPortal>
+                      <DropdownMenuSubContent>
+                        <DropdownMenuItem onClick={() => onUpdateStatus(appointment.id, 'confirmed')}>Confirmed</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onUpdateStatus(appointment.id, 'cancelled')}>Cancelled</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onUpdateStatus(appointment.id, 'deposit_pending')}>Awaiting Payment</DropdownMenuItem>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuPortal>
+                  </DropdownMenuSub>
+                  <Separator />
+                  <DropdownMenuItem className="text-destructive" onClick={() => onDelete(appointment.id)}><Trash2 className="mr-2" /> Delete Appointment</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        ) : (
+          <div 
+              className={cn('p-2 border rounded-lg w-full h-full flex flex-col justify-between cursor-pointer', statusDisplay[appointment.status]?.bgClassName, statusDisplay[appointment.status]?.className, hasPadBefore ? 'rounded-t-none' : '', hasPadAfter ? 'rounded-b-none' : '')}
+              onClick={handleCardClick}
+              data-is-event-card="true"
+          >
+              <div className="flex items-start justify-between min-w-0">
+                  <div className='flex-1 min-w-0'>
+                      <p className="font-semibold text-xs leading-tight truncate flex items-center gap-1.5">
+                        {appointment.isWalkIn && <Users className="h-3 w-3 text-muted-foreground" />}
+                        {isBirthday && (<TooltipProvider><Tooltip><TooltipTrigger><Cake className="h-4 w-4 text-pink-500" /></TooltipTrigger><TooltipContent><p>It's {client.name.split(' ')[0]}'s Birthday!</p></TooltipContent></Tooltip></TooltipProvider>)}
+                        {appointment.inventoryProcessed === false && (
+                          <TooltipProvider><Tooltip><TooltipTrigger><AlertTriangle className="h-4 w-4 text-amber-500" /></TooltipTrigger><TooltipContent><p>Inventory not deducted for this appointment.</p></TooltipContent></Tooltip></TooltipProvider>
+                        )}
+                        {client.name}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground truncate">{serviceNameDisplay}</p>
+                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button aria-haspopup="true" size="icon" variant="ghost" className="h-6 w-6 flex-shrink-0 -mr-1" onClick={(e) => e.stopPropagation()}><MoreHorizontal className="h-4 w-4" /></Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
+                        <DropdownMenuItem onClick={() => setIsDetailsOpen(true)}><FileText className="mr-2" /> View Details</DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        {appointment.status === 'servicing' && (
+                          <DropdownMenuItem onClick={() => onUpdateFormula(appointment)}>
+                            <FlaskConical className="mr-2 h-4 w-4" />
+                            Update Formula
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuItem onClick={handleCheckoutClick}><CheckCircle className="mr-2" /> Checkout</DropdownMenuItem>
+                        <DropdownMenuItem onClick={handleShareLink}><LinkIcon className="mr-2 h-4 w-4" /> Share Check-in Link</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onPrintTicket({ appointment, client, service })}><TicketIcon className="mr-2" /> Print Ticket</DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => onEdit(appointment)}><Edit className="mr-2" /> Edit Details</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onReschedule(appointment)}><Calendar className="mr-2" /> Reschedule</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onRebook(appointment)}><Repeat className="mr-2 h-4 w-4" /> Rebook</DropdownMenuItem>
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger><Clock10 className="mr-2"/> Change Status</DropdownMenuSubTrigger>
+                          <DropdownMenuPortal>
+                            <DropdownMenuSubContent>
+                              <DropdownMenuItem onClick={() => onUpdateStatus(appointment.id, 'confirmed')}>Confirmed</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => onUpdateStatus(appointment.id, 'cancelled')}>Cancelled</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => onUpdateStatus(appointment.id, 'deposit_pending')}>Awaiting Payment</DropdownMenuItem>
+                            </DropdownMenuSubContent>
+                          </DropdownMenuPortal>
+                        </DropdownMenuSub>
+                        <Separator />
+                        <DropdownMenuItem className="text-destructive" onClick={() => onDelete(appointment.id)}><Trash2 className="mr-2" /> Delete Appointment</DropdownMenuItem>
+                      </DropdownMenuContent>
+                  </DropdownMenu>
+              </div>
+              
+              {appointment.status === 'servicing' && elapsedTime && (
+                <div className="flex-1 flex items-center justify-center">
+                    <p className="text-2xl font-bold font-mono text-yellow-700 dark:text-yellow-400">{elapsedTime}</p>
+                </div>
+              )}
+              
+              <div className="flex items-end justify-between">
+                  <div className="flex flex-col items-start gap-1">
+                      <p className="text-[10px] text-muted-foreground font-medium">{format(appointment.startTime, 'h:mm a')}</p>
+                       <div className="flex items-center gap-1 flex-wrap">
+                          <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[appointment.status]?.className, statusDisplay[appointment.status]?.bgClassName)}>
+                              {statusDisplay[appointment.status]?.text}
+                          </Badge>
+                          {appointment.checkInStatus === 'on_my_way' && (<Badge variant="outline" className="text-[10px] h-5 px-1.5 capitalize border-blue-500/30 text-blue-800 dark:text-blue-300 bg-blue-500/10"><Car className="w-3 h-3 mr-1" />On My Way</Badge>)}
+                          {appointment.checkInStatus === 'arrived' && (<Badge variant="outline" className="text-[10px] h-5 px-1.5 capitalize border-green-500/30 text-green-800 dark:text-green-300 bg-green-500/10"><CheckCircle className="w-3 h-3 mr-1" />Arrived</Badge>)}
+                          {appointment.checkInStatus === 'running_late' && (<Badge variant="destructive" className="text-[10px] h-5 px-1.5 capitalize"><AlertTriangle className="w-3 h-3 mr-1" />{appointment.lateTimeMinutes}m late</Badge>)}
+                      </div>
+                  </div>
+                   {appointment.status === 'ready_for_checkout' && (
+                         <Button size="xs" className={cn('capitalize font-semibold h-7 px-2', statusDisplay[appointment.status]?.className, statusDisplay[appointment.status]?.bgClassName, 'hover:ring-2 hover:ring-offset-1 hover:ring-orange-500 hover:bg-orange-500/20')} onClick={handleCheckoutClick}>
+                           <DollarSign className="w-3 h-3 mr-1" />
+                           {statusDisplay[appointment.status]?.text}
+                         </Button>
+                      )}
+              </div>
+          </div>
+        )}
       </div>
       {hasPadAfter && (
         <div style={{ height: afterHeight }} className="bg-muted/30 rounded-b-lg flex items-center justify-center text-xs text-muted-foreground bg-[repeating-linear-gradient(-45deg,transparent,transparent_4px,hsl(var(--muted))_4px,hsl(var(--muted))_5px)]" />
@@ -656,7 +704,6 @@ export function AppointmentCard({
             onBookNewForClient={onBookNewForClient}
             onStartService={onStartService}
             onFinishService={onFinishService}
-            elapsedTime={elapsedTime}
           />
         </DialogOrSheetContent>
       </DialogOrSheet>
@@ -676,3 +723,4 @@ export function AppointmentCard({
     </div>
   );
 }
+
