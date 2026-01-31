@@ -384,6 +384,7 @@ export default function ClientDetailPage() {
     });
     errorEmitter.emit('incident-reported', {
         clientName: client.name,
+        clientId: client.id,
         incidentType: incidentData.type,
     });
   };
@@ -862,3 +863,4 @@ export default function ClientDetailPage() {
     </div>
   );
 }
+

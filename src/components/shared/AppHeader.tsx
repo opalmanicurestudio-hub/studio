@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import {
@@ -207,12 +208,12 @@ export function AppHeader({ title }: { title?: string }) {
   }, [licenseNotifications, lowStockNotifications, expiredStockNotifications, billsDueSoonNotifications]);
   
   useEffect(() => {
-    const handleNewIncident = ({ clientName, incidentType }: { clientName: string, incidentType: string }) => {
+    const handleNewIncident = ({ clientName, clientId, incidentType }: { clientName: string, clientId: string, incidentType: string }) => {
       const newNotification: Notification = {
         id: `incident-${Date.now()}`,
         type: 'incident',
         message: `New incident for ${clientName}: ${incidentType}`,
-        link: '/clients', // Ideally link to the specific client
+        link: `/clients/${clientId}`,
         read: false,
         icon: <ShieldAlert className="h-4 w-4 text-orange-500" />,
       };
