@@ -147,7 +147,6 @@ function PlannerPageContent() {
 
   const [appointmentToRebook, setAppointmentToRebook] = useState<Appointment | null>(null);
   const [initialClientIdForNewApt, setInitialClientIdForNewApt] = useState<string>('');
-  const [newAppointmentSlot, setNewAppointmentSlot] = useState<{ startTime: Date; staffId: string } | null>(null);
 
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -443,14 +442,13 @@ function PlannerPageContent() {
     
     const {
       updatedInventory,
+      newCorrections,
+      receiptData,
+      incident,
       serviceStaffOverrides,
       tipAllocations,
-      retailItems,
       addOns,
       absorbedCost,
-      receiptData,
-      newCorrections,
-      incident,
       redeemedOffer,
       appliedDiscountId,
       discountAmount,
@@ -501,15 +499,15 @@ function PlannerPageContent() {
     });
 
     // 3. Retail Transactions
-    if (retailItems.length > 0 && inventory) {
-        const retailTotal = retailItems.reduce((acc, item) => {
+    if (data.retailItems.length > 0 && inventory) {
+        const retailTotal = data.retailItems.reduce((acc, item) => {
             const product = inventory.find(p => p.id === item.id);
             const price = product?.costPerUnit ? product.costPerUnit * 1.75 : 0;
             return acc + (item.quantity * price);
         }, 0);
         if (retailTotal > 0) {
             const newTransaction: Omit<Transaction, 'id' | 'date'> = {
-                description: `Retail Sale (${retailItems.length} items)`,
+                description: `Retail Sale (${data.retailItems.length} items)`,
                 clientOrVendor: (clients || []).find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
                 clientId: selectedAppointment.clientId,
                 type: 'income',
@@ -772,13 +770,6 @@ function PlannerPageContent() {
   const handleBookNewForClient = (clientId: string) => {
     setAppointmentToRebook(null);
     setInitialClientIdForNewApt(clientId);
-    setIsAddAppointmentOpen(true);
-  };
-
-  const handleTimeSlotClick = (startTime: Date, staffId: string) => {
-    setNewAppointmentSlot({ startTime, staffId });
-    setAppointmentToRebook(null);
-    setInitialClientIdForNewApt('');
     setIsAddAppointmentOpen(true);
   };
 
@@ -1323,7 +1314,7 @@ function PlannerPageContent() {
                 services={services}
                 resources={resources || []}
                 publicScheduleProfile={publicScheduleProfile}
-                onTimeSlotClick={handleTimeSlotClick}
+                onTimeSlotClick={() => {}}
             />
           )}
 
@@ -1390,14 +1381,11 @@ function PlannerPageContent() {
             if (!isOpen) {
                 setAppointmentToRebook(null);
                 setInitialClientIdForNewApt('');
-                setNewAppointmentSlot(null);
             }
             setIsAddAppointmentOpen(isOpen);
         }}
         initialClientId={appointmentToRebook ? appointmentToRebook.clientId : initialClientIdForNewApt}
         appointmentToRebook={appointmentToRebook}
-        initialStartTime={newAppointmentSlot?.startTime}
-        initialStaffId={newAppointmentSlot?.staffId}
         onConfirm={handleAddAppointment}
       />
        {selectedAppointment && (
@@ -1536,7 +1524,7 @@ function PlannerPageContent() {
         <AlertDialog open={!!startConfirmAppointment} onOpenChange={(open) => !open && setStartConfirmAppointment(null)}>
             <AlertDialogContent>
                 <AlertDialogHeader>
-                    <AlertDialogTitle>Start Service?</AlertDialogTitle>
+                    <AlertDialogTitle>Are you sure you want to start this service?</AlertDialogTitle>
                     <AlertDialogDescription>
                         This will mark the appointment as &quot;In Service&quot; and log the current time as the actual start time.
                     </AlertDialogDescription>

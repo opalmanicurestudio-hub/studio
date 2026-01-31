@@ -95,7 +95,6 @@ export const DayTimeline = ({
     services,
     resources,
     publicScheduleProfile,
-    onTimeSlotClick,
 }: { 
     date: Date; 
     columns: (Staff | Resource)[];
@@ -123,7 +122,6 @@ export const DayTimeline = ({
     services: Service[] | null;
     resources: Resource[];
     publicScheduleProfile: any;
-    onTimeSlotClick: (startTime: Date, staffId: string) => void;
 }) => {
     const START_HOUR = 0; // Start at midnight
     const hours = Array.from({ length: 24 - START_HOUR }, (_, i) => i + START_HOUR);
@@ -207,26 +205,6 @@ export const DayTimeline = ({
         }
         return positionedMap;
     }, [itemsByColumn, isMobile]);
-    
-    const handleEmptySlotClick = (e: React.MouseEvent<HTMLDivElement>, columnId: string) => {
-        // only trigger if clicking on the background div, not on an existing event card.
-        if ((e.target as HTMLElement).closest('[data-is-event-card="true"]')) {
-          return;
-        }
-    
-        const rect = e.currentTarget.getBoundingClientRect();
-        const offsetY = e.clientY - rect.top;
-        
-        // The grid is 160px per hour
-        const minutesFromStartOfDay = (offsetY / 160) * 60;
-    
-        const interval = publicScheduleProfile?.bookingSlotInterval || 15;
-        const snappedMinutes = Math.round(minutesFromStartOfDay / interval) * interval;
-    
-        const clickedTime = addMinutes(startOfDay(date), snappedMinutes);
-    
-        onTimeSlotClick(clickedTime, columnId);
-      }
 
 
     const renderAppointment = (item: any) => {
@@ -403,7 +381,7 @@ export const DayTimeline = ({
                     {columns.map(column => {
                         const positionedItems = positionedItemsByColumn.get(column.id) || [];
                         return (
-                            <div key={column.id} className="relative border-r cursor-pointer" onClick={(e) => handleEmptySlotClick(e, column.id)}>
+                            <div key={column.id} className="relative border-r">
                                 {/* Grid lines */}
                                 {hours.map(hour => (
                                     <div key={hour} className="h-40 border-b border-dashed" />

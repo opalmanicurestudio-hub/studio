@@ -75,6 +75,16 @@ import {
   SheetTrigger,
   SheetFooter
 } from '@/components/ui/sheet';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -88,6 +98,7 @@ import { type TicketData } from './PrintTicket';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import { useInventory } from '@/context/InventoryContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 
 interface AppointmentDetailsProps {
     appointment: Appointment;
@@ -154,8 +165,10 @@ const AppointmentDetails = ({
     onFinishService,
 }: AppointmentDetailsProps) => {
     const { toast } = useToast();
+    const [isFinishConfirmOpen, setIsFinishConfirmOpen] = useState(false);
 
   return (
+    <>
     <ScrollArea className="h-[80vh] p-6">
         <div className="space-y-6">
             
@@ -165,7 +178,7 @@ const AppointmentDetails = ({
                 </Button>
             )}
             {appointment.status === 'servicing' && (
-                 <Button onClick={() => onFinishService(appointment)} className="w-full" size="lg">
+                 <Button onClick={() => setIsFinishConfirmOpen(true)} className="w-full" size="lg">
                     <Square className="mr-2 h-4 w-4" /> Finish Service
                 </Button>
             )}
@@ -319,6 +332,26 @@ const AppointmentDetails = ({
             </div>
         </div>
     </ScrollArea>
+    <AlertDialog open={isFinishConfirmOpen} onOpenChange={setIsFinishConfirmOpen}>
+        <AlertDialogContent>
+            <AlertDialogHeader>
+                <AlertDialogTitle>Are you sure you want to finish this service?</AlertDialogTitle>
+                <AlertDialogDescription>
+                    This will stop the timer and mark the service as ready for checkout.
+                </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={() => {
+                    onFinishService(appointment);
+                    setIsFinishConfirmOpen(false);
+                }}>
+                    Yes, Finish Service
+                </AlertDialogAction>
+            </AlertDialogFooter>
+        </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 }
 
@@ -354,7 +387,10 @@ export function AppointmentCard({
     let timer: NodeJS.Timeout | undefined;
 
     if (appointment.status === 'servicing' && appointment.actualStartTime) {
-      const startTime = parseISO(appointment.actualStartTime);
+      const startTime = typeof appointment.actualStartTime === 'string'
+        ? parseISO(appointment.actualStartTime)
+        : appointment.actualStartTime;
+        
       const interval = setInterval(() => {
         const now = new Date();
         const diffInSeconds = differenceInSeconds(now, startTime);

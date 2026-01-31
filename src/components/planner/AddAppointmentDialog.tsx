@@ -69,8 +69,6 @@ interface AddAppointmentDialogProps {
   onConfirm: (apt: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date, recurrence?: { frequency: string, endDate: Date }}) => void;
   initialClientId?: string;
   appointmentToRebook?: Appointment | null;
-  initialStartTime?: Date;
-  initialStaffId?: string;
 }
 
 const timeStringToDate = (timeStr: string, date: Date): Date => {
@@ -99,9 +97,7 @@ const AddAppointmentForm = ({
     onConfirm,
     initialClientId,
     appointmentToRebook,
-    initialStartTime,
-    initialStaffId
-}: Omit<AddAppointmentDialogProps, 'open' | 'onOpenChange'> & { initialStartTime?: Date, initialStaffId?: string }) => {
+}: Omit<AddAppointmentDialogProps, 'open' | 'onOpenChange'>) => {
     const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
     const tenantId = selectedTenant?.id;
@@ -159,9 +155,9 @@ const AddAppointmentForm = ({
             const defaultValues = {
                 clientId: appointmentToRebook ? appointmentToRebook.clientId : initialClientId || '',
                 serviceId: appointmentToRebook ? appointmentToRebook.serviceId : '',
-                staffId: appointmentToRebook ? (appointmentToRebook.staffId || staff[0]?.id || '') : (initialStaffId || staff[0]?.id || ''),
-                date: appointmentToRebook ? new Date(appointmentToRebook.startTime) : (initialStartTime || new Date()),
-                startTime: appointmentToRebook ? format(new Date(appointmentToRebook.startTime), 'HH:mm') : (initialStartTime ? format(initialStartTime, 'HH:mm') : ''),
+                staffId: appointmentToRebook ? (appointmentToRebook.staffId || staff[0]?.id || '') : (staff[0]?.id || ''),
+                date: appointmentToRebook ? new Date(appointmentToRebook.startTime) : new Date(),
+                startTime: appointmentToRebook ? format(new Date(appointmentToRebook.startTime), 'HH:mm') : '',
                 addOnIds: appointmentToRebook ? (appointmentToRebook.addOnIds || []) : [],
                 isRecurring: false,
                 recurrence: {
@@ -171,7 +167,7 @@ const AddAppointmentForm = ({
             };
             reset(defaultValues);
         }
-    }, [staff, staffLoading, appointmentToRebook, initialClientId, initialStartTime, initialStaffId, reset]);
+    }, [staff, staffLoading, appointmentToRebook, initialClientId, reset]);
 
     const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
     const [isOverlapping, setIsOverlapping] = useState(false);
@@ -429,7 +425,7 @@ const AddAppointmentForm = ({
 
                     <div className="space-y-4">
                         <h3 className="text-lg font-medium">Add-on Services</h3>
-                        {selectedAddOns && selectedAddOns.length > 0 ? (
+                        {selectedAddOns.length > 0 ? (
                             <Card><CardContent className="p-2 space-y-2">{selectedAddOns.map(item => (<div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50"><span className="text-sm font-medium">{item.name}</span><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}</CardContent></Card>
                         ) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No add-ons selected.</CardContent></Card>)}
                         <Button variant="outline" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button>
@@ -527,12 +523,12 @@ const AddAppointmentForm = ({
     )
 }
 
-export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, onConfirm, initialClientId, appointmentToRebook, initialStartTime, initialStaffId }) => {
+export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open, onOpenChange, onConfirm, initialClientId, appointmentToRebook }) => {
   const isMobile = useIsMobile();
 
   const formKey = useMemo(() => {
-    return appointmentToRebook ? `rebook-${appointmentToRebook.id}` : `new-${initialClientId || initialStaffId ||'fresh'}`;
-  }, [appointmentToRebook, initialClientId, initialStaffId]);
+    return appointmentToRebook ? `rebook-${appointmentToRebook.id}` : `new-${initialClientId || 'fresh'}`;
+  }, [appointmentToRebook, initialClientId]);
 
   const title = "New Appointment";
   const description = "Book a new appointment for a client.";
@@ -542,8 +538,6 @@ export const AddAppointmentDialog: React.FC<AddAppointmentDialogProps> = ({ open
     onConfirm={onConfirm} 
     initialClientId={initialClientId} 
     appointmentToRebook={appointmentToRebook}
-    initialStartTime={initialStartTime}
-    initialStaffId={initialStaffId}
     />;
 
   if (isMobile) {
