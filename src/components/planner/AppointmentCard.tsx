@@ -57,7 +57,6 @@ import {
   DropdownMenuPortal,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  DropdownMenuSubTrigger
 } from '@/components/ui/dropdown-menu';
 import {
   Dialog,
@@ -140,7 +139,6 @@ interface AppointmentCardProps {
   onStartService: (appointmentId: string) => void;
   onFinishService: (appointment: Appointment) => void;
   onBookNewForClient: (clientId: string) => void;
-  onUpdateFormula: (appointment: Appointment) => void;
 }
 
 const AppointmentDetails = ({
@@ -301,8 +299,8 @@ const AppointmentDetails = ({
                 </div>
               <div className="text-xs space-y-2 text-muted-foreground pt-2">
                  <div className="flex justify-between items-center"><span className="flex items-center gap-1.5"><Clock className="w-3 h-3"/>Time Cost</span> <span className='font-mono'>${timeCost.toFixed(2)}</span></div>
-                 <div className="flex justify-between items-center"><span className="flex items-center gap-1.5"><Briefcase className="w-3 h-3"/>Product Cost</span> <span className='font-mono'>${productCost.toFixed(2)}</span></div>
-                 <div className="flex justify-between items-center"><span className="flex items-center gap-1.5"><Briefcase className="w-3 h-3"/>Equipment Cost</span> <span className='font-mono'>${equipmentCost.toFixed(2)}</span></div>
+                 <div className="flex justify-between items-center"><span className="flex items-center gap-1.5"><Briefcase className="w-3 h-3"/>Product Cost</span> <span className='font-mono'>${productCost.toFixed(3)}</span></div>
+                 <div className="flex justify-between items-center"><span className="flex items-center gap-1.5"><Briefcase className="w-3 h-3"/>Equipment Cost</span> <span className='font-mono'>${equipmentCost.toFixed(3)}</span></div>
               </div>
             </div>
             
@@ -350,6 +348,7 @@ const AppointmentDetails = ({
                 </AlertDialogAction>
             </AlertDialogFooter>
         </AlertDialogContent>
+    </AlertDialog>
     </>
   )
 }
@@ -372,7 +371,6 @@ export function AppointmentCard({
   onStartService,
   onFinishService,
   onBookNewForClient,
-  onUpdateFormula,
 }: AppointmentCardProps) {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
@@ -415,6 +413,7 @@ export function AppointmentCard({
       }
     };
   }, [appointment.status, appointment.actualStartTime]);
+
 
   const scheduledDuration = useMemo(() => {
     if (!appointment.startTime || !appointment.endTime) return 0;
@@ -604,12 +603,6 @@ export function AppointmentCard({
                 <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
                   <DropdownMenuItem onClick={() => setIsDetailsOpen(true)}><FileText className="mr-2" /> View Details</DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  {appointment.status === 'servicing' && (
-                    <DropdownMenuItem onClick={() => onUpdateFormula(appointment)}>
-                      <FlaskConical className="mr-2 h-4 w-4" />
-                      Update Formula
-                    </DropdownMenuItem>
-                  )}
                   <DropdownMenuItem onClick={handleCheckoutClick}><CheckCircle className="mr-2" /> Checkout</DropdownMenuItem>
                   <DropdownMenuItem onClick={handleShareLink}><LinkIcon className="mr-2 h-4 w-4" /> Share Check-in Link</DropdownMenuItem>
                   <DropdownMenuItem onClick={() => onPrintTicket({ appointment, client, service })}><TicketIcon className="mr-2" /> Print Ticket</DropdownMenuItem>
@@ -658,12 +651,6 @@ export function AppointmentCard({
                     <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
                         <DropdownMenuItem onClick={() => setIsDetailsOpen(true)}><FileText className="mr-2" /> View Details</DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        {appointment.status === 'servicing' && (
-                          <DropdownMenuItem onClick={() => onUpdateFormula(appointment)}>
-                            <FlaskConical className="mr-2 h-4 w-4" />
-                            Update Formula
-                          </DropdownMenuItem>
-                        )}
                         <DropdownMenuItem onClick={handleCheckoutClick}><CheckCircle className="mr-2" /> Checkout</DropdownMenuItem>
                         <DropdownMenuItem onClick={handleShareLink}><LinkIcon className="mr-2 h-4 w-4" /> Share Check-in Link</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => onPrintTicket({ appointment, client, service })}><TicketIcon className="mr-2" /> Print Ticket</DropdownMenuItem>
