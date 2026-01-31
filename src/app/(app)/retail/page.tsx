@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
@@ -710,25 +711,24 @@ export default function RetailPage() {
                 });
             }
         }
-    } else if (data.startsWith('clarityflow://walk-in/')) {
-      const walkInId = data.split('/').pop();
-      const appointmentId = `apt-walkin-${walkInId}`;
-      const appointmentToCheckout = liveAppointments.find(apt => apt.id === appointmentId);
-
-      if (appointmentToCheckout && appointmentToCheckout.status === 'ready_for_checkout') {
-        setCheckoutAppointment(appointmentToCheckout);
-      } else if (appointmentToCheckout) {
-        toast({
-          title: 'Appointment Not Ready',
-          description: "This appointment is not yet marked as ready for checkout.",
-        });
-      } else {
-        toast({
-            variant: 'destructive',
-            title: 'Appointment Not Found',
-            description: 'Could not find a matching walk-in appointment.',
-        });
-      }
+    } else if (data.startsWith('clarityflow://checkout/')) {
+        const appointmentId = data.split('/').pop();
+        const appointmentToCheckout = liveAppointments.find(apt => apt.id === appointmentId);
+        
+        if (appointmentToCheckout && appointmentToCheckout.status === 'ready_for_checkout') {
+            setCheckoutAppointment(appointmentToCheckout);
+        } else if (appointmentToCheckout) {
+          toast({
+            title: 'Appointment Not Ready',
+            description: "This appointment is not yet marked as ready for checkout.",
+          });
+        } else {
+            toast({
+                variant: 'destructive',
+                title: 'Appointment Not Found',
+                description: 'Could not find a matching appointment.',
+            });
+        }
     } else {
         toast({
             variant: 'destructive',
@@ -912,7 +912,7 @@ export default function RetailPage() {
   const handleDenominationClick = (amount: number) => {
     setAmountTendered(prev => prev + amount);
   };
-
+  
   const handleKeepTheChange = () => {
     if (changeDue > 0) {
         setTipAmount(prevTip => prevTip + changeDue);
@@ -1063,7 +1063,7 @@ export default function RetailPage() {
       name: data.name,
       email: data.email || '',
       phone: data.phone || '',
-      avatarUrl: data.avatarUrl || `https://picsum.photos/seed/${nanoid()}/100`,
+      avatarUrl: `https://picsum.photos/seed/${nanoid()}/100`,
       lifetimeValue: 0,
       lastAppointment: new Date().toISOString(),
       status: 'active',
@@ -1354,16 +1354,7 @@ export default function RetailPage() {
             </DialogFooter>
         </DialogContent>
       </Dialog>
-      <BrowseDiscountsDialog
-        open={isDiscountBrowserOpen}
-        onOpenChange={setIsDiscountBrowserOpen}
-        onSelect={(code) => {
-            setPromoCode(code);
-            handleApplyPromo(code);
-        }}
-        allDiscounts={discounts}
-        cartServiceIds={[]}
-    />
+      <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts} onSelect={(code) => { setPromoCode(code); handleApplyPromo(code); }} cartServiceIds={[]} />
     </>
   );
 }

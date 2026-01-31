@@ -521,7 +521,8 @@
         "clientId",
         "serviceId",
         "startTime",
-        "endTime"
+        "endTime",
+        "source"
       ]
     },
     "WalkIn": {
@@ -1104,6 +1105,4 @@
     }
   }
 }
-    
-
     

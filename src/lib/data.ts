@@ -292,7 +292,7 @@ export type Appointment = {
   startTime: any;
   endTime: any;
   status: 'confirmed' | 'completed' | 'cancelled' | 'deposit_pending' | 'ready_for_checkout' | 'servicing';
-  source?: 'online' | 'walk-in' | 'manual';
+  source: 'online' | 'walk-in' | 'manual';
   addOnIds?: string[];
   inspirationPhotoUrl?: string;
   absorbedCost?: number;
@@ -1028,9 +1028,9 @@ export const services: Service[] = [
 const today = new Date();
 export const appointments: Appointment[] = [
   // Today's appointments
-  { id: 'apt-0', tenantId: 'tenant-abc', clientId: 'cli-4', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 8), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 8), 50).toISOString(), status: 'completed', absorbedCost: 0, staffId: 'staff-1', isWalkIn: false, actualStartTime: setMinutes(setHours(startOfDay(today), 8), 2).toISOString(), actualEndTime: setMinutes(setHours(startOfDay(today), 8), 55).toISOString(), checkInToken: 'abc' },
-  { id: 'apt-1', tenantId: 'tenant-abc', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today,1)), 9), 30).toISOString(), endTime: setMinutes(setHours(startOfDay(subDays(today,1)), 10), 20).toISOString(), status: 'confirmed', inspirationPhotoUrl: 'https://images.unsplash.com/photo-1596796242339-3c368369b139?w=400', absorbedCost: 0, checkInToken: 'def' },
-  { id: 'apt-2', tenantId: 'tenant-abc', clientId: 'cli-2', serviceId: 'svc-7', startTime: setMinutes(setHours(startOfDay(today), 11), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 12), 30).toISOString(), status: 'completed', addOnIds: ['svc-addon-1'], absorbedCost: 0, staffId: 'staff-2', checkInToken: 'ghi', requiredResourceIds: ['res-3'] },
+  { id: 'apt-0', tenantId: 'tenant-abc', clientId: 'cli-4', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 8), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 8), 50).toISOString(), status: 'completed', absorbedCost: 0, staffId: 'staff-1', isWalkIn: false, actualStartTime: setMinutes(setHours(startOfDay(today), 8), 2).toISOString(), actualEndTime: setMinutes(setHours(startOfDay(today), 8), 55).toISOString(), checkInToken: 'abc', source: 'manual' },
+  { id: 'apt-1', tenantId: 'tenant-abc', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today,1)), 9), 30).toISOString(), endTime: setMinutes(setHours(startOfDay(subDays(today,1)), 10), 20).toISOString(), status: 'confirmed', inspirationPhotoUrl: 'https://images.unsplash.com/photo-1596796242339-3c368369b139?w=400', absorbedCost: 0, checkInToken: 'def', source: 'online' },
+  { id: 'apt-2', tenantId: 'tenant-abc', clientId: 'cli-2', serviceId: 'svc-7', startTime: setMinutes(setHours(startOfDay(today), 11), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 12), 30).toISOString(), status: 'completed', addOnIds: ['svc-addon-1'], absorbedCost: 0, staffId: 'staff-2', checkInToken: 'ghi', requiredResourceIds: ['res-3'], source: 'online' },
   { 
     id: 'apt-walkin-test', 
     tenantId: 'tenant-abc',
@@ -1041,18 +1041,19 @@ export const appointments: Appointment[] = [
     status: 'ready_for_checkout',
     isWalkIn: true, 
     staffId: 'staff-1',
-    checkInToken: 'jkl' 
+    checkInToken: 'jkl',
+    source: 'walk-in',
   },
-  { id: 'apt-6', tenantId: 'tenant-abc', clientId: 'cli-2', serviceId: 'svc-7', startTime: setMinutes(setHours(startOfDay(today), 14), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 15), 30).toISOString(), status: 'confirmed', absorbedCost: 0, staffId: 'staff-1', checkInToken: 'mno', requiredResourceIds: ['res-3'] },
-  { id: 'apt-3', tenantId: 'tenant-abc', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 15), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 15), 50).toISOString(), status: 'confirmed', absorbedCost: 0, checkInToken: 'pqr' },
-  { id: 'apt-5', tenantId: 'tenant-abc', clientId: 'cli-5', serviceId: 'svc-4', startTime: setMinutes(setHours(startOfDay(today), 16), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 17), 15).toISOString(), status: 'confirmed', absorbedCost: 0, staffId: 'staff-2', checkInToken: 'stu', requiredResourceIds: ['res-1'] },
+  { id: 'apt-6', tenantId: 'tenant-abc', clientId: 'cli-2', serviceId: 'svc-7', startTime: setMinutes(setHours(startOfDay(today), 14), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 15), 30).toISOString(), status: 'confirmed', absorbedCost: 0, staffId: 'staff-1', checkInToken: 'mno', requiredResourceIds: ['res-3'], source: 'manual' },
+  { id: 'apt-3', tenantId: 'tenant-abc', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(today), 15), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 15), 50).toISOString(), status: 'confirmed', absorbedCost: 0, checkInToken: 'pqr', source: 'manual' },
+  { id: 'apt-5', tenantId: 'tenant-abc', clientId: 'cli-5', serviceId: 'svc-4', startTime: setMinutes(setHours(startOfDay(today), 16), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(today), 17), 15).toISOString(), status: 'confirmed', absorbedCost: 0, staffId: 'staff-2', checkInToken: 'stu', requiredResourceIds: ['res-1'], source: 'online' },
 
   // Past appointments
-  { id: 'apt-4', tenantId: 'tenant-abc', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today, 2)), 10), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(subDays(today,2)), 10), 50).toISOString(), status: 'completed', absorbedCost: 0, staffId: 'staff-1', actualStartTime: setMinutes(setHours(startOfDay(subDays(today, 2)), 10), 5).toISOString(), actualEndTime: setMinutes(setHours(startOfDay(subDays(today,2)), 11), 0).toISOString(), checkInToken: 'vwx' },
+  { id: 'apt-4', tenantId: 'tenant-abc', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(subDays(today, 2)), 10), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(subDays(today,2)), 10), 50).toISOString(), status: 'completed', absorbedCost: 0, staffId: 'staff-1', actualStartTime: setMinutes(setHours(startOfDay(subDays(today, 2)), 10), 5).toISOString(), actualEndTime: setMinutes(setHours(startOfDay(subDays(today,2)), 11), 0).toISOString(), checkInToken: 'vwx', source: 'online' },
   
   // Future appointments
-  { id: 'apt-7', tenantId: 'tenant-abc', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 11), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 11), 50).toISOString(), status: 'confirmed', absorbedCost: 0, checkInToken: 'yz0' },
-  { id: 'apt-8', tenantId: 'tenant-abc', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(addDays(today, 3)), 10), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(addDays(today, 3)), 10), 50).toISOString(), status: 'confirmed', absorbedCost: 0, staffId: 'staff-1', checkInToken: '123' },
+  { id: 'apt-7', tenantId: 'tenant-abc', clientId: 'cli-3', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 11), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(addDays(today, 1)), 11), 50).toISOString(), status: 'confirmed', absorbedCost: 0, checkInToken: 'yz0', source: 'manual' },
+  { id: 'apt-8', tenantId: 'tenant-abc', clientId: 'cli-1', serviceId: 'svc-1', startTime: setMinutes(setHours(startOfDay(addDays(today, 3)), 10), 0).toISOString(), endTime: setMinutes(setHours(startOfDay(addDays(today, 3)), 10), 50).toISOString(), status: 'confirmed', absorbedCost: 0, staffId: 'staff-1', checkInToken: '123', source: 'online' },
 ];
 
 export const events: Event[] = [

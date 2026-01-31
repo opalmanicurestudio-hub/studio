@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -686,7 +687,8 @@ function PlannerPageContent() {
                 endTime: currentEndTime.toISOString(),
                 checkInToken: checkInToken,
                 recurrenceId: recurrenceId,
-                source: 'manual'
+                source: 'manual',
+                tenantId: tenantId,
             };
             batch.set(appointmentRef, appointmentToSave);
 
@@ -731,7 +733,7 @@ function PlannerPageContent() {
             checkInToken: checkInToken,
             startTime: baseAppointment.startTime.toISOString(),
             endTime: baseAppointment.endTime.toISOString(),
-            source: 'manual'
+            source: 'manual' as const,
         };
         
         await setDoc(appointmentRef, appointmentToSave);
@@ -1327,7 +1329,6 @@ function PlannerPageContent() {
                 services={services}
                 resources={resources || []}
                 publicScheduleProfile={publicScheduleProfile}
-                onTimeSlotClick={() => {}}
             />
           )}
 
@@ -1359,7 +1360,6 @@ function PlannerPageContent() {
                 services={services}
                 resources={resources || []}
                 publicScheduleProfile={publicScheduleProfile}
-                onTimeSlotClick={() => {}} // Not implemented for resource view
             />
           )}
       </main>
@@ -1573,4 +1573,3 @@ export default function PlannerPageWrapper() {
   )
 }
 
-    
