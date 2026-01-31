@@ -517,7 +517,15 @@ export default function ProductDetailPage() {
                                                         <TableCell>
                                                             <div className="flex items-center gap-2">
                                                                 <CorrectionIcon reason={correction.reason} />
-                                                                <span>{correction.reason}</span>
+                                                                <span>
+                                                                    {(() => {
+                                                                        if (correction.reason.startsWith('Appointment #')) {
+                                                                            const parts = correction.reason.split(' by ');
+                                                                            return `Service via ${parts[1] || 'Unknown'}`;
+                                                                        }
+                                                                        return correction.reason;
+                                                                    })()}
+                                                                </span>
                                                             </div>
                                                         </TableCell>
                                                         <TableCell className={cn('text-right font-mono', correction.change > 0 ? 'text-green-500' : 'text-red-500')}>
