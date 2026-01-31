@@ -349,8 +349,9 @@ const AppointmentDetails = ({
                 </AlertDialogAction>
             </AlertDialogFooter>
         </AlertDialogContent>
+    </AlertDialog>
     </>
-  )
+  );
 }
 
 export function AppointmentCard({
@@ -580,7 +581,7 @@ export function AppointmentCard({
           >
             <div className="flex-1 min-w-0">
                 <p className="font-semibold text-xs leading-tight truncate">
-                    {client.name} &middot; {service.name}
+                  <span className="font-bold">{client.name}</span> &middot; <span className="text-muted-foreground">{service.name}</span>
                 </p>
                 {appointment.status === 'servicing' && elapsedTime ? (
                     <p className="text-sm font-mono font-semibold text-yellow-600 dark:text-yellow-400">{elapsedTime}</p>
