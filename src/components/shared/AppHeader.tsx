@@ -24,9 +24,20 @@ import { useTenant } from '@/context/TenantContext';
 import { Skeleton } from '../ui/skeleton';
 import { cn } from '@/lib/utils';
 import { useUser } from '@/firebase';
+import { errorEmitter } from '@/firebase/error-emitter';
+
+type Notification = {
+    id: number | string;
+    type: string;
+    message: string;
+    link: string;
+    read: boolean;
+    icon: React.ReactNode;
+};
+
 
 // Mock data for notifications
-const baseNotifications = [
+const baseNotifications: Notification[] = [
     { id: 1, type: 'stock', message: "Low Stock Alert: 'Red Nail Polish' is at 2 units.", link: '/inventory', read: false, icon: <PackageX className="h-4 w-4 text-destructive" /> },
     { id: 2, type: 'appointment', message: "New Appointment: Eleanor Vance booked 'Classic Manicure'.", link: '/planner', read: false, icon: <Calendar className="h-4 w-4 text-primary" /> },
     { id: 3, type: 'bill', message: "Bill Due Soon: 'Studio Rent' is due in 3 days.", link: '/bills', read: true, icon: <Landmark className="h-4 w-4 text-orange-500" /> },
@@ -115,7 +126,7 @@ export function AppHeader({ title }: { title?: string }) {
     }).filter((n): n is NonNullable<typeof n> => n !== null);
   }, [staff]);
 
-  const [notifications, setNotifications] = useState<(typeof baseNotifications[0] | typeof licenseNotifications[0])[]>(baseNotifications);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   
   useEffect(() => {
     const allNotifs = [...licenseNotifications, ...baseNotifications];
@@ -123,6 +134,25 @@ export function AppHeader({ title }: { title?: string }) {
     setNotifications(uniqueNotifs);
   }, [licenseNotifications]);
 
+  useEffect(() => {
+    const handleNewIncident = ({ clientName, incidentType }: { clientName: string, incidentType: string }) => {
+      const newNotification: Notification = {
+        id: `incident-${Date.now()}`,
+        type: 'incident',
+        message: `New incident for ${clientName}: ${incidentType}`,
+        link: '/clients', // Ideally link to the specific client
+        read: false,
+        icon: <ShieldAlert className="h-4 w-4 text-orange-500" />,
+      };
+      setNotifications(prev => [newNotification, ...prev]);
+    };
+    
+    errorEmitter.on('incident-reported', handleNewIncident);
+    
+    return () => {
+      errorEmitter.off('incident-reported', handleNewIncident);
+    }
+  }, []);
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
