@@ -431,6 +431,10 @@
         "id": {
           "type": "string"
         },
+        "tenantId": {
+            "type": "string",
+            "description": "The ID of the tenant this appointment belongs to."
+        },
         "clientId": {
           "type": "string"
         },
@@ -513,6 +517,7 @@
       },
       "required": [
         "id",
+        "tenantId",
         "clientId",
         "serviceId",
         "startTime",
@@ -1099,4 +1104,6 @@
     }
   }
 }
+    
+
     
