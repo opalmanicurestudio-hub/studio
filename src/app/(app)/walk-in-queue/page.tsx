@@ -889,6 +889,39 @@ export default function WalkInQueuePage() {
     }
   }, [firestore, tenantId, walkIns, staff, services, clients, toast]);
 
+    const nextUpStaffId = useMemo(() => {
+    if (!activeStaff || !events) return null;
+    const now = new Date();
+    
+    const idleStaff = activeStaff.filter(s => {
+        if (s.status !== 'idle' || s.onBreak) return false;
+        
+        const isEventBlocked = events.some(event => {
+            if (event.type !== 'blocked') return false;
+            return areIntervalsOverlapping({ start: now, end: addMinutes(now, 1) }, { start: event.startTime, end: event.endTime }) && (!event.staffId || event.staffId === 'all' || event.staffId === s.id);
+        });
+        
+        return !isEventBlocked;
+    });
+
+    if (idleStaff.length === 0) return null;
+
+    if (assignmentMode === 'automatic') {
+        const sortedIdleStaff = idleStaff.sort((a, b) =>
+        (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) -
+        (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0)
+        );
+        return sortedIdleStaff[0]?.id;
+    } else { // 'ordered'
+        for (const orderedStaffMember of staffOrder) {
+            if (idleStaff.some(s => s.id === orderedStaffMember.id)) {
+                return orderedStaffMember.id;
+            }
+        }
+        return null;
+    }
+  }, [activeStaff, assignmentMode, staffOrder, events]);
+
     const handleStartServiceFromNotified = useCallback((walkIn: WalkIn) => {
     if (!activeStaff || !services || !events || !appointments || !resources || !nextUpStaffId) return;
     
@@ -972,39 +1005,6 @@ export default function WalkInQueuePage() {
     }
     setWalkInToAssign(null);
   };
-
-  const nextUpStaffId = useMemo(() => {
-    if (!activeStaff || !events) return null;
-    const now = new Date();
-    
-    const idleStaff = activeStaff.filter(s => {
-        if (s.status !== 'idle' || s.onBreak) return false;
-        
-        const isBlocked = events.some(event => {
-            if (event.type !== 'blocked') return false;
-            return areIntervalsOverlapping({ start: now, end: addMinutes(now, 1) }, { start: event.startTime, end: event.endTime }) && (!event.staffId || event.staffId === 'all' || event.staffId === s.id);
-        });
-        
-        return !isBlocked;
-    });
-
-    if (idleStaff.length === 0) return null;
-
-    if (assignmentMode === 'automatic') {
-        const sortedIdleStaff = idleStaff.sort((a, b) =>
-        (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) -
-        (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0)
-        );
-        return sortedIdleStaff[0]?.id;
-    } else { // 'ordered'
-        for (const orderedStaffMember of staffOrder) {
-            if (idleStaff.some(s => s.id === orderedStaffMember.id)) {
-                return orderedStaffMember.id;
-            }
-        }
-        return null;
-    }
-  }, [activeStaff, assignmentMode, staffOrder, events]);
 
 
   const waitingQueue = useMemo(() => {
@@ -1702,5 +1702,7 @@ export default function WalkInQueuePage() {
     
 
 
+
+    
 
     
