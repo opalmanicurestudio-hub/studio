@@ -350,7 +350,6 @@ const AppointmentDetails = ({
                 </AlertDialogAction>
             </AlertDialogFooter>
         </AlertDialogContent>
-    </AlertDialog>
     </>
   )
 }
@@ -484,20 +483,20 @@ export function AppointmentCard({
     allServices.forEach(s => {
         if(s.type === 'addon') totalRevenue += s.price;
         
-        let productsToUse: { productId?: string; quantityUsed: number; productName?: string; costPerUnit?: number; id?:string }[] = s.products || [];
-        totalProductCost += productsToUse.reduce((sum, p) => {
-            const product = inventory.find(i => i.id === (p.id || p.productId));
+        totalProductCost += (s.products || []).reduce((sum, p) => {
+            const product = inventory.find(i => i.id === p.id);
+            if (!product) return sum;
             const quantity = p.quantityUsed || 1;
             let costPerUse = 0;
-            if (product) {
-                if (product.costingMethod === 'size' && product.size && product.size > 0) {
-                    costPerUse = (product.costPerUnit || 0) / product.size;
-                } else if (product.costingMethod === 'uses' && product.estimatedUses && product.estimatedUses > 0) {
-                    costPerUse = (product.costPerUnit || 0) / product.estimatedUses;
-                } else {
-                    costPerUse = product.costPerUnit || 0;
-                }
+
+            if (product.costingMethod === 'size' && product.size && product.size > 0) {
+                costPerUse = (product.costPerUnit || 0) / product.size;
+            } else if (product.costingMethod === 'uses' && product.estimatedUses && product.estimatedUses > 0) {
+                costPerUse = (product.costPerUnit || 0) / product.estimatedUses;
+            } else { // 'unit' or undefined
+                costPerUse = product.costPerUnit || 0;
             }
+            
             return sum + (costPerUse * quantity);
         }, 0);
 
@@ -505,7 +504,7 @@ export function AppointmentCard({
             const equipmentItem = inventory.find(i => i.id === resourceId && i.type === 'equipment');
             if (!equipmentItem || !equipmentItem.lifespanYears || equipmentItem.lifespanYears === 0) return sum;
             const totalDuration = differenceInMinutes(appointment.endTime, appointment.startTime);
-            const lifespanInMinutes = (equipmentItem.lifespanYears || 5) * 365 * 8 * 60;
+            const lifespanInMinutes = (equipmentItem.lifespanYears || 5) * 365 * 8 * 60; // Simplified assumption
             const costPerMinute = (equipmentItem.costPerUnit || 0) / lifespanInMinutes;
             return sum + (costPerMinute * totalDuration);
         }, 0);
@@ -518,7 +517,7 @@ export function AppointmentCard({
     const totalNetProfit = totalRevenue - totalBreakEvenCost;
 
     return { revenue: totalRevenue, breakEvenCost: totalBreakEvenCost, netProfit: totalNetProfit, timeCost: totalTimeCost, productCost: totalProductCost, equipmentCost: totalEquipmentCost };
-  }, [service, appointment, tmhr, client, addOnServices, inventory]);
+  }, [service, appointment, tmhr, addOnServices, inventory]);
 
   const requiredResources = useMemo(() => {
     if (!service.requiredResourceIds || !resources) return [];

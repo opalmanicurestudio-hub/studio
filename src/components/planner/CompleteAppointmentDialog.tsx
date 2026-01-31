@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
@@ -220,18 +221,41 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     if (!service) return { initialBreakEven: 0, finalBreakEven: 0, additionalCharge: 0, absorbedCost: 0 };
     
     const tmhr = (typeof window !== 'undefined' && parseFloat(localStorage.getItem('tmhr') || '50')) || 50;
+    
     const initialProductCost = (service.products || []).reduce((acc, p) => {
         const inventoryItem = inventory.find(i => i.id === p.id);
-        const cost = inventoryItem?.costPerUnit || 0;
-        return acc + (cost * p.quantityUsed);
+        if (!inventoryItem) return acc;
+        const quantity = p.quantityUsed || 1;
+        let costPerUse = 0;
+
+        if (inventoryItem.costingMethod === 'size' && inventoryItem.size && inventoryItem.size > 0) {
+            costPerUse = (inventoryItem.costPerUnit || 0) / inventoryItem.size;
+        } else if (inventoryItem.costingMethod === 'uses' && inventoryItem.estimatedUses && inventoryItem.estimatedUses > 0) {
+            costPerUse = (inventoryItem.costPerUnit || 0) / inventoryItem.estimatedUses;
+        } else { // 'unit' or undefined
+            costPerUse = inventoryItem.costPerUnit || 0;
+        }
+
+        return acc + (costPerUse * quantity);
     }, 0);
     const initialTimeCost = ((service.duration + (service.padBefore || 0) + (service.padAfter || 0)) / 60) * tmhr;
     const initialBreakEvenCost = initialProductCost + initialTimeCost;
 
     const finalProductCost = editableFormula.reduce((acc, item) => {
         const inventoryItem = inventory.find(i => i.id === item.id);
-        const cost = inventoryItem?.costPerUnit || 0;
-        return acc + (cost * item.quantity);
+        if (!inventoryItem) return acc;
+        const quantity = item.quantity || 1;
+        let costPerUse = 0;
+
+        if (inventoryItem.costingMethod === 'size' && inventoryItem.size && inventoryItem.size > 0) {
+            costPerUse = (inventoryItem.costPerUnit || 0) / inventoryItem.size;
+        } else if (inventoryItem.costingMethod === 'uses' && inventoryItem.estimatedUses && inventoryItem.estimatedUses > 0) {
+            costPerUse = (inventoryItem.costPerUnit || 0) / inventoryItem.estimatedUses;
+        } else { // 'unit' or undefined
+            costPerUse = inventoryItem.costPerUnit || 0;
+        }
+
+        return acc + (costPerUse * quantity);
     }, 0);
 
     const actualServiceDuration = appointment.actualEndTime && appointment.actualStartTime
@@ -407,7 +431,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
       });
       setEditableFormula(newFormula);
       setFormulaName(formula.name);
-  }
+  };
 
   const { updatedInventory, newCorrections, warnings } = useMemo(() => {
     const warnings: string[] = [];
@@ -611,7 +635,9 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   
   const actualServiceDuration = useMemo(() => {
     if (appointment.actualStartTime && appointment.actualEndTime) {
-      return differenceInMinutes(parseISO(appointment.actualEndTime), parseISO(appointment.actualStartTime));
+      const startTime = typeof appointment.actualStartTime === 'string' ? parseISO(appointment.actualStartTime) : appointment.actualStartTime;
+      const endTime = typeof appointment.actualEndTime === 'string' ? parseISO(appointment.actualEndTime) : appointment.actualEndTime;
+      return differenceInMinutes(endTime, startTime);
     }
     return actualDuration;
   }, [appointment, actualDuration]);
@@ -709,7 +735,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                           <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md gap-2">
                               <div>
                                   <p className="font-medium">{item.name}</p>
-                                  <p className="text-xs text-muted-foreground">Cost: ${(item.costPerUnit || 0).toFixed(2)}/{unit}</p>
+                                  <p className="text-xs text-muted-foreground">Cost: ${(item.costPerUnit || 0).toFixed(3)}/{unit}</p>
                               </div>
                               <div className="flex items-center gap-2">
                                   <Input
@@ -728,7 +754,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                         )
                     })}
                 </div>
-                <div className='flex gap-2'><Button variant="outline" size="sm" onClick={() => setIsProductBrowserOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4"/>Browse Library</Button><Button variant="outline" size="sm" onClick={() => setIsScannerOpen(true)} type="button"><QrCode className="mr-2 h-4 w-4"/>Scan Product</Button></div>
+                <div className='flex gap-2'><Button variant="outline" size="sm" onClick={() => setIsProductBrowserOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4"/>Browse Library</Button><Button variant="outline" size="sm" type="button"><QrCode className="mr-2 h-4 w-4"/>Scan Product</Button></div>
             </CardContent>
         </Card>
         
@@ -845,7 +871,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                 <div className="space-y-2 text-sm">
                     {retailItems.map((item) => {
                         const product = inventory.find(p => p.id === item.id);
-                        const price = product?.costPerUnit ? product.costPerUnit * 1.75 : 0;
+                        const price = product?.costPerUnit ? product.costPerUnit * 1.75 : 0; // Mocked markup
                         return (
                         <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md">
                             <div><p className="font-medium">{item.name}</p><p className="text-xs text-muted-foreground">Price: ${price.toFixed(2)}</p></div>

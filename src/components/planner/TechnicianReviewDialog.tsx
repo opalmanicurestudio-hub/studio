@@ -97,19 +97,45 @@ const FormContent = ({
     
     const initialProductCost = (service.products || []).reduce((acc, p) => {
         const inventoryItem = inventory.find(i => i.id === p.id);
-        const cost = inventoryItem?.costPerUnit || 0;
-        return acc + (cost * p.quantityUsed);
+        if (!inventoryItem) return acc;
+        const quantity = p.quantityUsed || 1;
+        let costPerUse = 0;
+
+        if (inventoryItem.costingMethod === 'size' && inventoryItem.size && inventoryItem.size > 0) {
+            costPerUse = (inventoryItem.costPerUnit || 0) / inventoryItem.size;
+        } else if (inventoryItem.costingMethod === 'uses' && inventoryItem.estimatedUses && inventoryItem.estimatedUses > 0) {
+            costPerUse = (inventoryItem.costPerUnit || 0) / inventoryItem.estimatedUses;
+        } else { // 'unit' or undefined
+            costPerUse = inventoryItem.costPerUnit || 0;
+        }
+
+        return acc + (costPerUse * quantity);
     }, 0);
     const initialTimeCost = ((service.duration + (service.padBefore || 0) + (service.padAfter || 0)) / 60) * tmhr;
     const initialBreakEvenCost = initialProductCost + initialTimeCost;
 
     const finalProductCost = editableFormula.reduce((acc, item) => {
         const inventoryItem = inventory.find(i => i.id === item.id);
-        const cost = inventoryItem?.costPerUnit || 0;
-        return acc + (cost * item.quantity);
+        if (!inventoryItem) return acc;
+        const quantity = item.quantity || 1;
+        let costPerUse = 0;
+
+        if (inventoryItem.costingMethod === 'size' && inventoryItem.size && inventoryItem.size > 0) {
+            costPerUse = (inventoryItem.costPerUnit || 0) / inventoryItem.size;
+        } else if (inventoryItem.costingMethod === 'uses' && inventoryItem.estimatedUses && inventoryItem.estimatedUses > 0) {
+            costPerUse = (inventoryItem.costPerUnit || 0) / inventoryItem.estimatedUses;
+        } else { // 'unit' or undefined
+            costPerUse = inventoryItem.costPerUnit || 0;
+        }
+
+        return acc + (costPerUse * quantity);
     }, 0);
 
-    const finalTimeCost = ((actualDuration + (service.padBefore || 0) + (service.padAfter || 0)) / 60) * tmhr;
+    const actualServiceDuration = appointment.actualEndTime && appointment.actualStartTime
+      ? differenceInMinutes(parseISO(appointment.actualEndTime), parseISO(appointment.actualStartTime))
+      : actualDuration;
+      
+    const finalTimeCost = ((actualServiceDuration + (service.padBefore || 0) + (service.padAfter || 0)) / 60) * tmhr;
     const finalBreakEvenCost = finalProductCost + finalTimeCost;
     
     const additionalChargeValue = Math.max(0, finalBreakEvenCost - initialBreakEvenCost);
@@ -187,30 +213,44 @@ const FormContent = ({
         <Card>
             <CardHeader><CardTitle>Service Actuals</CardTitle><CardDescription>Log what was actually used for this service.</CardDescription></CardHeader>
             <CardContent className="space-y-4">
-                <div className="space-y-2"><Label>Actual Duration: <span className="font-bold">{actualDuration} min</span> (Scheduled: {service.duration} min)</Label></div>
-                <Separator />
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                  <h4 className="font-medium">Product Formula</h4>
-                  {(client.customFormulas && client.customFormulas.length > 0) && (
-                    <div className="w-full sm:w-auto sm:min-w-[200px]">
-                      <Select onValueChange={handleApplyClientFormula} defaultValue="default">
-                        <SelectTrigger className="h-8 text-xs">
-                          <SelectValue placeholder="Load a formula..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="default">Default Service Formula</SelectItem>
-                          {client.customFormulas.map(formula => (
-                            <SelectItem key={formula.name} value={formula.name}>{formula.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                <div className="space-y-2">
+                  <Label htmlFor="actual-duration">Actual Duration (minutes)</Label>
+                  <Input 
+                      id="actual-duration"
+                      type="number"
+                      value={actualDuration}
+                      onChange={(e) => setActualDuration(parseInt(e.target.value) || 0)}
+                      readOnly={!!(appointment.actualStartTime && appointment.actualEndTime)}
+                  />
+                    {appointment.actualStartTime && appointment.actualEndTime && (
+                      <p className="text-xs text-muted-foreground">
+                          Service duration tracked from start to finish: {actualDuration} min. (Scheduled: {service.duration} min)
+                      </p>
                   )}
                 </div>
-                <div className="p-3 rounded-md bg-muted/50 text-muted-foreground text-sm flex items-start gap-2">
+                <Separator />
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <h4 className="font-medium">Product Formula</h4>
+                    {(client.customFormulas && client.customFormulas.length > 0) && (
+                      <div className="w-full sm:w-auto sm:min-w-[200px]">
+                          <Select onValueChange={handleApplyClientFormula} defaultValue="default">
+                              <SelectTrigger className="h-8 text-xs">
+                                  <SelectValue placeholder="Load a formula..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                  <SelectItem value="default">Default Service Formula</SelectItem>
+                                  {client.customFormulas.map(formula => (
+                                      <SelectItem key={formula.name} value={formula.name}>{formula.name}</SelectItem>
+                                  ))}
+                              </SelectContent>
+                          </Select>
+                      </div>
+                    )}
+                </div>
+                  <div className="p-3 rounded-md bg-muted/50 text-muted-foreground text-sm flex items-start gap-2">
                     <FlaskConical className="w-4 h-4 mt-0.5 flex-shrink-0" />
                     <p>Currently applying: <span className="font-semibold text-foreground">{formulaName}</span></p>
-                </div>
+                  </div>
                 <div className="space-y-2 text-sm">
                     {editableFormula.map((item, index) => {
                         const inventoryItem = inventory.find(i => i.id === item.id);
@@ -222,7 +262,7 @@ const FormContent = ({
                           <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md gap-2">
                               <div>
                                   <p className="font-medium">{item.name}</p>
-                                  <p className="text-xs text-muted-foreground">Cost: ${(item.costPerUnit || 0).toFixed(2)}/{unit}</p>
+                                  <p className="text-xs text-muted-foreground">Cost: ${(item.costPerUnit || 0).toFixed(3)}/{unit}</p>
                               </div>
                               <div className="flex items-center gap-2">
                                   <Input
@@ -244,10 +284,7 @@ const FormContent = ({
                         )
                     })}
                 </div>
-                <div className='flex gap-2'>
-                  <Button variant="outline" size="sm" onClick={() => setIsProductBrowserOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4"/>Browse Library</Button>
-                  <Button variant="outline" size="sm" type="button"><QrCode className="mr-2 h-4 w-4"/>Scan Product</Button>
-                </div>
+                <div className='flex gap-2'><Button variant="outline" size="sm" onClick={() => setIsProductBrowserOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4"/>Browse Library</Button><Button variant="outline" size="sm" type="button"><QrCode className="mr-2 h-4 w-4"/>Scan Product</Button></div>
             </CardContent>
         </Card>
         
