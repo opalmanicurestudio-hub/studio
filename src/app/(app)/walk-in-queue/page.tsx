@@ -725,19 +725,29 @@ export default function WalkInQueuePage() {
         });
 
         const idleStaff = activeStaff.filter(s => {
-            if (s.status !== 'idle' || s.onBreak) return false;
-            const isBlocked = events.some(event => {
-                if (event.type !== 'blocked') return false;
-                const eventStart = event.startTime;
-                const eventEnd = event.endTime;
-                if (now >= eventStart && now < eventEnd) {
-                    if (!event.staffId || event.staffId === 'all' || event.staffId === s.id) {
-                        return true;
-                    }
-                }
+            if (s.status !== 'idle' || s.onBreak) {
                 return false;
-            });
-            return !isBlocked;
+            }
+
+            const isEventBlocked = events.some(event => 
+                event.type === 'blocked' &&
+                now >= event.startTime && now < event.endTime &&
+                (!event.staffId || event.staffId === 'all' || event.staffId === s.id)
+            );
+            if (isEventBlocked) {
+                return false;
+            }
+
+            const isAppointmentBusy = appointments.some(apt =>
+                apt.staffId === s.id &&
+                (apt.status === 'servicing' || apt.status === 'confirmed' || apt.status === 'assigned') &&
+                now >= apt.startTime && now < apt.endTime
+            );
+            if (isAppointmentBusy) {
+                return false;
+            }
+            
+            return true;
         });
 
         if (idleStaff.length === 0) return false;
@@ -776,19 +786,29 @@ export default function WalkInQueuePage() {
 
         const now = new Date();
         const idleStaff = activeStaff.filter(s => {
-            if (s.status !== 'idle' || s.onBreak) return false;
-            const isBlocked = events.some(event => {
-                if (event.type !== 'blocked') return false;
-                const eventStart = event.startTime;
-                const eventEnd = event.endTime;
-                if (now >= eventStart && now < eventEnd) {
-                    if (!event.staffId || event.staffId === 'all' || event.staffId === s.id) {
-                        return true;
-                    }
-                }
+            if (s.status !== 'idle' || s.onBreak) {
                 return false;
-            });
-            return !isBlocked;
+            }
+            
+            const isEventBlocked = events.some(event => 
+                event.type === 'blocked' &&
+                now >= event.startTime && now < event.endTime &&
+                (!event.staffId || event.staffId === 'all' || event.staffId === s.id)
+            );
+            if (isEventBlocked) {
+                return false;
+            }
+
+            const isAppointmentBusy = appointments.some(apt =>
+                apt.staffId === s.id &&
+                (apt.status === 'servicing' || apt.status === 'confirmed' || apt.status === 'assigned') &&
+                now >= apt.startTime && now < apt.endTime
+            );
+            if (isAppointmentBusy) {
+                return false;
+            }
+            
+            return true;
         });
         
         const waitingCustomers = walkIns.filter(w => w.status === 'waiting').sort((a, b) => (a.waitForPreferredStaff ? 0 : 1) - (b.waitForPreferredStaff ? 0 : 1) || parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
@@ -969,13 +989,29 @@ export default function WalkInQueuePage() {
     }
 
     const idleStaff = activeStaff.filter(s => {
-        if (s.status !== 'idle' || s.onBreak) return false;
-        return !events.some(event => {
-            if (event.type !== 'blocked') return false;
-            const eventStart = event.startTime;
-            const eventEnd = event.endTime;
-            return now >= eventStart && now < eventEnd && (!event.staffId || event.staffId === 'all' || event.staffId === s.id);
-        });
+        if (s.status !== 'idle' || s.onBreak) {
+            return false;
+        }
+        
+        const isEventBlocked = events.some(event => 
+            event.type === 'blocked' &&
+            now >= event.startTime && now < event.endTime &&
+            (!event.staffId || event.staffId === 'all' || event.staffId === s.id)
+        );
+        if (isEventBlocked) {
+            return false;
+        }
+
+        const isAppointmentBusy = appointments.some(apt =>
+            apt.staffId === s.id &&
+            (apt.status === 'servicing' || apt.status === 'confirmed' || apt.status === 'assigned') &&
+            now >= apt.startTime && now < apt.endTime
+        );
+        if (isAppointmentBusy) {
+            return false;
+        }
+        
+        return true;
     });
 
     const qualifiedStaff = idleStaff.filter(s => (walkIn.requiredSkills || []).every(skill => (s.skillSet || []).includes(skill)));
