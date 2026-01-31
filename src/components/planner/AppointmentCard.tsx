@@ -57,6 +57,7 @@ import {
   DropdownMenuPortal,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
   Dialog,
@@ -290,7 +291,7 @@ const AppointmentDetails = ({
                     </div>
                     <div className="rounded-md bg-red-500/10 p-3">
                         <p className="text-xs text-red-800/80 dark:text-red-400/80">Cost</p>
-                        <p className="font-bold text-xl text-red-800 dark:text-red-400">${breakEvenCost.toFixed(2)}</p>
+                        <p className="font-bold text-xl text-red-800 dark:text-red-400">${breakEvenCost.toFixed(3)}</p>
                     </div>
                     <div className="rounded-md bg-blue-500/10 p-3 col-span-2">
                         <p className="text-xs text-blue-800/80 dark:text-blue-400/80">Net Profit</p>
@@ -348,7 +349,6 @@ const AppointmentDetails = ({
                 </AlertDialogAction>
             </AlertDialogFooter>
         </AlertDialogContent>
-    </AlertDialog>
     </>
   )
 }
@@ -579,14 +579,14 @@ export function AppointmentCard({
             data-is-event-card="true"
           >
             <div className="flex-1 min-w-0">
-              <p className="font-semibold text-xs leading-tight truncate">
-                {client.name} &middot; {service.name}
-              </p>
-              {appointment.status === 'servicing' && elapsedTime ? (
-                <p className="text-sm font-mono font-semibold text-yellow-600 dark:text-yellow-400">{elapsedTime}</p>
-              ) : (
-                <p className="text-[11px] text-muted-foreground font-medium">{format(appointment.startTime, 'h:mm a')}</p>
-              )}
+                <p className="font-semibold text-xs leading-tight truncate">
+                    {client.name} &middot; {service.name}
+                </p>
+                {appointment.status === 'servicing' && elapsedTime ? (
+                    <p className="text-sm font-mono font-semibold text-yellow-600 dark:text-yellow-400">{elapsedTime}</p>
+                ) : (
+                    <p className="text-[11px] text-muted-foreground font-medium">{format(appointment.startTime, 'h:mm a')}</p>
+                )}
             </div>
             <div className="flex items-center gap-1 flex-shrink-0">
               {appointment.status === 'ready_for_checkout' && (
