@@ -85,11 +85,6 @@ export const BrowseProductsDialog: React.FC<BrowseProductsDialogProps> = ({
             <ScrollArea className="h-72">
                 <div className="space-y-2 pr-4">
                 {filteredProducts.map(product => {
-                    const stockStatus = product.totalStock <= 0
-                        ? 'Out of Stock'
-                        : product.reorderPoint && product.totalStock <= product.reorderPoint
-                        ? 'Low Stock'
-                        : 'In Stock';
                     return (
                         <label
                             key={product.id}
@@ -113,17 +108,17 @@ export const BrowseProductsDialog: React.FC<BrowseProductsDialogProps> = ({
                                 <p className="text-xs text-muted-foreground">{product.category}</p>
                             </div>
                             <div className="text-right">
-                                <p className="font-mono text-lg font-bold">{product.totalStock}</p>
-                                <Badge
-                                    variant="outline"
-                                    className={cn('text-xs w-20 justify-center', {
-                                        'bg-green-100 text-green-800 border-green-200 dark:bg-green-900/40 dark:text-green-400 dark:border-green-600/30': stockStatus === 'In Stock',
-                                        'bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-400 dark:border-yellow-600/30': stockStatus === 'Low Stock',
-                                        'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-400 dark:border-red-600/30': stockStatus === 'Out of Stock',
-                                    })}
-                                >
-                                    {stockStatus}
-                                </Badge>
+                                <p className="font-mono text-base font-bold">{product.totalStock} <span className="text-xs font-normal text-muted-foreground">full</span></p>
+                                {product.costingMethod === 'size' && (product.partialContainerSize || 0) > 0 && (
+                                    <p className="font-mono text-xs text-muted-foreground">
+                                        + {product.partialContainerSize?.toFixed(0)}{product.unit}
+                                    </p>
+                                )}
+                                {product.costingMethod === 'uses' && (product.partialContainerUses || 0) > 0 && (
+                                    <p className="font-mono text-xs text-muted-foreground">
+                                        + {product.partialContainerUses} {product.useUnit || 'uses'}
+                                    </p>
+                                )}
                             </div>
                         </label>
                     )
