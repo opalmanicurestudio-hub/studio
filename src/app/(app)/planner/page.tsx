@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -49,7 +48,7 @@ import { AppointmentCard } from '@/components/planner/AppointmentCard';
 import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
 import { PrintTicket, type TicketData } from '@/components/planner/PrintTicket';
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
-import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking, errorEmitter } from '@/firebase';
 import { collection, query, where, Timestamp, doc, setDoc, arrayUnion, increment, writeBatch } from 'firebase/firestore';
 import { EditEventDialog } from '@/components/planner/EditEventDialog';
 import { BillDueDateCard } from '@/components/planner/BillDueDateCard';
@@ -502,7 +501,7 @@ function PlannerPageContent() {
     if (data.retailItems.length > 0 && inventory) {
         const retailTotal = data.retailItems.reduce((acc, item) => {
             const product = inventory.find(p => p.id === item.id);
-            const price = product?.costPerUnit ? product.costPerUnit * 1.75 : 0;
+            const price = product?.msrp || product?.costPerUnit || 0;
             return acc + (item.quantity * price);
         }, 0);
         if (retailTotal > 0) {
@@ -555,13 +554,8 @@ function PlannerPageContent() {
     const updateData: Partial<Appointment> = {
         status: 'completed',
         absorbedCost: absorbedCost,
-        inventoryProcessed: true, // Mark as processed
+        inventoryProcessed: true,
     };
-    if (incident) {
-        // In a real app, this might be a subcollection. Here, we embed.
-        const incidentToSave: Incident = { ...incident, id: nanoid(), date: new Date().toISOString() };
-        updateData.incident = incidentToSave;
-    }
     updateDocumentNonBlocking(appointmentRef, updateData);
 
     // 6. Update staff status for all involved staff
@@ -583,17 +577,18 @@ function PlannerPageContent() {
       updateDocumentNonBlocking(walkInDocRef, { status: 'completed' });
     }
     
-    // 8. Update Client Lifetime Value
+    // 8. Update Client Document
     const clientToUpdate = (clients || []).find(c => c.id === selectedAppointment.clientId);
     if (clientToUpdate) {
         const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, clientToUpdate.id);
-        const updates: Partial<Client> = {
+        
+        const clientUpdates: Partial<Client> & { [key: string]: any } = {
             lifetimeValue: (clientToUpdate.lifetimeValue || 0) + receiptData.total,
             lastAppointment: new Date().toISOString()
         };
-
+        
         if (redeemedOffer?.type === 'package') {
-            updates.activePackages = clientToUpdate.activePackages?.map(p => {
+            clientUpdates.activePackages = clientToUpdate.activePackages?.map(p => {
                 if (p.packageId === redeemedOffer.id) {
                     return { ...p, sessionsRemaining: p.sessionsRemaining - 1 };
                 }
@@ -601,7 +596,24 @@ function PlannerPageContent() {
             }).filter(p => p.sessionsRemaining > 0);
         }
 
-        updateDocumentNonBlocking(clientDocRef, updates);
+        if (incident) {
+            const incidentToSave: Incident = { 
+                ...incident, 
+                id: nanoid(), 
+                date: new Date().toISOString(),
+                appointmentId: selectedAppointment.id,
+            };
+            clientUpdates['intel.hasIncidents'] = true;
+            clientUpdates['intel.incidents'] = arrayUnion(incidentToSave);
+
+            errorEmitter.emit('incident-reported', {
+                clientName: clientToUpdate.name,
+                clientId: clientToUpdate.id,
+                incidentType: incident.type,
+            });
+        }
+
+        updateDocumentNonBlocking(clientDocRef, clientUpdates);
     }
     
     // 9. Update Discount Usage
@@ -713,6 +725,7 @@ function PlannerPageContent() {
         const appointmentToSave = { 
             ...baseAppointment, 
             id: appointmentDocId,
+            tenantId: tenantId,
             clientId: finalClientId, 
             clientName: finalClientName,
             checkInToken: checkInToken,
@@ -1293,7 +1306,7 @@ function PlannerPageContent() {
                 itemsByColumn={staffItemsToDisplay}
                 showColumnHeader={showStaffColumnHeader}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1325,7 +1338,7 @@ function PlannerPageContent() {
                 itemsByColumn={itemsByColumn}
                 showColumnHeader={true}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1559,3 +1572,5 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
+
+    
