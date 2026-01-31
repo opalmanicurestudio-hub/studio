@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -56,7 +57,7 @@ import {
   DropdownMenuPortal,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  DropdownMenuSubTrigger,
+  DropdownMenuSubTrigger
 } from '@/components/ui/dropdown-menu';
 import {
   Dialog,
@@ -450,13 +451,26 @@ export function AppointmentCard({
         let productsToUse: { productId?: string; quantityUsed: number; productName?: string; costPerUnit?: number; id?:string }[] = s.products || [];
         totalProductCost += productsToUse.reduce((sum, p) => {
             const product = inventory.find(i => i.id === (p.id || p.productId));
-            return sum + ((product?.costPerUnit || 0) * (p.quantityUsed || 1));
+            const quantity = p.quantityUsed || 1;
+            let costPerUse = 0;
+            if (product) {
+                if (product.costingMethod === 'size' && product.size && product.size > 0) {
+                    costPerUse = (product.costPerUnit || 0) / product.size;
+                } else if (product.costingMethod === 'uses' && product.estimatedUses && product.estimatedUses > 0) {
+                    costPerUse = (product.costPerUnit || 0) / product.estimatedUses;
+                } else {
+                    costPerUse = product.costPerUnit || 0;
+                }
+            }
+            return sum + (costPerUse * quantity);
         }, 0);
 
-        totalEquipmentCost += (s.equipment || []).reduce((sum, e) => {
+        totalEquipmentCost += (s.requiredResourceIds || []).reduce((sum, resourceId) => {
+            const equipmentItem = inventory.find(i => i.id === resourceId && i.type === 'equipment');
+            if (!equipmentItem || !equipmentItem.lifespanYears || equipmentItem.lifespanYears === 0) return sum;
             const totalDuration = differenceInMinutes(appointment.endTime, appointment.startTime);
-            const lifespanInMinutes = (e.lifespanYears || 5) * 365 * 8 * 60;
-            const costPerMinute = (e.costPerUnit || 0) / lifespanInMinutes;
+            const lifespanInMinutes = (equipmentItem.lifespanYears || 5) * 365 * 8 * 60;
+            const costPerMinute = (equipmentItem.costPerUnit || 0) / lifespanInMinutes;
             return sum + (costPerMinute * totalDuration);
         }, 0);
     });
@@ -531,14 +545,8 @@ export function AppointmentCard({
             data-is-event-card="true"
           >
             <div className="flex-1 min-w-0">
-              <p className="font-semibold text-xs leading-tight truncate flex items-center gap-1">
-                {isBirthday && (
-                  <TooltipProvider><Tooltip><TooltipTrigger><Cake className="h-4 w-4 text-pink-500" /></TooltipTrigger><TooltipContent><p>It's {client.name.split(' ')[0]}'s Birthday!</p></TooltipContent></Tooltip></TooltipProvider>
-                )}
-                {appointment.inventoryProcessed === false && (
-                  <TooltipProvider><Tooltip><TooltipTrigger><AlertTriangle className="h-4 w-4 text-amber-500" /></TooltipTrigger><TooltipContent><p>Inventory not deducted.</p></TooltipContent></Tooltip></TooltipProvider>
-                )}
-                {client.name}
+              <p className="font-semibold text-xs leading-tight truncate">
+                {client.name} &middot; {service.name}
               </p>
               {appointment.status === 'servicing' && elapsedTime ? (
                 <p className="text-sm font-mono font-semibold text-yellow-600 dark:text-yellow-400">{elapsedTime}</p>
@@ -723,4 +731,3 @@ export function AppointmentCard({
     </div>
   );
 }
-
