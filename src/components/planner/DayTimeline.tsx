@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
@@ -222,9 +221,9 @@ export const DayTimeline = ({
                 left: `${(100 / item.layout.cols) * item.layout.col}%`,
             }
         }));
-        positionedMap.set(columnId, positionedItems);
+        map.set(columnId, positionedItems);
     }
-    return positionedMap;
+    return map;
     }, [itemsByColumn, isMobile]);
 
 
