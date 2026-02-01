@@ -695,7 +695,6 @@ export default function InventoryPage() {
     locations, 
     locationTypes,
     transactions,
-    services,
     isLoading: isInventoryLoading
   } = useInventory();
   
@@ -799,47 +798,22 @@ export default function InventoryPage() {
     setIsBulkDeleteConfirmOpen(true);
   };
   
-  const handleBulkDeleteConfirm = useCallback(async () => {
-    if (!firestore || !tenantId || !services) return;
+  const handleBulkDeleteConfirm = useCallback(() => {
+    if (!firestore || !tenantId) return;
     const itemCount = selectedItems.size;
-    
-    try {
-        const batch = writeBatch(firestore);
-
-        // Delete the selected inventory items
-        selectedItems.forEach(id => {
-          const itemDoc = doc(firestore, `tenants/${tenantId}/inventory`, id);
-          batch.delete(itemDoc);
-        });
-        
-        // Find and update any services that use the deleted items
-        services.forEach(service => {
-            const hasDeletedProduct = service.products?.some(p => selectedItems.has(p.id));
-            if (hasDeletedProduct) {
-                const updatedProducts = service.products?.filter(p => !selectedItems.has(p.id));
-                const serviceDocRef = doc(firestore, `tenants/${tenantId}/services`, service.id);
-                batch.update(serviceDocRef, { products: updatedProducts });
-            }
-        });
-        
-        await batch.commit();
-
-        setSelectedItems(new Set());
-        setIsBulkDeleteConfirmOpen(false);
-        toast({
-            title: "Items Deleted",
-            description: `${itemCount} item(s) have been removed and service formulas updated.`,
-        })
-
-    } catch (error) {
-        console.error("Error during bulk delete and service update:", error);
-        toast({
-            variant: "destructive",
-            title: "Deletion Failed",
-            description: "There was a problem deleting the items. Please try again.",
-        })
-    }
-  }, [selectedItems, services, toast, firestore, tenantId]);
+    const batch = writeBatch(firestore);
+    selectedItems.forEach(id => {
+      const itemDoc = doc(firestore, `tenants/${tenantId}/inventory`, id);
+      batch.delete(itemDoc);
+    });
+    batch.commit();
+    setSelectedItems(new Set());
+    setIsBulkDeleteConfirmOpen(false);
+    toast({
+        title: "Items Deleted",
+        description: `${itemCount} item(s) have been removed from your inventory.`,
+    })
+  }, [selectedItems, toast, firestore, tenantId]);
   
     const handleBulkArchive = useCallback(() => {
         if (!firestore || !tenantId) return;
@@ -1204,7 +1178,7 @@ export default function InventoryPage() {
 
     const batch = writeBatch(firestore);
     let totalLoss = 0;
-
+    
     items.forEach(item => {
         const product = inventory.find(p => p.id === item.productId);
         if (product) {
@@ -1276,6 +1250,8 @@ export default function InventoryPage() {
             description: "Failed to write off spoilage.",
         });
     });
+    
+    setIsSpoilageDialogOpen(false);
   };
   
   const handleToggleExperiment = (item: InventoryItem) => {
@@ -1452,21 +1428,26 @@ export default function InventoryPage() {
                                     <CardTitle>All Inventory</CardTitle>
                                     <CardDescription>A complete list of your professional, retail, and equipment stock.</CardDescription>
                                 </div>
-                                <div className="flex items-center gap-2">
-                                    <Button variant="outline" asChild>
-                                        <Link href="/inventory/report"><BarChart className="mr-2 h-4 w-4" />View Report</Link>
+                                <div className="flex items-center gap-2 flex-wrap justify-end">
+                                    <Button variant="outline" size="sm" asChild>
+                                        <Link href="/inventory/report"><BarChart className="mr-2 h-4 w-4" />Report</Link>
                                     </Button>
-                                    <DropdownMenu>
-                                        <DropdownMenuTrigger asChild>
-                                            <Button><PlusCircle className="mr-2" /> New Item</Button>
-                                        </DropdownMenuTrigger>
-                                        <DropdownMenuContent align="end">
-                                            <DropdownMenuItem onClick={() => handleOpenAddProductDialog('professional')}><Package className="mr-2" />Product (Professional)</DropdownMenuItem>
-                                            <DropdownMenuItem onClick={() => handleOpenAddProductDialog('retail')}><Store className="mr-2" />Product (Retail)</DropdownMenuItem>
-                                            <DropdownMenuItem onClick={() => setIsAddEquipmentDialogOpen(true)}><Hammer className="mr-2" />Equipment</DropdownMenuItem>
-                                            <DropdownMenuItem onClick={() => setIsAddOverheadDialogOpen(true)}><Recycle className="mr-2" />Overhead</DropdownMenuItem>
-                                        </DropdownMenuContent>
-                                    </DropdownMenu>
+                                    <Button size="sm" onClick={() => handleOpenAddProductDialog('professional')}>
+                                        <Package className="mr-2 h-4 w-4" />
+                                        Pro Product
+                                    </Button>
+                                    <Button size="sm" onClick={() => handleOpenAddProductDialog('retail')}>
+                                        <Store className="mr-2 h-4 w-4" />
+                                        Retail
+                                    </Button>
+                                    <Button size="sm" onClick={() => setIsAddEquipmentDialogOpen(true)}>
+                                        <Hammer className="mr-2 h-4 w-4" />
+                                        Equipment
+                                    </Button>
+                                    <Button size="sm" onClick={() => setIsAddOverheadDialogOpen(true)}>
+                                        <Recycle className="mr-2 h-4 w-4" />
+                                        Overhead
+                                    </Button>
                                 </div>
                             </div>
                         </CardHeader>
@@ -1742,6 +1723,7 @@ export default function InventoryPage() {
 
 
     
+
 
 
 
