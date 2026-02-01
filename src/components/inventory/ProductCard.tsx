@@ -1,13 +1,11 @@
 
-
 'use client';
 
 import React, { useMemo } from 'react';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, ShieldPlus, AlertTriangle, Ear, Package, Hammer, Pipette, PackageX, Truck, DollarSign } from 'lucide-react';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
+import { ShieldPlus, AlertTriangle, Ear, Package, Hammer, Pipette, PackageX, Truck, DollarSign, Edit, Rocket, CheckCircle, Printer } from 'lucide-react';
 import { type InventoryItem } from '@/lib/data';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
@@ -15,9 +13,6 @@ import { isPast, parseISO } from 'date-fns';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
-import { Rocket, CheckCircle } from 'lucide-react';
-import { Printer } from 'lucide-react';
-import { Edit } from 'lucide-react';
 import Image from 'next/image';
 
 export const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment, onLogUse, onWriteOff, onLogSale, isSelected, onSelect, isOrdered }: { 
@@ -79,7 +74,7 @@ export const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment,
                             aria-label={`Select ${item.name}`}
                         />
                     </div>
-                    <Link href={detailHref} className="w-16 h-16 bg-muted rounded-md flex items-center justify-center flex-shrink-0">
+                     <Link href={detailHref} className="w-16 h-16 bg-muted rounded-md flex items-center justify-center flex-shrink-0">
                         {item.imageUrl ? (
                             <Image src={item.imageUrl} alt={item.name} width={64} height={64} className='rounded-md object-cover w-full h-full' data-ai-hint="product photo"/>
                         ) : (
@@ -87,41 +82,9 @@ export const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment,
                         )}
                     </Link>
                     <div className='flex-1 min-w-0'>
-                        <div className="flex justify-between items-start">
-                            <Link href={detailHref} className="group">
-                               <p className="font-semibold text-base leading-tight group-hover:underline pr-2">{item.name}</p>
-                            </Link>
-                            <div className="flex items-center gap-1">
-                                <TooltipProvider>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); onEdit(item); }}>
-                                                <Edit className="h-4 w-4" />
-                                            </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent><p>Edit</p></TooltipContent>
-                                    </Tooltip>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); item.isExperimentActive ? onEndExperiment(item) : onToggleExperiment(item); }}>
-                                                {item.isExperimentActive ? <CheckCircle className="h-4 w-4 text-green-500" /> : <Rocket className="h-4 w-4 text-purple-500"/>}
-                                            </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent><p>{item.isExperimentActive ? 'End Lifespan Test' : 'Start Lifespan Test'}</p></TooltipContent>
-                                    </Tooltip>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Button asChild variant="ghost" size="icon" className="h-8 w-8">
-                                                <Link href={`/inventory/labels?product=${item.id}`} onClick={(e) => e.stopPropagation()}>
-                                                    <Printer className="h-4 w-4" />
-                                                </Link>
-                                            </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent><p>Print Label</p></TooltipContent>
-                                    </Tooltip>
-                                </TooltipProvider>
-                            </div>
-                        </div>
+                        <Link href={detailHref} className="group">
+                            <p className="font-semibold text-base leading-tight group-hover:underline pr-2">{item.name}</p>
+                        </Link>
                         <p className="text-sm text-muted-foreground">{item.category}</p>
                     </div>
                 </div>
@@ -152,20 +115,56 @@ export const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment,
                     </div>
                 </div>
             </CardContent>
-             <CardFooter className="p-2 border-t bg-muted/50">
-                <div className={cn("grid gap-2 w-full", item.type === 'equipment' ? 'grid-cols-1' : 'grid-cols-2')}>
-                    {(item.type === 'professional' || item.type === 'overhead') && (
-                        <Button variant="ghost" size="sm" className="w-full" onClick={() => onLogUse(item)}><Pipette className="mr-2 h-4 w-4"/>Log Use</Button>
-                    )}
-                    {item.type === 'retail' && (
-                        <Button variant="ghost" size="sm" className="w-full" onClick={() => onLogSale(item)}>
-                            <DollarSign className="mr-2 h-4 w-4"/> Log Sale
-                        </Button>
-                    )}
-                    <Button variant="ghost" size="sm" className="w-full" onClick={() => onWriteOff(item)}><PackageX className="mr-2 h-4 w-4"/>Write-off</Button>
-                </div>
+            <CardFooter className="p-2 border-t bg-muted/50">
+                <TooltipProvider>
+                    <div className="flex justify-around w-full">
+                        {(item.type === 'professional' || item.type === 'overhead' || item.type === 'retail') && (
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button variant="ghost" size="icon" onClick={() => item.type === 'retail' ? onLogSale(item) : onLogUse(item)}>
+                                        {item.type === 'retail' ? <DollarSign /> : <Pipette />}
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent><p>{item.type === 'retail' ? 'Log Sale' : 'Log Use'}</p></TooltipContent>
+                            </Tooltip>
+                        )}
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="ghost" size="icon" onClick={() => onWriteOff(item)}>
+                                    <PackageX />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent><p>Write-off</p></TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="ghost" size="icon" onClick={() => onEdit(item)}>
+                                    <Edit />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent><p>Edit</p></TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="ghost" size="icon" onClick={() => item.isExperimentActive ? onEndExperiment(item) : onToggleExperiment(item)}>
+                                    {item.isExperimentActive ? <CheckCircle className="text-green-500" /> : <Rocket className="text-purple-500" />}
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent><p>{item.isExperimentActive ? 'End Experiment' : 'Start Experiment'}</p></TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                 <Button asChild variant="ghost" size="icon">
+                                    <Link href={`/inventory/labels?product=${item.id}`}>
+                                        <Printer />
+                                    </Link>
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent><p>Print Label</p></TooltipContent>
+                        </Tooltip>
+                    </div>
+                </TooltipProvider>
             </CardFooter>
         </Card>
     )
 }
-
