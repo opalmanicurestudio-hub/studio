@@ -190,7 +190,7 @@ const StaffStatusCard = ({ staffMember, onStatusChange, isNextUp, appointments, 
   );
 }
 
-const WaitingCustomerCard = ({ walkIn, services, resources, onPrintTicket, onOpenAssignDialog, queuePosition, estimatedWaitTime }: { walkIn: WalkIn, services: any[], resources: Resource[], onPrintTicket: (data: WalkIn) => void, onOpenAssignDialog: (walkIn: WalkIn) => void, queuePosition: number, estimatedWaitTime: number | null }) => {
+const WaitingCustomerCard = ({ walkIn, services, resources, onPrintTicket, onOpenAssignDialog, queuePosition, estimatedWaitTime }: { walkIn: WalkIn, services: any[], resources: Resource[], onPrintTicket: (data: WalkIn) => void, onOpenAssignDialog: (walkIn: WalkIn) => void, queuePosition: number, estimatedWaitTime?: number | null }) => {
     const walkInServices = services.filter(s => walkIn.serviceIds.includes(s.id));
     const requiredResourceIds = useMemo(() => {
         return [...new Set(walkInServices.flatMap(s => s.requiredResourceIds || []))];
@@ -208,17 +208,17 @@ const WaitingCustomerCard = ({ walkIn, services, resources, onPrintTicket, onOpe
                         <div className="text-3xl font-bold text-primary w-10 text-center">{queuePosition}</div>
                         <div>
                             <p className="font-bold text-xl">{walkIn.customerName}</p>
-                            {isFirstInQueue && estimatedWaitTime !== null && estimatedWaitTime > 0 ? (
-                                <div className="flex items-center gap-2 text-lg font-semibold text-primary mt-1">
-                                    <Clock className="h-5 w-5" />
-                                    <span>Est. Wait: ~{estimatedWaitTime} min</span>
-                                </div>
-                            ) : (
-                                <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+                            <div className="flex flex-col">
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                     <Clock className="h-4 w-4" />
                                     <span>Waiting <Timer startTime={walkIn.checkInTime} /></span>
                                 </div>
-                            )}
+                                {estimatedWaitTime !== undefined && estimatedWaitTime !== null && estimatedWaitTime < Infinity && (
+                                    <p className="text-primary font-semibold text-xs mt-1 pl-6">
+                                        Est. Wait: ~{estimatedWaitTime} min
+                                    </p>
+                                )}
+                            </div>
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -879,6 +879,62 @@ export default function WalkInQueuePage() {
 
         return true;
     }, [walkIns, services, resources, availableStaff, appointments]);
+
+    const estimatedWaitTimes = useMemo(() => {
+        const waitTimes = new Map<string, number>();
+        if (!staff || !activeStaff || !services || !appointments || !events || !walkIns) return waitTimes;
+    
+        const now = new Date();
+        const futureAppointments = appointments.filter(apt => apt.endTime > now && isToday(apt.startTime));
+        const futureEvents = events.filter(evt => evt.endTime > now && isToday(evt.startTime));
+    
+        const staffTimelines: { [staffId: string]: Date } = {};
+        activeStaff.forEach(s => {
+            let nextFreeTime = now;
+    
+            const staffAppointments = futureAppointments.filter(apt => apt.staffId === s.id);
+            const staffEvents = futureEvents.filter(e => !e.staffId || e.staffId === 'all' || e.staffId === s.id);
+            
+            const allItems = [...staffAppointments, ...staffEvents];
+            allItems.forEach(item => {
+                if (areIntervalsOverlapping({ start: now, end: addMinutes(now, 1) }, { start: item.startTime, end: item.endTime })) {
+                    nextFreeTime = new Date(Math.max(nextFreeTime.getTime(), item.endTime.getTime()));
+                }
+            });
+            staffTimelines[s.id] = nextFreeTime;
+        });
+    
+        const waitingCustomers = walkIns.filter(w => w.status === 'waiting').sort((a,b) => parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
+    
+        for (const customer of waitingCustomers) {
+            const requiredSkills = customer.requiredSkills || [];
+            const qualifiedStaff = activeStaff.filter(s => requiredSkills.every(skill => (s.skillSet || []).includes(skill)));
+    
+            if (qualifiedStaff.length === 0) {
+                waitTimes.set(customer.id, Infinity);
+                continue;
+            }
+    
+            let bestStaffId = '';
+            let soonestFreeTime = new Date(8640000000000000); 
+    
+            for (const staffMember of qualifiedStaff) {
+                if (staffTimelines[staffMember.id] < soonestFreeTime) {
+                    soonestFreeTime = staffTimelines[staffMember.id];
+                    bestStaffId = staffMember.id;
+                }
+            }
+            
+            const waitInMinutes = differenceInMinutes(soonestFreeTime, now);
+            waitTimes.set(customer.id, waitInMinutes > 0 ? waitInMinutes : 0);
+            
+            if (bestStaffId) {
+                staffTimelines[bestStaffId] = addMinutes(soonestFreeTime, customer.estimatedDuration);
+            }
+        }
+        
+        return waitTimes;
+    }, [walkIns, staff, activeStaff, appointments, events, services]);
     
     const handleStartServiceFromNotified = useCallback((walkIn: WalkIn) => {
         if (!services) return;
@@ -1120,74 +1176,6 @@ export default function WalkInQueuePage() {
     return () => clearInterval(timer);
   }, [firestore, walkIns, handleWalkInStatusChange, toast, tenantId]);
   
-  const estimatedWaitTime = useMemo(() => {
-    if (!staff || !services || !appointments || !events || !walkIns || !resources) return null;
-    const now = new Date();
-    
-    const waitingCustomers = walkIns.filter(w => w.status === 'waiting').sort((a,b) => parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
-    const nextInQueue = waitingCustomers[0];
-    if (!nextInQueue) return null;
-
-    const staffToConsider = nextUpStaffId ? staff.filter(s => s.id === nextUpStaffId) : staff;
-
-    const walkInServices = nextInQueue.serviceIds.map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
-    const requiredResourceIds = [...new Set(walkInServices.flatMap(s => s.requiredResourceIds || []))];
-    const requiredSkills = [...new Set(walkInServices.flatMap(s => s.requiredSkills || []))];
-    
-    const availableQualifiedStaff = staffToConsider.filter(staffMember => {
-        const isAvailable = staffMember.status === 'idle' && !staffMember.onBreak;
-        const isBlocked = events.some(event => {
-            if (event.type !== 'blocked') return false;
-            return areIntervalsOverlapping({ start: event.startTime, end: event.endTime }, { start: now, end: addMinutes(now, 1) }) && (!event.staffId || event.staffId === 'all' || event.staffId === staffMember.id);
-        });
-        const isQualified = requiredSkills.every(skill => (staffMember.skillSet || []).includes(skill));
-        return isAvailable && !isBlocked && isQualified;
-    });
-
-    if (availableQualifiedStaff.length === 0) return null;
-
-    let checkTime = now;
-    const MAX_WAIT_MINUTES = 8 * 60;
-    const endCheckTime = addMinutes(checkTime, MAX_WAIT_MINUTES);
-
-    while (checkTime < endCheckTime) {
-        const potentialStartTime = checkTime;
-        const potentialEndTime = addMinutes(potentialStartTime, nextInQueue.estimatedDuration);
-        
-        const freeStaffMember = availableQualifiedStaff.find(staffMember => {
-            const staffAppointments = appointments.filter(apt => apt.staffId === staffMember.id);
-            const staffEvents = events.filter(e => e.type === 'blocked' && (!e.staffId || e.staffId === 'all' || e.staffId === staffMember.id));
-            const staffSchedule = [...staffAppointments, ...staffEvents];
-            return !staffSchedule.some(item => areIntervalsOverlapping({ start: item.startTime, end: item.endTime }, { start: potentialStartTime, end: potentialEndTime }));
-        });
-
-        if (!freeStaffMember) {
-            checkTime = addMinutes(checkTime, 1);
-            continue;
-        }
-
-        let allResourcesFree = true;
-        if (requiredResourceIds.length > 0) {
-            const conflictingAppointments = appointments.filter(apt => areIntervalsOverlapping({ start: apt.startTime, end: apt.endTime }, { start: potentialStartTime, end: potentialEndTime }));
-            for (const resourceId of requiredResourceIds) {
-                if (conflictingAppointments.some(apt => (apt.requiredResourceIds || []).includes(resourceId))) {
-                    allResourcesFree = false;
-                    break;
-                }
-            }
-        }
-        
-        if (allResourcesFree) {
-            return Math.max(0, differenceInMinutes(potentialStartTime, now));
-        }
-
-        checkTime = addMinutes(checkTime, 1);
-    }
-    
-    return null;
-  }, [walkIns, staff, appointments, events, services, resources, nextUpStaffId]);
-
-
   const ticketData: WalkInTicketData | null = ticketToPrint && services ? {
     id: ticketToPrint.id,
     name: ticketToPrint.customerName,
@@ -1462,9 +1450,21 @@ export default function WalkInQueuePage() {
                                 Notify Next Client
                             </Button>
                             {waitingQueue.length > 0 ? (
-                                waitingQueue.map((walkIn, index) => (
-                                    <WaitingCustomerCard key={walkIn.id} walkIn={walkIn} services={services || []} resources={resources || []} onPrintTicket={setTicketToPrint} onOpenAssignDialog={setWalkInToAssign} queuePosition={index + 1} estimatedWaitTime={index === 0 ? estimatedWaitTime : null} />
-                                ))
+                                waitingQueue.map((walkIn, index) => {
+                                    const estWait = estimatedWaitTimes.get(walkIn.id);
+                                    return (
+                                        <WaitingCustomerCard 
+                                            key={walkIn.id} 
+                                            walkIn={walkIn} 
+                                            services={services || []} 
+                                            resources={resources || []}
+                                            onPrintTicket={setTicketToPrint} 
+                                            onOpenAssignDialog={setWalkInToAssign} 
+                                            queuePosition={index + 1} 
+                                            estimatedWaitTime={estWait}
+                                        />
+                                    )
+                                })
                             ) : (
                                 <div className="text-center py-16 px-6 text-muted-foreground">
                                     <CheckCircle className="w-12 h-12 mx-auto mb-4" />
@@ -1656,16 +1656,3 @@ export default function WalkInQueuePage() {
     </>
   );
 }
-
-
-
-
-    
-
-
-
-    
-
-    
-
-    
