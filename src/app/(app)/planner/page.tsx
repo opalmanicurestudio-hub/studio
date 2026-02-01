@@ -363,7 +363,7 @@ function PlannerPageContent() {
   }, [currentDate, appointments, events, staff, resources, activeView, services]);
   
   const itemsByColumn = useMemo(() => {
-    if(!itemsByColumnRaw) return new Map(); // Guard against undefined
+    if(!itemsByColumnRaw) return new Map(); 
     const map = new Map<string, (Appointment | Event)[]>();
     
     const columnsToUse = activeView === 'staff' ? staff : resources;
@@ -1129,9 +1129,8 @@ function PlannerPageContent() {
   
   const handleScan = useCallback((data: string) => {
     if (!appointments) return;
-    if (data.startsWith('clarityflow://walk-in/')) {
-        const walkInId = data.split('/').pop();
-        const appointmentId = `apt-walkin-${walkInId}`;
+    if (data.startsWith('clarityflow://checkout/')) {
+        const appointmentId = data.split('/').pop();
         const appointmentToCheckout = appointments.find(apt => apt.id === appointmentId);
 
         if (appointmentToCheckout && appointmentToCheckout.status === 'ready_for_checkout') {
@@ -1146,11 +1145,11 @@ function PlannerPageContent() {
             toast({
                 variant: 'destructive',
                 title: 'Appointment Not Found',
-                description: 'Could not find a matching walk-in appointment. The data may still be syncing. Please try again in a moment.',
+                description: 'Could not find a matching appointment. The data may still be syncing. Please try again in a moment.',
             });
         }
     }
-  }, [appointments, toast]);
+  }, [appointments, toast, setIsCheckoutOpen, setSelectedAppointment]);
 
   useEffect(() => {
     if (scannedData) {
@@ -1378,6 +1377,10 @@ function PlannerPageContent() {
                                         </Select>
                                     </div>
                                 )}
+                                <Button variant="outline" className="w-full" onClick={() => setIsScannerOpen(true)}>
+                                    <QrCode className="mr-2 h-4 w-4" />
+                                    Scan Checkout Ticket
+                                </Button>
                                 <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                     <Button size="sm" variant="outline" className="w-full">
@@ -1623,6 +1626,9 @@ function PlannerPageContent() {
           </DialogHeader>
           <div className="p-4 relative">
              <div id="qr-reader-planner" className="w-full rounded-md bg-muted" />
+             <div className="absolute inset-4 flex items-center justify-center pointer-events-none">
+                <div className="w-2/3 h-1/2 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
+            </div>
           </div>
            <DialogFooter className="p-4 pt-0">
                 <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button>
@@ -1668,5 +1674,3 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
-
-
