@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -883,15 +884,25 @@ export default function WalkInQueuePage() {
     const estimatedWaitTimes = useMemo(() => {
         const waitTimes = new Map<string, number>();
         if (!staff || !activeStaff || !services || !appointments || !events || !walkIns) return waitTimes;
-    
+
         const now = new Date();
-        const futureAppointments = appointments.filter(apt => apt.endTime > now && isToday(apt.startTime));
-        const futureEvents = events.filter(evt => evt.endTime > now && isToday(evt.startTime));
-    
+        
+        // Deep copy arrays to prevent accidental mutation
+        const futureAppointmentsData = JSON.parse(JSON.stringify(appointments));
+        const futureEventsData = JSON.parse(JSON.stringify(events));
+
+        const futureAppointments: Appointment[] = futureAppointmentsData
+            .map((apt: any) => ({...apt, startTime: parseISO(apt.startTime), endTime: parseISO(apt.endTime)}))
+            .filter((apt: Appointment) => apt.endTime > now && isToday(apt.startTime));
+
+        const futureEvents: Event[] = futureEventsData
+            .map((evt: any) => ({...evt, startTime: parseISO(evt.startTime), endTime: parseISO(evt.endTime)}))
+            .filter((evt: Event) => evt.endTime > now && isToday(evt.startTime));
+
         const staffTimelines: { [staffId: string]: Date } = {};
         activeStaff.forEach(s => {
             let nextFreeTime = now;
-    
+
             const staffAppointments = futureAppointments.filter(apt => apt.staffId === s.id);
             const staffEvents = futureEvents.filter(e => !e.staffId || e.staffId === 'all' || e.staffId === s.id);
             
@@ -903,21 +914,21 @@ export default function WalkInQueuePage() {
             });
             staffTimelines[s.id] = nextFreeTime;
         });
-    
+
         const waitingCustomers = walkIns.filter(w => w.status === 'waiting').sort((a,b) => parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
-    
+
         for (const customer of waitingCustomers) {
             const requiredSkills = customer.requiredSkills || [];
             const qualifiedStaff = activeStaff.filter(s => requiredSkills.every(skill => (s.skillSet || []).includes(skill)));
-    
+
             if (qualifiedStaff.length === 0) {
                 waitTimes.set(customer.id, Infinity);
                 continue;
             }
-    
+
             let bestStaffId = '';
             let soonestFreeTime = new Date(8640000000000000); 
-    
+
             for (const staffMember of qualifiedStaff) {
                 if (staffTimelines[staffMember.id] < soonestFreeTime) {
                     soonestFreeTime = staffTimelines[staffMember.id];
