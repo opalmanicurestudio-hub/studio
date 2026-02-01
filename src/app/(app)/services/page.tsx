@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -239,7 +238,7 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
                             <span className='text-xs text-muted-foreground flex items-center gap-1'><MapPin className="w-2.5 h-2.5"/>{p.location}</span>
                         </div>
                     </div>
-                    <span className="font-semibold text-xs">${(p.cost || 0).toFixed(2)}</span>
+                    <span className="font-semibold text-xs">${(p.cost || 0).toFixed(3)}</span>
                 </div>
             )) : <p className="text-xs text-muted-foreground text-center p-2">No products in formula.</p>}
         </div>
@@ -257,7 +256,7 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
                 </div>
                 <span className="font-medium text-xs">{e.name}</span>
             </div>
-            <span className="font-semibold text-xs">${e.cost.toFixed(2)}</span>
+            <span className="font-semibold text-xs">${e.cost.toFixed(3)}</span>
         </div>
          )) : <p className="text-xs text-muted-foreground text-center p-2">No equipment in formula.</p>}
       </div>
@@ -334,20 +333,6 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUp
               <Link href={`/services/${service.id}`} className="group">
                 <p className="font-semibold text-base leading-tight group-hover:underline pr-2">{service.name}</p>
               </Link>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button aria-haspopup="true" size="icon" variant="ghost" className='-mt-1 h-8 w-8 flex-shrink-0'>
-                    <MoreHorizontal className="h-4 w-4" />
-                    <span className="sr-only">Toggle menu</span>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => onEditServiceOpen(service)}>
-                    <Pencil className="mr-2 h-4 w-4" />
-                    Edit
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
             </div>
             {service.isPrivate && (
                 <Badge variant="secondary" className="text-xs">
@@ -434,8 +419,15 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUp
         </Accordion>
       </CardContent>
        <CardFooter className="p-2 border-t bg-muted/50">
-            <div className="grid grid-cols-1 gap-2 w-full">
-                <Button variant="ghost" size="sm" className="w-full" onClick={handleCopyLink}><LinkIcon className="mr-2 h-4 w-4"/>Share Booking Link</Button>
+            <div className="grid grid-cols-2 gap-2 w-full">
+                <Button variant="ghost" size="sm" className="w-full" onClick={() => onEditServiceOpen(service)}>
+                    <Pencil className="mr-2 h-4 w-4"/>
+                    Edit
+                </Button>
+                <Button variant="ghost" size="sm" className="w-full" onClick={handleCopyLink}>
+                    <LinkIcon className="mr-2 h-4 w-4"/>
+                    Share Link
+                </Button>
             </div>
         </CardFooter>
     </Card>
@@ -826,3 +818,5 @@ export default function ServicesPage() {
     </div>
   );
 }
+
+    
