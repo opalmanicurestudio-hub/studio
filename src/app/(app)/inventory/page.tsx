@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
@@ -1423,47 +1422,53 @@ export default function InventoryPage() {
                 <TabsContent value="products" className="mt-6">
                     <Card>
                         <CardHeader>
-                            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
                                 <div>
                                     <CardTitle>All Inventory</CardTitle>
                                     <CardDescription>A complete list of your professional, retail, and equipment stock.</CardDescription>
                                 </div>
-                                <div className="flex items-center gap-2 flex-wrap justify-end">
-                                    <Button variant="outline" size="sm" asChild>
-                                        <Link href="/inventory/report"><BarChart className="mr-2 h-4 w-4" />Report</Link>
-                                    </Button>
-                                    <Button size="sm" onClick={() => handleOpenAddProductDialog('professional')}>
-                                        <Package className="mr-2 h-4 w-4" />
-                                        Pro Product
-                                    </Button>
-                                    <Button size="sm" onClick={() => handleOpenAddProductDialog('retail')}>
-                                        <Store className="mr-2 h-4 w-4" />
-                                        Retail
-                                    </Button>
-                                    <Button size="sm" onClick={() => setIsAddEquipmentDialogOpen(true)}>
-                                        <Hammer className="mr-2 h-4 w-4" />
-                                        Equipment
-                                    </Button>
-                                    <Button size="sm" onClick={() => setIsAddOverheadDialogOpen(true)}>
-                                        <Recycle className="mr-2 h-4 w-4" />
-                                        Overhead
-                                    </Button>
-                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                <Button size="sm" onClick={() => handleOpenAddProductDialog('professional')} className="w-full">
+                                    <Package className="mr-2 h-4 w-4" />
+                                    Pro Product
+                                </Button>
+                                <Button size="sm" onClick={() => handleOpenAddProductDialog('retail')} className="w-full">
+                                    <Store className="mr-2 h-4 w-4" />
+                                    Retail
+                                </Button>
+                                <Button size="sm" onClick={() => setIsAddEquipmentDialogOpen(true)} className="w-full">
+                                    <Hammer className="mr-2 h-4 w-4" />
+                                    Equipment
+                                </Button>
+                                <Button size="sm" onClick={() => setIsAddOverheadDialogOpen(true)} className="w-full">
+                                    <Recycle className="mr-2 h-4 w-4" />
+                                    Overhead
+                                </Button>
                             </div>
                         </CardHeader>
                         <CardContent>
                             <div className="mb-4 space-y-4">
-                                <div className="flex flex-col sm:flex-row items-center gap-4">
-                                    <div className="relative flex-1 w-full">
-                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                        <Input 
-                                            placeholder="Search by name..." 
-                                            className="pl-9"
-                                            value={searchTerm}
-                                            onChange={(e) => setSearchTerm(e.target.value)}
-                                        />
+                                <div className="relative w-full">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                    <Input 
+                                        placeholder="Search by name..." 
+                                        className="pl-9"
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                    />
+                                </div>
+                                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                                    <div className="flex items-center space-x-2">
+                                        <Switch id="show-archived" checked={showArchived} onCheckedChange={setShowArchived} />
+                                        <Label htmlFor="show-archived" className="text-sm">Show Archived</Label>
                                     </div>
                                     <div className="flex items-center gap-2 w-full sm:w-auto">
+                                         <Button variant="outline" size="icon" asChild>
+                                            <Link href="/inventory/report">
+                                                <BarChart className="h-4 w-4" />
+                                            </Link>
+                                        </Button>
                                         <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
                                             <QrCode className="h-4 w-4" />
                                             <span className="sr-only">Scan</span>
@@ -1484,10 +1489,6 @@ export default function InventoryPage() {
                                             </DropdownMenuContent>
                                         </DropdownMenu>
                                     </div>
-                                </div>
-                                <div className="flex items-center space-x-2">
-                                    <Switch id="show-archived" checked={showArchived} onCheckedChange={setShowArchived} />
-                                    <Label htmlFor="show-archived">{showArchived ? "Viewing Archived" : "Show Archived"}</Label>
                                 </div>
                             </div>
                              {selectedItems.size > 0 && (
@@ -1720,10 +1721,3 @@ export default function InventoryPage() {
     </ClientOnly>
   );
 }
-
-
-    
-
-
-
-
