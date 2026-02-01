@@ -49,7 +49,7 @@ export const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment,
         partialDisplay = (
             <div className="text-center p-3 bg-muted/50 rounded-lg">
                 <p className="text-xs text-muted-foreground">In Use</p>
-                <p className="font-semibold text-lg">{item.partialContainerSize.toFixed(0)} <span className="text-sm">{item.unit}</span></p>
+                <p className="font-semibold text-lg">{item.partialContainerSize.toFixed(0)} <span className="text-sm">{item.unit || 'unit'}</span></p>
             </div>
         );
     } else if (item.costingMethod === 'uses' && typeof item.partialContainerUses === 'number') {
@@ -91,27 +91,36 @@ export const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment,
                             <Link href={detailHref} className="group">
                                <p className="font-semibold text-base leading-tight group-hover:underline pr-2">{item.name}</p>
                             </Link>
-                            <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button aria-haspopup="true" size="icon" variant="ghost" className="h-8 w-8 flex-shrink-0 -mt-1 -mr-1">
-                                <MoreHorizontal className="h-4 w-4" />
-                                <span className="sr-only">Toggle menu</span>
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                                <DropdownMenuItem asChild>
-                                    <Link href={detailHref}>View Details</Link>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => onEdit(item)}>
-                                    <Edit className="mr-2 h-4 w-4"/>Edit
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={() => item.isExperimentActive ? onEndExperiment(item) : onToggleExperiment(item)}>
-                                    {item.isExperimentActive ? <><CheckCircle className="mr-2 h-4 w-4 text-green-500" />End Lifespan Test</> : <><Rocket className="mr-2 h-4 w-4 text-purple-500"/>Start Lifespan Test</>}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem asChild><Link href={`/inventory/labels?product=${item.id}`}><Printer className="mr-2 h-4 w-4" /> Print Label</Link></DropdownMenuItem>
-                            </DropdownMenuContent>
-                            </DropdownMenu>
+                            <div className="flex items-center gap-1">
+                                <TooltipProvider>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); onEdit(item); }}>
+                                                <Edit className="h-4 w-4" />
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent><p>Edit</p></TooltipContent>
+                                    </Tooltip>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); item.isExperimentActive ? onEndExperiment(item) : onToggleExperiment(item); }}>
+                                                {item.isExperimentActive ? <CheckCircle className="h-4 w-4 text-green-500" /> : <Rocket className="h-4 w-4 text-purple-500"/>}
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent><p>{item.isExperimentActive ? 'End Lifespan Test' : 'Start Lifespan Test'}</p></TooltipContent>
+                                    </Tooltip>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button asChild variant="ghost" size="icon" className="h-8 w-8">
+                                                <Link href={`/inventory/labels?product=${item.id}`} onClick={(e) => e.stopPropagation()}>
+                                                    <Printer className="h-4 w-4" />
+                                                </Link>
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent><p>Print Label</p></TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
+                            </div>
                         </div>
                         <p className="text-sm text-muted-foreground">{item.category}</p>
                     </div>
@@ -159,3 +168,4 @@ export const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment,
         </Card>
     )
 }
+
