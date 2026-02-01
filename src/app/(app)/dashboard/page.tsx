@@ -9,7 +9,6 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  CardFooter,
 } from '@/components/ui/card';
 import {
   Users,
@@ -26,6 +25,8 @@ import {
   ChartTooltip,
   ChartTooltipContent,
   ChartConfig,
+  ChartLegend,
+  ChartLegendContent,
 } from '@/components/ui/chart';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis, Pie, PieChart, Cell } from 'recharts';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -224,8 +225,8 @@ export default function DashboardPage() {
         .reduce((acc, t) => acc + t.amount, 0);
 
     return [
-      { name: 'Services', value: serviceRevenue, fill: 'var(--color-services)' },
-      { name: 'Retail', value: retailRevenue, fill: 'var(--color-retail)' },
+      { name: 'services', value: serviceRevenue, fill: 'var(--color-services)' },
+      { name: 'retail', value: retailRevenue, fill: 'var(--color-retail)' },
     ];
   }, [allTransactions]);
 
@@ -330,13 +331,13 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         </div>
-        <div className="grid gap-4 grid-cols-1 lg:grid-cols-7">
-          <Card className="lg:col-span-3">
+        <div className="grid gap-4 grid-cols-1 md:grid-cols-5">
+          <Card className="md:col-span-3">
             <CardHeader>
               <CardTitle>Weekly Profit</CardTitle>
               <CardDescription>Your profit over the last 7 days.</CardDescription>
             </CardHeader>
-            <CardContent className="pl-2">
+            <CardContent>
               <ClientOnly>
                 <ChartContainer config={barChartConfig} className="h-[300px] w-full">
                   {isLoading ? <Skeleton className="w-full h-full" /> : (
@@ -365,12 +366,12 @@ export default function DashboardPage() {
               </ClientOnly>
             </CardContent>
           </Card>
-           <Card className="lg:col-span-2">
+           <Card className="md:col-span-2">
             <CardHeader>
               <CardTitle>Revenue Breakdown</CardTitle>
               <CardDescription>All-time revenue from services vs. retail.</CardDescription>
             </CardHeader>
-            <CardContent className="flex-1 pb-0">
+            <CardContent className="flex-1 flex justify-center pb-4">
               <ClientOnly>
                 <ChartContainer
                   config={pieChartConfig}
@@ -386,20 +387,13 @@ export default function DashboardPage() {
                           <Cell key={`cell-${index}`} fill={entry.fill} />
                       ))}
                     </Pie>
+                     <ChartLegend content={<ChartLegendContent nameKey="name" />} />
                   </PieChart>
                 </ChartContainer>
               </ClientOnly>
             </CardContent>
-            <CardFooter className="flex-col gap-2 text-sm">
-                <div className="flex w-full items-center gap-2 font-medium leading-none">
-                    Services <TrendingUp className="h-4 w-4" />
-                </div>
-                <div className="flex w-full items-center gap-2 font-medium leading-none">
-                    Retail <TrendingUp className="h-4 w-4" />
-                </div>
-             </CardFooter>
           </Card>
-          <Card className="lg:col-span-2">
+          <Card className="md:col-span-5">
             <CardHeader>
               <CardTitle>Recent Activity</CardTitle>
               <CardDescription>
