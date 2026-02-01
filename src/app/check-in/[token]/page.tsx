@@ -222,9 +222,9 @@ export default function CheckInPage() {
             updateData.lateTimeMinutes = lateMinutes;
         }
 
-        if (newStatus === 'cancelled' && cancellationReason) {
-             (updateData as any).cancellationReason = cancellationReason;
+        if (newStatus === 'auto_cancelled') {
              (updateData as any).status = 'cancelled';
+             (updateData as any).cancellationReason = 'late';
         }
 
         const appointmentCheckInRef = doc(firestore, 'appointmentCheckIns', token);
@@ -238,8 +238,7 @@ export default function CheckInPage() {
         const autoCancelEnabled = tenant?.autoCancelLateArrivals !== false;
 
         if (autoCancelEnabled && lateTime > gracePeriod) {
-            handleUpdateStatus('cancelled');
-            setCurrentStatus('auto_cancelled'); // For immediate UI feedback
+            handleUpdateStatus('auto_cancelled');
             setRescheduleStep('initial');
         } else {
             handleUpdateStatus('running_late', lateTime);
@@ -492,7 +491,7 @@ export default function CheckInPage() {
                             </div>
                         </RadioGroup>
                         
-                        {lateTime >= (tenant.lateArrivalGracePeriod || 15) && (
+                        {lateTime > (tenant.lateArrivalGracePeriod || 15) && (
                             <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-center">
                                 <AlertTriangle className="w-6 h-6 mx-auto mb-2"/>
                                 <p className="font-semibold">Please Be Aware</p>
@@ -503,7 +502,7 @@ export default function CheckInPage() {
                         <div className="grid grid-cols-2 gap-4">
                             <Button variant="outline" onClick={() => {setShowLateOptions(false); setLateTime(0)}}>Cancel</Button>
                              <Button onClick={handleConfirmLate} disabled={lateTime === 0}>
-                                {lateTime >= (tenant.lateArrivalGracePeriod || 15) ? 'I Understand' : 'Confirm'}
+                                {lateTime > (tenant.lateArrivalGracePeriod || 15) ? 'I Understand' : 'Confirm'}
                              </Button>
                         </div>
                     </div>
@@ -535,6 +534,3 @@ export default function CheckInPage() {
     );
 }
 
-  
-
-    

@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { usePathname, useSearchParams } from 'next/navigation';
@@ -42,6 +43,7 @@ import {
   Percent,
   Megaphone,
   Star,
+  Award,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -97,7 +99,8 @@ const moneyNavItems = [
 const marketingNavItems = [
     { href: '/campaigns', icon: Megaphone, label: 'Campaigns' },
     { href: '/discounts?tab=codes', icon: Percent, label: 'Discounts' },
-    { href: '/discounts?tab=automations', icon: Star, label: 'Loyalty' },
+    { href: '/reviews', icon: Star, label: 'Reviews' },
+    { href: '/discounts?tab=automations', icon: Award, label: 'Loyalty' },
 ];
 
 export function AppSidebar() {
@@ -254,4 +257,3 @@ export function AppSidebar() {
   );
 }
 
-    

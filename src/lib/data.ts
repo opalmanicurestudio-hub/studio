@@ -140,6 +140,14 @@ export type Client = {
   referredBy?: string;
   successfulReferrals?: string[];
   walletCredit?: number;
+  outstandingBalance?: number;
+  unpaidFees?: {
+    feeId: string;
+    appointmentId: string;
+    appointmentDate: string;
+    feeAmount: number;
+    reason: string;
+  }[];
   address?: {
     street: string;
     city: string;
@@ -302,12 +310,15 @@ export type Appointment = {
   actualStartTime?: string;
   actualEndTime?: string;
   checkoutState?: AppointmentCheckoutState;
-  checkInStatus?: 'pending' | 'on_my_way' | 'arrived' | 'running_late';
+  checkInStatus?: 'pending' | 'on_my_way' | 'arrived' | 'running_late' | 'auto_cancelled';
   checkInToken?: string;
   lateTimeMinutes?: number;
   automatedRescheduleOffered?: boolean;
   requiredResourceIds?: string[];
   recurrenceId?: string;
+  cancellationReason?: 'late' | 'no-show' | 'client_request' | 'other';
+  cancellationFeeApplied?: number;
+  cancellationFeeWaived?: boolean;
 };
 
 export type EventChecklistItem = {
@@ -542,6 +553,20 @@ export type Campaign = {
   generatedRevenue?: number;
 };
 
+export type Review = {
+  id: string;
+  tenantId: string;
+  clientId: string;
+  clientName: string;
+  clientAvatarUrl?: string;
+  staffId: string;
+  serviceId: string;
+  serviceName: string;
+  rating: number;
+  text: string;
+  isPublic: boolean;
+  createdAt: string; // ISO date string
+};
 
 export { billDefinitions, billInstances, transactions };
 
@@ -551,7 +576,7 @@ export const clients: Client[] = [
     name: 'Eleanor Vance', 
     email: 'eleanor@example.com', 
     phone: '202-555-0198', 
-    avatarUrl: '', 
+    avatarUrl: 'https://picsum.photos/seed/client1/100/100', 
     lifetimeValue: 2450.75, 
     lastAppointment: '2024-07-19T10:00:00.000Z',
     birthday: '1990-05-15',
@@ -579,32 +604,46 @@ export const clients: Client[] = [
     referralCode: 'ELEANOR10',
     successfulReferrals: ['Leo Gallagher'],
     walletCredit: 10,
+    outstandingBalance: 25.00,
+    unpaidFees: [
+        {
+            feeId: 'fee-123',
+            appointmentId: 'apt-prev-1',
+            appointmentDate: subDays(new Date(), 30).toISOString(),
+            feeAmount: 25.00,
+            reason: 'Late Cancellation'
+        }
+    ]
   },
   { 
     id: 'cli-2', 
     name: 'Marcus Holloway', 
     email: 'marcus@example.com', 
     phone: '310-555-0187', 
-    avatarUrl: '', 
+    avatarUrl: 'https://picsum.photos/seed/client2/100/100', 
     lifetimeValue: 1890.00, 
     lastAppointment: '2024-05-20T14:30:00.000Z', 
     allergyNotes: 'Latex', 
     referralCode: 'MARCUS15',
     activePackages: [{ packageId: 'pkg-2', sessionsRemaining: 2 }],
+    outstandingBalance: 0,
+    unpaidFees: [],
   },
-  { id: 'cli-3', name: 'Anya Sharma', email: 'anya@example.com', phone: '773-555-0123', avatarUrl: '', lifetimeValue: 3200.50, lastAppointment: '2024-05-01T11:00:00.000Z', referralCode: 'ANYA20', status: 'archived' },
-  { id: 'cli-4', name: 'Leo Gallagher', email: 'leo@example.com', phone: '415-555-0142', avatarUrl: '', lifetimeValue: 950.00, lastAppointment: '2024-04-22T16:00:00.000Z', referredBy: 'Eleanor Vance', referralCode: 'LEO5' },
+  { id: 'cli-3', name: 'Anya Sharma', email: 'anya@example.com', phone: '773-555-0123', avatarUrl: 'https://picsum.photos/seed/client3/100/100', lifetimeValue: 3200.50, lastAppointment: '2024-05-01T11:00:00.000Z', referralCode: 'ANYA20', status: 'archived', outstandingBalance: 0, unpaidFees: [] },
+  { id: 'cli-4', name: 'Leo Gallagher', email: 'leo@example.com', phone: '415-555-0142', avatarUrl: 'https://picsum.photos/seed/client4/100/100', lifetimeValue: 950.00, lastAppointment: '2024-04-22T16:00:00.000Z', referredBy: 'Eleanor Vance', referralCode: 'LEO5', outstandingBalance: 0, unpaidFees: [] },
   { 
     id: 'cli-5', 
     name: 'Sofia Chen', 
     email: 'sofia@example.com', 
     phone: '212-555-0165', 
-    avatarUrl: '', 
+    avatarUrl: 'https://picsum.photos/seed/client5/100/100', 
     lifetimeValue: 4500.00, 
     lastAppointment: '2024-05-18T09:30:00.000Z', 
     sensoryNeeds: 'Prefers quiet', 
     activeMembershipId: 'mem-1',
-    referralCode: 'SOFIA25' 
+    referralCode: 'SOFIA25',
+    outstandingBalance: 0,
+    unpaidFees: [],
   },
 ];
 
@@ -616,7 +655,7 @@ export const staff: Staff[] = [
     email: 'brenda@example.com', 
     role: 'staff', 
     skillLevel: 'senior',
-    avatarUrl: '', 
+    avatarUrl: 'https://picsum.photos/seed/staff1/100/100', 
     payStructure: 'commission', 
     commissionRate: 45,
     retailCommissionRate: 10,
@@ -644,7 +683,7 @@ export const staff: Staff[] = [
     email: 'carlos@example.com', 
     role: 'admin', 
     skillLevel: 'master',
-    avatarUrl: '', 
+    avatarUrl: 'https://picsum.photos/seed/staff2/100/100', 
     payStructure: 'salary', 
     commissionRate: 0,
     retailCommissionRate: 15,
@@ -698,7 +737,7 @@ export const services: Service[] = [
     cost: 3.50,
     profit: 41.50,
     margin: 92.2,
-    imageUrl: '',
+    imageUrl: 'https://picsum.photos/seed/svc1/400/300',
     products: [
       { ...inventory.find(i => i.id === 'inv-1')!, quantityUsed: 1 },
       { ...inventory.find(i => i.id === 'inv-2')!, quantityUsed: 5 }, // 5ml
@@ -731,7 +770,7 @@ export const services: Service[] = [
     cost: 5.00,
     profit: 80.00,
     margin: 94.1,
-    imageUrl: '',
+    imageUrl: 'https://picsum.photos/seed/svc2/400/300',
     isPrivate: true,
     depositType: 'deposit',
     depositSubType: 'flat',
@@ -757,7 +796,7 @@ export const services: Service[] = [
     cost: 35.00,
     profit: 215.00,
     margin: 86.0,
-    imageUrl: '',
+    imageUrl: 'https://picsum.photos/seed/svc3/400/300',
     isPrivate: false,
     depositType: 'deposit',
     depositSubType: 'percentage',
@@ -782,7 +821,7 @@ export const services: Service[] = [
     cost: 15.00,
     profit: 105.00,
     margin: 87.5,
-    imageUrl: '',
+    imageUrl: 'https://picsum.photos/seed/svc4/400/300',
     isPrivate: false,
     depositType: 'none',
     requiredResourceIds: ['res-1'],
@@ -805,7 +844,7 @@ export const services: Service[] = [
     cost: 50.00,
     profit: 300.00,
     margin: 85.7,
-    imageUrl: '',
+    imageUrl: 'https://picsum.photos/seed/svc5/400/300',
     isPrivate: false,
     depositType: 'breakeven',
     requiredSkills: ['color', 'balayage'],
@@ -828,7 +867,7 @@ export const services: Service[] = [
     cost: 2.00,
     profit: 48.00,
     margin: 96.0,
-    imageUrl: '',
+    imageUrl: 'https://picsum.photos/seed/svc6/400/300',
     isPrivate: false,
     depositType: 'none',
     requiredSkills: ['haircut'],
@@ -852,7 +891,7 @@ export const services: Service[] = [
     cost: 12.00,
     profit: 83.00,
     margin: 87.4,
-    imageUrl: '',
+    imageUrl: 'https://picsum.photos/seed/svc7/400/300',
     isPrivate: false,
     depositType: 'none',
     requiredSkills: ['basic_manicure', 'gel'],
@@ -876,7 +915,7 @@ export const services: Service[] = [
     cost: 1.50,
     profit: 23.50,
     margin: 94.0,
-    imageUrl: '',
+    imageUrl: 'https://picsum.photos/seed/svc8/400/300',
     isPrivate: false,
     depositType: 'none',
     capacity: 1,
@@ -898,7 +937,7 @@ export const services: Service[] = [
     cost: 20.00,
     profit: 100.00,
     margin: 83.3,
-    imageUrl: '',
+    imageUrl: 'https://picsum.photos/seed/svc9/400/300',
     isPrivate: false,
     depositType: 'none',
     requiredSkills: ['color'],
@@ -920,7 +959,7 @@ export const services: Service[] = [
     cost: 10.00,
     profit: 65.00,
     margin: 86.7,
-    imageUrl: '',
+    imageUrl: 'https://picsum.photos/seed/svc10/400/300',
     isPrivate: false,
     depositType: 'none',
     requiredSkills: ['color'],
@@ -942,7 +981,7 @@ export const services: Service[] = [
     cost: 5.00,
     profit: 55.00,
     margin: 91.7,
-    imageUrl: '',
+    imageUrl: 'https://picsum.photos/seed/svc11/400/300',
     isPrivate: false,
     depositType: 'none',
     requiredSkills: ['styling'],
@@ -964,7 +1003,7 @@ export const services: Service[] = [
     cost: 8.00,
     profit: 82.00,
     margin: 91.1,
-    imageUrl: '',
+    imageUrl: 'https://picsum.photos/seed/svc12/400/300',
     isPrivate: false,
     status: 'archived',
     depositType: 'none',

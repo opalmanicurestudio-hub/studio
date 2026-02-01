@@ -1,5 +1,4 @@
 
-
 {
   "entities": {
     "User": {
@@ -987,6 +986,26 @@
         "generatedRevenue": { "type": "number", "description": "The total revenue generated from this campaign." }
       },
       "required": ["id", "name", "type", "targetAudience", "status"]
+    },
+    "Review": {
+      "title": "Review",
+      "type": "object",
+      "description": "A review submitted by a client for a service.",
+      "properties": {
+        "id": { "type": "string" },
+        "tenantId": { "type": "string" },
+        "clientId": { "type": "string" },
+        "clientName": { "type": "string" },
+        "clientAvatarUrl": { "type": "string", "format": "uri" },
+        "staffId": { "type": "string" },
+        "serviceId": { "type": "string" },
+        "serviceName": { "type": "string" },
+        "rating": { "type": "number" },
+        "text": { "type": "string" },
+        "isPublic": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "tenantId", "clientId", "rating", "createdAt"]
     }
   },
   "auth": {
@@ -1134,9 +1153,12 @@
         "$ref": "#/entities/Campaign"
       },
       "description": "Stores marketing campaigns for a tenant."
+    },
+    "/tenants/{tenantId}/reviews/{reviewId}": {
+      "schema": {
+        "$ref": "#/entities/Review"
+      },
+      "description": "Client reviews for the tenant."
     }
   }
 }
-    
-
-    

@@ -1,3 +1,4 @@
+
 /**
  * # Firestore Security Rules
  *
@@ -314,6 +315,20 @@ service cloud.firestore {
     match /tenants/{tenantId}/campaigns/{campaignId} {
         allow read, write: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
     }
+    
+    /**
+     * @description Rules for client reviews.
+     * @path /tenants/{tenantId}/reviews/{reviewId}
+     */
+    match /tenants/{tenantId}/reviews/{reviewId} {
+      // Allow public read for reviews marked as public
+      allow get: if resource.data.isPublic == true;
+      allow list: if request.query.where.size() == 1 && request.query.where[0] == 'isPublic' && request.query.where[1] == '==' && request.query.where[2] == true;
+      
+      // Allow tenant owner/admin to read all reviews and write/update them
+      allow read, write: if isTenantOwner(tenantId) || isTenantAdmin(tenantId);
+    }
+
 
     /**
      * @description Rules for recurring bills. This data is private.
