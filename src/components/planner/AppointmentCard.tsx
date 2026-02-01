@@ -121,26 +121,6 @@ interface AppointmentDetailsProps {
     onFinishService: (appointment: Appointment) => void;
 }
 
-interface AppointmentCardProps {
-  appointment: Appointment;
-  client: Client;
-  service: Service;
-  resources: Resource[];
-  style: React.CSSProperties;
-  tmhr: number;
-  onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void;
-  onDelete: (appointmentId: string) => void;
-  onCompleteClick: (appointment: Appointment) => void;
-  onPrintReceipt: (data: Omit<ReceiptData, 'business'>) => void;
-  onPrintTicket: (data: Omit<TicketData, 'business'>) => void;
-  onEdit: (appointment: Appointment) => void;
-  onReschedule: (appointment: Appointment) => void;
-  onRebook: (appointment: Appointment) => void;
-  onStartService: (appointmentId: string) => void;
-  onFinishService: (appointment: Appointment) => void;
-  onBookNewForClient: (clientId: string) => void;
-}
-
 const AppointmentDetails = ({
     appointment,
     client,
@@ -348,8 +328,29 @@ const AppointmentDetails = ({
                 </AlertDialogAction>
             </AlertDialogFooter>
         </AlertDialogContent>
+    </AlertDialog>
     </>
   );
+};
+
+interface AppointmentCardProps {
+  appointment: Appointment;
+  client: Client;
+  service: Service;
+  resources: Resource[];
+  style: React.CSSProperties;
+  tmhr: number;
+  onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void;
+  onDelete: (appointmentId: string) => void;
+  onCompleteClick: (appointment: Appointment) => void;
+  onPrintReceipt: (data: Omit<ReceiptData, 'business'>) => void;
+  onPrintTicket: (data: Omit<TicketData, 'business'>) => void;
+  onEdit: (appointment: Appointment) => void;
+  onReschedule: (appointment: Appointment) => void;
+  onRebook: (appointment: Appointment) => void;
+  onStartService: (appointmentId: string) => void;
+  onFinishService: (appointment: Appointment) => void;
+  onBookNewForClient: (clientId: string) => void;
 }
 
 export function AppointmentCard({
@@ -754,6 +755,3 @@ export function AppointmentCard({
     </div>
   );
 }
-
-
-    
