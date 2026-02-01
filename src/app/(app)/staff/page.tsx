@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -83,7 +84,7 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity }: { m
             return <Button className="w-full" variant="outline" onClick={() => onStatusChange(member.id, 'break_end')}><Coffee className="mr-2 h-4 w-4"/>End Break</Button>
         }
         return (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-2 w-full">
                 <Button variant="outline" onClick={() => onStatusChange(member.id, 'break_start')}><Coffee className="mr-2 h-4 w-4"/>Start Break</Button>
                 <Button variant="destructive" onClick={() => onStatusChange(member.id, 'clock_out')}><Clock className="mr-2 h-4 w-4"/>Clock Out</Button>
             </div>
@@ -100,17 +101,6 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity }: { m
                     })}>
                         {member.active ? (member.onBreak ? 'On Break' : 'Clocked In') : 'Clocked Out'}
                     </Badge>
-                     <DropdownMenu>
-                        <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 -mt-2 -mr-2"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                        <DropdownMenuContent>
-                             <DropdownMenuItem asChild>
-                                <Link href={`/staff/${member.id}`}>View Public Profile</Link>
-                             </DropdownMenuItem>
-                             <DropdownMenuItem onClick={() => onViewActivity(member)}>View Dashboard</DropdownMenuItem>
-                             <DropdownMenuSeparator />
-                             <DropdownMenuItem onClick={() => onEdit(member)}>Edit Profile</DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
                 </div>
             </CardHeader>
             <CardContent className="p-4 pt-0 flex-1 flex flex-col items-center">
@@ -146,8 +136,19 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity }: { m
                     </div>
                 )}
             </CardContent>
-            <CardFooter className="p-4 border-t mt-auto">
+            <CardFooter className="p-2 border-t mt-auto flex flex-col gap-2">
                 {renderActionButtons()}
+                <div className="grid grid-cols-2 gap-2 w-full">
+                    <Button variant="secondary" size="sm" onClick={() => onViewActivity(member)}>
+                        Dashboard
+                    </Button>
+                    <Button variant="secondary" size="sm" onClick={() => onEdit(member)}>
+                        Edit Profile
+                    </Button>
+                </div>
+                 <Button asChild variant="link" size="sm" className="text-xs h-auto py-1 w-full">
+                    <Link href={`/staff/${member.id}`}>View Public Profile</Link>
+                </Button>
             </CardFooter>
         </Card>
     )
@@ -575,3 +576,4 @@ export default function StaffPage() {
     </div>
   );
 }
+
