@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
@@ -157,16 +158,9 @@ export const DayTimeline = ({
             ...item,
             layout: { cols: 0, col: 0 }
         }));
-        
+
         function positionCluster(cluster: any[]) {
             cluster.sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
-            
-            if (isMobile) {
-                for (const item of cluster) {
-                    item.layout = { cols: 1, col: 0 };
-                }
-                return;
-            }
 
             const columns: any[][] = [];
             for(const item of cluster) {
@@ -224,7 +218,7 @@ export const DayTimeline = ({
         map.set(columnId, positionedItems);
     }
     return map;
-    }, [itemsByColumn, isMobile]);
+    }, [itemsByColumn]);
 
 
     const renderAppointment = (item: any) => {
