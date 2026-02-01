@@ -159,7 +159,6 @@ export default function CheckInPage() {
     const [currentStatus, setCurrentStatus] = useState<Appointment['checkInStatus']>('pending');
     const [lateTime, setLateTime] = useState(0);
     const [showLateOptions, setShowLateOptions] = useState(false);
-    const [isCancelled, setIsCancelled] = useState(false);
     const [rescheduleStep, setRescheduleStep] = useState<'initial' | 'payment' | 'reschedule' | 'confirmed'>('initial');
     
     const [rescheduleDate, setRescheduleDate] = useState<Date>(new Date());
@@ -215,7 +214,7 @@ export default function CheckInPage() {
         }
     }, [appointment]);
 
-    const handleUpdateStatus = (newStatus: Appointment['checkInStatus'], lateMinutes?: number) => {
+    const handleUpdateStatus = (newStatus: Appointment['checkInStatus'], lateMinutes?: number, cancellationReason?: string) => {
         if (!appointment || !firestore || !tenantId) return;
         
         const updateData: Partial<Appointment> = { checkInStatus: newStatus };
@@ -223,12 +222,13 @@ export default function CheckInPage() {
             updateData.lateTimeMinutes = lateMinutes;
         }
 
+        if (newStatus === 'cancelled' && cancellationReason) {
+             (updateData as any).cancellationReason = cancellationReason;
+             (updateData as any).status = 'cancelled';
+        }
+
         const appointmentCheckInRef = doc(firestore, 'appointmentCheckIns', token);
         updateDocumentNonBlocking(appointmentCheckInRef, updateData);
-        
-        // This is the important change: We ONLY update the public document.
-        // A backend Cloud Function will be responsible for syncing this to the private appointment.
-        // By removing the second write, we eliminate the source of the permission error.
 
         setCurrentStatus(newStatus);
     };
@@ -238,7 +238,8 @@ export default function CheckInPage() {
         const autoCancelEnabled = tenant?.autoCancelLateArrivals !== false;
 
         if (autoCancelEnabled && lateTime > gracePeriod) {
-            setIsCancelled(true);
+            handleUpdateStatus('cancelled');
+            setCurrentStatus('auto_cancelled'); // For immediate UI feedback
             setRescheduleStep('initial');
         } else {
             handleUpdateStatus('running_late', lateTime);
@@ -290,8 +291,6 @@ export default function CheckInPage() {
         const appointmentCheckInRef = doc(firestore, 'appointmentCheckIns', token);
         await updateDocumentNonBlocking(appointmentCheckInRef, updateData);
         
-        // The backend function will sync this change to the original appointment.
-
         setRescheduleStep('confirmed');
     };
     
@@ -426,7 +425,7 @@ export default function CheckInPage() {
                         <Button onClick={handleReschedule} disabled={!rescheduleTime} className="w-full">
                             Book an Appointment
                         </Button>
-                        <Button variant="link" size="sm" className="mt-2 w-full" onClick={() => { setIsCancelled(false); handleUpdateStatus('cancelled'); }}>
+                        <Button variant="link" size="sm" className="mt-2 w-full" onClick={() => { handleUpdateStatus('cancelled'); }}>
                             No, Thanks. Cancel appointment.
                         </Button>
                     </Card>
@@ -467,7 +466,7 @@ export default function CheckInPage() {
                     </div>
                 </div>
                 
-                {isCancelled ? renderCancellationFlow() : showLateOptions ? (
+                {currentStatus === 'auto_cancelled' ? renderCancellationFlow() : showLateOptions ? (
                     <div className="space-y-4">
                          <h4 className="font-medium text-center">How late will you be?</h4>
                         <RadioGroup 
@@ -537,3 +536,5 @@ export default function CheckInPage() {
 }
 
   
+
+    

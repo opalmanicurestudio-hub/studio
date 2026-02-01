@@ -57,7 +57,6 @@ import {
   DropdownMenuPortal,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
   Dialog,
@@ -349,7 +348,6 @@ const AppointmentDetails = ({
                 </AlertDialogAction>
             </AlertDialogFooter>
         </AlertDialogContent>
-    </AlertDialog>
     </>
   );
 }
@@ -525,6 +523,8 @@ export function AppointmentCard({
   }, [service, resources]);
 
 
+  const cardStatus = appointment.checkInStatus === 'auto_cancelled' ? 'cancelled' : appointment.status;
+
   const statusDisplay: { [key in Appointment['status']]: { text: string; className: string; bgClassName: string } } = {
     confirmed: { text: 'Confirmed', className: 'border-blue-500/30 text-blue-800 dark:text-blue-300', bgClassName: 'bg-blue-500/10' },
     servicing: { text: 'In Service', className: 'border-yellow-500/30 text-yellow-800 dark:text-yellow-300', bgClassName: 'bg-yellow-500/10' },
@@ -575,7 +575,7 @@ export function AppointmentCard({
       <div style={{ height: mainHeight }} className="min-h-fit">
         {isCompact ? (
           <div
-            className={cn('p-2 border rounded-lg w-full h-full flex items-center justify-between cursor-pointer gap-2', statusDisplay[appointment.status]?.bgClassName, statusDisplay[appointment.status]?.className, hasPadBefore ? 'rounded-t-none' : '', hasPadAfter ? 'rounded-b-none' : '')}
+            className={cn('p-2 border rounded-lg w-full h-full flex items-center justify-between cursor-pointer gap-2', statusDisplay[cardStatus]?.bgClassName, statusDisplay[cardStatus]?.className, hasPadBefore ? 'rounded-t-none' : '', hasPadAfter ? 'rounded-b-none' : '')}
             onClick={handleCardClick}
             data-is-event-card="true"
           >
@@ -629,7 +629,7 @@ export function AppointmentCard({
           </div>
         ) : (
           <div 
-              className={cn('p-2 border rounded-lg w-full h-full flex flex-col justify-between cursor-pointer', statusDisplay[appointment.status]?.bgClassName, statusDisplay[appointment.status]?.className, hasPadBefore ? 'rounded-t-none' : '', hasPadAfter ? 'rounded-b-none' : '')}
+              className={cn('p-2 border rounded-lg w-full h-full flex flex-col justify-between cursor-pointer', statusDisplay[cardStatus]?.bgClassName, statusDisplay[cardStatus]?.className, hasPadBefore ? 'rounded-t-none' : '', hasPadAfter ? 'rounded-b-none' : '')}
               onClick={handleCardClick}
               data-is-event-card="true"
           >
@@ -685,8 +685,8 @@ export function AppointmentCard({
                   <div className="flex flex-col items-start gap-1">
                       <p className="text-[10px] text-muted-foreground font-medium">{format(appointment.startTime, 'h:mm a')}</p>
                        <div className="flex items-center gap-1 flex-wrap">
-                          <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[appointment.status]?.className, statusDisplay[appointment.status]?.bgClassName)}>
-                              {statusDisplay[appointment.status]?.text}
+                          <Badge variant="secondary" className={cn("text-[10px] h-5 px-1.5 capitalize", statusDisplay[cardStatus]?.className, statusDisplay[cardStatus]?.bgClassName)}>
+                              {statusDisplay[cardStatus]?.text}
                           </Badge>
                           {appointment.checkInStatus === 'on_my_way' && (<Badge variant="outline" className="text-[10px] h-5 px-1.5 capitalize border-blue-500/30 text-blue-800 dark:text-blue-300 bg-blue-500/10"><Car className="w-3 h-3 mr-1" />On My Way</Badge>)}
                           {appointment.checkInStatus === 'arrived' && (<Badge variant="outline" className="text-[10px] h-5 px-1.5 capitalize border-green-500/30 text-green-800 dark:text-green-300 bg-green-500/10"><CheckCircle className="w-3 h-3 mr-1" />Arrived</Badge>)}
@@ -754,3 +754,6 @@ export function AppointmentCard({
     </div>
   );
 }
+
+
+    

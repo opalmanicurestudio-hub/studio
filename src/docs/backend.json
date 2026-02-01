@@ -430,6 +430,10 @@
         "id": {
           "type": "string"
         },
+        "tenantId": {
+            "type": "string",
+            "description": "The ID of the tenant this appointment belongs to."
+        },
         "clientId": {
           "type": "string"
         },
@@ -447,6 +451,11 @@
         "endTime": {
           "type": "string",
           "format": "date-time"
+        },
+        "source": {
+          "type": "string",
+          "enum": ["online", "walk-in", "manual"],
+          "description": "The source of the appointment booking."
         },
         "isWalkIn": {
             "type": "boolean",
@@ -476,7 +485,7 @@
         },
         "checkInStatus": {
             "type": "string",
-            "enum": ["pending", "on_my_way", "arrived", "running_late"],
+            "enum": ["pending", "on_my_way", "arrived", "running_late", "auto_cancelled"],
             "description": "The arrival status of the client for their appointment."
         },
         "checkInToken": {
@@ -491,6 +500,10 @@
             "type": "boolean",
             "description": "Indicates if an automated reschedule option has been offered to a late client."
         },
+        "inventoryProcessed": {
+            "type": "boolean",
+            "description": "Indicates if inventory has been deducted for this appointment."
+        },
         "requiredResourceIds": {
             "type": "array",
             "description": "A list of resource IDs required for this appointment.",
@@ -503,10 +516,12 @@
       },
       "required": [
         "id",
+        "tenantId",
         "clientId",
         "serviceId",
         "startTime",
-        "endTime"
+        "endTime",
+        "source"
       ]
     },
     "WalkIn": {
@@ -1089,4 +1104,6 @@
     }
   }
 }
+    
+
     
