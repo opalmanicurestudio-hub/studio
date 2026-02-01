@@ -103,15 +103,45 @@ function PlannerPageContent() {
       billInstances,
       isLoading
   } = useInventory();
+
+  const checkInsQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return query(collection(firestore, 'appointmentCheckIns'), where('tenantId', '==', tenantId));
+  }, [firestore, tenantId]);
+  const { data: checkIns, isLoading: checkInsLoading } = useCollection<Partial<Appointment>>(checkInsQuery);
   
   const appointments = useMemo(() => {
     if (!appointmentsFromInventory) return [];
-    return appointmentsFromInventory.map(apt => ({
+    
+    const baseAppointments = appointmentsFromInventory.map(apt => ({
         ...apt,
         startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : new Date(apt.startTime),
         endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : new Date(apt.endTime),
     }));
-  }, [appointmentsFromInventory]);
+
+    if (!checkIns) {
+        return baseAppointments;
+    }
+
+    const checkInMap = new Map<string, Partial<Appointment>>();
+    checkIns.forEach(ci => {
+        if (ci.checkInToken) {
+            checkInMap.set(ci.checkInToken, ci);
+        }
+    });
+
+    return baseAppointments.map(apt => {
+        if (apt.checkInToken && checkInMap.has(apt.checkInToken)) {
+            const checkInData = checkInMap.get(apt.checkInToken)!;
+            return {
+                ...apt,
+                checkInStatus: checkInData.checkInStatus || apt.checkInStatus,
+                lateTimeMinutes: checkInData.lateTimeMinutes !== undefined ? checkInData.lateTimeMinutes : apt.lateTimeMinutes,
+            };
+        }
+        return apt;
+    });
+  }, [appointmentsFromInventory, checkIns]);
   
   const events = useMemo(() => {
     if (!eventsFromInventory) return [];
@@ -1111,7 +1141,7 @@ function PlannerPageContent() {
 }, [isScannerOpen, handleScan, toast]);
   
   const showStaffColumnHeader = !isMobile;
-  const isDataLoading = isLoading || isUserLoading || isTenantLoading || scheduleProfilesLoading || resourcesLoading;
+  const isDataLoading = isLoading || isUserLoading || isTenantLoading || scheduleProfilesLoading || resourcesLoading || checkInsLoading;
 
   if (isDataLoading) {
     return (
@@ -1572,4 +1602,5 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
+
 
