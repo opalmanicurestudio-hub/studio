@@ -13,7 +13,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { ArrowLeft, Edit, Mail, Phone, DollarSign, Calendar, FileText, FlaskConical, PlusCircle, ShieldPlus, AlertTriangle, Ear, Upload, Eye, ShieldAlert, BadgeInfo, Ban, MessageSquare, Home, User as UserIcon, Gift, Copy, Save, Award, Repeat, CheckCircle, Percent, Loader } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
@@ -35,7 +35,9 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
 } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription } from '@/components/ui/alert-dialog';
 import { LogIncidentDialog } from '@/components/incidents/LogIncidentDialog';
 import { IncidentFormData } from '@/components/incidents/LogIncidentForm';
 import Image from 'next/image';
@@ -46,7 +48,7 @@ import { formatPhoneNumber } from 'react-phone-number-input';
 import { AddAppointmentDialog } from '@/components/planner/AddAppointmentDialog';
 import { nanoid } from 'nanoid';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, updateDocumentNonBlocking, addDocumentNonBlocking, errorEmitter } from '@/firebase';
-import { collection, doc, arrayUnion, query, where } from 'firebase/firestore';
+import { collection, doc, arrayUnion, query, where, writeBatch, increment } from 'firebase/firestore';
 import type { Client, Appointment, Service, CustomFormula, Incident, Membership, Package, ConsentForm, Event } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 
@@ -235,6 +237,7 @@ export default function ClientDetailPage() {
   const [appointmentToRebook, setAppointmentToRebook] = useState<Appointment | null>(null);
   const [photos, setPhotos] = useState<ClientPhoto[]>([]);
   const [selectedPhoto, setSelectedPhoto] = useState<ClientPhoto | null>(null);
+  const [feeToWaive, setFeeToWaive] = useState<any | null>(null);
 
   const [editableReferralCode, setEditableReferralCode] = useState(client?.referralCode || '');
   const [isCodeDirty, setIsCodeDirty] = useState(false);
@@ -266,8 +269,8 @@ export default function ClientDetailPage() {
         }
         
         clientAppointments.forEach(apt => {
-            if (apt.clientId === client.id && apt.inspirationPhotoUrl) {
-                collectedPhotos.push({ url: apt.inspirationPhotoUrl, label: `Inspo for ${format(new Date(apt.startTime), 'MMM d, yyyy')}`});
+            if (apt.clientId === client.id && (apt as any).inspirationPhotoUrl) {
+                collectedPhotos.push({ url: (apt as any).inspirationPhotoUrl, label: `Inspo for ${format(new Date(apt.startTime), 'MMM d, yyyy')}`});
             }
         });
         setPhotos(collectedPhotos);
@@ -432,6 +435,41 @@ export default function ClientDetailPage() {
           description: "The new referral code has been saved.",
       });
   };
+  
+  const handleWaiveFee = async () => {
+    if (!feeToWaive || !client || !firestore || !tenantId) return;
+
+    const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
+    const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, feeToWaive.appointmentId);
+    
+    const newUnpaidFees = (client.unpaidFees || []).filter((f: any) => f.feeId !== feeToWaive.feeId);
+    const newBalance = newUnpaidFees.reduce((acc: number, fee: any) => acc + fee.feeAmount, 0);
+
+    const batch = writeBatch(firestore);
+    
+    batch.update(clientRef, {
+        unpaidFees: newUnpaidFees,
+        outstandingBalance: newBalance
+    });
+    
+    batch.update(appointmentRef, {
+        cancellationFeeWaived: true
+    });
+
+    try {
+        await batch.commit();
+        toast({
+            title: "Fee Waived",
+            description: `The $${feeToWaive.feeAmount.toFixed(2)} fee has been waived.`,
+        });
+    } catch (error) {
+        console.error("Error waiving fee:", error);
+        toast({ variant: 'destructive', title: 'Error', description: 'Could not waive the fee.' });
+    }
+    
+    setFeeToWaive(null);
+  };
+
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-muted/40">
@@ -586,10 +624,36 @@ export default function ClientDetailPage() {
                           </div>
                            <div className="lg:col-span-1 space-y-6">
                                <Card>
-                                   <CardHeader><CardTitle>Client Wallet</CardTitle></CardHeader>
-                                  <CardContent className="grid grid-cols-1 gap-4">
+                                   <CardHeader><CardTitle>Client Accounts</CardTitle></CardHeader>
+                                   <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                       <div className="p-4 rounded-lg bg-muted/50"><div className="text-sm text-muted-foreground">Store Credit</div><div className="text-2xl font-bold">${(client.walletCredit || 0).toFixed(2)}</div></div>
-                                  </CardContent>
+                                      <div className="p-4 rounded-lg bg-destructive/10"><div className="text-sm font-medium text-destructive">Outstanding Balance</div><div className="text-2xl font-bold text-destructive">${(client.outstandingBalance || 0).toFixed(2)}</div></div>
+                                   </CardContent>
+                                    {(client.unpaidFees && client.unpaidFees.length > 0) && (
+                                        <>
+                                            <Separator />
+                                            <CardContent className="p-4">
+                                                <h4 className="font-medium mb-2">Unpaid Fees</h4>
+                                                <div className="space-y-2">
+                                                    {client.unpaidFees.map((fee: any) => (
+                                                        <div key={fee.feeId} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+                                                            <div>
+                                                                <p className="text-sm font-medium">{fee.reason}</p>
+                                                                <p className="text-xs text-muted-foreground">From apt on {format(parseISO(fee.appointmentDate), 'MMM d, yyyy')}</p>
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="font-semibold text-destructive">${fee.feeAmount.toFixed(2)}</span>
+                                                                <Button size="xs" variant="outline" onClick={() => setFeeToWaive(fee)}>Waive</Button>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </CardContent>
+                                        </>
+                                    )}
+                                  <CardFooter>
+                                      <Button disabled={!client.outstandingBalance || client.outstandingBalance === 0}>Settle Balance in POS</Button>
+                                  </CardFooter>
                               </Card>
                               <Card>
                                 <Tabs defaultValue="formulas" className="w-full">
@@ -872,7 +936,24 @@ export default function ClientDetailPage() {
                 </ScrollArea>
             </DialogContent>
         </Dialog>
+        <AlertDialog open={!!feeToWaive} onOpenChange={() => setFeeToWaive(null)}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Are you sure you want to waive this fee?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        This will permanently remove the <strong>${feeToWaive?.feeAmount.toFixed(2)}</strong> fee for the appointment on {feeToWaive ? format(parseISO(feeToWaive.appointmentDate), 'PPP') : ''}. This action cannot be undone.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleWaiveFee} className={buttonVariants({ variant: "destructive" })}>
+                        Yes, Waive Fee
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
     </div>
   );
 }
+
 

@@ -4,7 +4,7 @@
 
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, QrCode, Globe, Building, HardHat } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, QrCode, Globe, Building, HardHat, Repeat, Link as LinkIcon, Car } from 'lucide-react';
 import { type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState, type Resource } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping, addMonths, differenceInHours } from 'date-fns';
@@ -271,7 +271,7 @@ function PlannerPageContent() {
     
     const weeklyCosts = completedAppointments.reduce((acc, apt) => {
         const service = (services || []).find(s => s.id === apt.serviceId);
-        return acc + (service?.cost || 0);
+        return acc + ((service as any)?.cost || 0);
     }, 0);
     
     const monthlyCosts = (billDefinitions || []).reduce((acc, bill) => {
@@ -364,7 +364,7 @@ function PlannerPageContent() {
   
   const itemsByColumn = useMemo(() => {
     if(!itemsByColumnRaw) return new Map(); // Guard against undefined
-    const map = new Map<string, (Appointment | Event & { itemType: string })[]>();
+    const map = new Map<string, (Appointment | Event)[]>();
     
     const columnsToUse = activeView === 'staff' ? staff : resources;
     (columnsToUse || []).forEach(s => map.set(s.id, []));
@@ -959,11 +959,22 @@ function PlannerPageContent() {
             const timeDiffHours = differenceInHours(appointment.startTime, new Date());
             const cancellationWindow = selectedTenant.cancellationWindowHours || 24;
 
-            if (timeDiffHours < cancellationWindow) {
+            if (timeDiffHours < cancellationWindow && appointment.status !== 'cancelled') {
                 const fee = selectedTenant.cancellationFee || 25; 
                 const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
-                const newBalance = (client.outstandingBalance || 0) + fee;
-                updateDocumentNonBlocking(clientRef, { outstandingBalance: newBalance });
+                
+                const newFee = {
+                    feeId: nanoid(),
+                    appointmentId: appointment.id,
+                    appointmentDate: appointment.startTime.toISOString(),
+                    feeAmount: fee,
+                    reason: 'Late Cancellation'
+                };
+
+                updateDocumentNonBlocking(clientRef, { 
+                    outstandingBalance: increment(fee),
+                    unpaidFees: arrayUnion(newFee)
+                });
                 
                 updateData.cancellationReason = 'client_request';
                 updateData.cancellationFeeApplied = fee;
@@ -1657,4 +1668,5 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
+
 

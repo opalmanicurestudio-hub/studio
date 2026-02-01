@@ -419,6 +419,21 @@
         "outstandingBalance": {
             "type": "number",
             "description": "The total amount of outstanding fees (e.g., from cancellations, no-shows)."
+        },
+        "unpaidFees": {
+            "type": "array",
+            "description": "A detailed list of individual unpaid fees.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "feeId": { "type": "string" },
+                    "appointmentId": { "type": "string" },
+                    "appointmentDate": { "type": "string", "format": "date-time" },
+                    "feeAmount": { "type": "number" },
+                    "reason": { "type": "string" }
+                },
+                "required": ["feeId", "appointmentId", "appointmentDate", "feeAmount", "reason"]
+            }
         }
       },
       "required": [
@@ -526,6 +541,10 @@
         "cancellationFeeApplied": {
             "type": "number",
             "description": "The amount of the cancellation fee that was applied, if any."
+        },
+        "cancellationFeeWaived": {
+            "type": "boolean",
+            "description": "True if an applied cancellation fee was waived by an admin."
         }
       },
       "required": [
@@ -1120,3 +1139,4 @@
 }
     
 
+    
