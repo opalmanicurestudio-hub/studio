@@ -116,12 +116,27 @@ service cloud.firestore {
       return request.resource.data.tenantId == resource.data.tenantId;
     }
     
+    /**
+     * Helper function for check-in updates. Ensures that only 'checkInStatus' and 'lateTimeMinutes' can be modified.
+     */
+    function isUpdatingCheckInStatusOnly() {
+      let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
+      // Allow only 'checkInStatus' and 'lateTimeMinutes' to be changed.
+      return changedKeys.hasOnly(['checkInStatus', 'lateTimeMinutes']);
+    }
+
+    /**
+     * @description Publicly accessible collection for initiating client check-in.
+     * The document ID is a secret token known only to the client via a URL.
+     */
     match /appointmentCheckIns/{token} {
       allow read: if true;
-      allow update: if request.resource.data.checkInToken == token
-                    && request.resource.data.id == resource.data.id
-                    && request.resource.data.clientId == resource.data.clientId
-                    && request.resource.data.serviceId == resource.data.serviceId;
+      allow create: if false; // These are created by a trusted server process.
+      allow delete: if false;
+      
+      // Allow an update only if the request provides the correct token
+      // AND only the allowed check-in fields are being modified.
+      allow update: if request.resource.data.checkInToken == token && isUpdatingCheckInStatusOnly();
     }
 
 
@@ -241,8 +256,9 @@ service cloud.firestore {
       allow get: if isTenantOwner(tenantId) || isTenantAdmin(tenantId) || (isStaff(tenantId) && resource.data.staffId == request.auth.uid);
       // ANYONE can create an appointment (book).
       allow create: if true;
-      // Owner/Admin/Assigned Staff can update. Check-in token allows client to update their own check-in status.
-      allow update: if isTenantOwner(tenantId) || isTenantAdmin(tenantId) || (isStaff(tenantId) && resource.data.staffId == request.auth.uid) || exists(/databases/$(database)/documents/appointmentCheckIns/$(resource.data.checkInToken));
+      // NOTE: Updates from the public check-in page are handled by a backend process.
+      // We do NOT allow direct, unauthenticated updates here for security.
+      allow update: if isTenantOwner(tenantId) || isTenantAdmin(tenantId) || (isStaff(tenantId) && resource.data.staffId == request.auth.uid);
       allow delete: if isTenantOwner(tenantId) || isTenantAdmin(tenantId) || (isStaff(tenantId) && resource.data.staffId == request.auth.uid);
     }
     
@@ -356,3 +372,4 @@ service cloud.firestore {
   }
 }
 
+  

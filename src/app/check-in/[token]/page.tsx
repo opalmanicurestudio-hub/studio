@@ -225,9 +225,10 @@ export default function CheckInPage() {
 
         const appointmentCheckInRef = doc(firestore, 'appointmentCheckIns', token);
         updateDocumentNonBlocking(appointmentCheckInRef, updateData);
-
-        const originalAppointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
-        updateDocumentNonBlocking(originalAppointmentRef, updateData);
+        
+        // This is the important change: We ONLY update the public document.
+        // A backend Cloud Function will be responsible for syncing this to the private appointment.
+        // By removing the second write, we eliminate the source of the permission error.
 
         setCurrentStatus(newStatus);
     };
@@ -289,8 +290,7 @@ export default function CheckInPage() {
         const appointmentCheckInRef = doc(firestore, 'appointmentCheckIns', token);
         await updateDocumentNonBlocking(appointmentCheckInRef, updateData);
         
-        const originalAppointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
-        await updateDocumentNonBlocking(originalAppointmentRef, updateData);
+        // The backend function will sync this change to the original appointment.
 
         setRescheduleStep('confirmed');
     };
@@ -535,3 +535,5 @@ export default function CheckInPage() {
         </Card>
     );
 }
+
+  
