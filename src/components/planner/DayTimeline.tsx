@@ -4,11 +4,12 @@
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, Building, HardHat } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, QrCode, Globe, Building, HardHat } from 'lucide-react';
 import { type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState, type Resource } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
-import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping } from 'date-fns';
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping, addMonths } from 'date-fns';
+import React, { useState, useMemo, useEffect, useRef, useCallback, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { CompleteAppointmentDialog, type CheckoutData } from '@/components/planner/CompleteAppointmentDialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -48,8 +49,8 @@ import { AppointmentCard } from '@/components/planner/AppointmentCard';
 import { PrintReceipt, type ReceiptData } from '@/components/planner/PrintReceipt';
 import { PrintTicket, type TicketData } from '@/components/planner/PrintTicket';
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
-import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
-import { collection, query, where, Timestamp, doc } from 'firebase/firestore';
+import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking, errorEmitter } from '@/firebase';
+import { collection, query, where, Timestamp, doc, setDoc, arrayUnion, increment, writeBatch } from 'firebase/firestore';
 import { EditEventDialog } from '@/components/planner/EditEventDialog';
 import { BillDueDateCard } from '@/components/planner/BillDueDateCard';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -65,7 +66,18 @@ import { PickingListDialog } from '@/components/planner/PickingListDialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { WalkIn, type Client, type Service } from '@/lib/data';
+import { DayTimeline as OriginalDayTimeline } from '@/components/planner/DayTimeline'; // Assuming original is renamed
+import { nanoid } from 'nanoid';
+import { WeeklyKpiSheet } from '@/components/planner/WeeklyKpiSheet';
+import { BillsDueSheet } from '@/components/planner/BillsDueSheet';
+import { Html5Qrcode } from 'html5-qrcode';
+import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
+import Link from 'next/link';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useTenant } from '@/context/TenantContext';
+import { useInventory } from '@/context/InventoryContext';
 
 
 export const DayTimeline = ({ 
@@ -137,73 +149,82 @@ export const DayTimeline = ({
     }, []);
 
     const positionedItemsByColumn = useMemo(() => {
-        const positionedMap = new Map<string, any[]>();
-        if (!itemsByColumn) {
-          return positionedMap;
-        }
-        for (const [columnId, items] of itemsByColumn.entries()) {
-            let layoutInfo = items.map(item => ({
-                ...item,
-                layout: { cols: 0, col: 0 }
-            }));
+    const map = new Map<string, any[]>();
+    if (!itemsByColumn) {
+      return map;
+    }
+    for (const [columnId, items] of itemsByColumn.entries()) {
+        let layoutInfo = items.map(item => ({
+            ...item,
+            layout: { cols: 0, col: 0 }
+        }));
+        
+        function positionCluster(cluster: any[]) {
+            cluster.sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
             
-            function positionCluster(cluster: any[]) {
-                cluster.sort((a,b) => a.startTime.getTime() - b.startTime.getTime());
-                
-                if (isMobile) {
-                    for (const item of cluster) {
-                        item.layout = { cols: 1, col: 0 };
-                    }
-                    return;
-                }
-
-                const columns: any[][] = [];
-                for(const item of cluster) {
-                    let placed = false;
-                    for (let i = 0; i < columns.length; i++) {
-                        const col = columns[i];
-                        if (col[col.length-1].endTime <= item.startTime) {
-                            col.push(item);
-                            item.layout.col = i;
-                            placed = true;
-                            break;
-                        }
-                    }
-                    if (!placed) {
-                        columns.push([item]);
-                        item.layout.col = columns.length - 1;
-                    }
-                }
+            if (isMobile) {
                 for (const item of cluster) {
-                    item.layout.cols = columns.length;
+                    item.layout = { cols: 1, col: 0 };
                 }
-            }
-            
-            let lastEventEnd: Date | null = null;
-            let currentCluster: any[] = [];
-            for (const item of layoutInfo) {
-                if (lastEventEnd !== null && item.startTime >= lastEventEnd) {
-                    positionCluster(currentCluster);
-                    currentCluster = [];
-                }
-                currentCluster.push(item);
-                lastEventEnd = new Date(Math.max(lastEventEnd?.getTime() || 0, item.endTime.getTime()));
+                return;
             }
 
-            if (currentCluster.length > 0) {
-                positionCluster(currentCluster);
-            }
-            
-            const positionedItems = layoutInfo.map(item => ({
-                ...item,
-                layout: {
-                    width: `${100 / item.layout.cols}%`,
-                    left: `${(100 / item.layout.cols) * item.layout.col}%`,
+            const columns: any[][] = [];
+            for(const item of cluster) {
+                let placed = false;
+                for (let i = 0; i < columns.length; i++) {
+                    const col = columns[i];
+                    
+                    const hasOverlap = col.some(existingItem => 
+                        areIntervalsOverlapping(
+                            { start: item.startTime, end: item.endTime },
+                            { start: existingItem.startTime, end: existingItem.endTime },
+                            { inclusive: false }
+                        )
+                    );
+
+                    if (!hasOverlap) {
+                        col.push(item);
+                        item.layout.col = i;
+                        placed = true;
+                        break;
+                    }
                 }
-            }));
-            positionedMap.set(columnId, positionedItems);
+                if (!placed) {
+                    columns.push([item]);
+                    item.layout.col = columns.length - 1;
+                }
+            }
+            for (const item of cluster) {
+                item.layout.cols = columns.length;
+            }
         }
-        return positionedMap;
+        
+        let lastEventEnd: Date | null = null;
+        let currentCluster: any[] = [];
+        for (const item of layoutInfo) {
+            if (lastEventEnd !== null && item.startTime >= lastEventEnd) {
+                positionCluster(currentCluster);
+                currentCluster = [];
+            }
+            currentCluster.push(item);
+            lastEventEnd = new Date(Math.max(lastEventEnd?.getTime() || 0, item.endTime.getTime()));
+        }
+
+        if (currentCluster.length > 0) {
+            positionCluster(currentCluster);
+        }
+        
+        const positionedItems = layoutInfo.map(item => ({
+            ...item,
+            layout: {
+                width: `${100 / item.layout.cols}%`,
+                left: `${(100 / item.layout.cols) * item.layout.col}%`,
+            }
+        }));
+        positionedMap.set(columnId, positionedItems);
+    }
+    return positionedMap;
     }, [itemsByColumn, isMobile]);
 
 
