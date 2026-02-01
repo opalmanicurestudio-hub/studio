@@ -1,5 +1,3 @@
-
-
 /**
  * # Firestore Security Rules
  *
@@ -134,9 +132,10 @@ service cloud.firestore {
       allow create: if false; // These are created by a trusted server process.
       allow delete: if false;
       
-      // Allow an update only if the request provides the correct token
-      // AND only the allowed check-in fields are being modified.
-      allow update: if request.resource.data.checkInToken == token && isUpdatingCheckInStatusOnly();
+      // Allow EITHER the tenant owner/staff to update the document,
+      // OR an unauthenticated user to update only their check-in status if they provide the token.
+      allow update: if (resource.data.tenantId != null && (isTenantOwner(resource.data.tenantId) || isStaff(resource.data.tenantId))) ||
+                       (request.resource.data.checkInToken == token && isUpdatingCheckInStatusOnly());
     }
 
 
@@ -371,5 +370,3 @@ service cloud.firestore {
     }
   }
 }
-
-  
