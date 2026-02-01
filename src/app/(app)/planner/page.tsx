@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, QrCode, Globe, Building, HardHat } from 'lucide-react';
 import { type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState, type Resource } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
-import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping, addMonths } from 'date-fns';
+import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping, addMonths, differenceInHours } from 'date-fns';
 import React, { useState, useMemo, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
@@ -137,6 +137,7 @@ function PlannerPageContent() {
                 ...apt,
                 checkInStatus: checkInData.checkInStatus || apt.checkInStatus,
                 lateTimeMinutes: checkInData.lateTimeMinutes !== undefined ? checkInData.lateTimeMinutes : apt.lateTimeMinutes,
+                status: checkInData.status || apt.status, // Sync status for cancellations
             };
         }
         return apt;
@@ -176,7 +177,7 @@ function PlannerPageContent() {
   const [startConfirmAppointment, setStartConfirmAppointment] = useState<Appointment | null>(null);
 
   const [appointmentToRebook, setAppointmentToRebook] = useState<Appointment | null>(null);
-  const [initialClientIdForNewApt, setInitialClientIdForNewApt] = useState<string>('');
+  const [clientForNewApt, setClientForNewApt] = useState<Client | null>(null);
 
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -783,7 +784,8 @@ function PlannerPageContent() {
     }
     
     setIsAddAppointmentOpen(false);
-    setInitialClientIdForNewApt('');
+    setAppointmentToRebook(null);
+    setClientForNewApt(null);
   };
 
   const handleUpdateAppointment = (updatedAppointment: Appointment) => {
@@ -819,7 +821,10 @@ function PlannerPageContent() {
   
   const handleBookNewForClient = (clientId: string) => {
     setAppointmentToRebook(null);
-    setInitialClientIdForNewApt(clientId);
+    const client = clients?.find(c => c.id === clientId);
+    if (client) {
+      setClientForNewApt(client);
+    }
     setIsAddAppointmentOpen(true);
   };
 
@@ -941,9 +946,37 @@ function PlannerPageContent() {
   };
 
   const handleUpdateStatus = (appointmentId: string, status: Appointment['status']) => {
-    if (!firestore || !tenantId || !appointments) return;
+    if (!firestore || !tenantId || !appointments || !clients || !selectedTenant) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-    updateDocumentNonBlocking(appointmentRef, { status });
+    
+    let updateData: Partial<Appointment> = { status };
+    
+    if (status === 'cancelled') {
+        const appointment = appointments.find(apt => apt.id === appointmentId);
+        const client = clients?.find(c => c.id === appointment?.clientId);
+        
+        if (appointment && client) {
+            const timeDiffHours = differenceInHours(appointment.startTime, new Date());
+            const cancellationWindow = selectedTenant.cancellationWindowHours || 24;
+
+            if (timeDiffHours < cancellationWindow) {
+                const fee = selectedTenant.cancellationFee || 25; 
+                const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
+                const newBalance = (client.outstandingBalance || 0) + fee;
+                updateDocumentNonBlocking(clientRef, { outstandingBalance: newBalance });
+                
+                updateData.cancellationReason = 'client_request';
+                updateData.cancellationFeeApplied = fee;
+
+                toast({
+                    title: "Late Cancellation Fee Applied",
+                    description: `$${fee.toFixed(2)} fee has been added to ${client.name}'s account.`
+                });
+            }
+        }
+    }
+
+    updateDocumentNonBlocking(appointmentRef, updateData);
 
     const appointment = appointments.find(apt => apt.id === appointmentId);
     if (appointment?.checkInToken) {
@@ -1262,7 +1295,7 @@ function PlannerPageContent() {
                                 </DropdownMenuContent>
                             </DropdownMenu>
                             <Button size="sm" onClick={() => setIsAddEventOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Event</Button>
-                            <Button size="sm" onClick={() => setIsAddAppointmentOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Appointment</Button>
+                            <Button size="sm" onClick={() => handleBookNewForClient('')}><PlusCircle className="mr-2 h-4 w-4"/>Add Appointment</Button>
                         </div>
                     </div>
                 )}
@@ -1341,7 +1374,7 @@ function PlannerPageContent() {
                                     </Button>
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="end">
-                                        <DropdownMenuItem onClick={() => setIsAddAppointmentOpen(true)}>New Appointment</DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => handleBookNewForClient('')}>New Appointment</DropdownMenuItem>
                                         <DropdownMenuItem onClick={() => setIsAddEventOpen(true)}>New Event</DropdownMenuItem>
                                     </DropdownMenuContent>
                                 </DropdownMenu>
@@ -1445,11 +1478,11 @@ function PlannerPageContent() {
         onOpenChange={(isOpen) => {
             if (!isOpen) {
                 setAppointmentToRebook(null);
-                setInitialClientIdForNewApt('');
+                setClientForNewApt(null);
             }
             setIsAddAppointmentOpen(isOpen);
         }}
-        initialClientId={appointmentToRebook ? appointmentToRebook.clientId : initialClientIdForNewApt}
+        client={clientForNewApt}
         appointmentToRebook={appointmentToRebook}
         onConfirm={handleAddAppointment}
       />
@@ -1625,4 +1658,3 @@ export default function PlannerPageWrapper() {
   )
 }
 
-    

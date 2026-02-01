@@ -415,6 +415,10 @@
         "walletCredit": {
             "type": "number",
             "description": "The amount of store credit a client has, often earned via referrals."
+        },
+        "outstandingBalance": {
+            "type": "number",
+            "description": "The total amount of outstanding fees (e.g., from cancellations, no-shows)."
         }
       },
       "required": [
@@ -486,7 +490,7 @@
         },
         "checkInStatus": {
             "type": "string",
-            "enum": ["pending", "on_my_way", "arrived", "running_late"],
+            "enum": ["pending", "on_my_way", "arrived", "running_late", "auto_cancelled"],
             "description": "The arrival status of the client for their appointment."
         },
         "checkInToken": {
@@ -513,6 +517,15 @@
         "recurrenceId": {
             "type": "string",
             "description": "A unique ID grouping a series of recurring appointments."
+        },
+        "cancellationReason": {
+            "type": "string",
+            "enum": ["late", "no-show", "client_request", "other"],
+            "description": "The reason for the cancellation."
+        },
+        "cancellationFeeApplied": {
+            "type": "number",
+            "description": "The amount of the cancellation fee that was applied, if any."
         }
       },
       "required": [
@@ -1106,3 +1119,4 @@
   }
 }
     
+
