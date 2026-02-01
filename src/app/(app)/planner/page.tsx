@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -589,6 +588,11 @@ function PlannerPageContent() {
     };
     updateDocumentNonBlocking(appointmentRef, updateData);
 
+    if (selectedAppointment.checkInToken) {
+        const checkInRef = doc(firestore, 'appointmentCheckIns', selectedAppointment.checkInToken);
+        updateDocumentNonBlocking(checkInRef, { status: 'completed' });
+    }
+    
     // 6. Update staff status for all involved staff
     const staffIdsInvolved = new Set(Object.values(serviceStaffOverrides));
     staffIdsInvolved.forEach(staffId => {
@@ -890,7 +894,7 @@ function PlannerPageContent() {
   }
   
   const handleSendToFrontDesk = (appointmentId: string, checkoutState: AppointmentCheckoutState) => {
-    if (!firestore || !tenantId) return;
+    if (!firestore || !tenantId || !appointments) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
     updateDocumentNonBlocking(appointmentRef, {
         status: 'ready_for_checkout',
@@ -898,8 +902,13 @@ function PlannerPageContent() {
         actualEndTime: new Date().toISOString(),
     });
 
-    const staffIdsInvolved = new Set(Object.values(checkoutState.serviceStaffOverrides || {}));
     const appointment = appointments.find(apt => apt.id === appointmentId);
+    if (appointment?.checkInToken) {
+        const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
+        updateDocumentNonBlocking(checkInRef, { status: 'ready_for_checkout' });
+    }
+
+    const staffIdsInvolved = new Set(Object.values(checkoutState.serviceStaffOverrides || {}));
     if (appointment?.staffId) {
       staffIdsInvolved.add(appointment.staffId);
     }
@@ -931,9 +940,16 @@ function PlannerPageContent() {
   };
 
   const handleUpdateStatus = (appointmentId: string, status: Appointment['status']) => {
-    if (!firestore || !tenantId) return;
+    if (!firestore || !tenantId || !appointments) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
     updateDocumentNonBlocking(appointmentRef, { status });
+
+    const appointment = appointments.find(apt => apt.id === appointmentId);
+    if (appointment?.checkInToken) {
+        const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
+        updateDocumentNonBlocking(checkInRef, { status });
+    }
+
     toast({
         title: "Status Updated",
         description: `Appointment status changed to ${status}.`
@@ -953,6 +969,11 @@ function PlannerPageContent() {
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', startConfirmAppointment.id);
     updateDocumentNonBlocking(appointmentRef, { status: 'servicing', actualStartTime: nowISO });
     
+    if (startConfirmAppointment.checkInToken) {
+        const checkInRef = doc(firestore, 'appointmentCheckIns', startConfirmAppointment.checkInToken);
+        updateDocumentNonBlocking(checkInRef, { status: 'servicing' });
+    }
+
     if (startConfirmAppointment.staffId) {
       const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', startConfirmAppointment.staffId);
       updateDocumentNonBlocking(staffDocRef, { status: 'busy' });
@@ -993,7 +1014,7 @@ function PlannerPageContent() {
   };
   
   const handleChecklistItemToggle = (eventId: string, checklistItemId: string, completed: boolean) => {
-      if (!firestore || !tenantId) return;
+      if (!firestore || !tenantId || !events) return;
       const eventToUpdate = events.find(e => e.id === eventId);
       if (!eventToUpdate) return;
       
@@ -1603,4 +1624,4 @@ export default function PlannerPageWrapper() {
   )
 }
 
-
+    
