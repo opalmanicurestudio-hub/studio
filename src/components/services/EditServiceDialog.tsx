@@ -57,8 +57,8 @@ import { Calendar } from '../ui/calendar';
 import { CalendarIcon } from 'lucide-react';
 import { ScrollArea } from '../ui/scroll-area';
 import { useFirebase, useMemoFirebase, useCollection } from '@/firebase';
-import { collection } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
+import { collection } from 'firebase/firestore';
 
 
 const serviceSchema = z.object({
@@ -73,6 +73,7 @@ const serviceSchema = z.object({
   imageUrl: z.string().optional(),
   isPrivate: z.boolean().optional(),
   isAddon: z.boolean().optional(),
+  capacity: z.coerce.number().min(1).optional(),
   
   products: z.array(z.any()).optional(),
   requiredResourceIds: z.array(z.string()).optional(),
@@ -83,25 +84,30 @@ const serviceSchema = z.object({
   depositAmount: z.coerce.number().optional(),
   
   pricingTiers: z.object({
-    apprentice: z.object({
-        price: z.coerce.number().min(0, 'Price must be 0 or more.'),
-        duration: z.coerce.number().min(1, 'Duration must be at least 1 minute.'),
-    }),
-    junior: z.object({
-        price: z.coerce.number().min(0, 'Price must be 0 or more.'),
-        duration: z.coerce.number().min(1, 'Duration must be at least 1 minute.'),
-    }),
-    senior: z.object({
-        price: z.coerce.number().min(0, 'Price must be 0 or more.'),
-        duration: z.coerce.number().min(1, 'Duration must be at least 1 minute.'),
-    }),
-    master: z.object({
-        price: z.coerce.number().min(0, 'Price must be 0 or more.'),
-        duration: z.coerce.number().min(1, 'Duration must be at least 1 minute.'),
-    }),
+    apprentice: z.object({ enabled: z.boolean(), price: z.coerce.number().optional(), durationMinutes: z.coerce.number().optional() }),
+    junior: z.object({ enabled: z.boolean(), price: z.coerce.number().optional(), durationMinutes: z.coerce.number().optional() }),
+    senior: z.object({ enabled: z.boolean(), price: z.coerce.number().optional(), durationMinutes: z.coerce.number().optional() }),
+    master: z.object({ enabled: z.boolean(), price: z.coerce.number().optional(), durationMinutes: z.coerce.number().optional() }),
   }),
   confirmationMessage: z.string().optional(),
   requiredFormIds: z.array(z.string()).optional(),
+}).superRefine((data, ctx) => {
+    const tiers = ['apprentice', 'junior', 'senior', 'master'] as const;
+    let enabledCount = 0;
+    for (const tier of tiers) {
+        if (data.pricingTiers[tier].enabled) {
+            enabledCount++;
+            if (data.pricingTiers[tier].price === undefined || data.pricingTiers[tier].price! < 0) {
+                ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Price is required.", path: [`pricingTiers.${tier}.price`] });
+            }
+             if (data.pricingTiers[tier].durationMinutes === undefined || data.pricingTiers[tier].durationMinutes! < 1) {
+                ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Duration is required.", path: [`pricingTiers.${tier}.durationMinutes`] });
+            }
+        }
+    }
+    if (enabledCount === 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "At least one pricing tier must be enabled.", path: ["pricingTiers"] });
+    }
 });
 
 type ServiceFormData = z.infer<typeof serviceSchema>;
@@ -300,31 +306,44 @@ const Step2_Formula = ({ onScanClick, resources, allServices }: { onScanClick: (
 };
 
 const PricingTierInput = ({ level }: { level: 'apprentice' | 'junior' | 'senior' | 'master' }) => {
-    const { register, formState: { errors } } = useFormContext<ServiceFormData>();
-    
+    const { register, control, watch, formState: { errors } } = useFormContext<ServiceFormData>();
+    const isEnabled = watch(`pricingTiers.${level}.enabled`);
+
     return (
         <Card>
-            <CardHeader className="p-4">
+            <CardHeader className="p-4 flex flex-row items-center justify-between">
                 <CardTitle className="text-base capitalize">{level}</CardTitle>
+                <Controller
+                    name={`pricingTiers.${level}.enabled`}
+                    control={control}
+                    render={({ field }) => (
+                        <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                        />
+                    )}
+                />
             </CardHeader>
-            <CardContent className="p-4 pt-0 grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                    <Label htmlFor={`${level}-price-edit`} className="text-xs flex items-center gap-1.5"><DollarSign className="w-3 h-3 text-muted-foreground"/>Price</Label>
-                    <div className="relative">
-                        <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                        <Input id={`${level}-price-edit`} type="number" placeholder="0.00" {...register(`pricingTiers.${level}.price`)} className="pl-7" />
+            {isEnabled && (
+                <CardContent className="p-4 pt-0 grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                        <Label htmlFor={`${level}-price-edit`} className="text-xs flex items-center gap-1.5"><DollarSign className="w-3 h-3 text-muted-foreground"/>Price</Label>
+                        <div className="relative">
+                            <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                            <Input id={`${level}-price-edit`} type="number" placeholder="0.00" {...register(`pricingTiers.${level}.price`)} className="pl-7" />
+                        </div>
+                        {(errors.pricingTiers as any)?.[level]?.price && <p className="text-xs text-destructive">{(errors.pricingTiers as any)[level].price.message}</p>}
                     </div>
-                    {(errors.pricingTiers as any)?.[level]?.price && <p className="text-xs text-destructive">{(errors.pricingTiers as any)[level].price.message}</p>}
-                </div>
-                <div className="space-y-1">
-                    <Label htmlFor={`${level}-duration-edit`} className="text-xs flex items-center gap-1.5"><Clock className="w-3 h-3 text-muted-foreground"/>Duration</Label>
-                    <div className="relative">
-                        <Input id={`${level}-duration-edit`} type="number" placeholder="0" {...register(`pricingTiers.${level}.duration`)} className="pr-12"/>
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">mins</span>
+                    <div className="space-y-1">
+                        <Label htmlFor={`${level}-durationMinutes-edit`} className="text-xs flex items-center gap-1.5"><Clock className="w-3 h-3 text-muted-foreground"/>Duration</Label>
+                        <div className="relative">
+                            <Input id={`${level}-durationMinutes-edit`} type="number" placeholder="0" {...register(`pricingTiers.${level}.durationMinutes`)} className="pr-12"/>
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">mins</span>
+                        </div>
+                        {(errors.pricingTiers as any)?.[level]?.durationMinutes && <p className="text-xs text-destructive">{(errors.pricingTiers as any)[level].durationMinutes.message}</p>}
                     </div>
-                    {(errors.pricingTiers as any)?.[level]?.duration && <p className="text-xs text-destructive">{(errors.pricingTiers as any)[level].duration.message}</p>}
-                </div>
-            </CardContent>
+                </CardContent>
+            )}
         </Card>
     );
 };
@@ -334,14 +353,17 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
     const { control, watch, register, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
     const isAddon = watch('isAddon');
     const depositType = watch('depositType');
-    const [juniorPrice, seniorPrice, masterPrice, apprenticePrice] = watch(['pricingTiers.junior.price', 'pricingTiers.senior.price', 'pricingTiers.master.price', 'pricingTiers.apprentice.price']);
+    const pricingTiers = watch('pricingTiers');
 
-    const tiers = useMemo(() => [
-        { level: 'apprentice', price: apprenticePrice || 0 },
-        { level: 'junior', price: juniorPrice || 0 },
-        { level: 'senior', price: seniorPrice || 0 },
-        { level: 'master', price: masterPrice || 0 },
-    ], [apprenticePrice, juniorPrice, seniorPrice, masterPrice]);
+    const tiers = useMemo(() => {
+        if (!pricingTiers) return [];
+        return (['apprentice', 'junior', 'senior', 'master'] as const)
+            .filter(tier => pricingTiers[tier]?.enabled)
+            .map(tier => ({
+                level: tier,
+                price: pricingTiers[tier].price || 0,
+            }));
+    }, [pricingTiers]);
 
     useEffect(() => {
         if (depositType === 'breakeven') {
@@ -356,6 +378,9 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
             <CardContent className="space-y-6">
                 <div className="space-y-4">
                     <Label>Pricing & Duration Tiers</Label>
+                     {errors.pricingTiers && (
+                        <Alert variant="destructive"><AlertTriangle className="h-4 w-4" /><AlertDescription>At least one tier must be enabled and have a valid price/duration.</AlertDescription></Alert>
+                    )}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <PricingTierInput level="apprentice" />
                         <PricingTierInput level="junior" />
@@ -492,6 +517,17 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
 
   useEffect(() => {
     if (service && open) {
+        const pricingTiersData: any = {};
+        const allTiers = ['apprentice', 'junior', 'senior', 'master'];
+        allTiers.forEach(tier => {
+            const tierData = service.pricingTiers?.find(t => t.level === tier);
+            pricingTiersData[tier] = {
+                enabled: !!tierData,
+                price: tierData?.price,
+                durationMinutes: tierData?.durationMinutes
+            };
+        });
+
         methods.reset({
             id: service.id,
             name: service.name,
@@ -504,24 +540,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
             padAfter: service.padAfter || undefined,
             description: service.description || undefined,
             imageUrl: service.imageUrl || undefined,
-            pricingTiers: {
-                apprentice: {
-                    price: service.pricingTiers?.find(t => t.level === 'apprentice')?.price || 0,
-                    duration: service.pricingTiers?.find(t => t.level === 'apprentice')?.duration || service.duration,
-                },
-                junior: {
-                    price: service.pricingTiers?.find(t => t.level === 'junior')?.price || 0,
-                    duration: service.pricingTiers?.find(t => t.level === 'junior')?.duration || service.duration,
-                },
-                senior: {
-                    price: service.pricingTiers?.find(t => t.level === 'senior')?.price || service.price || 0,
-                    duration: service.pricingTiers?.find(t => t.level === 'senior')?.duration || service.duration,
-                },
-                master: {
-                    price: service.pricingTiers?.find(t => t.level === 'master')?.price || 0,
-                    duration: service.pricingTiers?.find(t => t.level === 'master')?.duration || service.duration,
-                },
-            },
+            pricingTiers: pricingTiersData,
             products: service.products || [],
             requiredResourceIds: service.requiredResourceIds || [],
             compatibleAddOnIds: service.compatibleAddOnIds || [],
@@ -537,7 +556,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
 
   const { watch, trigger, handleSubmit } = methods;
   const values = watch();
-  const { duration, padBefore, padAfter, products, requiredResourceIds } = values;
+  const { duration, padBefore, padAfter, products, requiredResourceIds, pricingTiers } = values;
   const [tmhr, setTmhr] = useState(0);
   const { inventory } = useInventory();
   
@@ -592,7 +611,15 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
   }
 
   const onSubmit = (data: ServiceFormData) => {
-      const finalPrice = data.pricingTiers.senior.price || 0;
+      const enabledTiersData = (['apprentice', 'junior', 'senior', 'master'] as const)
+        .filter(tier => data.pricingTiers[tier].enabled)
+        .map(tier => ({
+            level: tier,
+            price: data.pricingTiers[tier].price!,
+            durationMinutes: data.pricingTiers[tier].durationMinutes!,
+        }));
+
+      const finalPrice = enabledTiersData.find(t => t.level === 'senior')?.price ?? enabledTiersData[0]?.price ?? 0;
       const netProfit = finalPrice - breakEvenCost;
       const margin = finalPrice > 0 ? (netProfit / finalPrice) * 100 : 0;
       
@@ -603,12 +630,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
         cost: breakEvenCost,
         profit: netProfit,
         margin: margin,
-        pricingTiers: [
-            { level: 'apprentice', price: data.pricingTiers.apprentice.price, duration: data.pricingTiers.apprentice.duration },
-            { level: 'junior', price: data.pricingTiers.junior.price, duration: data.pricingTiers.junior.duration },
-            { level: 'senior', price: data.pricingTiers.senior.price, duration: data.pricingTiers.senior.duration },
-            { level: 'master', price: data.pricingTiers.master.price, duration: data.pricingTiers.master.duration },
-        ],
+        pricingTiers: enabledTiersData,
       };
       
       onServiceUpdated(updatedService);
@@ -621,7 +643,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
         if (step === 1) {
             fieldsToValidate.push('name', 'category', 'duration');
         }
-         if (step === 3) {
+        if (step === 3) {
             fieldsToValidate.push('pricingTiers');
         }
         
