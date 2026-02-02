@@ -36,49 +36,6 @@ type Notification = {
     icon: React.ReactNode;
 };
 
-const TenantSwitcher = () => {
-    const { tenants, selectedTenant, setSelectedTenant, isLoading } = useTenant();
-
-    if (isLoading) {
-        return <Skeleton className="h-10 w-48" />;
-    }
-
-    if (!selectedTenant || !tenants || tenants.length <= 1) {
-        return (
-            <div className="flex items-center gap-2">
-                <Building className="h-5 w-5 text-muted-foreground" />
-                <span className="font-semibold text-lg truncate max-w-[150px] md:max-w-none">{selectedTenant?.name || 'My Business'}</span>
-            </div>
-        );
-    }
-    
-    return (
-        <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="gap-2">
-                    <Building className="h-5 w-5 text-muted-foreground" />
-                    <span className="font-semibold truncate max-w-[150px] md:max-w-none">{selectedTenant.name}</span>
-                    <ChevronsUpDown className="h-4 w-4 text-muted-foreground shrink-0" />
-                </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-                <DropdownMenuLabel>Switch Location</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {tenants.map(tenant => (
-                    <DropdownMenuItem key={tenant.id} onClick={() => setSelectedTenant(tenant)} disabled={selectedTenant.id === tenant.id}>
-                       <div className="flex items-center justify-between w-full">
-                         <span className={cn("mr-2", selectedTenant.id === tenant.id ? "font-bold" : "font-normal")}>
-                            {tenant.name}
-                        </span>
-                         {selectedTenant.id === tenant.id && <Check className="h-4 w-4" />}
-                       </div>
-                    </DropdownMenuItem>
-                ))}
-            </DropdownMenuContent>
-        </DropdownMenu>
-    )
-}
-
 export function AppHeader({ title }: { title?: string }) {
   const { staff, inventory, billInstances, billDefinitions } = useInventory();
   const { user } = useUser();
@@ -244,11 +201,6 @@ export function AppHeader({ title }: { title?: string }) {
         
         {title && <h1 className="text-xl font-semibold truncate md:hidden">{title}</h1>}
         
-        <div className={cn(title ? 'hidden md:block' : 'block')}>
-            <ClientOnly>
-            <TenantSwitcher />
-            </ClientOnly>
-        </div>
       </div>
       
       <div className="flex items-center gap-2">

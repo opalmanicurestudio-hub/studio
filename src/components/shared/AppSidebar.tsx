@@ -46,6 +46,7 @@ import {
   Award,
 } from 'lucide-react';
 import Link from 'next/link';
+import { TenantSwitcher } from './TenantSwitcher';
 
 export const ClarityFlowLogo = () => (
     <svg
@@ -141,6 +142,9 @@ export function AppSidebar() {
             <h2 className="text-xl font-semibold text-sidebar-foreground group-data-[collapsible=icon]:hidden">
                 ClarityFlow
             </h2>
+        </div>
+         <div className="group-data-[collapsible=icon]:hidden">
+            <TenantSwitcher />
         </div>
       </SidebarHeader>
       <SidebarContent>
