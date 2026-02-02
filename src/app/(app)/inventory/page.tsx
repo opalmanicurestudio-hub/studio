@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
@@ -1235,7 +1236,6 @@ export default function InventoryPage() {
         batch.set(txnRef, {...transaction, date: new Date().toISOString() });
     }
 
-
     batch.commit().then(() => {
         toast({
             title: "Spoilage Written Off",
@@ -1249,8 +1249,6 @@ export default function InventoryPage() {
             description: "Failed to write off spoilage.",
         });
     });
-    
-    setIsSpoilageDialogOpen(false);
   };
   
   const handleToggleExperiment = (item: InventoryItem) => {
@@ -1439,28 +1437,8 @@ export default function InventoryPage() {
                                     </DropdownMenuContent>
                                 </DropdownMenu>
                             </div>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                                <Button size="sm" variant="outline" onClick={() => handleOpenAddProductDialog('professional')} className="w-full">
-                                    <Package className="mr-2 h-4 w-4" />
-                                    Pro Product
-                                </Button>
-                                <Button size="sm" variant="outline" onClick={() => handleOpenAddProductDialog('retail')} className="w-full">
-                                    <Store className="mr-2 h-4 w-4" />
-                                    Retail
-                                </Button>
-                                <Button size="sm" variant="outline" onClick={() => setIsAddEquipmentDialogOpen(true)} className="w-full">
-                                    <Hammer className="mr-2 h-4 w-4" />
-                                    Equipment
-                                </Button>
-                                <Button size="sm" variant="outline" onClick={() => setIsAddOverheadDialogOpen(true)} className="w-full">
-                                    <Recycle className="mr-2 h-4 w-4" />
-                                    Overhead
-                                </Button>
-                            </div>
-                        </CardHeader>
-                        <CardContent>
-                             <div className="flex flex-col sm:flex-row items-center gap-4 mb-4">
-                                <div className="relative w-full flex-1">
+                            <div className="flex flex-col sm:flex-row items-center gap-4">
+                                <div className="relative flex-1 w-full">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                     <Input 
                                         placeholder="Search by name..." 
@@ -1485,9 +1463,9 @@ export default function InventoryPage() {
                                     </Button>
                                     <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
-                                            <Button variant="outline" className="w-full sm:w-auto">
-                                                <ListFilter className="mr-2 h-4 w-4" />
-                                                Filter
+                                            <Button variant="outline" size="icon">
+                                                <ListFilter className="h-4 w-4" />
+                                                <span className="sr-only">Filter</span>
                                             </Button>
                                         </DropdownMenuTrigger>
                                         <DropdownMenuContent align="end">
@@ -1500,6 +1478,8 @@ export default function InventoryPage() {
                                     </DropdownMenu>
                                 </div>
                             </div>
+                        </CardHeader>
+                        <CardContent>
                              {selectedItems.size > 0 && (
                                 <div className="mb-4 p-3 rounded-lg bg-muted/50 flex items-center justify-between">
                                     <p className="text-sm font-medium">{selectedItems.size} item(s) selected</p>
