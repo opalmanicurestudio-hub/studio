@@ -76,14 +76,25 @@ const serviceSchema = z.object({
   depositSubType: z.enum(['flat', 'percentage']).optional(),
   depositAmount: z.coerce.number().optional(),
   
+  price: z.coerce.number().optional(),
   serviceTiers: z.array(z.object({
       tierId: z.string(),
       price: z.coerce.number().min(0, "Price must be positive."),
       durationMinutes: z.coerce.number().min(1, "Duration must be at least 1."),
-  })).min(1, "At least one pricing tier must be configured."),
+  })).optional(),
 
   confirmationMessage: z.string().optional(),
   requiredFormIds: z.array(z.string()).optional(),
+}).superRefine((data, ctx) => {
+    const hasTiers = data.serviceTiers && data.serviceTiers.length > 0;
+    if (!hasTiers && (data.price === undefined || data.price < 0)) {
+         ctx.addIssue({ code: z.ZodIssueCode.custom, message: "A standard price is required when no tiers are used.", path: ["price"] });
+    }
+    if (hasTiers) {
+        if (!data.serviceTiers || data.serviceTiers.length === 0) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "At least one pricing tier must be configured.", path: ["serviceTiers"] });
+        }
+    }
 });
 
 type ServiceFormData = z.infer<typeof serviceSchema>;
@@ -326,7 +337,7 @@ const PricingTierInput = ({ tier, control }: { tier: PricingTier, control: Contr
         if (!errors.serviceTiers) return null;
         const tierIndex = serviceTiers.findIndex(t => t.tierId === tier.id);
         if (tierIndex === -1) return null;
-        const error = errors.serviceTiers[tierIndex]?.[fieldName] as any;
+        const error = (errors.serviceTiers as any)[tierIndex]?.[fieldName] as any;
         return error?.message;
     };
 
@@ -364,7 +375,8 @@ const Step3_PricingBooking = ({ breakEvenCost, pricingTiers }: { breakEvenCost: 
     const { control, watch, register, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
     const isAddon = watch('isAddon');
     const depositType = watch('depositType');
-    const serviceTiers = watch('serviceTiers');
+    const serviceTiers = watch('serviceTiers') || [];
+    const standardPrice = watch('price') || 0;
 
     useEffect(() => {
         if (depositType === 'breakeven') {
@@ -377,50 +389,85 @@ const Step3_PricingBooking = ({ breakEvenCost, pricingTiers }: { breakEvenCost: 
         <Card>
             <CardHeader><CardTitle>Pricing & Booking</CardTitle></CardHeader>
             <CardContent className="space-y-6">
-                <div className="space-y-4">
-                    <Label>Pricing & Duration by Tier</Label>
-                     {errors.serviceTiers && <Alert variant="destructive"><AlertTriangle className="h-4 w-4" /><AlertDescription>At least one pricing tier must be configured with a price and duration.</AlertDescription></Alert>}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        {pricingTiers.map(tier => <PricingTierInput key={tier.id} tier={tier} control={control} />)}
+                {pricingTiers.length > 0 ? (
+                    <div className="space-y-4">
+                        <Label>Pricing & Duration by Tier</Label>
+                        {(errors.serviceTiers && typeof errors.serviceTiers === 'object' && !Array.isArray(errors.serviceTiers)) && <Alert variant="destructive"><AlertTriangle className="h-4 w-4" /><AlertDescription>At least one pricing tier must be configured.</AlertDescription></Alert>}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            {pricingTiers.map(tier => <PricingTierInput key={tier.id} tier={tier} control={control} />)}
+                        </div>
                     </div>
-                </div>
-
-                <Card className="bg-muted/50"><CardContent className="p-4 space-y-4">
-                    <h4 className="font-semibold text-center">Profitability Preview</h4>
-                     <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                        <p className="font-semibold">Level</p>
-                        <p className="font-semibold">Profit</p>
-                        <p className="font-semibold">Margin</p>
+                ) : (
+                    <div className="space-y-2">
+                        <Label htmlFor="standard-price">Standard Price</Label>
+                        <div className="relative">
+                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input id="standard-price" type="number" placeholder="0.00" {...register('price')} className="pl-8" />
+                        </div>
+                        {errors.price && <p className="text-sm text-destructive">{errors.price.message}</p>}
                     </div>
-                     {(serviceTiers || []).map(tier => {
-                        const tierInfo = pricingTiers.find(t => t.id === tier.tierId);
-                        if (!tierInfo) return null;
+                )}
+                
+                <Card className="bg-muted/50">
+                    <CardContent className="p-4 space-y-4">
+                        <h4 className="font-semibold text-center">Profitability Preview</h4>
+                        
+                        {pricingTiers.length > 0 ? (
+                            <>
+                                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                                    <p className="font-semibold">Level</p>
+                                    <p className="font-semibold">Profit</p>
+                                    <p className="font-semibold">Margin</p>
+                                </div>
+                                {(serviceTiers || []).map(tier => {
+                                    const tierInfo = pricingTiers.find(t => t.id === tier.tierId);
+                                    if (!tierInfo) return null;
 
-                        const netProfit = tier.price - breakEvenCost;
-                        const profitMargin = tier.price > 0 ? (netProfit / tier.price) * 100 : 0;
-                        return (
-                            <div key={tier.tierId} className="grid grid-cols-3 gap-2 text-center text-sm items-center">
-                                <p className="capitalize font-medium">{tierInfo.name}</p>
-                                <p className={cn("font-mono", netProfit >= 0 ? 'text-primary' : 'text-destructive')}>${netProfit.toFixed(2)}</p>
-                                <p className={cn("font-mono", profitMargin >= 0 ? 'text-primary' : 'text-destructive')}>{profitMargin.toFixed(1)}%</p>
+                                    const netProfit = tier.price - breakEvenCost;
+                                    const profitMargin = tier.price > 0 ? (netProfit / tier.price) * 100 : 0;
+                                    return (
+                                        <div key={tier.tierId} className="grid grid-cols-3 gap-2 text-center text-sm items-center">
+                                            <p className="capitalize font-medium">{tierInfo.name}</p>
+                                            <p className={cn("font-mono", netProfit >= 0 ? 'text-primary' : 'text-destructive')}>${netProfit.toFixed(2)}</p>
+                                            <p className={cn("font-mono", profitMargin >= 0 ? 'text-primary' : 'text-destructive')}>{profitMargin.toFixed(1)}%</p>
+                                        </div>
+                                    )
+                                })}
+                            </>
+                        ) : (
+                            <div className="space-y-1 text-sm text-center">
+                                <div className="flex justify-between items-center"><span>Price:</span> <span className="font-mono">${standardPrice.toFixed(2)}</span></div>
+                                <div className="flex justify-between items-center font-semibold">
+                                    <span>Profit:</span> 
+                                    <span className={cn("font-mono", (standardPrice - breakEvenCost) >= 0 ? 'text-primary' : 'text-destructive')}>
+                                        ${(standardPrice - breakEvenCost).toFixed(2)}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span>Margin:</span>
+                                    <span className={cn("font-mono", (standardPrice - breakEvenCost) >= 0 ? 'text-primary' : 'text-destructive')}>
+                                        {standardPrice > 0 ? (((standardPrice - breakEvenCost) / standardPrice) * 100).toFixed(1) : 0}%
+                                    </span>
+                                </div>
                             </div>
-                        )
-                     })}
-                    <div className="flex justify-between items-center text-xs border-t pt-2 mt-2">
-                        <p className="text-muted-foreground">Break-Even Cost:</p>
-                        <p className="font-mono text-destructive">${breakEvenCost.toFixed(2)}</p>
-                    </div>
-                </CardContent></Card>
+                        )}
+                        
+                        <div className="flex justify-between items-center text-xs border-t pt-2 mt-2">
+                            <p className="text-muted-foreground">Break-Even Cost:</p>
+                            <p className="font-mono text-destructive">${breakEvenCost.toFixed(2)}</p>
+                        </div>
+                    </CardContent>
+                </Card>
                 
                 {!isAddon && (
                     <div className="space-y-4 pt-4 border-t">
                         <Label>Deposit Requirement</Label>
                         <Controller name="depositType" control={control} defaultValue="none" render={({ field }) => (
                             <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-4">
-                                <div><RadioGroupItem value="none" id="none" className="peer sr-only" /><Label htmlFor="none" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">None</Label></div>
-                                <div><RadioGroupItem value="deposit" id="deposit" className="peer sr-only" /><Label htmlFor="deposit" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Deposit</Label></div>
-                                <div><RadioGroupItem value="breakeven" id="breakeven" className="peer sr-only" /><Label htmlFor="breakeven" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Breakeven<span className="text-xs text-muted-foreground font-normal mt-1">${breakEvenCost.toFixed(2)}</span></Label></div>
-                                <div><RadioGroupItem value="full" id="full" className="peer sr-only" /><Label htmlFor="full" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Pay in Full</Label></div>
+                                <div><RadioGroupItem value="none" id="none-add" className="peer sr-only" /><Label htmlFor="none-add" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">None</Label></div>
+                                <div><RadioGroupItem value="deposit" id="deposit-add" className="peer sr-only" /><Label htmlFor="deposit-add" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Deposit</Label></div>
+                                <div><RadioGroupItem value="breakeven" id="breakeven-add" className="peer sr-only" /><Label htmlFor="breakeven-add" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Breakeven<span className="text-xs text-muted-foreground font-normal mt-1">${breakEvenCost.toFixed(2)}</span></Label></div>
+                                <div><RadioGroupItem value="full" id="full-add" className="peer sr-only" /><Label htmlFor="full-add" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Pay in Full</Label></div>
                             </RadioGroup>
                         )}/>
                         {['deposit', 'breakeven'].includes(depositType!) && (
@@ -483,22 +530,14 @@ const Step4_VisibilityConfirmation = ({ consentForms }: { consentForms: ConsentF
     );
 };
 
-interface AddServiceDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onServiceAdded: (service: Service) => void;
-  categories: string[];
-  onNewCategory: (category: string) => void;
-  resources: Resource[];
-  services: Service[];
-}
 
 export const AddServiceDialog: React.FC<AddServiceDialogProps> = ({
   open,
   onOpenChange,
-  onServiceAdded,
+  initialType,
   categories,
   onNewCategory,
+  onServiceAdded,
   resources,
   services,
 }) => {
@@ -509,40 +548,42 @@ export const AddServiceDialog: React.FC<AddServiceDialogProps> = ({
   const methods = useForm<ServiceFormData>({
     resolver: zodResolver(serviceSchema),
     defaultValues: {
-      isAddon: false,
+      isAddon: initialType === 'addon',
       isPrivate: false,
-      type: 'service',
+      type: initialType,
       capacity: 1,
       products: [],
       requiredResourceIds: [],
       compatibleAddOnIds: [],
       depositType: 'none',
-      pricingTiers: [{ tierId: 'tier-senior', price: 0, durationMinutes: 0 }],
+      serviceTiers: [],
       requiredFormIds: [],
+      price: 0,
     }
   });
 
   useEffect(() => {
     if (open) {
       methods.reset({
-        isAddon: false,
+        isAddon: initialType === 'addon',
         isPrivate: false,
-        type: 'service',
+        type: initialType,
         capacity: 1,
         products: [],
         requiredResourceIds: [],
         compatibleAddOnIds: [],
         depositType: 'none',
-        pricingTiers: [{ tierId: 'tier-senior', price: 0, durationMinutes: 0 }],
+        serviceTiers: [],
         requiredFormIds: [],
+        price: 0,
       });
       setStep(1);
     }
-  }, [open, methods]);
+  }, [open, initialType, methods]);
 
   const { watch, trigger, handleSubmit } = methods;
   const values = watch();
-  const { duration, padBefore, padAfter, products, requiredResourceIds, pricingTiers } = values;
+  const { duration, padBefore, padAfter, products, requiredResourceIds, price, serviceTiers } = values;
   const [tmhr, setTmhr] = useState(0);
   const { inventory } = useInventory();
   const { firestore, selectedTenant } = useTenant();
@@ -601,17 +642,23 @@ export const AddServiceDialog: React.FC<AddServiceDialogProps> = ({
   }
 
   const onSubmit = (data: ServiceFormData) => {
-      const enabledTiersData = (pricingTiersData || [])
-        .filter(tier => data.pricingTiers[tier.id as keyof typeof data.pricingTiers]?.enabled)
-        .map(tier => ({
-            tierId: tier.id,
-            price: data.pricingTiers[tier.id as keyof typeof data.pricingTiers].price!,
-            durationMinutes: data.pricingTiers[tier.id as keyof typeof data.pricingTiers].durationMinutes!,
-        }));
+      let finalPrice = data.price || 0;
+      let margin = 0;
+      let netProfit = 0;
+      let finalTiers = data.serviceTiers;
 
-      const finalPrice = enabledTiersData.find(t => t.tierId === 'tier-senior')?.price ?? enabledTiersData[0]?.price ?? 0;
-      const netProfit = finalPrice - breakEvenCost;
-      const margin = finalPrice > 0 ? (netProfit / finalPrice) * 100 : 0;
+      if (pricingTiersData && pricingTiersData.length > 0) {
+          const seniorTierInfo = pricingTiersData.find(t => t.name.toLowerCase() === 'senior');
+          const seniorTier = finalTiers?.find(t => t.tierId === seniorTierInfo?.id);
+          if (seniorTier) {
+              finalPrice = seniorTier.price;
+          } else if (finalTiers && finalTiers.length > 0) {
+              finalPrice = finalTiers[0].price;
+          }
+      }
+      
+      netProfit = finalPrice - breakEvenCost;
+      margin = finalPrice > 0 ? (netProfit / finalPrice) * 100 : 0;
       
       const newService: Service = {
         id: `svc-${nanoid()}`,
@@ -635,7 +682,7 @@ export const AddServiceDialog: React.FC<AddServiceDialogProps> = ({
         cost: breakEvenCost,
         profit: netProfit,
         margin: margin,
-        serviceTiers: enabledTiersData,
+        serviceTiers: finalTiers,
         confirmationMessage: data.confirmationMessage,
         requiredFormIds: data.requiredFormIds,
       };
@@ -650,7 +697,11 @@ export const AddServiceDialog: React.FC<AddServiceDialogProps> = ({
             fieldsToValidate.push('name', 'category', 'duration');
         }
         if (step === 3) {
-            fieldsToValidate.push('serviceTiers');
+            if ((pricingTiersData || []).length > 0) {
+                fieldsToValidate.push('serviceTiers');
+            } else {
+                fieldsToValidate.push('price');
+            }
         }
         
         const isValid = fieldsToValidate.length > 0 ? await trigger(fieldsToValidate) : true;
@@ -677,8 +728,8 @@ export const AddServiceDialog: React.FC<AddServiceDialogProps> = ({
       }
   }
   
-  const formId = "add-service-form";
-  const title = "Add New Service";
+  const formId = `add-service-form-${initialType}`;
+  const title = `Add New Service`;
   const description = "Use this wizard to create a new service for your menu.";
 
   const formBody = (
