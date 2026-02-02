@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -13,12 +12,6 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import {
   PlusCircle,
   Search,
@@ -42,6 +35,7 @@ import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, up
 import { collection, doc } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import { useTenant } from '@/context/TenantContext';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
 const ConsentCard = ({ form, onEdit, onPreview, onShare, onDelete }: { form: ConsentForm, onEdit: (form: ConsentForm) => void; onPreview: (form: ConsentForm) => void; onShare: (form: ConsentForm) => void; onDelete: (formId: string) => void; }) => {
 
@@ -62,20 +56,43 @@ const ConsentCard = ({ form, onEdit, onPreview, onShare, onDelete }: { form: Con
           {form.notifyOnEdit && <Bell className="w-4 h-4" title="Notified on Edits" />}
         </div>
       </CardContent>
-      <CardFooter className="p-2 border-t bg-muted/50 flex gap-2">
-        <Button variant="ghost" size="sm" className="flex-1" onClick={() => onPreview(form)}><Eye className="w-4 h-4 mr-2"/>Preview</Button>
-        <Button variant="ghost" size="sm" className="flex-1" onClick={() => onShare(form)}><Share2 className="w-4 h-4 mr-2"/>Share</Button>
-        <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8">
-                    <MoreHorizontal className="w-4 h-4" />
-                </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => onEdit(form)}><FilePenLine className="w-4 h-4 mr-2"/>Edit</DropdownMenuItem>
-                <DropdownMenuItem className="text-destructive" onClick={() => onDelete(form.id)}><Trash2 className="w-4 h-4 mr-2"/>Delete</DropdownMenuItem>
-            </DropdownMenuContent>
-        </DropdownMenu>
+      <CardFooter className="p-2 border-t bg-muted/50">
+        <TooltipProvider>
+            <div className="flex justify-around w-full">
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" onClick={() => onPreview(form)}>
+                            <Eye className="w-4 h-4" />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent><p>Preview</p></TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" onClick={() => onShare(form)}>
+                            <Share2 className="w-4 h-4" />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent><p>Share</p></TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" onClick={() => onEdit(form)}>
+                            <FilePenLine className="w-4 h-4" />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent><p>Edit</p></TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => onDelete(form.id)}>
+                            <Trash2 className="w-4 h-4" />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent><p>Delete</p></TooltipContent>
+                </Tooltip>
+            </div>
+        </TooltipProvider>
       </CardFooter>
     </Card>
   );
