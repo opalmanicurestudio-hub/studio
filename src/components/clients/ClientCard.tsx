@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useMemo } from 'react';
@@ -45,9 +44,6 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                         <Link href={`/clients/${client.id}`} className="group">
                             <p className="font-semibold text-lg group-hover:underline truncate">{client.name}</p>
                         </Link>
-                        {lastAppointment && (
-                            <p className="text-sm text-muted-foreground">Last seen: {formatDistanceToNow(lastAppointment, { addSuffix: true })}</p>
-                        )}
                         <div className="text-xs text-muted-foreground mt-2 space-y-1">
                             {client.email && (
                                 <a href={`mailto:${client.email}`} className="flex items-center gap-2 hover:text-primary transition-colors" onClick={(e) => e.stopPropagation()}>
@@ -64,9 +60,17 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                         </div>
                     </div>
                 </div>
-                <div className="flex items-center justify-between text-sm">
-                    <span className='text-muted-foreground'>Lifetime Value</span>
-                    <Badge variant="outline" className="font-mono text-base">${(client.lifetimeValue || 0).toFixed(2)}</Badge>
+                 <div className="space-y-2 text-sm">
+                    <div className="flex items-center justify-between">
+                        <span className='text-muted-foreground'>Lifetime Value</span>
+                        <Badge variant="outline" className="font-mono text-base">${(client.lifetimeValue || 0).toFixed(2)}</Badge>
+                    </div>
+                    {lastAppointment && (
+                        <div className="flex items-center justify-between">
+                            <span className='text-muted-foreground'>Last seen</span>
+                            <span className="font-medium">{formatDistanceToNow(lastAppointment, { addSuffix: true })}</span>
+                        </div>
+                    )}
                 </div>
                 <div className="flex items-center gap-2 border-t pt-3">
                     <TooltipProvider>
