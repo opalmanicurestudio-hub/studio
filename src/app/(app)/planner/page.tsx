@@ -27,6 +27,7 @@ import {
   DropdownMenuPortal,
   DropdownMenuSeparator,
   DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
   Dialog,
@@ -1106,9 +1107,9 @@ function PlannerPageContent() {
   };
 
   const handlePrintTicket = (ticketData: Omit<TicketData, 'business'>) => {
-    if (!tenant) return;
+    if (!selectedTenant) return;
     setTicketToPrint({
-        business: { name: tenant.name, phone: '555-123-4567' },
+        business: { name: selectedTenant.name, phone: '555-123-4567' },
         ...ticketData
     });
   }
@@ -1325,7 +1326,7 @@ function PlannerPageContent() {
                                                     htmlFor="staff-view"
                                                     className="flex items-center justify-center rounded-sm p-1.5 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
                                                 >
-                                                    <User className="h-4 w-4" />
+                                                    <User className="h-3.5 w-3.5" />
                                                 </Label>
                                             </TooltipTrigger>
                                             <TooltipContent>Staff View</TooltipContent>
@@ -1339,7 +1340,7 @@ function PlannerPageContent() {
                                                     htmlFor="resource-view"
                                                     className="flex items-center justify-center rounded-sm p-1.5 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
                                                 >
-                                                    <Building className="h-4 w-4" />
+                                                    <Building className="h-3.5 w-3.5" />
                                                 </Label>
                                             </TooltipTrigger>
                                             <TooltipContent>Resource View</TooltipContent>
