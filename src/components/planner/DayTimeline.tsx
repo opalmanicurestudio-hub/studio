@@ -95,6 +95,7 @@ export const DayTimeline = ({
     onChecklistItemToggle,
     onUpdateEvent,
     dailyTransactions,
+    allTransactions,
     onAddTransaction,
     onReschedule,
     onRebook,
@@ -127,6 +128,7 @@ export const DayTimeline = ({
     onChecklistItemToggle: (eventId: string, checklistItemId: string, completed: boolean) => void;
     onUpdateEvent: (updatedEvent: Event) => void;
     dailyTransactions: Transaction[] | null;
+    allTransactions: Transaction[];
     onAddTransaction: (transaction: any) => void;
     onReschedule: (appointment: Appointment) => void;
     onRebook: (appointment: Appointment) => void;
@@ -291,6 +293,7 @@ export const DayTimeline = ({
                     onFinishService={onFinishService}
                     onBookNewForClient={onBookNewForClient}
                     resources={resources}
+                    transactions={allTransactions}
                 />
             </div>
         );

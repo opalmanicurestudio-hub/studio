@@ -103,6 +103,7 @@ function PlannerPageContent() {
       walkIns,
       billDefinitions,
       billInstances,
+      transactions,
       isLoading
   } = useInventory();
 
@@ -216,18 +217,15 @@ function PlannerPageContent() {
     return Array.from({ length: 7 }, (_, i) => addDays(start, i));
   }, [weekStart]);
 
-  const transactionsQuery = useMemoFirebase(() => {
-    if (!firestore || !user || !tenantId) return null;
+  const dailyTransactions = useMemo(() => {
+    if (!transactions) return [];
     const dayStart = startOfDay(currentDate);
     const dayEnd = endOfDay(currentDate);
-    return query(
-        collection(firestore, 'tenants', tenantId, 'transactions'),
-        where('date', '>=', Timestamp.fromDate(dayStart)),
-        where('date', '<=', Timestamp.fromDate(dayEnd))
-    );
-  }, [firestore, user, currentDate, tenantId]);
-
-  const { data: dailyTransactions, isLoading: transactionsLoading } = useCollection<Transaction>(transactionsQuery);
+    return transactions.filter(t => {
+      const transactionDate = (t.date as any)?.toDate ? (t.date as any).toDate() : parseISO(t.date as any);
+      return transactionDate >= dayStart && transactionDate <= dayEnd;
+    });
+  }, [transactions, currentDate]);
 
   const dailyBillInstances = useMemo(() => {
     if (!billInstances || !billDefinitions) return [];
@@ -1393,7 +1391,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1402,6 +1400,7 @@ function PlannerPageContent() {
                 onChecklistItemToggle={handleChecklistItemToggle}
                 onUpdateEvent={handleUpdateEvent}
                 dailyTransactions={dailyTransactions}
+                allTransactions={transactions || []}
                 onAddTransaction={addTransaction}
                 onReschedule={handleRescheduleClick}
                 onRebook={handleRebook}
@@ -1429,7 +1428,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1438,6 +1437,7 @@ function PlannerPageContent() {
                 onChecklistItemToggle={handleChecklistItemToggle}
                 onUpdateEvent={handleUpdateEvent}
                 dailyTransactions={dailyTransactions}
+                allTransactions={transactions || []}
                 onAddTransaction={addTransaction}
                 onReschedule={handleRescheduleClick}
                 onRebook={handleRebook}

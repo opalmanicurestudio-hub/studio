@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -62,8 +63,9 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
   DialogFooter,
+  DialogTrigger,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import {
   Sheet,
@@ -74,20 +76,10 @@ import {
   SheetTrigger,
   SheetFooter,
 } from '@/components/ui/sheet';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { type Appointment, type Client, type Service, CustomFormula, services, Resource } from '@/lib/data';
+import { type Appointment, type Client, type Service, CustomFormula, services, Resource, type Transaction } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -104,14 +96,7 @@ interface AppointmentDetailsProps {
     client: Client;
     service: Service;
     tmhr: number;
-    revenue: number;
-    breakEvenCost: number;
-    netProfit: number;
-    timeCost: number;
-    productCost: number;
-    equipmentCost: number;
-    addOnServices: Service[];
-    requiredResources: Resource[];
+    transactions: Transaction[] | null;
     onStartService: (appointmentId: string) => void;
     onFinishService: (appointment: Appointment) => void;
     setIsDetailsOpen: (isOpen: boolean) => void;
@@ -121,6 +106,7 @@ interface AppointmentDetailsProps {
     onRebook: (appointment: Appointment) => void;
     onBookNewForClient: (clientId: string) => void;
     onPrintTicket: (data: Omit<TicketData, 'business'>) => void;
+    resources: Resource[];
 }
 
 const AppointmentDetails = ({
@@ -128,14 +114,7 @@ const AppointmentDetails = ({
     client,
     service,
     tmhr,
-    revenue,
-    breakEvenCost,
-    netProfit,
-    timeCost,
-    productCost,
-    equipmentCost,
-    addOnServices,
-    requiredResources,
+    transactions,
     onStartService,
     onFinishService,
     setIsDetailsOpen,
@@ -144,10 +123,118 @@ const AppointmentDetails = ({
     onReschedule,
     onRebook,
     onBookNewForClient,
-    onPrintTicket
+    onPrintTicket,
+    resources,
 }: AppointmentDetailsProps) => {
     const { toast } = useToast();
-    const [isFinishConfirmOpen, setIsFinishConfirmOpen] = useState(false);
+    const [isFinishConfirmOpen, useState] = useState(false);
+    const { inventory, services: allServices } = useInventory();
+    
+    const addOnServices = useMemo(() => {
+        return (appointment.addOnIds || []).map(id => allServices.find(s => s.id === id)).filter((s): s is Service => !!s);
+    }, [appointment.addOnIds, allServices]);
+
+    const requiredResources = useMemo(() => {
+        if (!service.requiredResourceIds || !resources) return [];
+        return resources.filter(r => service.requiredResourceIds!.includes(r.id));
+    }, [service, resources]);
+    
+    const { revenue, breakEvenCost, netProfit, timeCost, productCost, equipmentCost, actualTotal, tipAmount, discountAmount, actualSaleItems } = useMemo(() => {
+        const isCompleted = appointment.status === 'completed';
+
+        const allServicesInAppointment = [service, ...addOnServices];
+
+        const formulaForCosting = 
+            (isCompleted && appointment.checkoutState?.formula) 
+            ? appointment.checkoutState.formula
+            : allServicesInAppointment.flatMap(s => s?.products || []).map(p => ({
+                id: p.id,
+                quantityUsed: p.quantityUsed,
+            }));
+
+        const finalProductCost = formulaForCosting.reduce((acc: number, p: any) => {
+            const product = inventory.find(i => i.id === p.id);
+            if (!product) return acc;
+            const quantity = p.quantityUsed || 1;
+            let costPerUse = 0;
+
+            if (product.costingMethod === 'size' && product.size && product.size > 0) {
+                costPerUse = (product.costPerUnit || 0) / product.size;
+            } else if (product.costingMethod === 'uses' && product.estimatedUses && product.estimatedUses > 0) {
+                costPerUse = (product.costPerUnit || 0) / product.estimatedUses;
+            } else {
+                costPerUse = product.costPerUnit || 0;
+            }
+
+            return acc + (costPerUse * quantity);
+        }, 0);
+
+        const actualServiceDuration = appointment.actualEndTime && appointment.actualStartTime
+            ? differenceInMinutes(parseISO(appointment.actualEndTime), parseISO(appointment.actualStartTime))
+            : allServicesInAppointment.reduce((acc, s) => acc + (s?.duration || 0), 0);
+        
+        const finalTimeCost = ((actualServiceDuration + (service.padBefore || 0) + (service.padAfter || 0)) / 60) * tmhr;
+
+        const allRequiredResourceIds = [...new Set(allServicesInAppointment.flatMap(s => s?.requiredResourceIds || []))];
+        const finalEquipmentCost = allRequiredResourceIds.reduce((acc, resourceId) => {
+            const equipmentItem = inventory.find(i => i.id === resourceId && i.type === 'equipment');
+            if (!equipmentItem || !equipmentItem.lifespanYears || equipmentItem.lifespanYears === 0) return acc;
+            const totalDuration = actualServiceDuration + (service.padBefore || 0) + (service.padAfter || 0);
+            const lifespanInMinutes = (equipmentItem.lifespanYears || 5) * 365 * 8 * 60;
+            const costPerMinute = (equipmentItem.costPerUnit || 0) / lifespanInMinutes;
+            return acc + (costPerMinute * totalDuration);
+        }, 0);
+        
+        const finalBreakEvenCost = finalTimeCost + finalProductCost + finalEquipmentCost;
+        
+        const estimatedRevenue = allServicesInAppointment.reduce((acc, s) => acc + (s?.price || 0), 0);
+        const estimatedNetProfit = estimatedRevenue - finalBreakEvenCost;
+
+        const initialReturn = {
+            revenue: estimatedRevenue,
+            breakEvenCost: finalBreakEvenCost,
+            netProfit: estimatedNetProfit,
+            timeCost: finalTimeCost,
+            productCost: finalProductCost,
+            equipmentCost: finalEquipmentCost,
+            actualTotal: 0,
+            tipAmount: 0,
+            discountAmount: 0,
+            actualSaleItems: [],
+        };
+        
+        if (isCompleted && transactions) {
+            const appointmentTransactions = transactions.filter(t => t.appointmentId === appointment.id);
+            
+            const serviceRevenue = appointmentTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
+            const retailRevenue = appointmentTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
+            const totalRevenue = serviceRevenue + retailRevenue;
+            const totalTips = appointmentTransactions.filter(t => t.category === 'Tips').reduce((acc, t) => acc + t.amount, 0);
+            const totalDiscounts = appointmentTransactions.reduce((acc, t) => acc + (t.discountAmount || 0), 0);
+            const finalNetProfit = totalRevenue - finalBreakEvenCost;
+
+            const actualItems = appointmentTransactions
+                .filter(t => ['Service Revenue', 'Retail', 'Tips'].includes(t.category))
+                .map(t => ({ name: t.description, amount: t.amount, isDiscount: false }));
+            
+            if (totalDiscounts > 0) {
+                actualItems.push({ name: 'Discounts', amount: -totalDiscounts, isDiscount: true });
+            }
+
+            return {
+                ...initialReturn,
+                revenue: totalRevenue,
+                netProfit: finalNetProfit,
+                actualTotal: totalRevenue + totalTips,
+                tipAmount: totalTips,
+                discountAmount: totalDiscounts,
+                actualSaleItems: actualItems,
+            };
+        }
+
+        return initialReturn;
+
+    }, [appointment, service, tmhr, inventory, transactions, addOnServices]);
     
     const handleShareLink = () => {
         if (!appointment.checkInToken) {
@@ -177,7 +264,7 @@ const AppointmentDetails = ({
                 </Button>
             )}
             {appointment.status === 'servicing' && (
-                 <Button onClick={() => setIsFinishConfirmOpen(true)} className="w-full" size="lg">
+                 <Button onClick={() => onFinishService(appointment)} className="w-full" size="lg">
                     <Square className="mr-2 h-4 w-4" /> Finish Service
                 </Button>
             )}
@@ -270,11 +357,11 @@ const AppointmentDetails = ({
                 </DropdownMenuContent>
             </DropdownMenu>
 
-            {(appointment.inspirationPhotoUrl || client.inspirationPhotoUrl) && (
+            {appointment.inspirationPhotoUrl && (
                 <div className="space-y-3">
                     <h4 className="font-medium text-sm">Inspiration Photo</h4>
                     <div className="rounded-lg overflow-hidden border">
-                        <Image src={appointment.inspirationPhotoUrl || client.inspirationPhotoUrl!} alt="Inspiration" width={400} height={300} className="object-cover" />
+                        <Image src={appointment.inspirationPhotoUrl} alt="Inspiration" width={400} height={300} className="object-cover" />
                     </div>
                 </div>
             )}
@@ -285,24 +372,52 @@ const AppointmentDetails = ({
                 <h4 className="font-medium text-sm">Financials</h4>
                  <div className="grid grid-cols-2 gap-4 w-full text-center">
                     <div className="rounded-md bg-green-500/10 p-3">
-                        <p className="text-xs text-green-800/80 dark:text-green-400/80">Revenue</p>
+                        <p className="text-xs text-green-800/80 dark:text-green-400/80">{appointment.status === 'completed' ? 'Actual Revenue' : 'Est. Revenue'}</p>
                         <p className="font-bold text-xl text-green-800 dark:text-green-400">${revenue.toFixed(2)}</p>
                     </div>
                     <div className="rounded-md bg-red-500/10 p-3">
-                        <p className="text-xs text-red-800/80 dark:text-red-400/80">Cost</p>
-                        <p className="font-bold text-xl text-red-800 dark:text-red-400">${breakEvenCost.toFixed(3)}</p>
+                        <p className="text-xs text-red-800/80 dark:text-red-400/80">Est. Cost</p>
+                        <p className="font-bold text-xl text-red-800 dark:text-red-400">${breakEvenCost.toFixed(2)}</p>
                     </div>
                     <div className="rounded-md bg-blue-500/10 p-3 col-span-2">
-                        <p className="text-xs text-blue-800/80 dark:text-blue-400/80">Net Profit</p>
+                        <p className="text-xs text-blue-800/80 dark:text-blue-400/80">{appointment.status === 'completed' ? 'Actual Net Profit' : 'Est. Net Profit'}</p>
                         <p className="font-bold text-xl text-blue-800 dark:text-blue-400">${netProfit.toFixed(2)}</p>
                     </div>
                 </div>
               <div className="text-xs space-y-2 text-muted-foreground pt-2">
                  <div className="flex justify-between items-center"><span className="flex items-center gap-1.5"><Clock className="w-3 h-3"/>Time Cost</span> <span className='font-mono'>${timeCost.toFixed(2)}</span></div>
-                 <div className="flex justify-between items-center"><span className="flex items-center gap-1.5"><Briefcase className="w-3 h-3"/>Product Cost</span> <span className='font-mono'>${productCost.toFixed(3)}</span></div>
-                 <div className="flex justify-between items-center"><span className="flex items-center gap-1.5"><Briefcase className="w-3 h-3"/>Equipment Cost</span> <span className='font-mono'>${equipmentCost.toFixed(3)}</span></div>
+                 <div className="flex justify-between items-center"><span className="flex items-center gap-1.5"><Briefcase className="w-3 h-3"/>Product Cost</span> <span className='font-mono'>${productCost.toFixed(2)}</span></div>
+                 <div className="flex justify-between items-center"><span className="flex items-center gap-1.5"><Briefcase className="w-3 h-3"/>Equipment Cost</span> <span className='font-mono'>${equipmentCost.toFixed(2)}</span></div>
               </div>
             </div>
+
+            {appointment.status === 'completed' && (
+                <div className="space-y-4">
+                    <h4 className="font-medium text-sm">Actuals from Checkout</h4>
+                    <Card>
+                        <CardContent className="p-4 text-sm space-y-2">
+                            {actualSaleItems.map((item, index) => (
+                                <div key={index} className="flex justify-between">
+                                    <span className={cn(item.isDiscount && "text-primary font-semibold")}>{item.name}</span>
+                                    <span className={cn("font-mono", item.isDiscount && "text-primary font-semibold")}>
+                                        {item.isDiscount ? `-$${Math.abs(item.amount).toFixed(2)}` : `$${item.amount.toFixed(2)}`}
+                                    </span>
+                                </div>
+                            ))}
+                            {tipAmount > 0 && (
+                                <div className="flex justify-between border-t pt-2 mt-2">
+                                    <span className="text-muted-foreground">Tip</span>
+                                    <span className="font-mono">${tipAmount.toFixed(2)}</span>
+                                </div>
+                            )}
+                            <div className="flex justify-between font-bold border-t pt-2 mt-2">
+                                <span>Total Charged</span>
+                                <span className="font-mono">${actualTotal.toFixed(2)}</span>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
             
             <Separator className="my-6" />
             
@@ -360,6 +475,7 @@ interface AppointmentCardProps {
   resources: Resource[];
   style: React.CSSProperties;
   tmhr: number;
+  transactions: Transaction[] | null;
   onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void;
   onDelete: (appointmentId: string) => void;
   onCompleteClick: (appointment: Appointment) => void;
@@ -380,6 +496,7 @@ export function AppointmentCard({
   resources,
   style,
   tmhr,
+  transactions,
   onUpdateStatus,
   onDelete,
   onCompleteClick,
@@ -398,7 +515,6 @@ export function AppointmentCard({
 
   const isMobile = useIsMobile();
   const { toast } = useToast();
-  const { inventory } = useInventory();
   
   useEffect(() => {
     let timer: NodeJS.Timeout | undefined;
@@ -491,59 +607,8 @@ export function AppointmentCard({
       return (appointment.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
   }, [appointment.addOnIds, services]);
 
-  const { revenue, breakEvenCost, netProfit, timeCost, productCost, equipmentCost } = useMemo(() => {
-    let totalRevenue = service.price;
-    
-    const allServices = [service, ...addOnServices];
-
-    let totalProductCost = 0;
-    let totalEquipmentCost = 0;
-    
-    allServices.forEach(s => {
-        if(s.type === 'addon') totalRevenue += s.price;
-        
-        totalProductCost += (s.products || []).reduce((sum, p) => {
-            const product = inventory.find(i => i.id === p.id);
-            if (!product) return sum;
-            const quantity = p.quantityUsed || 1;
-            let costPerUse = 0;
-
-            if (product.costingMethod === 'size' && product.size && product.size > 0) {
-                costPerUse = (product.costPerUnit || 0) / product.size;
-            } else if (product.costingMethod === 'uses' && product.estimatedUses && product.estimatedUses > 0) {
-                costPerUse = (product.costPerUnit || 0) / product.estimatedUses;
-            } else { // 'unit' or undefined
-                costPerUse = product.costPerUnit || 0;
-            }
-            
-            return sum + (costPerUse * quantity);
-        }, 0);
-
-        totalEquipmentCost += (s.requiredResourceIds || []).reduce((sum, resourceId) => {
-            const equipmentItem = inventory.find(i => i.id === resourceId && i.type === 'equipment');
-            if (!equipmentItem || !equipmentItem.lifespanYears || equipmentItem.lifespanYears === 0) return sum;
-            const totalDuration = differenceInMinutes(appointment.endTime, appointment.startTime);
-            const lifespanInMinutes = (equipmentItem.lifespanYears || 5) * 365 * 8 * 60; // Simplified assumption
-            const costPerMinute = (equipmentItem.costPerUnit || 0) / lifespanInMinutes;
-            return sum + (costPerMinute * totalDuration);
-        }, 0);
-    });
-
-    const totalDuration = differenceInMinutes(appointment.endTime, appointment.startTime);
-    const totalTimeCost = (totalDuration / 60) * tmhr;
-
-    const totalBreakEvenCost = totalTimeCost + totalProductCost + totalEquipmentCost;
-    const totalNetProfit = totalRevenue - totalBreakEvenCost;
-
-    return { revenue: totalRevenue, breakEvenCost: totalBreakEvenCost, netProfit: totalNetProfit, timeCost: totalTimeCost, productCost: totalProductCost, equipmentCost: totalEquipmentCost };
-  }, [service, appointment, tmhr, addOnServices, inventory]);
-
-  const requiredResources = useMemo(() => {
-    if (!service.requiredResourceIds || !resources) return [];
-    return resources.filter(r => service.requiredResourceIds!.includes(r.id));
-  }, [service, resources]);
-
-
+  const { inventory } = useInventory();
+  
   const cardStatus = appointment.checkInStatus === 'auto_cancelled' ? 'cancelled' : appointment.status;
 
   const statusDisplay: { [key in Appointment['status']]: { text: string; className: string; bgClassName: string } } = {
@@ -709,14 +774,7 @@ export function AppointmentCard({
             client={client} 
             service={service} 
             tmhr={tmhr}
-            revenue={revenue}
-            breakEvenCost={breakEvenCost}
-            netProfit={netProfit}
-            timeCost={timeCost}
-            productCost={productCost}
-            equipmentCost={equipmentCost}
-            addOnServices={addOnServices}
-            requiredResources={requiredResources}
+            transactions={transactions}
             onStartService={onStartService}
             onFinishService={onFinishService}
             setIsDetailsOpen={setIsDetailsOpen}
@@ -726,6 +784,7 @@ export function AppointmentCard({
             onDelete={onDelete}
             onBookNewForClient={onBookNewForClient}
             onPrintTicket={onPrintTicket}
+            resources={resources}
           />
         </DialogOrSheetContent>
       </DialogOrSheet>
@@ -745,5 +804,3 @@ export function AppointmentCard({
     </div>
   );
 }
-
-    
