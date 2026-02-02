@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft, Clock, DollarSign, Sparkles, Box, List, Pencil, Info, ShoppingCart, Hammer, BarChart, Users, TrendingUp, MapPin, Link as LinkIcon } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
-import { services as initialServices, type Service, inventory as allInventory, type InventoryItem, appointments, clients } from '@/lib/data';
+import { type Service, type InventoryItem, type Appointment } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -50,8 +50,8 @@ const ProfitAnalysisCard = ({ service, tmhr }: { service: Service; tmhr: number;
             return acc + (costPerUse * p.quantityUsed);
         }, 0);
         
-        const equipmentDepreciation = (service.equipment || []).reduce((acc, eq) => {
-            const equipmentItem = inventory.find(i => i.id === eq.id);
+        const equipmentDepreciation = (service.requiredResourceIds || []).reduce((acc, resourceId) => {
+            const equipmentItem = inventory.find(i => i.id === resourceId && i.type === 'equipment');
             if (!equipmentItem || !equipmentItem.lifespanYears || equipmentItem.lifespanYears === 0) return acc;
     
             const annualDepreciation = (equipmentItem.costPerUnit || 0) / equipmentItem.lifespanYears;
@@ -144,16 +144,30 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
       }
     });
 
-    const equipmentDepreciation = (service.requiredResourceIds || []).reduce((acc, resourceId) => {
+    const equipmentCosts = (service.requiredResourceIds || []).map(resourceId => {
         const equipmentItem = inventory.find(i => i.id === resourceId && i.type === 'equipment');
-        if (!equipmentItem || !equipmentItem.lifespanYears || equipmentItem.lifespanYears === 0) return acc;
+        if (!equipmentItem || !equipmentItem.lifespanYears || equipmentItem.lifespanYears === 0) {
+            return {
+                id: resourceId,
+                name: equipmentItem?.name || 'Unknown Equipment',
+                cost: 0,
+                imageUrl: equipmentItem?.imageUrl
+            };
+        }
 
+        const totalDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
         const annualDepreciation = (equipmentItem.costPerUnit || 0) / equipmentItem.lifespanYears;
         const hourlyDepreciation = annualDepreciation / 2080; // Assuming 2080 work hours per year
         const serviceDurationHours = totalDuration / 60;
+        const depreciationForService = hourlyDepreciation * serviceDurationHours;
         
-        return acc + (hourlyDepreciation * serviceDurationHours);
-    }, 0);
+        return {
+            id: resourceId,
+            name: equipmentItem.name,
+            cost: depreciationForService,
+            imageUrl: equipmentItem.imageUrl
+        };
+    });
 
     const totalProductCost = productCosts.reduce((acc, p) => acc + p.cost, 0);
     const totalEquipmentCost = equipmentCosts.reduce((acc, e) => acc + e.cost, 0);
@@ -193,7 +207,7 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
                             <span className='text-xs text-muted-foreground flex items-center gap-1'><MapPin className="w-2.5 h-2.5"/>{p.location}</span>
                         </div>
                     </div>
-                    <span className="font-semibold text-xs">${(p.cost || 0).toFixed(2)}</span>
+                    <span className="font-semibold text-xs">${(p.cost || 0).toFixed(3)}</span>
                 </div>
             )) : <p className="text-xs text-muted-foreground text-center p-2">No products in formula.</p>}
         </div>
@@ -201,18 +215,18 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
             <h4 className="font-medium flex items-center gap-2"><Hammer className="w-4 h-4 text-muted-foreground"/>Equipment Depreciation</h4>
             {equipmentCosts.length > 0 ? equipmentCosts.map(e => (
                  <div key={e.id} className="flex items-center justify-between bg-muted/50 p-2 rounded-md">
-                    <div className='flex items-center gap-2'>
-                        <div className="w-8 h-8 bg-background rounded-sm flex-shrink-0 flex items-center justify-center">
-                         {e.imageUrl ? (
-                            <Image src={e.imageUrl} alt={e.name} width={32} height={32} className='rounded-sm object-cover h-full w-full' />
-                         ) : (
-                            <Hammer className="w-5 h-5 text-muted-foreground" />
-                         )}
-                    </div>
-                    <span className="font-medium text-xs">{e.name}</span>
+                <div className='flex items-center gap-2'>
+                    <div className="w-8 h-8 bg-background rounded-sm flex-shrink-0 flex items-center justify-center">
+                     {e.imageUrl ? (
+                        <Image src={e.imageUrl} alt={e.name} width={32} height={32} className='rounded-sm object-cover h-full w-full' />
+                     ) : (
+                        <Hammer className="w-5 h-5 text-muted-foreground" />
+                     )}
                 </div>
-                <span className="font-semibold text-xs">${e.cost.toFixed(2)}</span>
+                <span className="font-medium text-xs">{e.name}</span>
             </div>
+            <span className="font-semibold text-xs">${e.cost.toFixed(3)}</span>
+        </div>
          )) : <p className="text-xs text-muted-foreground text-center p-2">No equipment in formula.</p>}
       </div>
         </CardContent>
@@ -229,7 +243,8 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
 
 export default function ServiceDetailPage() {
     const { id } = useParams<{ id: string }>();
-    const [service, setService] = useState<Service | undefined>(initialServices.find(s => s.id === id));
+    const { services, appointments } = useInventory();
+    const service = useMemo(() => services.find(s => s.id === id), [services, id]);
     const [tmhr, setTmhr] = useState(0);
     const { toast } = useToast();
 
@@ -254,7 +269,7 @@ export default function ServiceDetailPage() {
             uniqueClients: uniqueClients,
             avgRevenuePerBooking: bookings.length > 0 ? totalRevenue / bookings.length : 0,
         };
-    }, [service]);
+    }, [service, appointments]);
     
     
      const handleCopyLink = () => {
