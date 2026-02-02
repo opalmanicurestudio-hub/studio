@@ -26,7 +26,6 @@ import {
   DropdownMenuSubContent,
   DropdownMenuPortal,
   DropdownMenuSeparator,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -1324,7 +1323,7 @@ function PlannerPageContent() {
                                             <TooltipTrigger asChild>
                                                 <Label
                                                     htmlFor="staff-view"
-                                                    className="flex items-center justify-center rounded-sm p-1.5 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
+                                                    className="flex items-center justify-center rounded-sm p-1 cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
                                                 >
                                                     <User className="h-3.5 w-3.5" />
                                                 </Label>
@@ -1338,7 +1337,7 @@ function PlannerPageContent() {
                                             <TooltipTrigger asChild>
                                                 <Label
                                                     htmlFor="resource-view"
-                                                    className="flex items-center justify-center rounded-sm p-1.5 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
+                                                    className="flex items-center justify-center rounded-sm p-1 cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
                                                 >
                                                     <Building className="h-3.5 w-3.5" />
                                                 </Label>
@@ -1361,23 +1360,30 @@ function PlannerPageContent() {
                                 </TooltipTrigger><TooltipContent><p>Bills Due Today</p></TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsPickingListOpen(true)}><List className="w-4 h-4" /><span className="sr-only">Picking List</span></Button></TooltipTrigger><TooltipContent><p>Picking List</p></TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}><QrCode className="w-4 h-4" /><span className="sr-only">Scan Ticket</span></Button></TooltipTrigger><TooltipContent><p>Scan Ticket</p></TooltipContent></Tooltip>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                                <Button variant="outline" size="icon">
+                                                    <Globe className="h-4 w-4" />
+                                                    <span className="sr-only">Public Pages</span>
+                                                </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="end">
+                                                <DropdownMenuItem asChild>
+                                                    <Link href={`/book/${tenantId}`} target="_blank">View Booking Page</Link>
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem asChild>
+                                                    <Link href={`/walk-in-queue`}>View Walk-in Kiosk</Link>
+                                                </DropdownMenuItem>
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                        <p>Public Pages</p>
+                                    </TooltipContent>
+                                </Tooltip>
                             </TooltipProvider>
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button variant="outline">
-                                        <Globe className="mr-2 h-4 w-4" />
-                                        Public Pages
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                    <DropdownMenuItem asChild>
-                                        <Link href={`/book/${tenantId}`} target="_blank">View Booking Page</Link>
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem asChild>
-                                        <Link href={`/walk-in-queue`}>View Walk-in Kiosk</Link>
-                                    </DropdownMenuItem>
-                                </DropdownMenuContent>
-                            </DropdownMenu>
                             <Button size="sm" onClick={() => setIsAddEventOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Event</Button>
                             <Button size="sm" onClick={() => handleBookNewForClient('')}><PlusCircle className="mr-2 h-4 w-4"/>Add Appointment</Button>
                         </div>
