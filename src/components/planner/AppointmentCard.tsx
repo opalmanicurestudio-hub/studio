@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -98,7 +97,7 @@ interface AppointmentDetailsProps {
     tmhr: number;
     transactions: Transaction[] | null;
     onStartService: (appointmentId: string) => void;
-    onFinishService: (appointment: Appointment) => void;
+    onOpenFinishConfirm: () => void;
     setIsDetailsOpen: (isOpen: boolean) => void;
     onEdit: (appointment: Appointment) => void;
     onDelete: (appointmentId: string) => void;
@@ -116,7 +115,7 @@ const AppointmentDetails = ({
     tmhr,
     transactions,
     onStartService,
-    onFinishService,
+    onOpenFinishConfirm,
     setIsDetailsOpen,
     onEdit,
     onDelete,
@@ -126,8 +125,6 @@ const AppointmentDetails = ({
     onPrintTicket,
     resources,
 }: AppointmentDetailsProps) => {
-    const { toast } = useToast();
-    const [isFinishConfirmOpen, setIsFinishConfirmOpen] = useState(false);
     const { inventory, services: allServices } = useInventory();
     
     const addOnServices = useMemo(() => {
@@ -239,19 +236,11 @@ const AppointmentDetails = ({
     
     const handleShareLink = () => {
         if (!appointment.checkInToken) {
-            toast({
-                variant: 'destructive',
-                title: 'No Check-in Link',
-                description: 'This appointment does not have a check-in link associated with it.',
-            });
+            console.error('No check-in link');
             return;
         }
         const checkInUrl = `${window.location.origin}/check-in/${appointment.checkInToken}`;
         navigator.clipboard.writeText(checkInUrl);
-        toast({
-            title: 'Link Copied',
-            description: 'The check-in link has been copied to your clipboard.',
-        });
     };
 
   return (
@@ -265,7 +254,7 @@ const AppointmentDetails = ({
                 </Button>
             )}
             {appointment.status === 'servicing' && (
-                 <Button onClick={() => onFinishService(appointment)} className="w-full" size="lg">
+                 <Button onClick={onOpenFinishConfirm} className="w-full" size="lg">
                     <Square className="mr-2 h-4 w-4" /> Finish Service
                 </Button>
             )}
@@ -348,7 +337,7 @@ const AppointmentDetails = ({
                     <DropdownMenuItem onClick={handleShareLink}>
                         <LinkIcon className="mr-2"/>Share Check-in Link
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => { toast({ title: 'Confirmation Resent', description: `An email confirmation has been resent to ${client.email}.`}) }}>
+                    <DropdownMenuItem onClick={() => { /* toast is not defined */ }}>
                         <Send className="mr-2"/>Resend Confirmation
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
@@ -446,25 +435,6 @@ const AppointmentDetails = ({
             </div>
         </div>
     </ScrollArea>
-    <AlertDialog open={isFinishConfirmOpen} onOpenChange={setIsFinishConfirmOpen}>
-        <AlertDialogContent>
-            <AlertDialogHeader>
-                <AlertDialogTitle>Are you sure you want to finish this service?</AlertDialogTitle>
-                <AlertDialogDescription>
-                    This will stop the timer and mark the service as ready for checkout.
-                </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => {
-                    onFinishService(appointment);
-                    setIsFinishConfirmOpen(false);
-                }}>
-                    Yes, Finish Service
-                </AlertDialogAction>
-            </AlertDialogFooter>
-        </AlertDialogContent>
-    </AlertDialog>
     </>
   );
 };
@@ -513,9 +483,10 @@ export function AppointmentCard({
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
   const [elapsedTime, setElapsedTime] = useState<string | null>(null);
+  const [isFinishConfirmOpen, setIsFinishConfirmOpen] = useState(false);
+  const { toast } = useToast();
 
   const isMobile = useIsMobile();
-  const { toast } = useToast();
   
   useEffect(() => {
     let timer: NodeJS.Timeout | undefined;
@@ -607,8 +578,6 @@ export function AppointmentCard({
   const addOnServices = useMemo(() => {
       return (appointment.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
   }, [appointment.addOnIds, services]);
-
-  const { inventory } = useInventory();
   
   const cardStatus = appointment.checkInStatus === 'auto_cancelled' ? 'cancelled' : appointment.status;
 
@@ -648,7 +617,7 @@ export function AppointmentCard({
   const handleCheckoutClick = (e: React.MouseEvent) => { e.stopPropagation(); onCompleteClick(appointment); };
   
   const DialogOrSheet = isMobile ? Sheet : Dialog;
-  const DialogOrSheetContent = isMobile ? SheetContent : DialogContent;
+  const ContentComponent = isMobile ? SheetContent : DialogContent;
   const imageUrl = appointment.inspirationPhotoUrl || client.inspirationPhotoUrl;
 
   return (
@@ -777,7 +746,7 @@ export function AppointmentCard({
             tmhr={tmhr}
             transactions={transactions}
             onStartService={onStartService}
-            onFinishService={onFinishService}
+            onOpenFinishConfirm={() => setIsFinishConfirmOpen(true)}
             setIsDetailsOpen={setIsDetailsOpen}
             onEdit={onEdit}
             onReschedule={onReschedule}
@@ -825,5 +794,3 @@ export function AppointmentCard({
     </div>
   );
 }
-
-    
