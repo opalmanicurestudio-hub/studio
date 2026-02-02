@@ -75,7 +75,8 @@ import { BillsDueSheet } from '@/components/planner/BillsDueSheet';
 import { Html5Qrcode } from 'html5-qrcode';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 import Link from 'next/link';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Separator } from '@/components/ui/separator';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 
@@ -1274,6 +1275,33 @@ function PlannerPageContent() {
                                     }}
                                 />
                             </div>
+                             <Separator orientation="vertical" className="h-6" />
+                             <RadioGroup
+                                value={activeView}
+                                onValueChange={(value) => setActiveView(value as 'staff' | 'resources')}
+                                className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1"
+                            >
+                                <div>
+                                    <RadioGroupItem value="staff" id="staff-view" className="peer sr-only" />
+                                    <Label
+                                        htmlFor="staff-view"
+                                        className="flex items-center justify-center gap-2 rounded-sm px-3 py-1 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
+                                    >
+                                        <User className="h-4 w-4" />
+                                        Staff
+                                    </Label>
+                                </div>
+                                <div>
+                                    <RadioGroupItem value="resources" id="resource-view" className="peer sr-only" />
+                                    <Label
+                                        htmlFor="resource-view"
+                                        className="flex items-center justify-center gap-2 rounded-sm px-3 py-1 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
+                                    >
+                                        <Building className="h-4 w-4" />
+                                        Resources
+                                    </Label>
+                                </div>
+                            </RadioGroup>
                         </div>
                          <div className="flex items-center justify-end gap-2">
                             <TooltipProvider>
@@ -1338,12 +1366,35 @@ function PlannerPageContent() {
                         <AccordionTrigger className="p-0 pt-2 text-base font-semibold hover:no-underline flex-1">View Options</AccordionTrigger>
                         <AccordionContent className="p-4 pt-2 space-y-4">
                             <div className="flex flex-col gap-4">
-                                <Tabs value={activeView} onValueChange={setActiveView} className="w-full">
-                                    <TabsList className="grid w-full grid-cols-2">
-                                    <TabsTrigger value="staff">Staff View</TabsTrigger>
-                                    <TabsTrigger value="resources">Resource View</TabsTrigger>
-                                    </TabsList>
-                                </Tabs>
+                                <div className="space-y-2">
+                                  <Label>View Mode</Label>
+                                   <RadioGroup
+                                        value={activeView}
+                                        onValueChange={(value) => setActiveView(value as 'staff' | 'resources')}
+                                        className="grid grid-cols-2 gap-2"
+                                    >
+                                        <div>
+                                            <RadioGroupItem value="staff" id="staff-view-mobile" className="peer sr-only" />
+                                            <Label
+                                                htmlFor="staff-view-mobile"
+                                                className="flex items-center justify-center gap-2 rounded-md border-2 border-muted bg-popover p-2 text-sm peer-data-[state=checked]:border-primary"
+                                            >
+                                                <User className="h-4 w-4" />
+                                                Staff
+                                            </Label>
+                                        </div>
+                                        <div>
+                                            <RadioGroupItem value="resources" id="resource-view-mobile" className="peer sr-only" />
+                                            <Label
+                                                htmlFor="resource-view-mobile"
+                                                className="flex items-center justify-center gap-2 rounded-md border-2 border-muted bg-popover p-2 text-sm peer-data-[state=checked]:border-primary"
+                                            >
+                                                <Building className="h-4 w-4" />
+                                                Resources
+                                            </Label>
+                                        </div>
+                                    </RadioGroup>
+                                </div>
                                 {isMobile && activeView === 'staff' && (
                                     <div className="space-y-1">
                                         <Label htmlFor="staff-selector" className="text-xs">Viewing Schedule For</Label>
