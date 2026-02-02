@@ -6,7 +6,7 @@ import React, { useMemo } from 'react';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { ShieldPlus, AlertTriangle, Ear, Edit } from 'lucide-react';
+import { ShieldPlus, AlertTriangle, Ear, Edit, Mail, Phone } from 'lucide-react';
 import { type Client } from '@/lib/data';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +14,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
+import { formatPhoneNumber } from 'react-phone-number-input';
 
 export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, isSelected: boolean, onSelect: () => void }) => {
     const lastAppointment = useMemo(() => {
@@ -47,6 +48,20 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                         {lastAppointment && (
                             <p className="text-sm text-muted-foreground">Last seen: {formatDistanceToNow(lastAppointment, { addSuffix: true })}</p>
                         )}
+                        <div className="text-xs text-muted-foreground mt-2 space-y-1">
+                            {client.email && (
+                                <a href={`mailto:${client.email}`} className="flex items-center gap-2 hover:text-primary transition-colors" onClick={(e) => e.stopPropagation()}>
+                                    <Mail className="w-3.5 h-3.5 flex-shrink-0" />
+                                    <span className="truncate">{client.email}</span>
+                                </a>
+                            )}
+                            {client.phone && (
+                                <a href={`tel:${client.phone}`} className="flex items-center gap-2 hover:text-primary transition-colors" onClick={(e) => e.stopPropagation()}>
+                                    <Phone className="w-3.5 h-3.5 flex-shrink-0" />
+                                    <span className="truncate">{formatPhoneNumber(client.phone)}</span>
+                                </a>
+                            )}
+                        </div>
                     </div>
                 </div>
                 <div className="flex items-center justify-between text-sm">
