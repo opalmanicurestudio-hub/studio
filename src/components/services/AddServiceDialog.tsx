@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -44,7 +43,7 @@ import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, 
 import { type Service } from '@/lib/data';
 import { BrowseProductsDialog } from './BrowseProductsDialog';
 import { SelectResourcesDialog } from './SelectResourcesDialog';
-import { SelectAddOnsDialog } from './SelectAddOnsDialog';
+import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { BrowseConsentFormsDialog } from './BrowseConsentFormsDialog';
 import { Switch } from '../ui/switch';
 import { useInventory } from '@/context/InventoryContext';
@@ -56,6 +55,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Calendar } from '../ui/calendar';
 import { CalendarIcon } from 'lucide-react';
 import { ScrollArea } from '../ui/scroll-area';
+import { useFirebase, useTenant, useCollection, useMemoFirebase } from '@/firebase';
+import { collection } from 'firebase/firestore';
 
 
 const serviceSchema = z.object({
@@ -696,3 +697,5 @@ export const AddServiceDialog: React.FC<{
     </Dialog>
   );
 };
+
+    
