@@ -23,8 +23,6 @@ import { PrintableReport } from '@/components/reports/PrintableReport';
 import { Loader } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { PrintableStaffReport } from '@/components/staff/PrintableStaffReport';
-
 
 const chartConfig = {
   waitTime: {
@@ -56,8 +54,8 @@ export default function ReportsPage() {
     if (!rawAppointments) return [];
     return rawAppointments.map(apt => ({
       ...apt,
-      startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime),
-      endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime),
+      startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime as any),
+      endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any),
       actualStartTime: apt.actualStartTime ? ((apt.actualStartTime as any)?.toDate ? (apt.actualStartTime as any).toDate() : parseISO(apt.actualStartTime)) : undefined,
       actualEndTime: apt.actualEndTime ? ((apt.actualEndTime as any)?.toDate ? (apt.actualEndTime as any).toDate() : parseISO(apt.actualEndTime)) : undefined,
     }));
@@ -691,9 +689,17 @@ export default function ReportsPage() {
         </main>
       </div>
       <div className="hidden print:block">
-        <PrintableStaffReport 
+        <PrintableReport
             ref={reportRef} 
+            dateRange={dateRange}
+            kpiData={salonWideStats}
             payrollData={performanceAndPayrollData}
+            payrollTotals={payrollTotals}
+            grossProfit={grossProfit}
+            totalGrossRevenue={totalGrossRevenue}
+            totalCOGS={totalCOGS}
+            periodOverhead={periodOverhead}
+            servicePerformanceData={servicePerformanceData}
         />
       </div>
 
