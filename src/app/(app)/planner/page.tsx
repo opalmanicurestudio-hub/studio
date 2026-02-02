@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -26,7 +27,6 @@ import {
   DropdownMenuPortal,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
   Dialog,
@@ -1226,64 +1226,28 @@ function PlannerPageContent() {
       <div className="p-4 border-b">
             <div className="flex flex-col gap-4">
                 {isMobile ? (
-                     <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1">
                         <h2 className="text-2xl font-semibold mr-auto">{format(currentDate, 'MMMM yyyy')}</h2>
-                        <RadioGroup
-                            value={activeView}
-                            onValueChange={(value) => setActiveView(value as 'staff' | 'resources')}
-                            className="grid grid-cols-2 gap-1 rounded-md bg-muted p-0.5"
-                        >
-                            <TooltipProvider>
-                                <div>
-                                    <RadioGroupItem value="staff" id="staff-view-mobile-toggle" className="peer sr-only" />
-                                     <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Label
-                                                htmlFor="staff-view-mobile-toggle"
-                                                className="flex items-center justify-center rounded-sm p-1.5 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
-                                            >
-                                                <User className="h-4 w-4" />
-                                            </Label>
-                                        </TooltipTrigger>
-                                        <TooltipContent>Staff View</TooltipContent>
-                                    </Tooltip>
-                                </div>
-                                <div>
-                                    <RadioGroupItem value="resources" id="resource-view-mobile-toggle" className="peer sr-only" />
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Label
-                                                htmlFor="resource-view-mobile-toggle"
-                                                className="flex items-center justify-center rounded-sm p-1.5 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
-                                            >
-                                                <Building className="h-4 w-4" />
-                                            </Label>
-                                        </TooltipTrigger>
-                                        <TooltipContent>Resource View</TooltipContent>
-                                    </Tooltip>
-                                </div>
-                            </TooltipProvider>
-                        </RadioGroup>
-                         <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-10 w-10"><MoreHorizontal className="h-5 w-5"/></Button>
-                            </DropdownMenuTrigger>
-                             <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => setIsKpiSheetOpen(true)}>Weekly KPIs</DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => setIsBillsSheetOpen(true)}>Bills Due</DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => setIsPickingListOpen(true)}>Picking List</DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => setIsScannerOpen(true)}>Scan Ticket</DropdownMenuItem>
-                                <DropdownMenuSub>
-                                    <DropdownMenuSubTrigger>Public Pages</DropdownMenuSubTrigger>
-                                    <DropdownMenuPortal>
-                                        <DropdownMenuSubContent>
-                                        <DropdownMenuItem asChild><Link href={`/book/${tenantId}`} target="_blank">View Booking Page</Link></DropdownMenuItem>
-                                        <DropdownMenuItem asChild><Link href={`/walk-in-queue`}>View Walk-in Kiosk</Link></DropdownMenuItem>
-                                        </DropdownMenuSubContent>
-                                    </DropdownMenuPortal>
-                                </DropdownMenuSub>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
+                        <div className="flex items-center gap-0.5">
+                            <Button variant="ghost" size="icon" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="w-5 h-5" /></Button>
+                            <Button variant="ghost" size="icon" className="relative" onClick={() => setIsBillsSheetOpen(true)}>
+                                <BellRing className={cn("h-5 w-5", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
+                                {dailyBillInstances.length > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-primary rounded-full" />}
+                            </Button>
+                            <Button variant="ghost" size="icon" onClick={() => setIsPickingListOpen(true)}><List className="w-5 h-5" /></Button>
+                            <Button variant="ghost" size="icon" onClick={() => setIsScannerOpen(true)}><QrCode className="w-5 h-5" /></Button>
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="icon">
+                                        <Globe className="h-5 w-5" />
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                    <DropdownMenuItem asChild><Link href={`/book/${tenantId}`} target="_blank">View Booking Page</Link></DropdownMenuItem>
+                                    <DropdownMenuItem asChild><Link href={`/walk-in-queue`}>View Walk-in Kiosk</Link></DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        </div>
                     </div>
                 ) : (
                      <div className="flex items-center justify-between gap-4">
@@ -1311,7 +1275,7 @@ function PlannerPageContent() {
                                 />
                             </div>
                              <Separator orientation="vertical" className="h-6" />
-                            <RadioGroup
+                             <RadioGroup
                                 value={activeView}
                                 onValueChange={(value) => setActiveView(value as 'staff' | 'resources')}
                                 className="grid grid-cols-2 gap-1 rounded-md bg-muted p-0.5"
@@ -1707,5 +1671,3 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
-
-    
