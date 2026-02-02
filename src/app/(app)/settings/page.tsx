@@ -33,6 +33,7 @@ import { nanoid } from 'nanoid';
 import { useTenant } from '@/context/TenantContext';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
   const timeOptions = Array.from({ length: (22 - 8) * 2 + 1 }, (_, i) => {
@@ -89,6 +90,7 @@ export default function SettingsPage() {
   const { toast } = useToast();
   const { firestore, user } = useFirebase();
   const { tenants, selectedTenant, setSelectedTenant, isLoading: isTenantContextLoading } = useTenant();
+  const isMobile = useIsMobile();
 
   const [editingTenantId, setEditingTenantId] = useState<string | null>(null);
   const [tempTenantName, setTempTenantName] = useState('');
@@ -138,6 +140,7 @@ export default function SettingsPage() {
   // Data states
   const [tenantData, setTenantData] = useState<Partial<Tenant>>({});
   const [scheduleProfiles, setScheduleProfiles] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState('profile');
 
   // Backup states for cancellation
   const [backupTenantData, setBackupTenantData] = useState<Partial<Tenant>>({});
@@ -346,6 +349,17 @@ export default function SettingsPage() {
 
   const isLoading = isTenantContextLoading || (selectedTenant && scheduleProfilesLoading);
 
+  const tabs = [
+    { value: "profile", label: "Profile", icon: <Building /> },
+    { value: "hours", label: "Hours", icon: <Clock /> },
+    { value: "policies", label: "Policies", icon: <FileText /> },
+    { value: "referrals", label: "Referrals", icon: <Gift /> },
+    { value: "queue", label: "Queue", icon: <ListChecks /> },
+    { value: "messaging", label: "Messaging", icon: <MessageSquare /> },
+    { value: "tiers", label: "Tiers", icon: <PercentIcon /> }
+  ];
+
+
   if (isLoading) {
     return (
       <div className="flex min-h-screen w-full flex-col">
@@ -369,16 +383,35 @@ export default function SettingsPage() {
             </p>
           </div>
           
-           <Tabs defaultValue="profile" className="w-full">
-            <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 lg:grid-cols-7 h-auto">
-              <TabsTrigger value="profile">Profile</TabsTrigger>
-              <TabsTrigger value="hours">Hours</TabsTrigger>
-              <TabsTrigger value="policies">Policies</TabsTrigger>
-              <TabsTrigger value="referrals">Referrals</TabsTrigger>
-              <TabsTrigger value="queue">Queue</TabsTrigger>
-              <TabsTrigger value="messaging">Messaging</TabsTrigger>
-              <TabsTrigger value="tiers">Tiers</TabsTrigger>
-            </TabsList>
+           <Tabs defaultValue="profile" value={activeTab} onValueChange={setActiveTab} className="w-full">
+            {isMobile ? (
+              <div className="mb-6">
+                <Select value={activeTab} onValueChange={setActiveTab}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select a setting category..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {tabs.map(tab => (
+                      <SelectItem key={tab.value} value={tab.value}>
+                        <div className="flex items-center">
+                          {React.cloneElement(tab.icon, { className: "w-4 h-4 mr-2" })}
+                          {tab.label}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <TabsList className="grid w-full grid-cols-7 h-auto">
+                  {tabs.map(tab => (
+                    <TabsTrigger key={tab.value} value={tab.value}>
+                      {React.cloneElement(tab.icon, { className: "w-4 h-4 mr-2" })}
+                      {tab.label}
+                    </TabsTrigger>
+                  ))}
+              </TabsList>
+            )}
             <TabsContent value="profile" className="mt-6">
                 <Card>
                     <CardHeader>
