@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
@@ -35,6 +36,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { buttonVariants } from '@/components/ui/button';
 
 
 const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
@@ -96,6 +108,7 @@ export default function SettingsPage() {
   const tenantId = selectedTenant?.id;
 
   const [editingTenantId, setEditingTenantId] = useState<string | null>(null);
+  const [tenantToDelete, setTenantToDelete] = useState<Tenant | null>(null);
   const [tempTenantName, setTempTenantName] = useState('');
   
   const handleUpdateBusinessName = async (tenantId: string, newName: string) => {
@@ -114,6 +127,40 @@ export default function SettingsPage() {
       toast({ variant: 'destructive', title: "Update Failed" });
     }
   };
+  
+    const handleDeleteTenantClick = (tenant: Tenant) => {
+        if (tenants.length <= 1) {
+            toast({
+                variant: "destructive",
+                title: "Cannot Delete",
+                description: "You cannot delete your only business location.",
+            });
+            return;
+        }
+        if (tenant.id === selectedTenant?.id) {
+            toast({
+                variant: "destructive",
+                title: "Cannot Delete Active Location",
+                description: "Please switch to a different location before deleting this one.",
+            });
+            return;
+        }
+        setTenantToDelete(tenant);
+    };
+
+    const confirmDeleteTenant = async () => {
+        if (!tenantToDelete || !firestore) return;
+
+        const tenantRef = doc(firestore, 'tenants', tenantToDelete.id);
+        await deleteDocumentNonBlocking(tenantRef);
+        
+        toast({
+            title: "Location Deleted",
+            description: `"${tenantToDelete.name}" has been successfully deleted.`
+        });
+
+        setTenantToDelete(null);
+    };
 
   const handleCreateNewLocation = () => {
     if (!firestore || !user) return;
@@ -151,6 +198,7 @@ export default function SettingsPage() {
   // Backup states for cancellation
   const [backupTenantData, setBackupTenantData] = useState<Partial<Tenant>>({});
   const [backupScheduleProfiles, setBackupScheduleProfiles] = useState<any[]>([]);
+  const [backupTiers, setBackupTiers] = useState<PricingTier[]>([]);
 
   const scheduleProfilesQuery = useMemoFirebase(() => {
     if (!selectedTenant || !firestore) return null;
@@ -519,17 +567,30 @@ export default function SettingsPage() {
                                         <p className="font-medium">{tenant.name}</p>
                                         <div className="flex items-center gap-2">
                                             {tenant.id === selectedTenant?.id && <Badge>Active</Badge>}
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-8 w-8"
-                                                onClick={() => {
-                                                    setEditingTenantId(tenant.id);
-                                                    setTempTenantName(tenant.name);
-                                                }}
-                                            >
-                                                <Edit className="w-4 h-4" />
-                                            </Button>
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                        <MoreHorizontal className="w-4 h-4" />
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    <DropdownMenuItem onClick={() => {
+                                                        setEditingTenantId(tenant.id);
+                                                        setTempTenantName(tenant.name);
+                                                    }}>
+                                                        <Edit className="mr-2 h-4 w-4" />
+                                                        Rename
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuItem 
+                                                        className="text-destructive" 
+                                                        onClick={() => handleDeleteTenantClick(tenant)}
+                                                        disabled={tenants.length <= 1 || tenant.id === selectedTenant?.id}
+                                                    >
+                                                        <Trash2 className="mr-2 h-4 w-4" />
+                                                        Delete
+                                                    </DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
                                         </div>
                                     </>
                                 )}
@@ -760,7 +821,7 @@ export default function SettingsPage() {
                                 <Button onClick={handleTiersSave}><Save className="mr-2 h-4 w-4" />Save Tiers</Button>
                                 </>
                             ) : (
-                                <Button onClick={() => setIsTiersEditing(true)}>
+                                <Button onClick={() => {setBackupTiers(editableTiers); setIsTiersEditing(true);}}>
                                     {pricingTiersData && pricingTiersData.length > 0 ? (
                                         <><Edit className="mr-2 h-4 w-4"/>Edit Tiers</>
                                     ) : (
@@ -780,7 +841,7 @@ export default function SettingsPage() {
                                 <p className="text-muted-foreground mt-2 mb-6 max-w-sm mx-auto">
                                     Create skill levels like "Junior" or "Master" to apply different prices and durations to your services.
                                 </p>
-                                <Button onClick={() => setIsTiersEditing(true)}>
+                                <Button onClick={() => {setBackupTiers(editableTiers); setIsTiersEditing(true);}}>
                                     <PlusCircle className="mr-2 h-4 w-4" />
                                     Create Your First Tier
                                 </Button>
@@ -821,6 +882,24 @@ export default function SettingsPage() {
           </Tabs>
         </div>
       </main>
+
+        <AlertDialog open={!!tenantToDelete} onOpenChange={() => setTenantToDelete(null)}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        This will permanently delete the business location &quot;{tenantToDelete?.name}&quot; and all its associated data (services, clients, appointments, etc.). This action cannot be undone.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={confirmDeleteTenant} className={buttonVariants({ variant: "destructive" })}>
+                        Yes, Delete
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
     </div>
   );
 }
+
