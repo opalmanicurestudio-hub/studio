@@ -2,30 +2,115 @@
 
 'use client';
 
-import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { differenceInMonths, endOfDay, format, isPast, parseISO, startOfDay, subDays } from 'date-fns';
+import { collection, doc, writeBatch } from 'firebase/firestore';
+import { Html5Qrcode } from 'html5-qrcode';
+import {
+  Activity,
+  AlertTriangle,
+  BarChart,
+  Beaker,
+  Box,
+  Briefcase,
+  Building,
+  Calendar as CalendarIcon,
+  Check,
+  CheckCircle,
+  ChevronDown,
+  CircleHelp,
+  ClipboardList,
+  Clock,
+  DollarSign,
+  Edit,
+  Eye,
+  File,
+  FileImage,
+  FileText,
+  FlaskConical,
+  Hammer,
+  HardHat,
+  Link as LinkIcon,
+  ListFilter,
+  MapPin,
+  MoreHorizontal,
+  Package,
+  PackageX,
+  Pencil,
+  Pipette,
+  Plus,
+  PlusCircle,
+  Printer,
+  QrCode,
+  Recycle,
+  RefreshCw,
+  Rocket,
+  Search,
+  ShoppingCart,
+  SlidersHorizontal,
+  Store,
+  Trash2,
+  TrendingDown,
+  TrendingUp,
+  Truck,
+  Warehouse,
+  X,
+} from 'lucide-react';
+import Image from 'next/image';
+import Link from 'next/link';
+import { nanoid } from 'nanoid';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+import { AddEquipmentDialog } from '@/components/inventory/AddEquipmentDialog';
+import { AddLocationDialog } from '@/components/inventory/AddLocationDialog';
+import { AddOrderDialog } from '@/components/inventory/AddOrderDialog';
+import { AddOverheadDialog } from '@/components/inventory/AddOverheadDialog';
+import { AddProductDialog } from '@/components/inventory/AddProductDialog';
+import { EditEquipmentDialog } from '@/components/inventory/EditEquipmentDialog';
+import { EditLocationDialog } from '@/components/inventory/EditLocationDialog';
+import { EditProductDialog } from '@/components/inventory/EditProductDialog';
+import { EndCostPerUseTestDialog } from '@/components/inventory/EndCostPerUseTestDialog';
+import { InventorySidebar } from '@/components/inventory/InventorySidebar';
+import { Locations } from '@/components/inventory/Locations';
+import { LogSaleDialog } from '@/components/inventory/LogSaleDialog';
+import { LogUseDialog } from '@/components/inventory/LogUseDialog';
+import { ManageSpoilageDialog } from '@/components/inventory/ManageSpoilageDialog';
+import { ProductCard } from '@/components/inventory/ProductCard';
+import { ReceiveStockDialog, type ReceivedItem } from '@/components/inventory/ReceiveStockDialog';
+import { BrowseProductsDialog } from '@/components/services/BrowseProductsDialog';
 import { AppHeader } from '@/components/shared/AppHeader';
+import { ClientOnly } from '@/components/shared/ClientOnly';
+import { ImageUpload } from '@/components/shared/ImageUpload';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { Calendar } from '@/components/ui/calendar';
 import {
   Card,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
-  CardFooter,
 } from '@/components/ui/card';
-import { Button, buttonVariants } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette, QrCode, AlertTriangle, ListFilter, ChevronDown, ShoppingCart, Briefcase, DollarSign, Activity, Eye, CircleHelp, Warehouse, Beaker, Recycle, TrendingUp, Truck, Clock, Check, Link as LinkIcon, FileImage, X } from 'lucide-react';
-import { 
-    type InventoryItem, 
-    type StockCorrection,
-    type Client,
-    type Appointment,
-    type Location,
-    type LocationType,
-    type Service,
-    type Order,
-    type Batch,
-    type SpoilageItem,
-} from '@/lib/data';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,55 +118,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import Image from 'next/image';
-import { useToast } from '@/hooks/use-toast';
 import { Input } from '@/components/ui/input';
-import { AddLocationDialog } from '@/components/inventory/AddLocationDialog';
-import { EditLocationDialog } from '@/components/inventory/EditLocationDialog';
-import { EndCostPerUseTestDialog } from '@/components/inventory/EndCostPerUseTestDialog';
-import { WriteOffDialog } from '@/components/inventory/WriteOffDialog';
-import { LogUseDialog } from '@/components/inventory/LogUseDialog';
-import { Locations } from '@/components/inventory/Locations';
-import Link from 'next/link';
-import { Badge } from '@/components/ui/badge';
-import { cn } from '@/lib/utils';
-import { isPast, parseISO, differenceInMonths } from 'date-fns';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { ManageSpoilageDialog } from '@/components/inventory/ManageSpoilageDialog';
-import { InventorySidebar } from '@/components/inventory/InventorySidebar';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from '@/components/ui/sheet';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { type Transaction } from '@/lib/financial-data';
-import { ClientOnly } from '@/components/shared/ClientOnly';
-import { AddProductDialog } from '@/components/inventory/AddProductDialog';
-import { AddEquipmentDialog } from '@/components/inventory/AddEquipmentDialog';
-import { AddOverheadDialog } from '@/components/inventory/AddOverheadDialog';
-import { useInventory } from '@/context/InventoryContext';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { EditProductDialog } from '@/components/inventory/EditProductDialog';
-import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
-import { collection, doc, writeBatch } from 'firebase/firestore';
-import { nanoid } from 'nanoid';
-import { BrowseProductsDialog } from '@/components/services/BrowseProductsDialog';
-import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Calendar } from '@/components/ui/calendar';
-import { CalendarIcon } from 'lucide-react';
-import { Textarea } from '@/components/ui/textarea';
-import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import { ImageUpload } from '@/components/shared/ImageUpload';
-import { AddOrderDialog } from '@/components/inventory/AddOrderDialog';
-import { ReceiveStockDialog, type ReceivedItem } from '@/components/inventory/ReceiveStockDialog';
-import { useTenant } from '@/context/TenantContext';
-import { Html5Qrcode } from 'html5-qrcode';
-import { ProductCard } from '@/components/inventory/ProductCard';
-import { EditEquipmentDialog } from '@/components/inventory/EditEquipmentDialog';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Select,
   SelectContent,
@@ -89,7 +130,44 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { LogSaleDialog } from '@/components/inventory/LogSaleDialog';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet';
+import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useInventory } from '@/context/InventoryContext';
+import { useTenant } from '@/context/TenantContext';
+import {
+  addDocumentNonBlocking,
+  deleteDocumentNonBlocking,
+  setDocumentNonBlocking,
+  updateDocumentNonBlocking,
+  useCollection,
+  useFirebase,
+  useMemoFirebase,
+} from '@/firebase';
+import { useToast } from '@/hooks/use-toast';
+import {
+  Appointment,
+  Batch,
+  Client,
+  InventoryItem,
+  Location,
+  LocationType,
+  Order,
+  Service,
+  SpoilageItem,
+  StockCorrection,
+} from '@/lib/data';
+import { Transaction } from '@/lib/financial-data';
+import { cn } from '@/lib/utils';
 
 
 const OrderCard = ({ order, onSelect, onTrack, onReceive }: { order: Order, onSelect: (order: Order) => void, onTrack: (e: React.MouseEvent, url?: string) => void, onReceive: (order: Order) => void }) => {
@@ -974,20 +1052,23 @@ export default function InventoryPage() {
 
     const location = locations.find(l => l.id === locationId);
     if(location) {
-        setLocationToDelete(location);
+        setConfirmation({
+            isOpen: true,
+            title: 'Are you sure?',
+            description: `This will permanently delete the "${location.name}" location. This action cannot be undone.`,
+            onConfirm: () => {
+                const locationRef = doc(firestore, 'tenants', tenantId, 'locations', locationId);
+                deleteDocumentNonBlocking(locationRef);
+                toast({
+                    title: 'Location Deleted',
+                    description: `${location.name} has been deleted.`,
+                });
+                setConfirmation(null);
+            }
+        });
     }
   };
 
-  const confirmDeleteLocation = () => {
-    if (!locationToDelete || !firestore || !tenantId) return;
-    const locationRef = doc(firestore, 'tenants', tenantId, 'locations', locationToDelete.id);
-    deleteDocumentNonBlocking(locationRef);
-    toast({
-      title: 'Location Deleted',
-      description: `${locationToDelete.name} has been deleted.`,
-    });
-    setLocationToDelete(null);
-  }
 
   const handleAddNewLocationType = (name: string, icon: string): LocationType => {
     if (!firestore || !tenantId) return { id: '', name: '', icon: '' };
@@ -1218,6 +1299,7 @@ export default function InventoryPage() {
         const product = inventory.find(p => p.id === item.productId);
         if (product) {
             const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.productId);
+
             const updatedBatches = product.batches.map(b => {
                 if (b.id === item.batchId) {
                     totalLoss += item.stock * item.costPerUnit;
@@ -1404,6 +1486,7 @@ export default function InventoryPage() {
   
   const hasInventory = inventory && inventory.length > 0;
   const hasFilteredInventory = filteredInventory.length > 0;
+  const [confirmation, setConfirmation] = useState<{ isOpen: boolean; title: string; description: string; onConfirm: () => void; } | null>(null);
 
   return (
     <ClientOnly>
@@ -1743,22 +1826,22 @@ export default function InventoryPage() {
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>
-        <AlertDialog open={!!locationToDelete} onOpenChange={() => setLocationToDelete(null)}>
-            <AlertDialogContent>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                        This will permanently delete the "{locationToDelete?.name}" location. This action cannot be undone.
-                    </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={confirmDeleteLocation} className={buttonVariants({ variant: "destructive" })}>
-                        Delete Location
-                    </AlertDialogAction>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-        </AlertDialog>
+        {confirmation && (
+            <AlertDialog open={confirmation.isOpen} onOpenChange={() => setConfirmation(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>{confirmation.title}</AlertDialogTitle>
+                        <AlertDialogDescription>{confirmation.description}</AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={confirmation.onConfirm} className={buttonVariants({ variant: "destructive" })}>
+                            Delete Location
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        )}
     </div>
     </ClientOnly>
   );

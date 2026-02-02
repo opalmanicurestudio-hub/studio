@@ -1,29 +1,42 @@
 
+
 'use client';
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { useIsMobile } from '@/hooks/use-mobile';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { nanoid } from 'nanoid';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Controller, FormProvider, useForm, useFormContext, type Control } from 'react-hook-form';
+import { z } from 'zod';
+import {
+  AlertTriangle,
+  Calculator,
+  Check,
+  Clock,
+  DollarSign,
+  Hammer,
+  Package,
+  PlusCircle,
+  QrCode,
+  ShoppingCart,
+  Trash2,
+} from 'lucide-react';
+
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-  SheetFooter,
-} from '@/components/ui/sheet';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Select,
   SelectContent,
@@ -31,29 +44,38 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { ImageUpload } from '@/components/shared/ImageUpload';
-import { type InventoryItem, type Location, type ConsentForm, type Resource, type PricingTier } from '@/lib/data';
-import { useToast } from '@/hooks/use-toast';
-import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-import { Check, PlusCircle, QrCode, AlertTriangle, DollarSign, Package, Hammer, Trash2, ShoppingCart, Calculator, Clock } from 'lucide-react';
-import { type Service } from '@/lib/data';
-import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
-import { SelectResourcesDialog } from './SelectResourcesDialog';
-import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
-import { BrowseConsentFormsDialog } from './BrowseConsentFormsDialog';
-import { Switch } from '../ui/switch';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
+import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
+import { useCollection, useMemoFirebase } from '@/firebase';
 import { useInventory } from '@/context/InventoryContext';
-import { cn } from '@/lib/utils';
-import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
-import { ScrollArea } from '../ui/scroll-area';
-import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { useToast } from '@/hooks/use-toast';
+import {
+  type ConsentForm,
+  type InventoryItem,
+  type Location,
+  type PricingTier,
+  type Resource,
+  type Service,
+} from '@/lib/data';
+import { cn } from '@/lib/utils';
 import { collection, query } from 'firebase/firestore';
-import { nanoid } from 'nanoid';
+
+import { BrowseConsentFormsDialog } from './BrowseConsentFormsDialog';
+import { BrowseProductsDialog } from './BrowseProductsDialog';
+import { ImageUpload } from '@/components/shared/ImageUpload';
+import { SelectAddOnsDialog } from './SelectAddOnsDialog';
+import { SelectResourcesDialog } from './SelectResourcesDialog';
+
 
 const serviceSchema = z.object({
   name: z.string().min(1, 'Service name is required'),
@@ -160,7 +182,7 @@ const Step1_BasicDetails = ({
 
     <div className="grid grid-cols-3 gap-4">
         <div className="space-y-2">
-            <Label htmlFor="duration">Base Duration (min)</Label>
+            <Label htmlFor="duration">Duration (min)</Label>
             <Input id="duration" type="number" placeholder="e.g., 60" {...register('duration')}/>
             {errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}
         </div>
@@ -302,72 +324,6 @@ const Step2_Formula = ({ onScanClick, resources, allServices }: { onScanClick: (
             <SelectResourcesDialog open={isResourceSelectorOpen} onOpenChange={setIsResourceSelectorOpen} onSelect={handleResourceSelect} allResources={resources} initialSelected={selectedResources} />
             <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={handleAddOnSelect} allAddOns={allServices.filter(s => s.type === 'addon')} initialSelected={selectedAddOns as Service[]} />
         </>
-    );
-};
-
-const PricingTierInput = ({ tier, control }: { tier: PricingTier, control: Control<ServiceFormData> }) => {
-    const { watch, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
-    const serviceTiers = watch('serviceTiers') || [];
-    const tierData = serviceTiers.find(t => t.tierId === tier.id);
-    const isEnabled = !!tierData;
-
-    const handleToggle = (checked: boolean) => {
-        let newTiers = [...serviceTiers];
-        if (checked) {
-            if (!newTiers.find(t => t.tierId === tier.id)) {
-                newTiers.push({ tierId: tier.id, price: 0, durationMinutes: watch('duration') || 0 });
-            }
-        } else {
-            newTiers = newTiers.filter(t => t.tierId !== tier.id);
-        }
-        setValue('serviceTiers', newTiers, { shouldDirty: true, shouldValidate: true });
-    };
-
-    const handlePriceChange = (price: number) => {
-        const newTiers = serviceTiers.map(t => t.tierId === tier.id ? {...t, price} : t);
-        setValue('serviceTiers', newTiers, { shouldDirty: true });
-    };
-
-    const handleDurationChange = (durationMinutes: number) => {
-        const newTiers = serviceTiers.map(t => t.tierId === tier.id ? {...t, durationMinutes} : t);
-        setValue('serviceTiers', newTiers, { shouldDirty: true });
-    };
-    
-    const getError = (fieldName: 'price' | 'durationMinutes') => {
-        if (!errors.serviceTiers) return null;
-        const tierIndex = serviceTiers.findIndex(t => t.tierId === tier.id);
-        if (tierIndex === -1) return null;
-        const error = (errors.serviceTiers as any)[tierIndex]?.[fieldName] as any;
-        return error?.message;
-    };
-
-    return (
-        <Card>
-            <CardHeader className="p-4 flex flex-row items-center justify-between">
-                <CardTitle className="text-base capitalize">{tier.name}</CardTitle>
-                <Switch checked={isEnabled} onCheckedChange={handleToggle} />
-            </CardHeader>
-            {isEnabled && (
-                <CardContent className="p-4 pt-0 grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                        <Label htmlFor={`${tier.id}-price`} className="text-xs flex items-center gap-1.5"><DollarSign className="w-3 h-3 text-muted-foreground"/>Price</Label>
-                        <div className="relative">
-                            <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                            <Input id={`${tier.id}-price`} type="number" placeholder="0.00" value={tierData?.price ?? ''} onChange={e => handlePriceChange(parseFloat(e.target.value) || 0)} className="pl-7" />
-                        </div>
-                         {getError('price') && <p className="text-sm text-destructive">{getError('price')}</p>}
-                    </div>
-                    <div className="space-y-1">
-                        <Label htmlFor={`${tier.id}-durationMinutes`} className="text-xs flex items-center gap-1.5"><Clock className="w-3 h-3 text-muted-foreground"/>Duration</Label>
-                        <div className="relative">
-                            <Input id={`${tier.id}-durationMinutes`} type="number" placeholder="0" value={tierData?.durationMinutes ?? ''} onChange={e => handleDurationChange(parseInt(e.target.value) || 0)} className="pr-12"/>
-                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">mins</span>
-                        </div>
-                        {getError('durationMinutes') && <p className="text-sm text-destructive">{getError('durationMinutes')}</p>}
-                    </div>
-                </CardContent>
-            )}
-        </Card>
     );
 };
 
@@ -531,7 +487,16 @@ const Step4_VisibilityConfirmation = ({ consentForms }: { consentForms: ConsentF
 };
 
 
-export const AddServiceDialog: React.FC<AddServiceDialogProps> = ({
+export const AddServiceDialog: React.FC<{ 
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  initialType: 'professional' | 'retail';
+  categories: string[];
+  onNewCategory: (category: string) => void;
+  onServiceAdded: (service: Service) => void;
+  resources: Resource[];
+  services: Service[];
+}> = ({
   open,
   onOpenChange,
   initialType,
@@ -564,26 +529,14 @@ export const AddServiceDialog: React.FC<AddServiceDialogProps> = ({
 
   useEffect(() => {
     if (open) {
-      methods.reset({
-        isAddon: initialType === 'addon',
-        isPrivate: false,
-        type: initialType,
-        capacity: 1,
-        products: [],
-        requiredResourceIds: [],
-        compatibleAddOnIds: [],
-        depositType: 'none',
-        serviceTiers: [],
-        requiredFormIds: [],
-        price: 0,
-      });
+      methods.reset({ type: initialType });
       setStep(1);
     }
   }, [open, initialType, methods]);
 
   const { watch, trigger, handleSubmit } = methods;
   const values = watch();
-  const { duration, padBefore, padAfter, products, requiredResourceIds, price, serviceTiers } = values;
+  const { duration, padBefore, padAfter, products, requiredResourceIds, pricingTiers, price, serviceTiers } = values;
   const [tmhr, setTmhr] = useState(0);
   const { inventory } = useInventory();
   const { firestore, selectedTenant } = useTenant();
