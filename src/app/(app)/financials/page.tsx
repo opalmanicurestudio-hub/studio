@@ -569,16 +569,14 @@ export default function FinancialFoundationPage() {
       businessProfiles: [],
       scheduleProfiles: []
     });
-    
-    const hasInitializedProfiles = useRef<{ [key: string]: string | null }>({ lifestyle: null, business: null, schedule: null });
 
     // Initialize Lifestyle Profiles
     useEffect(() => {
         if (lifestyleProfilesLoading || !firestore || !user || !tenantId) return;
-
-        if (!lifestyleProfilesData || lifestyleProfilesData.length === 0) {
-            if (hasInitializedProfiles.current.lifestyle === tenantId) return;
-            hasInitializedProfiles.current.lifestyle = tenantId;
+        const sessionKey = `lifestyle_init_${tenantId}`;
+        
+        if ((!lifestyleProfilesData || lifestyleProfilesData.length === 0) && !sessionStorage.getItem(sessionKey)) {
+            sessionStorage.setItem(sessionKey, 'true');
             const defaultProfileId = nanoid();
             const defaultProfile = {
                 id: defaultProfileId,
@@ -588,10 +586,9 @@ export default function FinancialFoundationPage() {
             };
             const profileDocRef = doc(firestore, `tenants/${tenantId}/lifestyleProfiles/${defaultProfileId}`);
             setDocumentNonBlocking(profileDocRef, defaultProfile, {});
-        } else {
-             // If data exists, ensure at least one profile is active.
+        } else if (lifestyleProfilesData && lifestyleProfilesData.length > 0) {
             const hasActiveProfile = lifestyleProfilesData.some(p => p.isActive);
-            if (!hasActiveProfile && lifestyleProfilesData.length > 0) {
+            if (!hasActiveProfile) {
                 const firstProfile = lifestyleProfilesData[0];
                 const profileDocRef = doc(firestore, `tenants/${tenantId}/lifestyleProfiles/${firstProfile.id}`);
                 updateDocumentNonBlocking(profileDocRef, { isActive: true });
@@ -602,10 +599,10 @@ export default function FinancialFoundationPage() {
     // Initialize Business Profiles
     useEffect(() => {
         if (businessProfilesLoading || !firestore || !user || !tenantId) return;
+        const sessionKey = `business_init_${tenantId}`;
 
-        if (!businessProfilesData || businessProfilesData.length === 0) {
-            if (hasInitializedProfiles.current.business === tenantId) return;
-            hasInitializedProfiles.current.business = tenantId;
+        if ((!businessProfilesData || businessProfilesData.length === 0) && !sessionStorage.getItem(sessionKey)) {
+            sessionStorage.setItem(sessionKey, 'true');
             const defaultProfileId = nanoid();
             const defaultProfile = {
                 id: defaultProfileId,
@@ -615,9 +612,9 @@ export default function FinancialFoundationPage() {
             };
             const profileDocRef = doc(firestore, `tenants/${tenantId}/businessProfiles/${defaultProfileId}`);
             setDocumentNonBlocking(profileDocRef, defaultProfile, {});
-        } else {
+        } else if (businessProfilesData && businessProfilesData.length > 0) {
              const hasActiveProfile = businessProfilesData.some(p => p.isActive);
-            if (!hasActiveProfile && businessProfilesData.length > 0) {
+            if (!hasActiveProfile) {
                 const firstProfile = businessProfilesData[0];
                 const profileDocRef = doc(firestore, `tenants/${tenantId}/businessProfiles/${firstProfile.id}`);
                 updateDocumentNonBlocking(profileDocRef, { isActive: true });
@@ -628,9 +625,10 @@ export default function FinancialFoundationPage() {
     // Initialize Schedule Profiles
     useEffect(() => {
         if (scheduleProfilesLoading || !firestore || !user || !tenantId) return;
-        if (!scheduleProfilesData || scheduleProfilesData.length === 0) {
-            if (hasInitializedProfiles.current.schedule === tenantId) return;
-            hasInitializedProfiles.current.schedule = tenantId;
+        const sessionKey = `schedule_init_${tenantId}`;
+
+        if ((!scheduleProfilesData || scheduleProfilesData.length === 0) && !sessionStorage.getItem(sessionKey)) {
+            sessionStorage.setItem(sessionKey, 'true');
             const defaultProfileId = nanoid();
             const defaultProfile = {
                 id: defaultProfileId,
@@ -652,9 +650,9 @@ export default function FinancialFoundationPage() {
             };
             const profileDocRef = doc(firestore, `tenants/${tenantId}/scheduleProfiles/${defaultProfileId}`);
             setDocumentNonBlocking(profileDocRef, defaultProfile, {});
-        } else {
+        } else if (scheduleProfilesData && scheduleProfilesData.length > 0) {
             const hasActiveProfile = scheduleProfilesData.some(p => p.isActive);
-            if (!hasActiveProfile && scheduleProfilesData.length > 0) {
+            if (!hasActiveProfile) {
                 const firstProfile = scheduleProfilesData[0];
                 const profileDocRef = doc(firestore, `tenants/${tenantId}/scheduleProfiles/${firstProfile.id}`);
                 updateDocumentNonBlocking(profileDocRef, { isActive: true });
@@ -878,5 +876,3 @@ export default function FinancialFoundationPage() {
     </div>
   );
 }
-
-    
