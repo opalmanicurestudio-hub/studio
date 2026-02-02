@@ -27,6 +27,7 @@ import {
   DropdownMenuPortal,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
   Dialog,
@@ -1227,11 +1228,11 @@ function PlannerPageContent() {
       <div className="p-4 border-b">
             <div className="flex flex-col gap-4">
                 {isMobile ? (
-                    <div className="grid grid-cols-[1fr,auto,auto] items-center gap-4">
-                        <h2 className="text-2xl font-semibold">{format(currentDate, 'MMMM yyyy')}</h2>
+                    <div className="flex items-center gap-2">
+                        <h2 className="text-2xl font-semibold mr-auto">{format(currentDate, 'MMMM yyyy')}</h2>
                         <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-8">Today</Button>
                         <div className="relative h-8 w-8">
-                            <Button variant="outline" size="icon" className="h-8 w-8" asChild>
+                             <Button variant="outline" size="icon" className="h-8 w-8" asChild>
                                 <label htmlFor="date-picker-mobile" className="cursor-pointer">
                                     <CalendarIcon className="h-4 w-4" />
                                     <span className="sr-only">Jump To...</span>
@@ -1249,6 +1250,35 @@ function PlannerPageContent() {
                                 }}
                             />
                         </div>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="outline" size="icon" className="h-8 w-8"><Plus className="h-4 w-4"/></Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => handleBookNewForClient('')}>New Appointment</DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => setIsAddEventOpen(true)}>New Event</DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4"/></Button>
+                            </DropdownMenuTrigger>
+                             <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => setIsKpiSheetOpen(true)}>Weekly KPIs</DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => setIsBillsSheetOpen(true)}>Bills Due</DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => setIsPickingListOpen(true)}>Picking List</DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => setIsScannerOpen(true)}>Scan Ticket</DropdownMenuItem>
+                                <DropdownMenuSub>
+                                    <DropdownMenuSubTrigger>Public Pages</DropdownMenuSubTrigger>
+                                    <DropdownMenuPortal>
+                                        <DropdownMenuSubContent>
+                                        <DropdownMenuItem asChild><Link href={`/book/${tenantId}`} target="_blank">View Booking Page</Link></DropdownMenuItem>
+                                        <DropdownMenuItem asChild><Link href={`/walk-in-queue`}>View Walk-in Kiosk</Link></DropdownMenuItem>
+                                        </DropdownMenuSubContent>
+                                    </DropdownMenuPortal>
+                                </DropdownMenuSub>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
                     </div>
                 ) : (
                      <div className="flex items-center justify-between gap-4">
@@ -1428,21 +1458,6 @@ function PlannerPageContent() {
                                         </Select>
                                     </div>
                                 )}
-                                <Button variant="outline" className="w-full" onClick={() => setIsScannerOpen(true)}>
-                                    <QrCode className="mr-2 h-4 w-4" />
-                                    Scan Checkout Ticket
-                                </Button>
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                    <Button size="sm" variant="outline" className="w-full">
-                                        Actions
-                                    </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end">
-                                        <DropdownMenuItem onClick={() => handleBookNewForClient('')}>New Appointment</DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => setIsAddEventOpen(true)}>New Event</DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
                             </div>
                         </AccordionContent>
                     </AccordionItem>
