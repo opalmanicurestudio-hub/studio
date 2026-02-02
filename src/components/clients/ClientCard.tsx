@@ -3,11 +3,10 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, ShieldPlus, AlertTriangle, Ear } from 'lucide-react';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { ShieldPlus, AlertTriangle, Ear, Edit } from 'lucide-react';
 import { type Client } from '@/lib/data';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
@@ -24,10 +23,10 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
 
     return (
         <Card className={cn(
-            "transition-all duration-200 hover:shadow-lg hover:-translate-y-1",
+            "transition-all duration-200 hover:shadow-lg hover:-translate-y-1 flex flex-col",
             isSelected && "border-primary ring-2 ring-primary"
         )}>
-            <CardContent className="p-4 space-y-4">
+            <CardContent className="p-4 space-y-4 flex-1">
                 <div className="flex items-start gap-4">
                     <div className="flex items-center pt-1">
                         <Checkbox
@@ -49,19 +48,6 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                             <p className="text-sm text-muted-foreground">Last seen: {formatDistanceToNow(lastAppointment, { addSuffix: true })}</p>
                         )}
                     </div>
-                     <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button aria-haspopup="true" size="icon" variant="ghost" className="-mt-1 h-8 w-8 flex-shrink-0">
-                                <MoreHorizontal className="h-4 w-4" />
-                                <span className="sr-only">Toggle menu</span>
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                             <DropdownMenuItem asChild>
-                                <Link href={`/clients/${client.id}`}>View/Edit Details</Link>
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                     <span className='text-muted-foreground'>Lifetime Value</span>
@@ -95,8 +81,13 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                     </div>
                 </div>
             </CardContent>
+            <CardFooter className="p-2 border-t bg-muted/50">
+                <Button variant="ghost" asChild className="w-full">
+                    <Link href={`/clients/${client.id}`}>
+                        <Edit className="mr-2 h-4 w-4" /> View / Edit Details
+                    </Link>
+                </Button>
+            </CardFooter>
         </Card>
     )
 }
-
-    
