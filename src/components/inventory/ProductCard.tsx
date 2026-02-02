@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useMemo } from 'react';
@@ -86,34 +87,31 @@ export const ProductCard = ({ item, onEdit, onToggleExperiment, onEndExperiment,
                             <p className="font-semibold text-base leading-tight group-hover:underline pr-2">{item.name}</p>
                         </Link>
                         <p className="text-sm text-muted-foreground">{item.category}</p>
+                        <div className="flex items-center gap-2 mt-2">
+                             <Badge variant="outline" className={stockStatus.className}>{stockStatus.label}</Badge>
+                            {isOrdered && (
+                                <TooltipProvider>
+                                    <Tooltip>
+                                        <TooltipTrigger>
+                                            <Truck className="h-4 w-4 text-blue-500" />
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                            <p>This item is on order.</p>
+                                        </TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
+                            )}
+                        </div>
                     </div>
                 </div>
                  
-                 <div className={cn("grid gap-2", partialDisplay ? "grid-cols-2" : "grid-cols-1")}>
+                 <div className={cn("grid gap-2 mt-auto", partialDisplay ? "grid-cols-2" : "grid-cols-1")}>
                      <div className="text-center p-3 bg-muted/50 rounded-lg">
                         <p className="text-xs text-muted-foreground">Full Stock</p>
                         <p className="font-semibold text-lg">{item.totalStock} <span className="text-sm">units</span></p>
                     </div>
                     {partialDisplay}
                  </div>
-
-                 <div className="flex items-center justify-between mt-auto">
-                    <div className="flex items-center gap-2">
-                        <Badge variant="outline" className={stockStatus.className}>{stockStatus.label}</Badge>
-                        {isOrdered && (
-                            <TooltipProvider>
-                                <Tooltip>
-                                    <TooltipTrigger>
-                                        <Truck className="h-4 w-4 text-blue-500" />
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                        <p>This item is on order.</p>
-                                    </TooltipContent>
-                                </Tooltip>
-                            </TooltipProvider>
-                        )}
-                    </div>
-                </div>
             </CardContent>
             <CardFooter className="p-2 border-t bg-muted/50">
                 <TooltipProvider>
