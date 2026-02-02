@@ -505,25 +505,21 @@ export default function SettingsPage() {
           
            <Tabs defaultValue="profile" value={activeTab} onValueChange={setActiveTab} className="w-full">
              <div className="md:hidden">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="w-full justify-between mb-4">
-                    <div className="flex items-center gap-2">
-                        {tabs.find(t => t.value === activeTab)?.icon}
-                        <span>{tabs.find(t => t.value === activeTab)?.label}</span>
-                    </div>
-                    <ChevronDown className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width)]">
+              <Select onValueChange={setActiveTab} value={activeTab}>
+                <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select a category" />
+                </SelectTrigger>
+                <SelectContent>
                   {tabs.map(tab => (
-                    <DropdownMenuItem key={tab.value} onClick={() => setActiveTab(tab.value)}>
-                      {React.cloneElement(tab.icon, { className: "w-4 h-4 mr-2" })}
-                      {tab.label}
-                    </DropdownMenuItem>
+                    <SelectItem key={tab.value} value={tab.value}>
+                        <div className="flex items-center gap-2">
+                           {React.cloneElement(tab.icon, { className: "w-4 h-4" })}
+                           <span>{tab.label}</span>
+                        </div>
+                    </SelectItem>
                   ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
+                </SelectContent>
+              </Select>
              </div>
              <div className="hidden md:block">
                 <ScrollArea>
@@ -567,30 +563,12 @@ export default function SettingsPage() {
                                         <p className="font-medium">{tenant.name}</p>
                                         <div className="flex items-center gap-2">
                                             {tenant.id === selectedTenant?.id && <Badge>Active</Badge>}
-                                            <DropdownMenu>
-                                                <DropdownMenuTrigger asChild>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                                                        <MoreHorizontal className="w-4 h-4" />
-                                                    </Button>
-                                                </DropdownMenuTrigger>
-                                                <DropdownMenuContent align="end">
-                                                    <DropdownMenuItem onClick={() => {
-                                                        setEditingTenantId(tenant.id);
-                                                        setTempTenantName(tenant.name);
-                                                    }}>
-                                                        <Edit className="mr-2 h-4 w-4" />
-                                                        Rename
-                                                    </DropdownMenuItem>
-                                                    <DropdownMenuItem 
-                                                        className="text-destructive" 
-                                                        onClick={() => handleDeleteTenantClick(tenant)}
-                                                        disabled={tenants.length <= 1 || tenant.id === selectedTenant?.id}
-                                                    >
-                                                        <Trash2 className="mr-2 h-4 w-4" />
-                                                        Delete
-                                                    </DropdownMenuItem>
-                                                </DropdownMenuContent>
-                                            </DropdownMenu>
+                                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingTenantId(tenant.id); setTempTenantName(tenant.name); }}>
+                                                <Edit className="w-4 h-4" />
+                                            </Button>
+                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDeleteTenantClick(tenant)} disabled={tenants.length <= 1 || tenant.id === selectedTenant?.id}>
+                                                <Trash2 className="w-4 h-4" />
+                                            </Button>
                                         </div>
                                     </>
                                 )}
@@ -839,7 +817,7 @@ export default function SettingsPage() {
                                 </div>
                                 <h3 className="text-xl font-semibold">No Pricing Tiers Defined</h3>
                                 <p className="text-muted-foreground mt-2 mb-6 max-w-sm mx-auto">
-                                    Create skill levels like "Junior" or "Master" to apply different prices and durations to your services.
+                                    Create skill levels like "Level 1" or "Master" to apply different prices and durations to your services.
                                 </p>
                                 <Button onClick={() => {setBackupTiers(editableTiers); setIsTiersEditing(true);}}>
                                     <PlusCircle className="mr-2 h-4 w-4" />
@@ -902,4 +880,5 @@ export default function SettingsPage() {
     </div>
   );
 }
+
 
