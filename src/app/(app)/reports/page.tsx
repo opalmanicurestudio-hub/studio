@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useMemo, useRef, useState, useEffect } from 'react';
@@ -20,8 +19,6 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { DateRange } from 'react-day-picker';
 import { Calendar as CalendarIcon } from 'lucide-react';
-import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
-import { collection, query, where } from 'firebase/firestore';
 import { PrintableReport } from '@/components/reports/PrintableReport';
 import { Loader } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -36,36 +33,23 @@ const chartConfig = {
 } satisfies ChartConfig;
 
 export default function ReportsPage() {
-  const { firestore, user } = useFirebase();
-  const tenantId = 'tenant-abc';
   const [dateRange, setDateRange] = useState<DateRange | undefined>({ from: subDays(new Date(), 29), to: new Date() });
   const reportRef = useRef<HTMLDivElement>(null);
   
-  // --- Data Fetching ---
-  const appointmentsQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/appointments`) : null, [firestore, tenantId]);
-  const servicesQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/services`) : null, [firestore, tenantId]);
-  const staffQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/staff`) : null, [firestore, tenantId]);
-  const walkInsQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/walkIns`) : null, [firestore, tenantId]);
-  const transactionsQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/transactions`) : null, [firestore, tenantId]);
-  const activityLogsQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/activityLogs`) : null, [firestore, tenantId]);
-  const stockCorrectionsQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/stockCorrections`) : null, [firestore, tenantId]);
-  const inventoryQuery = useMemoFirebase(() => firestore ? collection(firestore, `tenants/${tenantId}/inventory`) : null, [firestore, tenantId]);
-  
-  const businessProfilesQuery = useMemoFirebase(() => firestore ? query(collection(firestore, `tenants/${tenantId}/businessProfiles`), where("isActive", "==", true)) : null, [firestore, tenantId]);
-  const lifestyleProfilesQuery = useMemoFirebase(() => firestore ? query(collection(firestore, `tenants/${tenantId}/lifestyleProfiles`), where("isActive", "==", true)) : null, [firestore, tenantId]);
+  const {
+    inventory,
+    stockCorrections,
+    appointments: rawAppointments,
+    services,
+    staff,
+    walkIns,
+    activityLogs: rawActivityLogs,
+    transactions: rawTransactions,
+    businessProfiles,
+    lifestyleProfiles,
+    isLoading
+  } = useInventory();
 
-  const { data: rawAppointments, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);
-  const { data: services, isLoading: servicesLoading } = useCollection<Service>(servicesQuery);
-  const { data: staff, isLoading: staffLoading } = useCollection<Staff>(staffQuery);
-  const { data: walkIns, isLoading: walkInsLoading } = useCollection<WalkIn>(walkInsQuery);
-  const { data: rawTransactions, isLoading: transactionsLoading } = useCollection<Transaction>(transactionsQuery);
-  const { data: rawActivityLogs, isLoading: activityLogsLoading } = useCollection<ActivityLog>(activityLogsQuery);
-  const { data: stockCorrections, isLoading: stockCorrectionsLoading } = useCollection<StockCorrection>(stockCorrectionsQuery);
-  const { data: inventory, isLoading: inventoryLoading } = useCollection<InventoryItem>(inventoryQuery);
-  const { data: businessProfiles, isLoading: businessProfilesLoading } = useCollection(businessProfilesQuery);
-  const { data: lifestyleProfiles, isLoading: lifestyleProfilesLoading } = useCollection(lifestyleProfilesQuery);
-
-  const isLoading = appointmentsLoading || servicesLoading || staffLoading || walkInsLoading || transactionsLoading || activityLogsLoading || stockCorrectionsLoading || inventoryLoading || businessProfilesLoading || lifestyleProfilesLoading;
 
   const appointments = useMemo(() => {
     if (!rawAppointments) return [];
@@ -706,7 +690,7 @@ export default function ReportsPage() {
         </main>
       </div>
 
-       <div className="print-only">
+       <div className="hidden print:block">
         <PrintableReport
             ref={reportRef} 
             dateRange={dateRange}
@@ -721,10 +705,7 @@ export default function ReportsPage() {
         />
       </div>
 
-      <style jsx global>{`
-        .print-only {
-          display: none;
-        }
+      <style jsx global>{\`
         @media print {
           .no-print {
             display: none;
@@ -733,7 +714,7 @@ export default function ReportsPage() {
             display: block;
           }
         }
-      `}</style>
+      \`}</style>
     </>
   );
 }
