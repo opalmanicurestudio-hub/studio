@@ -658,7 +658,7 @@ export default function ReportsPage() {
                       <TableRow key={data.id}>
                         <TableCell className="font-medium">{data.name}</TableCell>
                         <TableCell className="text-right font-mono">{data.stats.utilizationRate.toFixed(1)}%</TableCell>
-                        <TableCell className="text-right font-mono">${data.stats.avgTicket.toFixed(2)}</TableCell>
+                        <TableCell className="text-right font-mono">${data.stats.avgSalePerAppointment.toFixed(2)}</TableCell>
                         <TableCell className="text-right font-mono">{data.stats.retailAttachmentRate.toFixed(1)}%</TableCell>
                         <TableCell className={cn('text-right font-mono text-xs', data.stats.avgVariance > 0 ? 'text-destructive' : 'text-green-500')}>
                           {data.stats.avgVariance > 0 ? '+' : ''}{data.stats.avgVariance.toFixed(1)} min
@@ -690,10 +690,9 @@ export default function ReportsPage() {
           </div>
         </main>
       </div>
-
-       <div className="hidden print:block">
+      <div className="hidden print:block">
         <PrintableReport
-            ref={reportRef} 
+            ref={reportRef}
             dateRange={dateRange}
             kpiData={salonWideStats}
             payrollData={performanceAndPayrollData}
@@ -706,7 +705,7 @@ export default function ReportsPage() {
         />
       </div>
 
-      <style jsx global>{\`
+      <style jsx global>{`
         @media print {
           .no-print {
             display: none;
@@ -715,7 +714,7 @@ export default function ReportsPage() {
             display: block;
           }
         }
-      \`}</style>
+      `}</style>
     </>
   );
 }
