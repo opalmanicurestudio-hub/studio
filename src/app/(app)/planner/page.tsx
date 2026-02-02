@@ -27,7 +27,7 @@ import {
   DropdownMenuPortal,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  DropdownMenuSubTrigger,
+  DropdownMenuSubTrigger
 } from '@/components/ui/dropdown-menu';
 import {
   Dialog,
@@ -80,6 +80,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Separator } from '@/components/ui/separator';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
+import { FloatingActionButton } from '@/components/planner/FloatingActionButton';
 
 
 function PlannerPageContent() {
@@ -1265,15 +1266,6 @@ function PlannerPageContent() {
                         </RadioGroup>
                          <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                                <Button variant="outline" size="icon" className="h-10 w-10"><Plus className="h-5 w-5"/></Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => handleBookNewForClient('')}>New Appointment</DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => setIsAddEventOpen(true)}>New Event</DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
                                 <Button variant="ghost" size="icon" className="h-10 w-10"><MoreHorizontal className="h-5 w-5"/></Button>
                             </DropdownMenuTrigger>
                              <DropdownMenuContent align="end">
@@ -1490,6 +1482,12 @@ function PlannerPageContent() {
             />
           )}
       </main>
+      
+      <FloatingActionButton
+        onNewAppointmentClick={() => handleBookNewForClient('')}
+        onNewEventClick={() => setIsAddEventOpen(true)}
+      />
+
       {selectedAppointmentData && (
         <CompleteAppointmentDialog
             open={isCheckoutOpen}
