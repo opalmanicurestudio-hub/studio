@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -22,7 +23,7 @@ import {
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
-import { type Service, type InventoryItem, type Appointment, type Resource } from '@/lib/data';
+import { type Service, type InventoryItem, type Appointment, type Resource, type Transaction } from '@/lib/data';
 import { Progress } from '@/components/ui/progress';
 import Image from 'next/image';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -271,19 +272,24 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
   );
 };
 
-const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUpdate, isSelected, onSelectItem }: { service: Service, onEditServiceOpen: (service: Service) => void, tmhr: number, appointments: Appointment[] | null, onPriceUpdate: (serviceId: string, newPrice: number) => void, isSelected: boolean, onSelectItem: () => void }) => {
+const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, transactions, onPriceUpdate, isSelected, onSelectItem }: { service: Service, onEditServiceOpen: (service: Service) => void, tmhr: number, appointments: Appointment[] | null, transactions: Transaction[] | null, onPriceUpdate: (serviceId: string, newPrice: number) => void, isSelected: boolean, onSelectItem: () => void }) => {
   const { toast } = useToast();
   const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
   
   const performance = useMemo(() => {
-    if (!appointments) return { totalBookings: 0, totalRevenue: 0 };
+    if (!appointments || !transactions) return { totalBookings: 0, totalRevenue: 0 };
     const bookings = appointments.filter(apt => apt.serviceId === service.id && apt.status === 'completed');
-    const totalRevenue = bookings.length * service.price;
+    const bookingIds = new Set(bookings.map(b => b.id));
+
+    const totalRevenue = transactions
+        .filter(t => t.appointmentId && bookingIds.has(t.appointmentId) && t.category === 'Service Revenue')
+        .reduce((total, t) => total + t.amount, 0);
+
     return {
         totalBookings: bookings.length,
         totalRevenue,
     };
-  }, [service.id, service.price, appointments]);
+  }, [service.id, appointments, transactions]);
 
   const handleCopyLink = () => {
     const tenantId = 'tenant-abc'; // This should be dynamic in a real multi-tenant app
@@ -300,7 +306,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUp
         return null;
     }
     const tierOrder = ['apprentice', 'junior', 'senior', 'master'];
-    return [...service.pricingTiers].sort((a, b) => tierOrder.indexOf(a.level) - tierOrder.indexOf(b.level));
+    return [...service.pricingTiers].sort((a,b) => tierOrder.indexOf(a.level) - tierOrder.indexOf(b.level));
   }, [service.pricingTiers]);
 
 
@@ -367,7 +373,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUp
             <AccordionItem value="details" className="border-b-0">
                 <AccordionTrigger className='p-2.5 text-sm font-medium hover:no-underline rounded-md bg-muted/50'>
                     <div className='flex items-center gap-2'>
-                         <Sparkles className='w-4 h-4 text-primary' /> Profitability Details
+                         <Sparkles className='w-4 h-4 text-primary' /> More Details
                     </div>
                 </AccordionTrigger>
                 <AccordionContent className='pt-4 space-y-4'>
@@ -403,7 +409,7 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUp
   );
 };
 
-const ServiceCategory = ({ title, services, onEditServiceOpen, tmhr, appointments, onPriceUpdate, selectedItems, onSelectItem }: { title: string, services: Service[], onEditServiceOpen: (service: Service) => void, tmhr: number, appointments: Appointment[] | null, onPriceUpdate: (serviceId: string, newPrice: number) => void, selectedItems: Set<string>, onSelectItem: (id: string) => void }) => {
+const ServiceCategory = ({ title, services, onEditServiceOpen, tmhr, appointments, transactions, onPriceUpdate, selectedItems, onSelectItem }: { title: string, services: Service[], onEditServiceOpen: (service: Service) => void, tmhr: number, appointments: Appointment[] | null, transactions: Transaction[] | null, onPriceUpdate: (serviceId: string, newPrice: number) => void, selectedItems: Set<string>, onSelectItem: (id: string) => void }) => {
     if (services.length === 0) return null;
     return (
         <div>
@@ -415,7 +421,8 @@ const ServiceCategory = ({ title, services, onEditServiceOpen, tmhr, appointment
                         service={service} 
                         onEditServiceOpen={onEditServiceOpen} 
                         tmhr={tmhr} 
-                        appointments={appointments} 
+                        appointments={appointments}
+                        transactions={transactions}
                         onPriceUpdate={onPriceUpdate}
                         isSelected={selectedItems.has(service.id)}
                         onSelectItem={() => onSelectItem(service.id)}
@@ -462,7 +469,7 @@ export default function ServicesPage() {
   const { firestore, user } = useFirebase();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
-  const { services, appointments, resources, isLoading } = useInventory();
+  const { services, appointments, resources, isLoading, transactions } = useInventory();
   
 
   const handleItemSelect = useCallback((itemId: string) => {
@@ -705,7 +712,8 @@ export default function ServicesPage() {
                         services={services} 
                         onEditServiceOpen={handleOpenEditService} 
                         tmhr={tmhr} 
-                        appointments={appointments} 
+                        appointments={appointments}
+                        transactions={transactions}
                         onPriceUpdate={handlePriceUpdate}
                         selectedItems={selectedItems}
                         onSelectItem={handleItemSelect}
@@ -728,7 +736,8 @@ export default function ServicesPage() {
                         services={services} 
                         onEditServiceOpen={handleOpenEditService} 
                         tmhr={tmhr} 
-                        appointments={appointments} 
+                        appointments={appointments}
+                        transactions={transactions}
                         onPriceUpdate={handlePriceUpdate}
                         selectedItems={selectedItems}
                         onSelectItem={handleItemSelect}
@@ -788,4 +797,3 @@ export default function ServicesPage() {
   );
 }
 
-    
