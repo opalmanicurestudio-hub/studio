@@ -658,7 +658,7 @@ export default function ReportsPage() {
                       <TableRow key={data.id}>
                         <TableCell className="font-medium">{data.name}</TableCell>
                         <TableCell className="text-right font-mono">{data.stats.utilizationRate.toFixed(1)}%</TableCell>
-                        <TableCell className="text-right font-mono">${data.stats.avgSalePerAppointment.toFixed(2)}</TableCell>
+                        <TableCell className="text-right font-mono">${data.stats.avgTicket.toFixed(2)}</TableCell>
                         <TableCell className="text-right font-mono">{data.stats.retailAttachmentRate.toFixed(1)}%</TableCell>
                         <TableCell className={cn('text-right font-mono text-xs', data.stats.avgVariance > 0 ? 'text-destructive' : 'text-green-500')}>
                           {data.stats.avgVariance > 0 ? '+' : ''}{data.stats.avgVariance.toFixed(1)} min
@@ -691,17 +691,9 @@ export default function ReportsPage() {
         </main>
       </div>
       <div className="hidden print:block">
-        <PrintableReport
-            ref={reportRef}
-            dateRange={dateRange}
-            kpiData={salonWideStats}
+        <PrintableStaffReport 
+            ref={reportRef} 
             payrollData={performanceAndPayrollData}
-            payrollTotals={payrollTotals}
-            grossProfit={grossProfit}
-            totalGrossRevenue={totalGrossRevenue}
-            totalCOGS={totalCOGS}
-            periodOverhead={periodOverhead}
-            servicePerformanceData={servicePerformanceData}
         />
       </div>
 
