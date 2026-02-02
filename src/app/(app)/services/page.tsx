@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -373,9 +372,9 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUp
                 </AccordionTrigger>
                 <AccordionContent className='pt-4 space-y-4'>
                     <Tabs defaultValue="profit">
-                        <TabsList className="grid w-full grid-cols-2 text-xs h-8 rounded-sm">
-                            <TabsTrigger value="profit" className="h-full rounded-sm">Profit Tester</TabsTrigger>
-                            <TabsTrigger value="cost" className="h-full rounded-sm">Cost Breakdown</TabsTrigger>
+                        <TabsList className="grid w-full grid-cols-2 text-xs rounded-md bg-muted p-1">
+                            <TabsTrigger value="profit" className="py-2">Profit Tester</TabsTrigger>
+                            <TabsTrigger value="cost" className="py-2">Cost Breakdown</TabsTrigger>
                         </TabsList>
                         <TabsContent value="profit" className="mt-4">
                              <InlineProfitTester service={service} tmhr={tmhr} onPriceUpdate={(newPrice) => onPriceUpdate(service.id, newPrice)} />
@@ -789,3 +788,4 @@ export default function ServicesPage() {
   );
 }
 
+    
