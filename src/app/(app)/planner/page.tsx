@@ -26,8 +26,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuPortal,
   DropdownMenuSeparator,
-  DropdownMenuTrigger,
-  DropdownMenuSubTrigger
+  DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
   Dialog,
@@ -1107,8 +1106,9 @@ function PlannerPageContent() {
   };
 
   const handlePrintTicket = (ticketData: Omit<TicketData, 'business'>) => {
+    if (!tenant) return;
     setTicketToPrint({
-        business: { name: 'ClarityFlow Salon', phone: '555-123-4567' },
+        business: { name: tenant.name, phone: '555-123-4567' },
         ...ticketData
     });
   }
@@ -1231,7 +1231,7 @@ function PlannerPageContent() {
                         <RadioGroup
                             value={activeView}
                             onValueChange={(value) => setActiveView(value as 'staff' | 'resources')}
-                            className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1"
+                            className="grid grid-cols-2 gap-1 rounded-md bg-muted p-0.5"
                         >
                             <TooltipProvider>
                                 <div>
@@ -1240,9 +1240,9 @@ function PlannerPageContent() {
                                         <TooltipTrigger asChild>
                                             <Label
                                                 htmlFor="staff-view-mobile-toggle"
-                                                className="flex items-center justify-center rounded-sm p-2 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
+                                                className="flex items-center justify-center rounded-sm p-1.5 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
                                             >
-                                                <User className="h-5 w-5" />
+                                                <User className="h-4 w-4" />
                                             </Label>
                                         </TooltipTrigger>
                                         <TooltipContent>Staff View</TooltipContent>
@@ -1254,9 +1254,9 @@ function PlannerPageContent() {
                                         <TooltipTrigger asChild>
                                             <Label
                                                 htmlFor="resource-view-mobile-toggle"
-                                                className="flex items-center justify-center rounded-sm p-2 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
+                                                className="flex items-center justify-center rounded-sm p-1.5 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
                                             >
-                                                <Building className="h-5 w-5" />
+                                                <Building className="h-4 w-4" />
                                             </Label>
                                         </TooltipTrigger>
                                         <TooltipContent>Resource View</TooltipContent>
@@ -1314,7 +1314,7 @@ function PlannerPageContent() {
                             <RadioGroup
                                 value={activeView}
                                 onValueChange={(value) => setActiveView(value as 'staff' | 'resources')}
-                                className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1"
+                                className="grid grid-cols-2 gap-1 rounded-md bg-muted p-0.5"
                             >
                                 <TooltipProvider>
                                     <div>
@@ -1323,9 +1323,9 @@ function PlannerPageContent() {
                                             <TooltipTrigger asChild>
                                                 <Label
                                                     htmlFor="staff-view"
-                                                    className="flex items-center justify-center rounded-sm p-2 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
+                                                    className="flex items-center justify-center rounded-sm p-1.5 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
                                                 >
-                                                    <User className="h-5 w-5" />
+                                                    <User className="h-4 w-4" />
                                                 </Label>
                                             </TooltipTrigger>
                                             <TooltipContent>Staff View</TooltipContent>
@@ -1337,9 +1337,9 @@ function PlannerPageContent() {
                                             <TooltipTrigger asChild>
                                                 <Label
                                                     htmlFor="resource-view"
-                                                    className="flex items-center justify-center rounded-sm p-2 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
+                                                    className="flex items-center justify-center rounded-sm p-1.5 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
                                                 >
-                                                    <Building className="h-5 w-5" />
+                                                    <Building className="h-4 w-4" />
                                                 </Label>
                                             </TooltipTrigger>
                                             <TooltipContent>Resource View</TooltipContent>
