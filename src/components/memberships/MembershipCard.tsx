@@ -5,18 +5,19 @@ import React, { useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Award, MoreHorizontal, Users, BarChart, Trash2, Edit, CheckCircle, Percent } from 'lucide-react';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Award, Users, BarChart, Trash2, Edit, CheckCircle, Percent } from 'lucide-react';
 import { type Membership } from '@/lib/data';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 
 interface MembershipCardProps {
   membership: Membership;
   onEdit: (membership: Membership) => void;
   onViewUsers: (membership: Membership) => void;
+  onDelete: (id: string) => void;
 }
 
-export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, onEdit, onViewUsers }) => {
+export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, onEdit, onViewUsers, onDelete }) => {
   const activeMembers = 12; // Mock data
   const mrr = activeMembers * membership.price;
 
@@ -45,17 +46,6 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, onEd
                     <CardDescription>${membership.price}/{membership.interval}</CardDescription>
                 </div>
             </div>
-            <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent>
-                    <DropdownMenuItem onClick={() => onEdit(membership)}><Edit className="mr-2 h-4 w-4"/>Edit</DropdownMenuItem>
-                    <DropdownMenuItem className="text-destructive"><Trash2 className="mr-2 h-4 w-4"/>Delete</DropdownMenuItem>
-                </DropdownMenuContent>
-            </DropdownMenu>
         </div>
       </CardHeader>
       <CardContent className="flex-1 space-y-4">
@@ -91,8 +81,35 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, onEd
             </AccordionItem>
         </Accordion>
       </CardContent>
-      <CardFooter>
-        <Button variant="outline" className="w-full" onClick={() => onViewUsers(membership)}>View Active Members</Button>
+      <CardFooter className="p-2 border-t">
+        <TooltipProvider>
+            <div className="flex justify-around w-full">
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" onClick={() => onViewUsers(membership)}>
+                            <Users className="w-4 h-4" />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent><p>View Members</p></TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" onClick={() => onEdit(membership)}>
+                            <Edit className="w-4 h-4" />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent><p>Edit</p></TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => onDelete(membership.id)}>
+                            <Trash2 className="w-4 h-4" />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent><p>Delete</p></TooltipContent>
+                </Tooltip>
+            </div>
+        </TooltipProvider>
       </CardFooter>
     </Card>
   );

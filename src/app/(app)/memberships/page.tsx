@@ -69,6 +69,14 @@ const MembershipsPage = () => {
     setEditingPackage(pack);
     setIsAddPackageOpen(true);
   };
+  
+  const handleDeleteMembership = (id: string) => {
+    setAllMemberships(prev => prev.filter(m => m.id !== id));
+  };
+  
+  const handleDeletePackage = (id: string) => {
+    setAllPackages(prev => prev.filter(p => p.id !== id));
+  };
 
   const handleSaveMembership = (membership: Membership) => {
     if (editingMembership) {
@@ -117,6 +125,7 @@ const MembershipsPage = () => {
                     membership={membership} 
                     onEdit={handleEditMembership}
                     onViewUsers={setViewingUsersFor}
+                    onDelete={handleDeleteMembership}
                   />
                 ))
               ) : (
@@ -133,6 +142,7 @@ const MembershipsPage = () => {
                     pack={pack} 
                     onEdit={handleEditPackage}
                     onViewUsers={setViewingUsersFor}
+                    onDelete={handleDeletePackage}
                   />
                 ))
               ) : (
