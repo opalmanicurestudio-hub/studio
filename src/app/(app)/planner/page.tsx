@@ -1231,24 +1231,36 @@ function PlannerPageContent() {
                             onValueChange={(value) => setActiveView(value as 'staff' | 'resources')}
                             className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1"
                         >
-                            <div>
-                                <RadioGroupItem value="staff" id="staff-view-mobile-toggle" className="peer sr-only" />
-                                <Label
-                                    htmlFor="staff-view-mobile-toggle"
-                                    className="flex items-center justify-center rounded-sm p-2 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
-                                >
-                                    <User className="h-5 w-5" />
-                                </Label>
-                            </div>
-                            <div>
-                                <RadioGroupItem value="resources" id="resource-view-mobile-toggle" className="peer sr-only" />
-                                <Label
-                                    htmlFor="resource-view-mobile-toggle"
-                                    className="flex items-center justify-center rounded-sm p-2 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
-                                >
-                                    <Building className="h-5 w-5" />
-                                </Label>
-                            </div>
+                            <TooltipProvider>
+                                <div>
+                                    <RadioGroupItem value="staff" id="staff-view-mobile-toggle" className="peer sr-only" />
+                                     <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Label
+                                                htmlFor="staff-view-mobile-toggle"
+                                                className="flex items-center justify-center rounded-sm p-2 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
+                                            >
+                                                <User className="h-5 w-5" />
+                                            </Label>
+                                        </TooltipTrigger>
+                                        <TooltipContent>Staff View</TooltipContent>
+                                    </Tooltip>
+                                </div>
+                                <div>
+                                    <RadioGroupItem value="resources" id="resource-view-mobile-toggle" className="peer sr-only" />
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Label
+                                                htmlFor="resource-view-mobile-toggle"
+                                                className="flex items-center justify-center rounded-sm p-2 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
+                                            >
+                                                <Building className="h-5 w-5" />
+                                            </Label>
+                                        </TooltipTrigger>
+                                        <TooltipContent>Resource View</TooltipContent>
+                                    </Tooltip>
+                                </div>
+                            </TooltipProvider>
                         </RadioGroup>
                          <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -1306,12 +1318,12 @@ function PlannerPageContent() {
                                 />
                             </div>
                              <Separator orientation="vertical" className="h-6" />
-                            <TooltipProvider>
-                                <RadioGroup
-                                    value={activeView}
-                                    onValueChange={(value) => setActiveView(value as 'staff' | 'resources')}
-                                    className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1"
-                                >
+                            <RadioGroup
+                                value={activeView}
+                                onValueChange={(value) => setActiveView(value as 'staff' | 'resources')}
+                                className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1"
+                            >
+                                <TooltipProvider>
                                     <div>
                                         <RadioGroupItem value="staff" id="staff-view" className="peer sr-only" />
                                         <Tooltip>
@@ -1323,9 +1335,7 @@ function PlannerPageContent() {
                                                     <User className="h-5 w-5" />
                                                 </Label>
                                             </TooltipTrigger>
-                                            <TooltipContent>
-                                                <p>Staff View</p>
-                                            </TooltipContent>
+                                            <TooltipContent>Staff View</TooltipContent>
                                         </Tooltip>
                                     </div>
                                     <div>
@@ -1339,13 +1349,11 @@ function PlannerPageContent() {
                                                     <Building className="h-5 w-5" />
                                                 </Label>
                                             </TooltipTrigger>
-                                            <TooltipContent>
-                                                <p>Resource View</p>
-                                            </TooltipContent>
+                                            <TooltipContent>Resource View</TooltipContent>
                                         </Tooltip>
                                     </div>
-                                </RadioGroup>
-                            </TooltipProvider>
+                                </TooltipProvider>
+                            </RadioGroup>
                         </div>
                          <div className="flex items-center justify-end gap-2">
                             <TooltipProvider>
@@ -1424,7 +1432,7 @@ function PlannerPageContent() {
                 onUpdateStatus={handleUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
-                onPrintTicket={onPrintTicket}
+                onPrintTicket={handlePrintTicket}
                 onEditAppointment={handleEditClick}
                 onEditEvent={handleEditEventClick}
                 onChecklistItemToggle={handleChecklistItemToggle}
@@ -1460,7 +1468,7 @@ function PlannerPageContent() {
                 onUpdateStatus={handleUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
-                onPrintTicket={onPrintTicket}
+                onPrintTicket={handlePrintTicket}
                 onEditAppointment={handleEditClick}
                 onEditEvent={handleEditEventClick}
                 onChecklistItemToggle={handleChecklistItemToggle}
