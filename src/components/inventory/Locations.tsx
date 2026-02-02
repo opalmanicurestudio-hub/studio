@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState } from 'react';
@@ -111,23 +112,18 @@ export const Locations = ({
     locations,
     locationTypes,
     inventory,
-    setLocations,
     onAddLocation,
     onEditLocation,
+    onDelete,
 }: {
     locations: Location[];
     locationTypes: LocationType[];
     inventory: InventoryItem[];
-    setLocations: React.Dispatch<React.SetStateAction<Location[]>>;
     onAddLocation: () => void;
     onEditLocation: (location: Location) => void;
+    onDelete: (locationId: string) => void;
 }) => {
     const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
-
-    const handleDeleteLocation = (locationId: string) => {
-        // In a real app, you'd want to check if any inventory items are using this location first
-        setLocations(prev => prev.filter(loc => loc.id !== locationId));
-    };
 
     const itemsPerLocation = (locationId: string) => {
         return inventory.filter(item => item.primaryLocationId === locationId || item.secondaryLocationIds?.includes(locationId)).length;
@@ -159,7 +155,7 @@ export const Locations = ({
                                     locationType={locationTypes.find(lt => lt.id === location.locationTypeId)}
                                     itemCount={itemsPerLocation(location.id)}
                                     onEdit={onEditLocation}
-                                    onDelete={handleDeleteLocation}
+                                    onDelete={onDelete}
                                     onClick={setSelectedLocation}
                                 />
                             ))}

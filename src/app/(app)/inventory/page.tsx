@@ -727,6 +727,7 @@ export default function InventoryPage() {
   
   const [selectedItems, setSelectedItems] = useState(new Set<string>());
   const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
+  const [locationToDelete, setLocationToDelete] = useState<Location | null>(null);
 
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
@@ -953,6 +954,40 @@ export default function InventoryPage() {
     const sanitizedData = JSON.parse(JSON.stringify(updatedLocation));
     updateDocumentNonBlocking(locationRef, sanitizedData);
   };
+
+  const handleDeleteLocation = (locationId: string) => {
+    if (!inventory || !locations) return;
+    const isLocationInUse = inventory.some(
+      (item) =>
+        item.primaryLocationId === locationId ||
+        item.secondaryLocationIds?.includes(locationId)
+    );
+
+    if (isLocationInUse) {
+      toast({
+        variant: 'destructive',
+        title: 'Location in Use',
+        description: 'Cannot delete a location that has inventory items assigned to it. Please reassign items first.',
+      });
+      return;
+    }
+
+    const location = locations.find(l => l.id === locationId);
+    if(location) {
+        setLocationToDelete(location);
+    }
+  };
+
+  const confirmDeleteLocation = () => {
+    if (!locationToDelete || !firestore || !tenantId) return;
+    const locationRef = doc(firestore, 'tenants', tenantId, 'locations', locationToDelete.id);
+    deleteDocumentNonBlocking(locationRef);
+    toast({
+      title: 'Location Deleted',
+      description: `${locationToDelete.name} has been deleted.`,
+    });
+    setLocationToDelete(null);
+  }
 
   const handleAddNewLocationType = (name: string, icon: string): LocationType => {
     if (!firestore || !tenantId) return { id: '', name: '', icon: '' };
@@ -1420,66 +1455,68 @@ export default function InventoryPage() {
                 <TabsContent value="products" className="mt-6">
                     <Card>
                         <CardHeader>
-                            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-4">
+                            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
                                 <div>
                                     <CardTitle>All Inventory</CardTitle>
                                     <CardDescription>A complete list of your professional, retail, and equipment stock.</CardDescription>
                                 </div>
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <Button className="w-full sm:w-auto"><PlusCircle className="mr-2" /> New Item</Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end">
-                                        <DropdownMenuItem onClick={() => handleOpenAddProductDialog('professional')}><Package className="mr-2" />Product (Professional)</DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => handleOpenAddProductDialog('retail')}><Store className="mr-2" />Product (Retail)</DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => setIsAddEquipmentDialogOpen(true)}><Hammer className="mr-2" />Equipment</DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => setIsAddOverheadDialogOpen(true)}><Recycle className="mr-2" />Overhead</DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
-                            </div>
-                            <div className="flex flex-col sm:flex-row items-center gap-4">
-                                <div className="relative flex-1 w-full">
-                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                    <Input 
-                                        placeholder="Search by name..." 
-                                        className="pl-9"
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
-                                    />
-                                </div>
-                                <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap justify-end">
-                                    <div className="flex items-center space-x-2">
-                                        <Switch id="show-archived" checked={showArchived} onCheckedChange={setShowArchived} />
-                                        <Label htmlFor="show-archived" className="text-sm">Show Archived</Label>
-                                    </div>
-                                    <Button variant="outline" size="icon" asChild>
-                                        <Link href="/inventory/report">
-                                            <BarChart className="h-4 w-4" />
-                                        </Link>
-                                    </Button>
-                                    <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
-                                        <QrCode className="h-4 w-4" />
-                                        <span className="sr-only">Scan</span>
+                                <div className="flex items-center gap-2">
+                                    <Button variant="outline" asChild>
+                                        <Link href="/inventory/report"><BarChart className="mr-2 h-4 w-4" />View Report</Link>
                                     </Button>
                                     <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
-                                            <Button variant="outline" size="icon">
-                                                <ListFilter className="h-4 w-4" />
-                                                <span className="sr-only">Filter</span>
-                                            </Button>
+                                            <Button><PlusCircle className="mr-2" /> New Item</Button>
                                         </DropdownMenuTrigger>
                                         <DropdownMenuContent align="end">
-                                            <DropdownMenuItem onClick={() => setActiveFilter('all')}>All</DropdownMenuItem>
-                                            <DropdownMenuItem onClick={() => setActiveFilter('professional')}>Professional</DropdownMenuItem>
-                                            <DropdownMenuItem onClick={() => setActiveFilter('retail')}>Retail</DropdownMenuItem>
-                                            <DropdownMenuItem onClick={() => setActiveFilter('equipment')}>Equipment</DropdownMenuItem>
-                                            <DropdownMenuItem onClick={() => setActiveFilter('overhead')}>Overhead</DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => handleOpenAddProductDialog('professional')}><Package className="mr-2" />Product (Professional)</DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => handleOpenAddProductDialog('retail')}><Store className="mr-2" />Product (Retail)</DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => setIsAddEquipmentDialogOpen(true)}><Hammer className="mr-2" />Equipment</DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => setIsAddOverheadDialogOpen(true)}><Recycle className="mr-2" />Overhead</DropdownMenuItem>
                                         </DropdownMenuContent>
                                     </DropdownMenu>
                                 </div>
                             </div>
                         </CardHeader>
                         <CardContent>
+                            <div className="mb-4 space-y-4">
+                                <div className="flex flex-col sm:flex-row items-center gap-4">
+                                    <div className="relative flex-1 w-full">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input 
+                                            placeholder="Search by name..." 
+                                            className="pl-9"
+                                            value={searchTerm}
+                                            onChange={(e) => setSearchTerm(e.target.value)}
+                                        />
+                                    </div>
+                                    <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap justify-end">
+                                        <div className="flex items-center space-x-2">
+                                            <Switch id="show-archived" checked={showArchived} onCheckedChange={setShowArchived} />
+                                            <Label htmlFor="show-archived" className="text-sm">Show Archived</Label>
+                                        </div>
+                                        <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
+                                            <QrCode className="h-4 w-4" />
+                                            <span className="sr-only">Scan</span>
+                                        </Button>
+                                        <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                                <Button variant="outline" className="w-full sm:w-auto">
+                                                    <ListFilter className="mr-2 h-4 w-4" />
+                                                    Filter
+                                                </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="end">
+                                                <DropdownMenuItem onClick={() => setActiveFilter('all')}>All</DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => setActiveFilter('professional')}>Professional</DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => setActiveFilter('retail')}>Retail</DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => setActiveFilter('equipment')}>Equipment</DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => setActiveFilter('overhead')}>Overhead</DropdownMenuItem>
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
+                                    </div>
+                                </div>
+                            </div>
                              {selectedItems.size > 0 && (
                                 <div className="mb-4 p-3 rounded-lg bg-muted/50 flex items-center justify-between">
                                     <p className="text-sm font-medium">{selectedItems.size} item(s) selected</p>
@@ -1556,9 +1593,9 @@ export default function InventoryPage() {
                             locations={locations || []}
                             locationTypes={locationTypes || []}
                             inventory={inventory || []}
-                            setLocations={() => {}}
                             onAddLocation={handleOpenAddLocation}
                             onEditLocation={handleOpenEditLocation}
+                            onDelete={handleDeleteLocation}
                         />
                 </TabsContent>
                 </Tabs>
@@ -1702,6 +1739,22 @@ export default function InventoryPage() {
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
                     <AlertDialogAction onClick={handleBulkDeleteConfirm} className={buttonVariants({ variant: "destructive" })}>
                         Delete
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+        <AlertDialog open={!!locationToDelete} onOpenChange={() => setLocationToDelete(null)}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        This will permanently delete the "{locationToDelete?.name}" location. This action cannot be undone.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={confirmDeleteLocation} className={buttonVariants({ variant: "destructive" })}>
+                        Delete Location
                     </AlertDialogAction>
                 </AlertDialogFooter>
             </AlertDialogContent>
