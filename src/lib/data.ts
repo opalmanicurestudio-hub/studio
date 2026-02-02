@@ -45,7 +45,7 @@ export type Staff = {
   email: string;
   phone?: string;
   role: 'admin' | 'staff';
-  skillLevel?: 'apprentice' | 'junior' | 'senior' | 'master';
+  pricingTierId?: string;
   avatarUrl: string;
   payStructure: 'commission' | 'hourly' | 'salary';
   commissionRate: number; // as a percentage, e.g., 40 for 40%
@@ -186,6 +186,12 @@ export type MaintenanceRecord = {
   imageUrl?: string;
 };
 
+export type ServiceTier = {
+    tierId: string;
+    price: number;
+    durationMinutes: number;
+};
+
 export type Service = {
   id: string;
   name:string;
@@ -194,11 +200,7 @@ export type Service = {
   duration: number; // in minutes
   padBefore?: number;
   padAfter?: number;
-  pricingTiers?: {
-      level: 'apprentice' | 'junior' | 'senior' | 'master';
-      price: number;
-      durationMinutes: number;
-  }[];
+  serviceTiers?: ServiceTier[];
   price: number; // Default or senior price, for display
   cost: number;
   profit: number;
@@ -491,12 +493,6 @@ export type Tenant = {
   referrerReward?: number;
   newClientDiscount?: number;
   smsNotificationMessage?: string;
-  pricingTiers?: {
-    apprentice?: string;
-    junior?: string;
-    senior?: string;
-    master?: string;
-  };
 };
 
 export type Resource = {
@@ -660,7 +656,7 @@ export const staff: Staff[] = [
     name: 'Brenda Barnes', 
     email: 'brenda@example.com', 
     role: 'staff', 
-    skillLevel: 'senior',
+    pricingTierId: 'tier-senior',
     avatarUrl: 'https://picsum.photos/seed/staff1/100/100', 
     payStructure: 'commission', 
     commissionRate: 45,
@@ -688,7 +684,7 @@ export const staff: Staff[] = [
     name: 'Carlos Reyes', 
     email: 'carlos@example.com', 
     role: 'admin', 
-    skillLevel: 'master',
+    pricingTierId: 'tier-master',
     avatarUrl: 'https://picsum.photos/seed/staff2/100/100', 
     payStructure: 'salary', 
     commissionRate: 0,
@@ -733,11 +729,11 @@ export const services: Service[] = [
     duration: 45,
     padBefore: 10,
     padAfter: 5,
-    pricingTiers: [
-        { level: 'apprentice', price: 25.00, durationMinutes: 60 },
-        { level: 'junior', price: 35.00, durationMinutes: 50 },
-        { level: 'senior', price: 45.00, durationMinutes: 45 },
-        { level: 'master', price: 55.00, durationMinutes: 40 },
+    serviceTiers: [
+        { tierId: 'tier-apprentice', price: 25.00, durationMinutes: 60 },
+        { tierId: 'tier-junior', price: 35.00, durationMinutes: 50 },
+        { tierId: 'tier-senior', price: 45.00, durationMinutes: 45 },
+        { tierId: 'tier-master', price: 55.00, durationMinutes: 40 },
     ],
     price: 45.00,
     cost: 3.50,
@@ -766,11 +762,11 @@ export const services: Service[] = [
     category: 'Hair', 
     duration: 60,
     padAfter: 15,
-    pricingTiers: [
-        { level: 'apprentice', price: 50, durationMinutes: 90 },
-        { level: 'junior', price: 65.00, durationMinutes: 75 },
-        { level: 'senior', price: 85.00, durationMinutes: 60 },
-        { level: 'master', price: 105.00, durationMinutes: 60 },
+    serviceTiers: [
+        { tierId: 'tier-apprentice', price: 50, durationMinutes: 90 },
+        { tierId: 'tier-junior', price: 65.00, durationMinutes: 75 },
+        { tierId: 'tier-senior', price: 85.00, durationMinutes: 60 },
+        { tierId: 'tier-master', price: 105.00, durationMinutes: 60 },
     ],
     price: 85.00,
     cost: 5.00,
@@ -792,11 +788,11 @@ export const services: Service[] = [
     category: 'Hair', 
     duration: 120,
     padAfter: 30,
-    pricingTiers: [
-        { level: 'apprentice', price: 150, durationMinutes: 180 },
-        { level: 'junior', price: 200.00, durationMinutes: 150 },
-        { level: 'senior', price: 250.00, durationMinutes: 120 },
-        { level: 'master', price: 300.00, durationMinutes: 120 },
+    serviceTiers: [
+        { tierId: 'tier-apprentice', price: 150, durationMinutes: 180 },
+        { tierId: 'tier-junior', price: 200.00, durationMinutes: 150 },
+        { tierId: 'tier-senior', price: 250.00, durationMinutes: 120 },
+        { tierId: 'tier-master', price: 300.00, durationMinutes: 120 },
     ],
     price: 250.00,
     cost: 35.00,
@@ -817,11 +813,11 @@ export const services: Service[] = [
     type: 'service',
     category: 'Skincare', 
     duration: 75,
-    pricingTiers: [
-        { level: 'apprentice', price: 80, durationMinutes: 90 },
-        { level: 'junior', price: 100.00, durationMinutes: 90 },
-        { level: 'senior', price: 120.00, durationMinutes: 75 },
-        { level: 'master', price: 140.00, durationMinutes: 70 },
+    serviceTiers: [
+        { tierId: 'tier-apprentice', price: 80, durationMinutes: 90 },
+        { tierId: 'tier-junior', price: 100.00, durationMinutes: 90 },
+        { tierId: 'tier-senior', price: 120.00, durationMinutes: 75 },
+        { tierId: 'tier-master', price: 140.00, durationMinutes: 70 },
     ],
     price: 120.00,
     cost: 15.00,
@@ -840,11 +836,11 @@ export const services: Service[] = [
     category: 'Hair', 
     duration: 180,
     padAfter: 30,
-    pricingTiers: [
-        { level: 'apprentice', price: 250, durationMinutes: 240 },
-        { level: 'junior', price: 300.00, durationMinutes: 210 },
-        { level: 'senior', price: 350.00, durationMinutes: 180 },
-        { level: 'master', price: 425.00, durationMinutes: 170 },
+    serviceTiers: [
+        { tierId: 'tier-apprentice', price: 250, durationMinutes: 240 },
+        { tierId: 'tier-junior', price: 300.00, durationMinutes: 210 },
+        { tierId: 'tier-senior', price: 350.00, durationMinutes: 180 },
+        { tierId: 'tier-master', price: 425.00, durationMinutes: 170 },
     ],
     price: 350.00,
     cost: 50.00,
@@ -863,11 +859,11 @@ export const services: Service[] = [
     category: 'Hair', 
     duration: 45,
     padAfter: 10,
-    pricingTiers: [
-        { level: 'apprentice', price: 30, durationMinutes: 60 },
-        { level: 'junior', price: 40.00, durationMinutes: 50 },
-        { level: 'senior', price: 50.00, durationMinutes: 45 },
-        { level: 'master', price: 65.00, durationMinutes: 40 },
+    serviceTiers: [
+        { tierId: 'tier-apprentice', price: 30, durationMinutes: 60 },
+        { tierId: 'tier-junior', price: 40.00, durationMinutes: 50 },
+        { tierId: 'tier-senior', price: 50.00, durationMinutes: 45 },
+        { tierId: 'tier-master', price: 65.00, durationMinutes: 40 },
     ],
     price: 50.00,
     cost: 2.00,
@@ -887,11 +883,11 @@ export const services: Service[] = [
     duration: 90,
     padBefore: 10,
     padAfter: 10,
-    pricingTiers: [
-        { level: 'apprentice', price: 65, durationMinutes: 120 },
-        { level: 'junior', price: 80.00, durationMinutes: 100 },
-        { level: 'senior', price: 95.00, durationMinutes: 90 },
-        { level: 'master', price: 110.00, durationMinutes: 80 },
+    serviceTiers: [
+        { tierId: 'tier-apprentice', price: 65, durationMinutes: 120 },
+        { tierId: 'tier-junior', price: 80.00, durationMinutes: 100 },
+        { tierId: 'tier-senior', price: 95.00, durationMinutes: 90 },
+        { tierId: 'tier-master', price: 110.00, durationMinutes: 80 },
     ],
     price: 95.00,
     cost: 12.00,
@@ -911,11 +907,11 @@ export const services: Service[] = [
     type: 'service',
     category: 'Skincare', 
     duration: 15,
-    pricingTiers: [
-        { level: 'apprentice', price: 15, durationMinutes: 25 },
-        { level: 'junior', price: 20.00, durationMinutes: 20 },
-        { level: 'senior', price: 25.00, durationMinutes: 15 },
-        { level: 'master', price: 30.00, durationMinutes: 15 },
+    serviceTiers: [
+        { tierId: 'tier-apprentice', price: 15, durationMinutes: 25 },
+        { tierId: 'tier-junior', price: 20.00, durationMinutes: 20 },
+        { tierId: 'tier-senior', price: 25.00, durationMinutes: 15 },
+        { tierId: 'tier-master', price: 30.00, durationMinutes: 15 },
     ],
     price: 25.00,
     cost: 1.50,
@@ -933,11 +929,11 @@ export const services: Service[] = [
     category: 'Hair', 
     duration: 90,
     padAfter: 20,
-    pricingTiers: [
-        { level: 'apprentice', price: 80, durationMinutes: 120 },
-        { level: 'junior', price: 100.00, durationMinutes: 100 },
-        { level: 'senior', price: 120.00, durationMinutes: 90 },
-        { level: 'master', price: 140.00, durationMinutes: 80 },
+    serviceTiers: [
+        { tierId: 'tier-apprentice', price: 80, durationMinutes: 120 },
+        { tierId: 'tier-junior', price: 100.00, durationMinutes: 100 },
+        { tierId: 'tier-senior', price: 120.00, durationMinutes: 90 },
+        { tierId: 'tier-master', price: 140.00, durationMinutes: 80 },
     ],
     price: 120.00,
     cost: 20.00,
@@ -955,11 +951,11 @@ export const services: Service[] = [
     type: 'service',
     category: 'Hair', 
     duration: 45,
-    pricingTiers: [
-        { level: 'apprentice', price: 45, durationMinutes: 60 },
-        { level: 'junior', price: 60.00, durationMinutes: 50 },
-        { level: 'senior', price: 75.00, durationMinutes: 45 },
-        { level: 'master', price: 90.00, durationMinutes: 40 },
+    serviceTiers: [
+        { tierId: 'tier-apprentice', price: 45, durationMinutes: 60 },
+        { tierId: 'tier-junior', price: 60.00, durationMinutes: 50 },
+        { tierId: 'tier-senior', price: 75.00, durationMinutes: 45 },
+        { tierId: 'tier-master', price: 90.00, durationMinutes: 40 },
     ],
     price: 75.00,
     cost: 10.00,
@@ -977,11 +973,11 @@ export const services: Service[] = [
     type: 'service',
     category: 'Hair', 
     duration: 45,
-    pricingTiers: [
-        { level: 'apprentice', price: 40, durationMinutes: 60 },
-        { level: 'junior', price: 50.00, durationMinutes: 55 },
-        { level: 'senior', price: 60.00, durationMinutes: 45 },
-        { level: 'master', price: 75.00, durationMinutes: 40 },
+    serviceTiers: [
+        { tierId: 'tier-apprentice', price: 40, durationMinutes: 60 },
+        { tierId: 'tier-junior', price: 50.00, durationMinutes: 55 },
+        { tierId: 'tier-senior', price: 60.00, durationMinutes: 45 },
+        { tierId: 'tier-master', price: 75.00, durationMinutes: 40 },
     ],
     price: 60.00,
     cost: 5.00,
@@ -999,11 +995,11 @@ export const services: Service[] = [
     type: 'service',
     category: 'Hair', 
     duration: 60,
-    pricingTiers: [
-        { level: 'apprentice', price: 60, durationMinutes: 90 },
-        { level: 'junior', price: 75.00, durationMinutes: 75 },
-        { level: 'senior', price: 90.00, durationMinutes: 60 },
-        { level: 'master', price: 110.00, durationMinutes: 50 },
+    serviceTiers: [
+        { tierId: 'tier-apprentice', price: 60, durationMinutes: 90 },
+        { tierId: 'tier-junior', price: 75.00, durationMinutes: 75 },
+        { tierId: 'tier-senior', price: 90.00, durationMinutes: 60 },
+        { tierId: 'tier-master', price: 110.00, durationMinutes: 50 },
     ],
     price: 90.00,
     cost: 8.00,
@@ -1258,3 +1254,6 @@ export const resources: Resource[] = [
 
 
 export { nanoid };
+
+
+    

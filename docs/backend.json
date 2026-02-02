@@ -1,4 +1,5 @@
 
+
 {
   "entities": {
     "User": {
@@ -130,6 +131,28 @@
         "subscriptionTier"
       ]
     },
+    "PricingTier": {
+        "title": "Pricing Tier",
+        "type": "object",
+        "description": "Represents a customizable skill and pricing level for services.",
+        "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "rank": { "type": "number", "description": "An order for sorting the tiers." }
+        },
+        "required": ["id", "name", "rank"]
+    },
+     "ServiceTier": {
+        "title": "Service Tier",
+        "type": "object",
+        "description": "Defines the price and duration for a specific service at a specific pricing tier.",
+        "properties": {
+            "tierId": { "type": "string" },
+            "price": { "type": "number" },
+            "durationMinutes": { "type": "number" }
+        },
+        "required": ["tierId", "price", "durationMinutes"]
+    },
     "DayHours": {
         "title": "Day Hours",
         "type": "object",
@@ -173,11 +196,7 @@
         "portfolioUrl": { "type": "string", "format": "uri", "description": "Link to an external portfolio or website."},
         "yearsOfExperience": { "type": "number", "description": "The staff member's years of experience in the industry." },
         "clientCount": { "type": "number", "description": "The approximate number of clients the staff member has served." },
-        "skillLevel": {
-            "type": "string",
-            "enum": ["apprentice", "junior", "senior", "master"],
-            "description": "The skill level of the staff member, used for tiered pricing."
-        },
+        "pricingTierId": { "type": "string", "description": "The ID of the PricingTier assigned to this staff member." },
         "role": { "type": "string", "enum": ["admin", "staff"] },
         "payStructure": { "type": "string", "enum": ["commission", "hourly", "salary"] },
         "commissionRate": { "type": "number", "description": "Commission rate as a percentage (e.g., 40 for 40%)." },
@@ -265,17 +284,11 @@
           "description": "URL for the primary service image."
         },
         "durationMinutes": { "type": "number", "description": "The base or default duration for the service in minutes." },
-        "pricingTiers": {
+        "serviceTiers": {
             "type": "array",
-            "description": "Tiered pricing and duration based on stylist skill level.",
+            "description": "Tiered pricing and duration based on user-defined tiers.",
             "items": {
-                "type": "object",
-                "properties": {
-                    "level": { "type": "string", "enum": ["apprentice", "junior", "senior", "master"] },
-                    "price": { "type": "number" },
-                    "durationMinutes": { "type": "number" }
-                },
-                "required": ["level", "price", "durationMinutes"]
+                "$ref": "#/entities/ServiceTier"
             }
         },
         "category": { "type": "string", "description": "The category of the service (e.g., nails, hair)." },
@@ -1026,6 +1039,12 @@
       },
       "description": "Stores tenant (business) profiles. All business-specific data is nested under this."
     },
+    "/tenants/{tenantId}/pricingTiers/{tierId}": {
+      "schema": {
+        "$ref": "#/entities/PricingTier"
+      },
+      "description": "Stores user-defined pricing tiers for services and staff."
+    },
     "/appointmentCheckIns/{token}": {
         "schema": {
             "$ref": "#/entities/Appointment"
@@ -1162,3 +1181,6 @@
     }
   }
 }
+
+
+    

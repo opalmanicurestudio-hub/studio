@@ -35,7 +35,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { type InventoryItem, type Location, type ConsentForm, type Resource } from '@/lib/data';
+import { type InventoryItem, type Location, type ConsentForm, type Resource, type PricingTier } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -81,33 +81,16 @@ const serviceSchema = z.object({
   depositSubType: z.enum(['flat', 'percentage']).optional(),
   depositAmount: z.coerce.number().optional(),
   
-  pricingTiers: z.object({
-    apprentice: z.object({ enabled: z.boolean(), price: z.coerce.number().optional(), durationMinutes: z.coerce.number().optional() }),
-    junior: z.object({ enabled: z.boolean(), price: z.coerce.number().optional(), durationMinutes: z.coerce.number().optional() }),
-    senior: z.object({ enabled: z.boolean(), price: z.coerce.number().optional(), durationMinutes: z.coerce.number().optional() }),
-    master: z.object({ enabled: z.boolean(), price: z.coerce.number().optional(), durationMinutes: z.coerce.number().optional() }),
-  }),
+  serviceTiers: z.array(z.object({
+      tierId: z.string(),
+      price: z.coerce.number().min(0, "Price must be positive."),
+      durationMinutes: z.coerce.number().min(1, "Duration must be at least 1."),
+  })).min(1, "At least one pricing tier must be configured."),
 
   confirmationMessage: z.string().optional(),
   requiredFormIds: z.array(z.string()).optional(),
-}).superRefine((data, ctx) => {
-    const tiers = ['apprentice', 'junior', 'senior', 'master'] as const;
-    let enabledCount = 0;
-    for (const tier of tiers) {
-        if (data.pricingTiers[tier].enabled) {
-            enabledCount++;
-            if (data.pricingTiers[tier].price === undefined || data.pricingTiers[tier].price! < 0) {
-                ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Price is required.", path: [`pricingTiers.${tier}.price`] });
-            }
-             if (data.pricingTiers[tier].durationMinutes === undefined || data.pricingTiers[tier].durationMinutes! < 1) {
-                ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Duration is required.", path: [`pricingTiers.${tier}.durationMinutes`] });
-            }
-        }
-    }
-    if (enabledCount === 0) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "At least one pricing tier must be enabled.", path: ["pricingTiers"] });
-    }
 });
+
 
 type ServiceFormData = z.infer<typeof serviceSchema>;
 
@@ -310,42 +293,56 @@ const Step2_Formula = ({ onScanClick, resources, allServices }: { onScanClick: (
     );
 };
 
-const PricingTierInput = ({ level }: { level: 'apprentice' | 'junior' | 'senior' | 'master' }) => {
-    const { register, control, watch, formState: { errors } } = useFormContext<ServiceFormData>();
-    const isEnabled = watch(`pricingTiers.${level}.enabled`);
+const PricingTierInput = ({ tier, control }: { tier: PricingTier, control: Control<ServiceFormData> }) => {
+    const { watch, setValue } = useFormContext<ServiceFormData>();
+    
+    const serviceTiers = watch('serviceTiers') || [];
+    const tierData = serviceTiers.find(t => t.tierId === tier.id);
+    const isEnabled = !!tierData;
+
+    const handleToggle = (checked: boolean) => {
+        let newTiers = [...serviceTiers];
+        if (checked) {
+            if (!newTiers.find(t => t.tierId === tier.id)) {
+                newTiers.push({ tierId: tier.id, price: 0, durationMinutes: 0 });
+            }
+        } else {
+            newTiers = newTiers.filter(t => t.tierId !== tier.id);
+        }
+        setValue('serviceTiers', newTiers, { shouldDirty: true });
+    };
+
+    const handlePriceChange = (price: number) => {
+        const newTiers = serviceTiers.map(t => t.tierId === tier.id ? {...t, price} : t);
+        setValue('serviceTiers', newTiers, { shouldDirty: true });
+    };
+
+    const handleDurationChange = (durationMinutes: number) => {
+        const newTiers = serviceTiers.map(t => t.tierId === tier.id ? {...t, durationMinutes} : t);
+        setValue('serviceTiers', newTiers, { shouldDirty: true });
+    };
 
     return (
         <Card>
             <CardHeader className="p-4 flex flex-row items-center justify-between">
-                <CardTitle className="text-base capitalize">{level}</CardTitle>
-                <Controller
-                    name={`pricingTiers.${level}.enabled`}
-                    control={control}
-                    render={({ field }) => (
-                        <Switch
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                        />
-                    )}
-                />
+                <CardTitle className="text-base capitalize">{tier.name}</CardTitle>
+                <Switch checked={isEnabled} onCheckedChange={handleToggle} />
             </CardHeader>
             {isEnabled && (
                 <CardContent className="p-4 pt-0 grid grid-cols-2 gap-4">
                     <div className="space-y-1">
-                        <Label htmlFor={`${level}-price`} className="text-xs flex items-center gap-1.5"><DollarSign className="w-3 h-3 text-muted-foreground"/>Price</Label>
+                        <Label htmlFor={`${tier.id}-price`} className="text-xs flex items-center gap-1.5"><DollarSign className="w-3 h-3 text-muted-foreground"/>Price</Label>
                         <div className="relative">
                             <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                            <Input id={`${level}-price`} type="number" placeholder="0.00" {...register(`pricingTiers.${level}.price`)} className="pl-7" />
+                            <Input id={`${tier.id}-price`} type="number" placeholder="0.00" value={tierData?.price ?? ''} onChange={e => handlePriceChange(parseFloat(e.target.value) || 0)} className="pl-7" />
                         </div>
-                        {(errors.pricingTiers as any)?.[level]?.price && <p className="text-xs text-destructive">{(errors.pricingTiers as any)[level].price.message}</p>}
                     </div>
                     <div className="space-y-1">
-                        <Label htmlFor={`${level}-durationMinutes`} className="text-xs flex items-center gap-1.5"><Clock className="w-3 h-3 text-muted-foreground"/>Duration</Label>
+                        <Label htmlFor={`${tier.id}-durationMinutes`} className="text-xs flex items-center gap-1.5"><Clock className="w-3 h-3 text-muted-foreground"/>Duration</Label>
                         <div className="relative">
-                            <Input id={`${level}-durationMinutes`} type="number" placeholder="0" {...register(`pricingTiers.${level}.durationMinutes`)} className="pr-12"/>
+                            <Input id={`${tier.id}-durationMinutes`} type="number" placeholder="0" value={tierData?.durationMinutes ?? ''} onChange={e => handleDurationChange(parseInt(e.target.value) || 0)} className="pr-12"/>
                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">mins</span>
                         </div>
-                        {(errors.pricingTiers as any)?.[level]?.durationMinutes && <p className="text-xs text-destructive">{(errors.pricingTiers as any)[level].durationMinutes.message}</p>}
                     </div>
                 </CardContent>
             )}
@@ -354,21 +351,11 @@ const PricingTierInput = ({ level }: { level: 'apprentice' | 'junior' | 'senior'
 };
 
 
-const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
-    const { control, watch, register, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
+const Step3_PricingBooking = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricingTiers: PricingTier[] }) => {
+    const { control, watch, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
     const isAddon = watch('isAddon');
     const depositType = watch('depositType');
-    const pricingTiers = watch('pricingTiers');
-
-    const tiers = useMemo(() => {
-        if (!pricingTiers) return [];
-        return (['apprentice', 'junior', 'senior', 'master'] as const)
-            .filter(tier => pricingTiers[tier]?.enabled)
-            .map(tier => ({
-                level: tier,
-                price: pricingTiers[tier].price || 0,
-            }));
-    }, [pricingTiers]);
+    const serviceTiers = watch('serviceTiers');
 
     useEffect(() => {
         if (depositType === 'breakeven') {
@@ -382,15 +369,10 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
             <CardHeader><CardTitle>Pricing & Booking</CardTitle></CardHeader>
             <CardContent className="space-y-6">
                 <div className="space-y-4">
-                    <Label>Pricing & Duration Tiers</Label>
-                     {errors.pricingTiers && typeof errors.pricingTiers !== 'string' && !errors.pricingTiers.root && (
-                        <Alert variant="destructive"><AlertTriangle className="h-4 w-4" /><AlertDescription>At least one tier must be enabled and have a valid price/duration.</AlertDescription></Alert>
-                    )}
+                    <Label>Pricing & Duration by Tier</Label>
+                     {errors.serviceTiers && <Alert variant="destructive"><AlertTriangle className="h-4 w-4" /><AlertDescription>At least one tier must be configured.</AlertDescription></Alert>}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <PricingTierInput level="apprentice" />
-                        <PricingTierInput level="junior" />
-                        <PricingTierInput level="senior" />
-                        <PricingTierInput level="master" />
+                        {pricingTiers.map(tier => <PricingTierInput key={tier.id} tier={tier} control={control} />)}
                     </div>
                 </div>
 
@@ -401,12 +383,15 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
                         <p className="font-semibold">Profit</p>
                         <p className="font-semibold">Margin</p>
                     </div>
-                     {tiers.map(tier => {
+                     {(serviceTiers || []).map(tier => {
+                        const tierInfo = pricingTiers.find(t => t.id === tier.tierId);
+                        if (!tierInfo) return null;
+
                         const netProfit = tier.price - breakEvenCost;
                         const profitMargin = tier.price > 0 ? (netProfit / tier.price) * 100 : 0;
                         return (
-                            <div key={tier.level} className="grid grid-cols-3 gap-2 text-center text-sm items-center">
-                                <p className="capitalize font-medium">{tier.level}</p>
+                            <div key={tier.tierId} className="grid grid-cols-3 gap-2 text-center text-sm items-center">
+                                <p className="capitalize font-medium">{tierInfo.name}</p>
                                 <p className={cn("font-mono", netProfit >= 0 ? 'text-primary' : 'text-destructive')}>${netProfit.toFixed(2)}</p>
                                 <p className={cn("font-mono", profitMargin >= 0 ? 'text-primary' : 'text-destructive')}>{profitMargin.toFixed(1)}%</p>
                             </div>
@@ -510,7 +495,7 @@ export const AddServiceDialog: React.FC<{
   services,
 }) => {
   const [step, setStep] = useState(1);
-  const totalSteps = 4;
+  const totalSteps = 3;
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const { toast } = useToast();
   const isMobile = useIsMobile();
@@ -519,12 +504,6 @@ export const AddServiceDialog: React.FC<{
     resolver: zodResolver(serviceSchema),
     defaultValues: {
       isAddon: initialType === 'addon',
-      pricingTiers: {
-        apprentice: { enabled: false },
-        junior: { enabled: false },
-        senior: { enabled: true, price: 50, durationMinutes: 60 },
-        master: { enabled: false }
-      }
     }
   });
 
@@ -532,12 +511,24 @@ export const AddServiceDialog: React.FC<{
     if (open) {
       methods.reset({ 
         isAddon: initialType === 'addon',
-        pricingTiers: {
-            apprentice: { enabled: false },
-            junior: { enabled: false },
-            senior: { enabled: true, price: 50, durationMinutes: 60 },
-            master: { enabled: false }
-        }
+        name: '',
+        category: '',
+        duration: 0,
+        padBefore: 0,
+        padAfter: 0,
+        description: '',
+        imageUrl: '',
+        isPrivate: false,
+        capacity: 1,
+        products: [],
+        requiredResourceIds: [],
+        compatibleAddOnIds: [],
+        depositType: 'none',
+        depositSubType: 'flat',
+        depositAmount: 0,
+        serviceTiers: [],
+        confirmationMessage: '',
+        requiredFormIds: [],
     });
       setStep(1);
     }
@@ -545,7 +536,7 @@ export const AddServiceDialog: React.FC<{
 
   const { watch, trigger, handleSubmit } = methods;
   const values = watch();
-  const { duration, padBefore, padAfter, products, requiredResourceIds, pricingTiers } = values;
+  const { duration, padBefore, padAfter, products, requiredResourceIds } = values;
   const [tmhr, setTmhr] = useState(0);
 
   const { inventory } = useInventory();
@@ -601,15 +592,15 @@ export const AddServiceDialog: React.FC<{
   }
 
   const onSubmit = (data: ServiceFormData) => {
-      const enabledTiersData = (['apprentice', 'junior', 'senior', 'master'] as const)
+      const enabledTiers = (['apprentice', 'junior', 'senior', 'master'] as const)
         .filter(tier => data.pricingTiers[tier].enabled)
         .map(tier => ({
             level: tier,
             price: data.pricingTiers[tier].price!,
             durationMinutes: data.pricingTiers[tier].durationMinutes!,
         }));
-
-      const finalPrice = enabledTiers.find(t => t.level === 'senior')?.price ?? enabledTiers[0]?.price ?? 0;
+      
+      const finalPrice = data.pricingTiers.senior.price || enabledTiers[0]?.price || 0;
       const netProfit = finalPrice - breakEvenCost;
       const margin = finalPrice > 0 ? (netProfit / finalPrice) * 100 : 0;
       
@@ -622,7 +613,7 @@ export const AddServiceDialog: React.FC<{
         padBefore: data.padBefore,
         padAfter: data.padAfter,
         price: finalPrice,
-        pricingTiers: enabledTiers,
+        serviceTiers: data.serviceTiers,
         cost: breakEvenCost,
         profit: netProfit,
         margin: margin,
@@ -656,7 +647,7 @@ export const AddServiceDialog: React.FC<{
         fieldsToValidate.push('name', 'category', 'duration');
         }
         if (step === 3) {
-        fieldsToValidate.push('pricingTiers');
+        fieldsToValidate.push('serviceTiers');
         }
         
         const isValid = fieldsToValidate.length > 0 ? await trigger(fieldsToValidate) : true;
@@ -677,7 +668,7 @@ export const AddServiceDialog: React.FC<{
       switch(step) {
           case 1: return <Step1_BasicDetails categories={categories} onNewCategory={onNewCategory} />;
           case 2: return <Step2_Formula onScanClick={() => setIsScannerOpen(true)} resources={resources} allServices={services} />;
-          case 3: return <Step3_PricingBooking breakEvenCost={breakEvenCost} />;
+          case 3: return <Step3_PricingBooking breakEvenCost={breakEvenCost} pricingTiers={[]} />;
           case 4: return <Step4_VisibilityConfirmation consentForms={consentForms || []} />;
           default: return null;
       }
@@ -735,3 +726,5 @@ export const AddServiceDialog: React.FC<{
     </Dialog>
   );
 };
+
+    

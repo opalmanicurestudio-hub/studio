@@ -15,7 +15,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DollarSign, Gift, Save, ListChecks, MessageSquare, Clock, Building, Edit, PlusCircle, MoreHorizontal, Globe, Check, Link as LinkIcon, Calendar, Loader, FilePen, X, User, Briefcase, List as ListIcon, Percent as PercentIcon, FileText } from 'lucide-react';
+import { DollarSign, Gift, Save, ListChecks, MessageSquare, Clock, Building, Edit, PlusCircle, MoreHorizontal, Globe, Check, Link as LinkIcon, Calendar, Loader, FilePen, X, User, Briefcase, List as ListIcon, Percent as PercentIcon, FileText, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
@@ -26,14 +26,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking, useDoc } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking, useDoc, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch, query, where, updateDoc } from 'firebase/firestore';
-import { type Tenant } from '@/lib/data';
+import { type Tenant, type PricingTier } from '@/lib/data';
 import { nanoid } from 'nanoid';
 import { useTenant } from '@/context/TenantContext';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
   const timeOptions = Array.from({ length: (22 - 8) * 2 + 1 }, (_, i) => {
@@ -91,6 +92,7 @@ export default function SettingsPage() {
   const { firestore, user } = useFirebase();
   const { tenants, selectedTenant, setSelectedTenant, isLoading: isTenantContextLoading } = useTenant();
   const isMobile = useIsMobile();
+  const tenantId = selectedTenant?.id;
 
   const [editingTenantId, setEditingTenantId] = useState<string | null>(null);
   const [tempTenantName, setTempTenantName] = useState('');
@@ -141,6 +143,9 @@ export default function SettingsPage() {
   const [tenantData, setTenantData] = useState<Partial<Tenant>>({});
   const [scheduleProfiles, setScheduleProfiles] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState('profile');
+  
+  const [editableTiers, setEditableTiers] = useState<PricingTier[]>([]);
+  const [newTierName, setNewTierName] = useState('');
 
   // Backup states for cancellation
   const [backupTenantData, setBackupTenantData] = useState<Partial<Tenant>>({});
@@ -151,7 +156,13 @@ export default function SettingsPage() {
     return collection(firestore, `tenants/${selectedTenant.id}/scheduleProfiles`);
   }, [selectedTenant, firestore]);
   const { data: initialScheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection(scheduleProfilesQuery);
-  const tenantId = selectedTenant?.id;
+
+  const pricingTiersQuery = useMemoFirebase(() => {
+    if (!selectedTenant || !firestore) return null;
+    return collection(firestore, `tenants/${selectedTenant.id}/pricingTiers`);
+  }, [selectedTenant, firestore]);
+  const { data: pricingTiersData, isLoading: pricingTiersLoading } = useCollection<PricingTier>(pricingTiersQuery);
+
 
   useEffect(() => {
     if (selectedTenant) {
@@ -164,6 +175,12 @@ export default function SettingsPage() {
       setScheduleProfiles(initialScheduleProfiles);
     }
   }, [initialScheduleProfiles]);
+  
+  useEffect(() => {
+    if (pricingTiersData) {
+      setEditableTiers([...pricingTiersData].sort((a, b) => a.rank - b.rank));
+    }
+  }, [pricingTiersData]);
 
     useEffect(() => {
         if (scheduleProfilesLoading || !firestore || !user || !tenantId) return;
@@ -308,18 +325,65 @@ export default function SettingsPage() {
     };
     return { handleEdit, handleCancel, handleSave };
   };
+  
+  const handleAddTier = () => {
+    if (!newTierName.trim()) return;
+    const newTier: PricingTier = {
+        id: nanoid(),
+        name: newTierName.trim(),
+        rank: editableTiers.length,
+    };
+    setEditableTiers([...editableTiers, newTier]);
+    setNewTierName('');
+  };
+  
+  const handleTierNameChange = (id: string, name: string) => {
+      setEditableTiers(editableTiers.map(t => t.id === id ? {...t, name} : t));
+  };
+
+  const handleDeleteTier = (id: string) => {
+    setEditableTiers(editableTiers.filter(t => t.id !== id));
+  };
+  
+  const handleTiersSave = async () => {
+    if (!tenantId || !firestore) return;
+    try {
+        const batch = writeBatch(firestore);
+        const originalIds = new Set(pricingTiersData?.map(t => t.id));
+        const newIds = new Set(editableTiers.map(t => t.id));
+
+        // Add or update tiers
+        editableTiers.forEach((tier, index) => {
+            const tierRef = doc(firestore, `tenants/${tenantId}/pricingTiers`, tier.id);
+            batch.set(tierRef, { ...tier, rank: index });
+        });
+        
+        // Delete removed tiers
+        originalIds.forEach(id => {
+            if (!newIds.has(id)) {
+                const tierRef = doc(firestore, `tenants/${tenantId}/pricingTiers`, id);
+                batch.delete(tierRef);
+            }
+        });
+        
+        await batch.commit();
+        toast({ title: "Pricing Tiers Updated" });
+        setIsTiersEditing(false);
+    } catch (e) {
+        console.error("Error saving tiers:", e);
+        toast({ variant: 'destructive', title: "Save Failed" });
+    }
+  };
 
   const policiesFields: (keyof Tenant)[] = ['lateArrivalGracePeriod', 'cancellationWindowHours', 'cancellationFee', 'noShowFee', 'autoCancelLateArrivals', 'cancellationPolicy', 'lateArrivalPolicy', 'noShowPolicy'];
   const referralFields: (keyof Tenant)[] = ['referrerReward', 'newClientDiscount'];
   const queueFields: (keyof Tenant)[] = ['queueSkipTimeMinutes'];
   const smsFields: (keyof Tenant)[] = ['smsNotificationMessage', 'twilioAccountSid', 'twilioAuthToken', 'twilioPhoneNumber'];
-  const tiersFields: (keyof Tenant)[] = ['pricingTiers'];
 
   const { handleEdit: handlePoliciesEdit, handleCancel: handlePoliciesCancel, handleSave: handlePoliciesSave } = createGenericHandlers(isPoliciesEditing, setIsPoliciesEditing, tenantData, setTenantData, backupTenantData, setBackupTenantData, policiesFields);
   const { handleEdit: handleReferralEdit, handleCancel: handleReferralCancel, handleSave: handleReferralSave } = createGenericHandlers(isReferralEditing, setIsReferralEditing, tenantData, setTenantData, backupTenantData, setBackupTenantData, referralFields);
   const { handleEdit: handleQueueEdit, handleCancel: handleQueueCancel, handleSave: handleQueueSave } = createGenericHandlers(isQueueEditing, setIsQueueEditing, tenantData, setTenantData, backupTenantData, setBackupTenantData, queueFields);
   const { handleEdit: handleSmsEdit, handleCancel: handleSmsCancel, handleSave: handleSmsSave } = createGenericHandlers(isSmsEditing, setIsSmsEditing, tenantData, setTenantData, backupTenantData, setBackupTenantData, smsFields);
-  const { handleEdit: handleTiersEdit, handleCancel: handleTiersCancel, handleSave: handleTiersSave } = createGenericHandlers(isTiersEditing, setIsTiersEditing, tenantData, setTenantData, backupTenantData, setBackupTenantData, tiersFields);
   
   const generatePolicy = (type: 'cancellation' | 'noShow' | 'late') => {
     let policy = '';
@@ -347,7 +411,7 @@ export default function SettingsPage() {
     return policy;
   }
 
-  const isLoading = isTenantContextLoading || (selectedTenant && scheduleProfilesLoading);
+  const isLoading = isTenantContextLoading || (selectedTenant && (scheduleProfilesLoading || pricingTiersLoading));
 
   const tabs = [
     { value: "profile", label: "Profile", icon: <Building /> },
@@ -384,34 +448,19 @@ export default function SettingsPage() {
           </div>
           
            <Tabs defaultValue="profile" value={activeTab} onValueChange={setActiveTab} className="w-full">
-            {isMobile ? (
-              <div className="mb-6">
-                <Select value={activeTab} onValueChange={setActiveTab}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select a setting category..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {tabs.map(tab => (
-                      <SelectItem key={tab.value} value={tab.value}>
-                        <div className="flex items-center">
-                          {React.cloneElement(tab.icon, { className: "w-4 h-4 mr-2" })}
-                          {tab.label}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            ) : (
-              <TabsList className="grid w-full grid-cols-7 h-auto">
-                  {tabs.map(tab => (
-                    <TabsTrigger key={tab.value} value={tab.value}>
-                      {React.cloneElement(tab.icon, { className: "w-4 h-4 mr-2" })}
-                      {tab.label}
-                    </TabsTrigger>
-                  ))}
-              </TabsList>
-            )}
+             <div className="border-b">
+                 <ScrollArea>
+                    <TabsList className="h-auto p-1.5 -mb-px">
+                        {tabs.map(tab => (
+                            <TabsTrigger key={tab.value} value={tab.value} className="text-muted-foreground data-[state=active]:text-foreground">
+                            {React.cloneElement(tab.icon, { className: "w-4 h-4 mr-2" })}
+                            {tab.label}
+                            </TabsTrigger>
+                        ))}
+                    </TabsList>
+                    <ScrollBar orientation="horizontal" />
+                </ScrollArea>
+             </div>
             <TabsContent value="profile" className="mt-6">
                 <Card>
                     <CardHeader>
@@ -676,14 +725,41 @@ export default function SettingsPage() {
                              <CardDescription>Customize the names for your staff skill levels.</CardDescription>
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
-                            {isTiersEditing ? (<><Button variant="outline" onClick={handleTiersCancel} className="flex-1 sm:w-auto">Cancel</Button><Button onClick={handleTiersSave} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save</Button></>) : (<Button onClick={handleTiersEdit} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit</Button>)}
+                            {isTiersEditing ? (
+                                <>
+                                <Button variant="outline" onClick={() => { setIsTiersEditing(false); setEditableTiers(pricingTiersData || []); }}>Cancel</Button>
+                                <Button onClick={handleTiersSave}><Save className="mr-2 h-4 w-4" />Save Tiers</Button>
+                                </>
+                            ) : (
+                                <Button onClick={() => setIsTiersEditing(true)}><Edit className="mr-2 h-4 w-4"/>Edit Tiers</Button>
+                            )}
                         </div>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                        <div className="space-y-2"><Label htmlFor="tier-apprentice">Apprentice Tier Name</Label><Input id="tier-apprentice" value={tenantData.pricingTiers?.apprentice || 'Apprentice'} onChange={e => setTenantData(prev => ({...prev, pricingTiers: {...prev.pricingTiers, apprentice: e.target.value}}))} disabled={!isTiersEditing} /></div>
-                        <div className="space-y-2"><Label htmlFor="tier-junior">Junior Tier Name</Label><Input id="tier-junior" value={tenantData.pricingTiers?.junior || 'Junior'} onChange={e => setTenantData(prev => ({...prev, pricingTiers: {...prev.pricingTiers, junior: e.target.value}}))} disabled={!isTiersEditing} /></div>
-                        <div className="space-y-2"><Label htmlFor="tier-senior">Senior Tier Name</Label><Input id="tier-senior" value={tenantData.pricingTiers?.senior || 'Senior'} onChange={e => setTenantData(prev => ({...prev, pricingTiers: {...prev.pricingTiers, senior: e.target.value}}))} disabled={!isTiersEditing} /></div>
-                        <div className="space-y-2"><Label htmlFor="tier-master">Master Tier Name</Label><Input id="tier-master" value={tenantData.pricingTiers?.master || 'Master'} onChange={e => setTenantData(prev => ({...prev, pricingTiers: {...prev.pricingTiers, master: e.target.value}}))} disabled={!isTiersEditing} /></div>
+                        {editableTiers.map((tier, index) => (
+                             <div key={tier.id} className="flex items-center gap-2">
+                                <Input 
+                                    value={tier.name}
+                                    onChange={(e) => handleTierNameChange(tier.id, e.target.value)}
+                                    disabled={!isTiersEditing}
+                                    className="h-9"
+                                />
+                                 <Button variant="ghost" size="icon" className="text-destructive h-9 w-9" onClick={() => handleDeleteTier(tier.id)} disabled={!isTiersEditing}>
+                                    <Trash2 className="w-4 h-4" />
+                                </Button>
+                            </div>
+                        ))}
+                        {isTiersEditing && (
+                            <div className="flex items-center gap-2 border-t pt-4">
+                                <Input
+                                    placeholder="New tier name..."
+                                    value={newTierName}
+                                    onChange={e => setNewTierName(e.target.value)}
+                                    onKeyDown={e => e.key === 'Enter' && handleAddTier()}
+                                />
+                                <Button onClick={handleAddTier}>Add Tier</Button>
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
             </TabsContent>
@@ -693,3 +769,6 @@ export default function SettingsPage() {
     </div>
   );
 }
+
+
+    
