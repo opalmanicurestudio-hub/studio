@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
@@ -25,7 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking, useDoc, addDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking, useDoc } from '@/firebase';
 import { collection, doc, writeBatch, query, where, updateDoc } from 'firebase/firestore';
 import { type Tenant } from '@/lib/data';
 import { nanoid } from 'nanoid';
@@ -140,13 +141,12 @@ export default function SettingsPage() {
   const [backupTenantData, setBackupTenantData] = useState<Partial<Tenant>>({});
   const [backupScheduleProfiles, setBackupScheduleProfiles] = useState<any[]>([]);
 
-  const hasInitialized = useRef(false);
-
   const scheduleProfilesQuery = useMemoFirebase(() => {
     if (!selectedTenant || !firestore) return null;
     return collection(firestore, `tenants/${selectedTenant.id}/scheduleProfiles`);
   }, [selectedTenant, firestore]);
   const { data: initialScheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection(scheduleProfilesQuery);
+  const tenantId = selectedTenant?.id;
 
   useEffect(() => {
     if (selectedTenant) {
@@ -160,9 +160,12 @@ export default function SettingsPage() {
     }
   }, [initialScheduleProfiles]);
 
-   useEffect(() => {
-        if (!scheduleProfilesLoading && scheduleProfiles.length === 0 && firestore && user && selectedTenant && !hasInitialized.current) {
-            hasInitialized.current = true;
+    useEffect(() => {
+        if (scheduleProfilesLoading || !firestore || !user || !tenantId) return;
+        const sessionKey = `schedule_init_${tenantId}`;
+
+        if ((!initialScheduleProfiles || initialScheduleProfiles.length === 0) && !sessionStorage.getItem(sessionKey)) {
+            sessionStorage.setItem(sessionKey, 'true');
             const defaultProfileId = nanoid();
             const defaultProfile = {
                 id: defaultProfileId,
@@ -184,10 +187,17 @@ export default function SettingsPage() {
                     holidays: 8,
                 }
             };
-            const profileDocRef = doc(firestore, `tenants/${selectedTenant.id}/scheduleProfiles/${defaultProfileId}`);
+            const profileDocRef = doc(firestore, `tenants/${tenantId}/scheduleProfiles/${defaultProfileId}`);
             setDocumentNonBlocking(profileDocRef, defaultProfile, {});
+        } else if (initialScheduleProfiles && initialScheduleProfiles.length > 0) {
+            const hasActiveProfile = initialScheduleProfiles.some(p => p.isActive);
+            if (!hasActiveProfile) {
+                const firstProfile = initialScheduleProfiles[0];
+                const profileDocRef = doc(firestore, `tenants/${tenantId}/scheduleProfiles/${firstProfile.id}`);
+                updateDocumentNonBlocking(profileDocRef, { isActive: true });
+            }
         }
-    }, [scheduleProfilesLoading, scheduleProfiles, firestore, user, selectedTenant]);
+    }, [scheduleProfilesLoading, initialScheduleProfiles, firestore, user, tenantId]);
 
   const orderedDays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
   const activeScheduleProfile = useMemo(() => scheduleProfiles.find(p => p.isActive), [scheduleProfiles]);
@@ -757,4 +767,3 @@ export default function SettingsPage() {
     </div>
   );
 }
-

@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
@@ -558,7 +559,7 @@ export default function FinancialFoundationPage() {
 
     const lifestyleProfilesQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/lifestyleProfiles`) : null, [firestore, tenantId]);
     const businessProfilesQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/businessProfiles`) : null, [firestore, tenantId]);
-    const scheduleProfilesQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/scheduleProfiles`) : null, [firestore, tenantId]);
+    const scheduleProfilesQuery = useMemoFirebase(() => tenantId ? query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isActive", "==", true)) : null, [firestore, tenantId]);
 
     const { data: lifestyleProfilesData, isLoading: lifestyleProfilesLoading } = useCollection(lifestyleProfilesQuery);
     const { data: businessProfilesData, isLoading: businessProfilesLoading } = useCollection(businessProfilesQuery);
@@ -570,7 +571,6 @@ export default function FinancialFoundationPage() {
       scheduleProfiles: []
     });
 
-    // Initialize Lifestyle Profiles
     useEffect(() => {
         if (lifestyleProfilesLoading || !firestore || !user || !tenantId) return;
         const sessionKey = `lifestyle_init_${tenantId}`;
@@ -596,7 +596,6 @@ export default function FinancialFoundationPage() {
         }
     }, [lifestyleProfilesLoading, lifestyleProfilesData, firestore, user, tenantId]);
 
-    // Initialize Business Profiles
     useEffect(() => {
         if (businessProfilesLoading || !firestore || !user || !tenantId) return;
         const sessionKey = `business_init_${tenantId}`;
@@ -621,45 +620,6 @@ export default function FinancialFoundationPage() {
             }
         }
     }, [businessProfilesLoading, businessProfilesData, firestore, user, tenantId]);
-
-    // Initialize Schedule Profiles
-    useEffect(() => {
-        if (scheduleProfilesLoading || !firestore || !user || !tenantId) return;
-        const sessionKey = `schedule_init_${tenantId}`;
-
-        if ((!scheduleProfilesData || scheduleProfilesData.length === 0) && !sessionStorage.getItem(sessionKey)) {
-            sessionStorage.setItem(sessionKey, 'true');
-            const defaultProfileId = nanoid();
-            const defaultProfile = {
-                id: defaultProfileId,
-                name: 'Default Schedule',
-                isActive: true,
-                week: {
-                    sunday: { enabled: false, start: '09:00 AM', end: '05:00 PM' },
-                    monday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
-                    tuesday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
-                    wednesday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
-                    thursday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
-                    friday: { enabled: true, start: '09:00 AM', end: '05:00 PM' },
-                    saturday: { enabled: false, start: '09:00 AM', end: '05:00 PM' },
-                },
-                timeOff: {
-                    vacationDays: 10,
-                    holidays: 8,
-                }
-            };
-            const profileDocRef = doc(firestore, `tenants/${tenantId}/scheduleProfiles/${defaultProfileId}`);
-            setDocumentNonBlocking(profileDocRef, defaultProfile, {});
-        } else if (scheduleProfilesData && scheduleProfilesData.length > 0) {
-            const hasActiveProfile = scheduleProfilesData.some(p => p.isActive);
-            if (!hasActiveProfile) {
-                const firstProfile = scheduleProfilesData[0];
-                const profileDocRef = doc(firestore, `tenants/${tenantId}/scheduleProfiles/${firstProfile.id}`);
-                updateDocumentNonBlocking(profileDocRef, { isActive: true });
-            }
-        }
-    }, [scheduleProfilesLoading, scheduleProfilesData, firestore, user, tenantId]);
-
 
     useEffect(() => {
         setProfiles({
