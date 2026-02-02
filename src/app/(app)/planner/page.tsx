@@ -27,7 +27,6 @@ import {
   DropdownMenuPortal,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
   Dialog,
@@ -1225,31 +1224,35 @@ function PlannerPageContent() {
       <div className="p-4 border-b">
             <div className="flex flex-col gap-4">
                 {isMobile ? (
-                    <div className="flex items-center gap-2">
+                     <div className="flex items-center gap-2">
                         <h2 className="text-2xl font-semibold mr-auto">{format(currentDate, 'MMMM yyyy')}</h2>
-                        <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-8">Today</Button>
-                        <div className="relative h-8 w-8">
-                             <Button variant="outline" size="icon" className="h-8 w-8" asChild>
-                                <label htmlFor="date-picker-mobile" className="cursor-pointer">
-                                    <CalendarIcon className="h-4 w-4" />
-                                    <span className="sr-only">Jump To...</span>
-                                </label>
-                            </Button>
-                            <input
-                                id="date-picker-mobile"
-                                type="date"
-                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                value={format(currentDate, 'yyyy-MM-dd')}
-                                onChange={(e) => {
-                                    if (e.target.value) {
-                                        handleDateSelect(new Date(e.target.value.replace(/-/g, '/')));
-                                    }
-                                }}
-                            />
-                        </div>
-                        <DropdownMenu>
+                        <RadioGroup
+                            value={activeView}
+                            onValueChange={(value) => setActiveView(value as 'staff' | 'resources')}
+                            className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1"
+                        >
+                            <div>
+                                <RadioGroupItem value="staff" id="staff-view-mobile-toggle" className="peer sr-only" />
+                                <Label
+                                    htmlFor="staff-view-mobile-toggle"
+                                    className="flex items-center justify-center rounded-sm p-2 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
+                                >
+                                    <User className="h-5 w-5" />
+                                </Label>
+                            </div>
+                            <div>
+                                <RadioGroupItem value="resources" id="resource-view-mobile-toggle" className="peer sr-only" />
+                                <Label
+                                    htmlFor="resource-view-mobile-toggle"
+                                    className="flex items-center justify-center rounded-sm p-2 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
+                                >
+                                    <Building className="h-5 w-5" />
+                                </Label>
+                            </div>
+                        </RadioGroup>
+                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                                <Button variant="outline" size="icon" className="h-8 w-8"><Plus className="h-4 w-4"/></Button>
+                                <Button variant="outline" size="icon" className="h-10 w-10"><Plus className="h-5 w-5"/></Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                                 <DropdownMenuItem onClick={() => handleBookNewForClient('')}>New Appointment</DropdownMenuItem>
@@ -1258,7 +1261,7 @@ function PlannerPageContent() {
                         </DropdownMenu>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4"/></Button>
+                                <Button variant="ghost" size="icon" className="h-10 w-10"><MoreHorizontal className="h-5 w-5"/></Button>
                             </DropdownMenuTrigger>
                              <DropdownMenuContent align="end">
                                 <DropdownMenuItem onClick={() => setIsKpiSheetOpen(true)}>Weekly KPIs</DropdownMenuItem>
@@ -1303,32 +1306,46 @@ function PlannerPageContent() {
                                 />
                             </div>
                              <Separator orientation="vertical" className="h-6" />
-                             <RadioGroup
-                                value={activeView}
-                                onValueChange={(value) => setActiveView(value as 'staff' | 'resources')}
-                                className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1"
-                            >
-                                <div>
-                                    <RadioGroupItem value="staff" id="staff-view" className="peer sr-only" />
-                                    <Label
-                                        htmlFor="staff-view"
-                                        className="flex items-center justify-center gap-2 rounded-sm px-3 py-1 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
-                                    >
-                                        <User className="h-4 w-4" />
-                                        Staff
-                                    </Label>
-                                </div>
-                                <div>
-                                    <RadioGroupItem value="resources" id="resource-view" className="peer sr-only" />
-                                    <Label
-                                        htmlFor="resource-view"
-                                        className="flex items-center justify-center gap-2 rounded-sm px-3 py-1 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
-                                    >
-                                        <Building className="h-4 w-4" />
-                                        Resources
-                                    </Label>
-                                </div>
-                            </RadioGroup>
+                            <TooltipProvider>
+                                <RadioGroup
+                                    value={activeView}
+                                    onValueChange={(value) => setActiveView(value as 'staff' | 'resources')}
+                                    className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1"
+                                >
+                                    <div>
+                                        <RadioGroupItem value="staff" id="staff-view" className="peer sr-only" />
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <Label
+                                                    htmlFor="staff-view"
+                                                    className="flex items-center justify-center rounded-sm p-2 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
+                                                >
+                                                    <User className="h-5 w-5" />
+                                                </Label>
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                                <p>Staff View</p>
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </div>
+                                    <div>
+                                        <RadioGroupItem value="resources" id="resource-view" className="peer sr-only" />
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <Label
+                                                    htmlFor="resource-view"
+                                                    className="flex items-center justify-center rounded-sm p-2 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
+                                                >
+                                                    <Building className="h-5 w-5" />
+                                                </Label>
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                                <p>Resource View</p>
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </div>
+                                </RadioGroup>
+                            </TooltipProvider>
                         </div>
                          <div className="flex items-center justify-end gap-2">
                             <TooltipProvider>
@@ -1362,36 +1379,6 @@ function PlannerPageContent() {
                             <Button size="sm" onClick={() => setIsAddEventOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Add Event</Button>
                             <Button size="sm" onClick={() => handleBookNewForClient('')}><PlusCircle className="mr-2 h-4 w-4"/>Add Appointment</Button>
                         </div>
-                    </div>
-                )}
-                {isMobile && (
-                    <div className="flex items-center gap-2">
-                        <RadioGroup
-                            value={activeView}
-                            onValueChange={(value) => setActiveView(value as 'staff' | 'resources')}
-                            className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1"
-                        >
-                            <div>
-                                <RadioGroupItem value="staff" id="staff-view-mobile-toggle" className="peer sr-only" />
-                                <Label
-                                    htmlFor="staff-view-mobile-toggle"
-                                    className="flex items-center justify-center gap-2 rounded-sm px-3 py-1 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
-                                >
-                                    <User className="h-4 w-4" />
-                                    Staff
-                                </Label>
-                            </div>
-                            <div>
-                                <RadioGroupItem value="resources" id="resource-view-mobile-toggle" className="peer sr-only" />
-                                <Label
-                                    htmlFor="resource-view-mobile-toggle"
-                                    className="flex items-center justify-center gap-2 rounded-sm px-3 py-1 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
-                                >
-                                    <Building className="h-4 w-4" />
-                                    Resources
-                                </Label>
-                            </div>
-                        </RadioGroup>
                     </div>
                 )}
                  <div className="-mx-4 md:m-0">
@@ -1437,7 +1424,7 @@ function PlannerPageContent() {
                 onUpdateStatus={handleUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
-                onPrintTicket={handlePrintTicket}
+                onPrintTicket={onPrintTicket}
                 onEditAppointment={handleEditClick}
                 onEditEvent={handleEditEventClick}
                 onChecklistItemToggle={handleChecklistItemToggle}
@@ -1447,7 +1434,7 @@ function PlannerPageContent() {
                 onReschedule={handleRescheduleClick}
                 onRebook={handleRebook}
                 onOpenPickingList={() => setIsPickingListOpen(true)}
-                onStartService={handleStartService}
+                onStartService={onStartService}
                 onFinishService={handleFinishService}
                 onBookNewForClient={handleBookNewForClient}
                 walkIns={walkIns}
@@ -1473,7 +1460,7 @@ function PlannerPageContent() {
                 onUpdateStatus={handleUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
-                onPrintTicket={handlePrintTicket}
+                onPrintTicket={onPrintTicket}
                 onEditAppointment={handleEditClick}
                 onEditEvent={handleEditEventClick}
                 onChecklistItemToggle={handleChecklistItemToggle}
@@ -1483,7 +1470,7 @@ function PlannerPageContent() {
                 onReschedule={handleRescheduleClick}
                 onRebook={handleRebook}
                 onOpenPickingList={() => setIsPickingListOpen(true)}
-                onStartService={handleStartService}
+                onStartService={onStartService}
                 onFinishService={handleFinishService}
                 onBookNewForClient={handleBookNewForClient}
                 walkIns={walkIns}
