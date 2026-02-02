@@ -1442,7 +1442,7 @@ function PlannerPageContent() {
                 onReschedule={handleRescheduleClick}
                 onRebook={handleRebook}
                 onOpenPickingList={() => setIsPickingListOpen(true)}
-                onStartService={onStartService}
+                onStartService={handleStartService}
                 onFinishService={handleFinishService}
                 onBookNewForClient={handleBookNewForClient}
                 walkIns={walkIns}
@@ -1478,7 +1478,7 @@ function PlannerPageContent() {
                 onReschedule={handleRescheduleClick}
                 onRebook={handleRebook}
                 onOpenPickingList={() => setIsPickingListOpen(true)}
-                onStartService={onStartService}
+                onStartService={handleStartService}
                 onFinishService={handleFinishService}
                 onBookNewForClient={handleBookNewForClient}
                 walkIns={walkIns}
