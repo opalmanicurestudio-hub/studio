@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -155,7 +154,7 @@ const Step1_BasicDetails = ({
 
     <div className="grid grid-cols-3 gap-4">
         <div className="space-y-2">
-            <Label htmlFor="duration">Default Duration (min)</Label>
+            <Label htmlFor="duration">Duration (min)</Label>
             <Input id="duration" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>
             {errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}
         </div>
@@ -188,311 +187,393 @@ const Step1_BasicDetails = ({
     );
 };
 
-const Step2_Formula = ({ onScanClick, resources, allServices }: { onScanClick: () => void, resources: Resource[], allServices: Service[] }) => {
-    const { inventory } = useInventory();
-    const { control, setValue, watch, formState: { errors } } = useFormContext<ServiceFormData>();
+const PackagingCostCalculatorDialog = ({ open, onOpenChange, onCalculated }: { open: boolean, onOpenChange: (open: boolean) => void, onCalculated: (cost: number) => void }) => {
+    const [totalCost, setTotalCost] = useState('');
+    const [numItems, setNumItems] = useState('');
 
-    const selectedProducts = watch('products') || [];
-    const selectedResourceIds = watch('requiredResourceIds') || [];
-    const compatibleAddOnIds = watch('compatibleAddOnIds') || [];
-    const isAddon = watch('isAddon');
-    
-    const [isProductBrowserOpen, setIsProductBrowserOpen] = useState(false);
-    const [isResourceSelectorOpen, setIsResourceSelectorOpen] = useState(false);
-    const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);
-
-    const selectedResources = useMemo(() => {
-        return resources.filter(r => selectedResourceIds.includes(r.id));
-    }, [resources, selectedResourceIds]);
-
-    const handleProductSelect = (products: InventoryItem[]) => {
-      const productsWithQuantity = products.map(p => {
-        const existing = selectedProducts.find((sp: any) => sp.id === p.id);
-        return {
-            ...p,
-            quantityUsed: existing?.quantityUsed || 1, // Keep existing quantity or default to 1
-        };
-      });
-      setValue('products', productsWithQuantity, { shouldDirty: true, shouldTouch: true });
-      setIsProductBrowserOpen(false);
-    };
-    
-    const handleResourceSelect = (resources: Resource[]) => {
-        setValue('requiredResourceIds', resources.map(r => r.id), { shouldDirty: true, shouldTouch: true });
-        setIsResourceSelectorOpen(false);
-    };
-    
-    const handleAddOnSelect = (addOns: Service[]) => {
-        setValue('compatibleAddOnIds', addOns.map(a => a.id), { shouldDirty: true, shouldTouch: true });
-    };
-
-    const removeProduct = (productId: string) => {
-      const newProducts = selectedProducts.filter((p: any) => p.id !== productId);
-      setValue('products', newProducts, { shouldDirty: true, shouldTouch: true });
-    };
-
-    const removeResource = (resourceId: string) => {
-        setValue('requiredResourceIds', selectedResourceIds.filter((id: string) => id !== resourceId), { shouldDirty: true, shouldTouch: true });
-    };
-    
-    const removeAddOn = (addOnId: string) => {
-        setValue('compatibleAddOnIds', compatibleAddOnIds.filter((id: string) => id !== addOnId), { shouldDirty: true, shouldTouch: true });
-    };
-
-    const selectedAddOns = allServices.filter(s => compatibleAddOnIds.includes(s.id));
-
-    return (
-        <>
-            <Card>
-                <CardHeader><CardTitle>Formula</CardTitle></CardHeader>
-                 <CardContent className="space-y-6">
-                    <div className="space-y-2"><div className='flex items-center gap-2'><Package className="w-5 h-5 text-primary" /><Label className="text-base font-semibold">Product Formula</Label></div>
-                    {selectedProducts.length > 0 ? (<Card><CardContent className="p-2 space-y-2">{selectedProducts.map((product: any, index: number) => {
-                      const inventoryItem = inventory.find(i => i.id === product.id);
-                      const unit = inventoryItem?.costingMethod === 'uses' 
-                        ? (inventoryItem.useUnit || 'uses') 
-                        : (inventoryItem?.unit || 'unit');
-                        
-                      return (
-                        <div key={product.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50 gap-2">
-                          <span className="text-sm font-medium flex-1 truncate pr-2">{product.name}</span>
-                          <div className="flex items-center gap-2">
-                            <Input
-                              type="number"
-                              value={product.quantityUsed || ''}
-                              onChange={(e) => {
-                                const newQuantity = parseFloat(e.target.value) || 0;
-                                const updatedProducts = [...selectedProducts];
-                                updatedProducts[index] = { ...product, quantityUsed: newQuantity };
-                                setValue('products', updatedProducts, { shouldDirty: true });
-                              }}
-                              className="w-20 h-8 text-center"
-                              step="0.1"
-                            />
-                            <span className="text-xs text-muted-foreground w-10 truncate">{unit}</span>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive flex-shrink-0" onClick={() => removeProduct(product.id)}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      )
-                    })}</CardContent></Card>) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No products added yet.</CardContent></Card>)}
-                    <div className='flex gap-2'><Button variant="outline" onClick={() => setIsProductBrowserOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Browse Library</Button><Button variant="outline" onClick={onScanClick} type="button"><QrCode className="mr-2 h-4 w-4" /> Scan to Add</Button></div></div>
-                    <div className="space-y-2"><div className='flex items-center gap-2'><Hammer className="w-5 h-5 text-primary" /><Label className="text-base font-semibold">Required Resources</Label></div>
-                    {selectedResources.length > 0 ? (<Card><CardContent className="p-2 space-y-2">{selectedResources.map((item: any) => (<div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50"><span className="text-sm font-medium">{item.name}</span><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeResource(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}</CardContent></Card>) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No resources required.</CardContent></Card>)}
-                    <Button variant="outline" onClick={() => setIsResourceSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Resources</Button></div>
-                    {!isAddon && (<div className="space-y-2"><div className='flex items-center gap-2'><PlusCircle className="w-5 h-5 text-primary" /><Label className="text-base font-semibold">Compatible Add-ons</Label></div>
-                    {selectedAddOns.length > 0 ? (<Card><CardContent className="p-2 space-y-2">{selectedAddOns.map((item: any) => (<div key={item.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50"><span className="text-sm font-medium">{item.name}</span><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeAddOn(item.id)}><Trash2 className="h-4 w-4" /></Button></div>))}</CardContent></Card>) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No add-ons selected.</CardContent></Card>)}
-                    <Button variant="outline" onClick={() => setIsAddOnSelectorOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4" /> Select Add-ons</Button></div>)}
-                </CardContent>
-            </Card>
-            <BrowseProductsDialog open={isProductBrowserOpen} onOpenChange={setIsProductBrowserOpen} onSelect={handleProductSelect} allProducts={inventory.filter(i => i.type === 'professional' || i.type === 'retail')} initialSelected={selectedProducts as InventoryItem[]} />
-            <SelectResourcesDialog open={isResourceSelectorOpen} onOpenChange={setIsResourceSelectorOpen} onSelect={handleResourceSelect} allResources={resources} initialSelected={selectedResources} />
-            <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={handleAddOnSelect} allAddOns={allServices.filter(s => s.type === 'addon')} initialSelected={selectedAddOns as Service[]} />
-        </>
-    );
-};
-
-const PricingTierInput = ({ tier, control }: { tier: PricingTier, control: Control<ServiceFormData> }) => {
-    const { watch, setValue } = useFormContext<ServiceFormData>();
-    
-    const serviceTiers = watch('serviceTiers') || [];
-    const tierData = serviceTiers.find(t => t.tierId === tier.id);
-    const isEnabled = !!tierData;
-
-    const handleToggle = (checked: boolean) => {
-        let newTiers = [...serviceTiers];
-        if (checked) {
-            if (!newTiers.find(t => t.tierId === tier.id)) {
-                newTiers.push({ tierId: tier.id, price: 0, durationMinutes: 0 });
-            }
-        } else {
-            newTiers = newTiers.filter(t => t.tierId !== tier.id);
+    const costPerItem = useMemo(() => {
+        const tc = parseFloat(totalCost);
+        const ni = parseInt(numItems);
+        if (tc > 0 && ni > 0) {
+            return (tc / ni);
         }
-        setValue('serviceTiers', newTiers, { shouldDirty: true });
+        return 0;
+    }, [totalCost, numItems]);
+
+    const handleApply = () => {
+        onCalculated(costPerItem);
+        onOpenChange(false);
     };
-
-    const handlePriceChange = (price: number) => {
-        const newTiers = serviceTiers.map(t => t.tierId === tier.id ? {...t, price} : t);
-        setValue('serviceTiers', newTiers, { shouldDirty: true });
-    };
-
-    const handleDurationChange = (durationMinutes: number) => {
-        const newTiers = serviceTiers.map(t => t.tierId === tier.id ? {...t, durationMinutes} : t);
-        setValue('serviceTiers', newTiers, { shouldDirty: true });
-    };
-
-    return (
-        <Card>
-            <CardHeader className="p-4 flex flex-row items-center justify-between">
-                <CardTitle className="text-base capitalize">{tier.name}</CardTitle>
-                <Switch checked={isEnabled} onCheckedChange={handleToggle} />
-            </CardHeader>
-            {isEnabled && (
-                <CardContent className="p-4 pt-0 grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                        <Label htmlFor={`${tier.id}-price`} className="text-xs flex items-center gap-1.5"><DollarSign className="w-3 h-3 text-muted-foreground"/>Price</Label>
-                        <div className="relative">
-                            <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                            <Input id={`${tier.id}-price`} type="number" placeholder="0.00" value={tierData?.price ?? ''} onChange={e => handlePriceChange(parseFloat(e.target.value) || 0)} className="pl-7" />
-                        </div>
-                    </div>
-                    <div className="space-y-1">
-                        <Label htmlFor={`${tier.id}-durationMinutes`} className="text-xs flex items-center gap-1.5"><Clock className="w-3 h-3 text-muted-foreground"/>Duration</Label>
-                        <div className="relative">
-                            <Input id={`${tier.id}-durationMinutes`} type="number" placeholder="0" value={tierData?.durationMinutes ?? ''} onChange={e => handleDurationChange(parseInt(e.target.value) || 0)} className="pr-12"/>
-                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">mins</span>
-                        </div>
-                    </div>
-                </CardContent>
-            )}
-        </Card>
-    );
-};
-
-
-const Step3_PricingBooking = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricingTiers: PricingTier[] }) => {
-    const { control, watch, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
-    const isAddon = watch('isAddon');
-    const depositType = watch('depositType');
-    const serviceTiers = watch('serviceTiers');
 
     useEffect(() => {
-        if (depositType === 'breakeven') {
-            setValue('depositAmount', breakEvenCost, { shouldValidate: true });
-            setValue('depositSubType', 'flat', { shouldValidate: true });
+        if (!open) {
+            setTotalCost('');
+            setNumItems('');
         }
-    }, [depositType, breakEvenCost, setValue]);
+    }, [open]);
 
     return (
-        <Card>
-            <CardHeader><CardTitle>Pricing & Booking</CardTitle></CardHeader>
-            <CardContent className="space-y-6">
-                <div className="space-y-4">
-                    <Label>Pricing & Duration by Tier</Label>
-                     {errors.serviceTiers && <Alert variant="destructive"><AlertTriangle className="h-4 w-4" /><AlertDescription>At least one tier must be configured.</AlertDescription></Alert>}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        {pricingTiers.map(tier => <PricingTierInput key={tier.id} tier={tier} control={control} />)}
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Calculate Packaging Cost</DialogTitle>
+                    <DialogDescription>Enter the total cost of your packaging materials and the number of packages to find the cost per item.</DialogDescription>
+                </DialogHeader>
+                <div className="py-4 space-y-4">
+                    <div className="space-y-2">
+                        <Label htmlFor="total-packaging-cost">Total Packaging Cost</Label>
+                        <Input id="total-packaging-cost" type="number" placeholder="e.g., 50.00" value={totalCost} onChange={e => setTotalCost(e.target.value)} />
                     </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="num-packages">Number of Packages</Label>
+                        <Input id="num-packages" type="number" placeholder="e.g., 100" value={numItems} onChange={e => setNumItems(e.target.value)} />
+                    </div>
+                    <Card className="bg-muted/50">
+                        <CardContent className="p-4 flex items-center justify-between">
+                            <span className="font-medium">Cost Per Item:</span>
+                            <span className="text-2xl font-bold text-primary">${costPerItem.toFixed(2)}</span>
+                        </CardContent>
+                    </Card>
                 </div>
-
-                <Card className="bg-muted/50"><CardContent className="p-4 space-y-4">
-                    <h4 className="font-semibold text-center">Profitability Preview</h4>
-                     <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                        <p className="font-semibold">Level</p>
-                        <p className="font-semibold">Profit</p>
-                        <p className="font-semibold">Margin</p>
-                    </div>
-                     {(serviceTiers || []).map(tier => {
-                        const tierInfo = pricingTiers.find(t => t.id === tier.tierId);
-                        if (!tierInfo) return null;
-
-                        const netProfit = tier.price - breakEvenCost;
-                        const profitMargin = tier.price > 0 ? (netProfit / tier.price) * 100 : 0;
-                        return (
-                            <div key={tier.tierId} className="grid grid-cols-3 gap-2 text-center text-sm items-center">
-                                <p className="capitalize font-medium">{tierInfo.name}</p>
-                                <p className={cn("font-mono", netProfit >= 0 ? 'text-primary' : 'text-destructive')}>${netProfit.toFixed(2)}</p>
-                                <p className={cn("font-mono", profitMargin >= 0 ? 'text-primary' : 'text-destructive')}>{profitMargin.toFixed(1)}%</p>
-                            </div>
-                        )
-                     })}
-                    <div className="flex justify-between items-center text-xs border-t pt-2 mt-2">
-                        <p className="text-muted-foreground">Break-Even Cost:</p>
-                        <p className="font-mono text-destructive">${breakEvenCost.toFixed(2)}</p>
-                    </div>
-                </CardContent></Card>
-                
-                {!isAddon && (
-                    <div className="space-y-4 pt-4 border-t">
-                        <Label>Deposit Requirement</Label>
-                        <Controller name="depositType" control={control} defaultValue="none" render={({ field }) => (
-                            <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-4">
-                                <div><RadioGroupItem value="none" id="none" className="peer sr-only" /><Label htmlFor="none" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">None</Label></div>
-                                <div><RadioGroupItem value="deposit" id="deposit" className="peer sr-only" /><Label htmlFor="deposit" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Deposit</Label></div>
-                                <div><RadioGroupItem value="breakeven" id="breakeven" className="peer sr-only" /><Label htmlFor="breakeven" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Breakeven<span className="text-xs text-muted-foreground font-normal mt-1">${breakEvenCost.toFixed(2)}</span></Label></div>
-                                <div><RadioGroupItem value="full" id="full" className="peer sr-only" /><Label htmlFor="full" className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-4 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Pay in Full</Label></div>
-                            </RadioGroup>
-                        )}/>
-                        {['deposit', 'breakeven'].includes(depositType!) && (
-                            <Card className="bg-background"><CardContent className="p-4 space-y-4">
-                                {depositType === 'deposit' && (
-                                <div className="space-y-2">
-                                    <Label>Deposit Type</Label>
-                                    <Controller name="depositSubType" control={control} render={({ field }) => (
-                                    <Select onValueChange={field.onChange} value={field.value}>
-                                        <SelectTrigger><SelectValue placeholder="Select deposit type" /></SelectTrigger>
-                                        <SelectContent><SelectItem value="flat">Flat Rate</SelectItem><SelectItem value="percentage">Percentage</SelectItem></SelectContent>
-                                    </Select>
-                                    )}/>
-                                </div>
-                                )}
-                                <div className="space-y-2">
-                                    <Label>Deposit Amount</Label>
-                                    <Controller name="depositAmount" control={control} render={({ field }) => (
-                                    <div className="relative">
-                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                        <Input type="number" placeholder="25.00" {...field} value={field.value ?? ''} className="pl-8" disabled={depositType === 'breakeven'}/>
-                                    </div>
-                                    )} />
-                                </div>
-                            </CardContent></Card>
-                        )}
-                    </div>
-                )}
-            </CardContent>
-         </Card>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                    <Button onClick={handleApply} disabled={costPerItem <= 0}>Apply Cost</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     );
 };
 
-const Step4_VisibilityConfirmation = ({ consentForms }: { consentForms: ConsentForm[] }) => {
-    const { register, control, setValue, watch } = useFormContext<ServiceFormData>();
-    const requiredFormIds = watch('requiredFormIds') || [];
-    const [isConsentFormBrowserOpen, setIsConsentFormBrowserOpen] = useState(false);
-    
-    const requiredForms = consentForms?.filter(f => requiredFormIds.includes(f.id)) || [];
+const ShippingCostCalculatorDialog = ({ open, onOpenChange, onCalculated }: { open: boolean, onOpenChange: (open: boolean) => void, onCalculated: (cost: number) => void }) => {
+    const [costs, setCosts] = useState<number[]>([]);
+    const [newCost, setNewCost] = useState('');
 
-    const handleRemoveForm = (formId: string) => {
-        const newIds = requiredFormIds.filter(id => id !== formId);
-        setValue('requiredFormIds', newIds, { shouldDirty: true });
+    const averageCost = useMemo(() => {
+        if (costs.length === 0) return 0;
+        const sum = costs.reduce((a, b) => a + b, 0);
+        return (sum / costs.length);
+    }, [costs]);
+
+    const handleAddCost = () => {
+        const cost = parseFloat(newCost);
+        if (cost > 0) {
+            setCosts([...costs, cost]);
+            setNewCost('');
+        }
     };
+
+    const handleRemoveCost = (index: number) => {
+        setCosts(costs.filter((_, i) => i !== index));
+    };
+
+    const handleApply = () => {
+        onCalculated(averageCost);
+        onOpenChange(false);
+    };
+
+    useEffect(() => {
+        if (!open) {
+            setCosts([]);
+            setNewCost('');
+        }
+    }, [open]);
+
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Calculate Average Shipping Cost</DialogTitle>
+                    <DialogDescription>Enter several recent shipping costs to calculate an average for your DTC pricing.</DialogDescription>
+                </DialogHeader>
+                <div className="py-4 space-y-4">
+                    <div className="flex gap-2">
+                        <Input
+                            type="number"
+                            placeholder="Enter a shipping cost..."
+                            value={newCost}
+                            onChange={(e) => setNewCost(e.target.value)}
+                            onKeyDown={(e) => { if(e.key === 'Enter') { e.preventDefault(); handleAddCost(); }}}
+                        />
+                        <Button onClick={handleAddCost} type="button">Add</Button>
+                    </div>
+                    <div className="space-y-2">
+                        <Label>Entered Costs</Label>
+                        <ScrollArea className="h-40 border rounded-md">
+                            <div className="p-2 space-y-1">
+                                {costs.length > 0 ? costs.map((cost, index) => (
+                                    <div key={index} className="flex items-center justify-between p-1.5 bg-muted/50 rounded-md">
+                                        <span className="font-mono">${cost.toFixed(2)}</span>
+                                        <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveCost(index)}>
+                                            <Trash2 className="w-4 h-4" />
+                                        </Button>
+                                    </div>
+                                )) : (
+                                    <p className="text-sm text-center text-muted-foreground p-4">No costs entered yet.</p>
+                                )}
+                            </div>
+                        </ScrollArea>
+                    </div>
+                    <Card className="bg-muted/50">
+                        <CardContent className="p-4 flex items-center justify-between">
+                            <span className="font-medium">Average Shipping Cost:</span>
+                            <span className="text-2xl font-bold text-primary">${averageCost.toFixed(2)}</span>
+                        </CardContent>
+                    </Card>
+                </div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                    <Button onClick={handleApply} disabled={averageCost <= 0}>Apply Average</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
+const Step2_CostingPricing = () => {
+    const { control, watch, register, setValue } = useFormContext<ProductFormData>();
+    const productType = watch('type');
+    const costingMethod = watch('costingMethod');
+    const [totalPurchaseCost, numUnits, shippingCost, taxCost, discounts, msrp, wholesalePrice, packagingCost, shippingCostToCustomer] = watch([
+        'totalPurchaseCost',
+        'numUnits',
+        'shippingCost',
+        'taxCost',
+        'discounts',
+        'msrp',
+        'wholesalePrice',
+        'packagingCost',
+        'shippingCostToCustomer'
+    ]);
+    
+    const [isPackagingCalcOpen, setIsPackagingCalcOpen] = useState(false);
+    const [isShippingCalcOpen, setIsShippingCalcOpen] = useState(false);
+
+
+    const landedCostPerItem = useMemo(() => {
+        const safeParse = (val: any) => parseFloat(val) || 0;
+        const total = safeParse(totalPurchaseCost) + safeParse(shippingCost) + safeParse(taxCost) - safeParse(discounts);
+        const units = safeParse(numUnits);
+        if (units === 0) return 0;
+        return total / units;
+    }, [totalPurchaseCost, numUnits, shippingCost, taxCost, discounts]);
+
+    const wholesaleProfit = useMemo(() => {
+        const price = wholesalePrice || 0;
+        if (price === 0 || landedCostPerItem === 0) return { profit: 0, margin: 0 };
+        const profit = price - landedCostPerItem;
+        const margin = (profit / price) * 100;
+        return { profit, margin };
+    }, [wholesalePrice, landedCostPerItem]);
+
+    const dtcProfit = useMemo(() => {
+        const price = msrp || 0;
+        const totalDtcCost = landedCostPerItem + (packagingCost || 0) + (shippingCostToCustomer || 0);
+        if (price === 0) return { profit: 0, margin: 0 };
+        const profit = price - totalDtcCost;
+        const margin = (profit / price) * 100;
+        return { profit, margin };
+    }, [msrp, landedCostPerItem, packagingCost, shippingCostToCustomer]);
 
     return (
         <>
-            <Card>
-                <CardHeader><CardTitle>Visibility & Confirmation</CardTitle></CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="space-y-2"><Label htmlFor="confirmationMessage">Confirmation Message</Label><Textarea id="confirmationMessage" placeholder="Optional: A message to show clients after they book this service." {...register('confirmationMessage')} /></div>
-                    <div className="flex items-center justify-between p-4 border rounded-lg"><div className='space-y-1'><Label htmlFor="private-service">Private Service</Label><p className='text-sm text-muted-foreground'>Hide from public booking page.</p></div><Controller name="isPrivate" control={control} render={({ field }) => ( <Switch id="private-service" checked={field.value} onCheckedChange={field.onChange} /> )}/></div>
-                    <div className="space-y-2"><Label>Required Consent Forms</Label>
-                    {requiredForms.length > 0 ? (<Card><CardContent className="p-2 space-y-2">{requiredForms.map(form => (<div key={form.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50"><span className="text-sm font-medium">{form.title}</span><Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveForm(form.id)}><Trash2 className="h-4 w-4" /></Button></div>))}</CardContent></Card>) : (<Card><CardContent className="p-4 text-center text-sm text-muted-foreground">No forms required.</CardContent></Card>)}
-                    <Button variant="outline" onClick={() => setIsConsentFormBrowserOpen(true)} type="button" className="w-full"><PlusCircle className="mr-2 h-4 w-4" /> Browse Forms</Button></div>
-                </CardContent>
-            </Card>
-            <BrowseConsentFormsDialog open={isConsentFormBrowserOpen} onOpenChange={setIsConsentFormBrowserOpen} onSelect={(forms) => { setValue('requiredFormIds', forms.map(f => f.id), { shouldDirty: true }); }} allForms={consentForms || []} initialSelected={requiredForms} />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                <Card>
+                    <CardHeader><CardTitle>Landed Cost Calculator</CardTitle><CardDescription>Calculate the true cost per item.</CardDescription></CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2"><Label htmlFor="total-cost">Total Purchase Cost</Label><Input id="total-cost" type="number" placeholder="From invoice" {...register('totalPurchaseCost')} /></div>
+                            <div className="space-y-2"><Label htmlFor="num-units">Number of Units</Label><Input id="num-units" type="number" placeholder="In shipment" {...register('numUnits')} /></div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2"><Label htmlFor="shipping">Shipping</Label><Input id="shipping" type="number" placeholder="0.00" {...register('shippingCost')} /></div>
+                            <div className="space-y-2"><Label htmlFor="taxes">Taxes</Label><Input id="taxes" type="number" placeholder="0.00" {...register('taxCost')} /></div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="discounts">Discounts</Label>
+                            <Input id="discounts" type="number" placeholder="0.00" {...register('discounts')} />
+                        </div>
+                        <div className="p-3 bg-muted rounded-md flex items-center justify-between">
+                            <span className="font-medium">Landed Cost Per Item:</span>
+                            <span className="text-lg font-bold text-primary">${landedCostPerItem.toFixed(2)}</span>
+                        </div>
+                    </CardContent>
+                </Card>
+                {(productType === 'professional') && (
+                    <Card>
+                        <CardHeader><CardTitle>Professional Costing</CardTitle><CardDescription>How much does it cost to use this once?</CardDescription></CardHeader>
+                        <CardContent className="space-y-4">
+                            <Controller name="costingMethod" control={control} render={({ field }) => (<div className="space-y-2"><Label>Costing Method</Label><RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2"><div><RadioGroupItem value="size" id="by-size" className="peer sr-only" /><Label htmlFor="by-size" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">By Size</Label></div><div><RadioGroupItem value="uses" id="by-uses" className="peer sr-only" /><Label htmlFor="by-uses" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">By Uses</Label></div></RadioGroup></div>)}/>
+                            {costingMethod === 'size' && (<div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label htmlFor="container-size">Container Size</Label><Input id="container-size" type="number" placeholder="e.g., 1000" {...register('containerSize')} /></div><div className="space-y-2"><Label htmlFor="unit">Unit</Label><Controller name="containerUnit" control={control} render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger id="unit"><SelectValue placeholder="Unit" /></SelectTrigger><SelectContent><SelectItem value="ml">ml</SelectItem><SelectItem value="oz">oz</SelectItem><SelectItem value="g">g</SelectItem></SelectContent></Select>)}/></div></div>)}
+                            {costingMethod === 'uses' && (<div className="space-y-2"><Label htmlFor="estimated-uses">Uses Per Container</Label><Input id="estimated-uses" type="number" placeholder="e.g., 50" {...register('usesPerContainer')} /></div>)}
+                             <div className="space-y-2"><Label htmlFor="restocking-markup">Restocking Markup (%)</Label><Input id="restocking-markup" type="number" placeholder="e.g., 5" {...register('restockingMarkup')} /></div>
+                        </CardContent>
+                    </Card>
+                )}
+                {(productType === 'retail') && (
+                    <Card>
+                        <CardHeader><CardTitle>Retail Pricing</CardTitle><CardDescription>Set pricing for different sales channels.</CardDescription></CardHeader>
+                        <CardContent className="space-y-6">
+                            <div className="space-y-2">
+                               <Label className="font-semibold">Wholesale</Label>
+                               <div className="space-y-2 p-3 border rounded-md">
+                                    <div className="space-y-1">
+                                        <Label htmlFor="wholesale-price" className="text-xs">Wholesale Price</Label>
+                                        <div className="relative">
+                                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                            <Input id="wholesale-price" type="number" placeholder="0.00" {...register('wholesalePrice')} className="pl-8" />
+                                        </div>
+                                    </div>
+                                    <div className="p-2 bg-muted rounded-md text-xs flex justify-between">
+                                        <span>Profit: <span className="font-bold">${wholesaleProfit.profit.toFixed(2)}</span></span>
+                                        <span>Margin: <span className="font-bold">{wholesaleProfit.margin.toFixed(1)}%</span></span>
+                                    </div>
+                               </div>
+                            </div>
+                            <div className="space-y-2">
+                                <Label className="font-semibold">Direct-to-Consumer (DTC)</Label>
+                                 <div className="space-y-4 p-3 border rounded-md">
+                                    <div className="space-y-1">
+                                        <Label htmlFor="dtc-price" className="text-xs">DTC Price (MSRP)</Label>
+                                        <div className="relative">
+                                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                            <Input id="dtc-price" type="number" placeholder="0.00" {...register('msrp')} className="pl-8" />
+                                        </div>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <div className="flex items-center justify-between">
+                                            <Label htmlFor="packaging-cost" className="text-xs">Packaging Cost / item</Label>
+                                            <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => setIsPackagingCalcOpen(true)}>
+                                                <Calculator className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                        <div className="relative">
+                                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                            <Input id="packaging-cost" type="number" placeholder="0.00" {...register('packagingCost')} className="pl-8" />
+                                        </div>
+                                    </div>
+                                     <div className="space-y-1">
+                                        <div className="flex items-center justify-between">
+                                            <Label htmlFor="shipping-cost" className="text-xs">Avg. Shipping Cost / item</Label>
+                                            <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => setIsShippingCalcOpen(true)}>
+                                                <Calculator className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                        <div className="relative">
+                                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                            <Input id="shipping-cost" type="number" placeholder="0.00" {...register('shippingCostToCustomer')} className="pl-8" />
+                                        </div>
+                                    </div>
+                                    <div className="p-2 bg-muted rounded-md text-xs flex justify-between">
+                                        <span>Profit: <span className="font-bold">${dtcProfit.profit.toFixed(2)}</span></span>
+                                        <span>Margin: <span className="font-bold">{dtcProfit.margin.toFixed(1)}%</span></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
+            </div>
+             <PackagingCostCalculatorDialog
+                open={isPackagingCalcOpen}
+                onOpenChange={setIsPackagingCalcOpen}
+                onCalculated={(cost) => setValue('packagingCost', cost, { shouldDirty: true })}
+            />
+            <ShippingCostCalculatorDialog
+                open={isShippingCalcOpen}
+                onOpenChange={setIsShippingCalcOpen}
+                onCalculated={(cost) => setValue('shippingCostToCustomer', cost, { shouldDirty: true })}
+            />
         </>
     );
 };
 
+const Step3_InventorySupplier = ({ onAddLocationClick, locations }: { onAddLocationClick: () => void, locations: Location[] }) => {
+     const { control, register, formState: { errors } } = useFormContext<ProductFormData>();
+    return (
+        <div className="space-y-6">
+            <Card>
+                <CardHeader><CardTitle>Supplier Info</CardTitle></CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="space-y-2"><Label htmlFor="vendor">Vendor</Label><Input id="vendor" placeholder="e.g., SalonCentric" {...register('supplier')} /></div>
+                    <div className="space-y-2"><Label htmlFor="sku">SKU / Barcode</Label><Input id="sku" placeholder="Product identifier" {...register('sku')} /></div>
+                    <div className="space-y-2"><Label htmlFor="purchase-link">Purchase Link</Label><Input id="purchase-link" type="text" placeholder="www.example.com" {...register('purchaseLink')} /></div>
+                </CardContent>
+            </Card>
+            <Card>
+                 <CardHeader><CardTitle>Stock Management</CardTitle></CardHeader>
+                 <CardContent className="space-y-4">
+                    <div className="space-y-2"><Label htmlFor="reorder-point">Reorder Point</Label><Input id="reorder-point" type="number" placeholder="e.g., 5" {...register('reorderPoint')} /></div>
+                     <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2"><Label htmlFor="initial-stock">Initial Stock</Label><Input id="initial-stock" type="number" placeholder="Quantity" {...register('initialStock')} />{errors.initialStock && <p className="text-sm text-destructive">{errors.initialStock.message}</p>}</div>
+                        <div className="space-y-2">
+                            <Label>Expiration Date</Label>
+                            <Controller name="expirationDate" control={control} render={({ field }) => (
+                                <Popover>
+                                    <PopoverTrigger className={cn(buttonVariants({ variant: 'outline' }), 'w-full justify-start text-left font-normal', !field.value && 'text-muted-foreground')}>
+                                        <CalendarIcon className="mr-2 h-4 w-4" />
+                                        {field.value ? format(field.value, 'PPP') : 'No expiry'}
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0">
+                                        <Calendar mode="single" selected={field.value} onSelect={field.onChange} />
+                                    </PopoverContent>
+                                </Popover>
+                            )}/>
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+             <Card>
+                <CardHeader><CardTitle>Storage Locations</CardTitle></CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                        <Label>Primary Location</Label>
+                        <Controller
+                            name="primaryLocationId"
+                            control={control}
+                            render={({ field }) => (
+                                <div className="flex gap-2">
+                                <Select onValueChange={field.onChange} value={field.value}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select location" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {locations.map(loc => (
+                                            <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                <Button variant="outline" size="icon" onClick={onAddLocationClick} type="button">
+                                    <PlusCircle className="h-4 w-4" />
+                                </Button>
+                                </div>
+                            )}
+                        />
+                    </div>
+                </CardContent>
+            </Card>
+        </div>
+    )
+};
 
-export const AddServiceDialog: React.FC<{ 
+
+export const AddProductDialog: React.FC<{ 
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  initialType?: 'service' | 'addon';
+  initialType: 'professional' | 'retail';
   categories: string[];
   onNewCategory: (category: string) => void;
-  onServiceAdded: (service: Service) => void;
-  resources: Resource[];
-  services: Service[];
+  onProductAdded: (product: InventoryItem) => void;
+  locations: Location[],
+  onAddLocationClick: () => void;
 }> = ({
   open,
   onOpenChange,
-  initialType = 'service',
+  initialType,
   categories,
   onNewCategory,
-  onServiceAdded,
-  resources,
-  services,
+  onProductAdded,
+  locations,
+  onAddLocationClick,
 }) => {
   const [step, setStep] = useState(1);
   const totalSteps = 3;
@@ -500,154 +581,73 @@ export const AddServiceDialog: React.FC<{
   const { toast } = useToast();
   const isMobile = useIsMobile();
   
-  const methods = useForm<ServiceFormData>({
-    resolver: zodResolver(serviceSchema),
+  const methods = useForm<ProductFormData>({
+    resolver: zodResolver(productSchema),
     defaultValues: {
-      isAddon: initialType === 'addon',
+      type: initialType,
     }
   });
 
   useEffect(() => {
     if (open) {
-      methods.reset({ 
-        isAddon: initialType === 'addon',
-        name: '',
-        category: '',
-        duration: 0,
-        padBefore: 0,
-        padAfter: 0,
-        description: '',
-        imageUrl: '',
-        isPrivate: false,
-        capacity: 1,
-        products: [],
-        requiredResourceIds: [],
-        compatibleAddOnIds: [],
-        depositType: 'none',
-        depositSubType: 'flat',
-        depositAmount: 0,
-        serviceTiers: [],
-        confirmationMessage: '',
-        requiredFormIds: [],
-    });
+      methods.reset({ type: initialType });
       setStep(1);
     }
   }, [open, initialType, methods]);
 
   const { watch, trigger, handleSubmit } = methods;
-  const values = watch();
-  const { duration, padBefore, padAfter, products, requiredResourceIds } = values;
-  const [tmhr, setTmhr] = useState(0);
-
-  const { inventory } = useInventory();
   
-  const { firestore } = useFirebase();
-  const { selectedTenant } = useTenant();
-  const consentFormsQuery = useMemoFirebase(() => {
-    if (!firestore || !selectedTenant) return null;
-    return collection(firestore, `tenants/${selectedTenant.id}/consentForms`);
-  }, [firestore, selectedTenant]);
-  const { data: consentForms } = useCollection<ConsentForm>(consentFormsQuery);
-
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-        setTmhr(parseFloat(localStorage.getItem('tmhr') || '50'));
+  const onSubmit = (data: ProductFormData) => {
+    const costPerUnit = (data.numUnits || 1) > 0 ? ((data.totalPurchaseCost || 0) + (data.shippingCost || 0) + (data.taxCost || 0) - (data.discounts || 0)) / (data.numUnits || 1) : 0;
+    
+    let finalPurchaseLink = data.purchaseLink;
+    if (finalPurchaseLink && !/^(https?:\/\/)/i.test(finalPurchaseLink)) {
+        finalPurchaseLink = `https://${finalPurchaseLink}`;
     }
-  }, []);
 
-  const breakEvenCost = useMemo(() => {
-      const totalDuration = (duration || 0) + (padBefore || 0) + (padAfter || 0);
-      const timeCost = (totalDuration / 60) * tmhr;
-
-      const productCost = (products || []).reduce((acc: number, p: any) => {
-          const product = inventory.find(i => i.id === p.id);
-          const quantity = p.quantityUsed || 1;
-          let costPerUse = 0;
-            if (product) {
-                if (product.costingMethod === 'size' && product.size && product.size > 0) {
-                    costPerUse = (product.costPerUnit || 0) / product.size;
-                } else if (product.costingMethod === 'uses' && product.estimatedUses && product.estimatedUses > 0) {
-                    costPerUse = (product.costPerUnit || 0) / product.estimatedUses;
-                } else {
-                    costPerUse = product.costPerUnit || 0;
-                }
-            }
-          return acc + (costPerUse * quantity);
-      }, 0);
-
-      const equipmentDepreciation = (requiredResourceIds || []).reduce((acc, resourceId) => {
-          const equipmentItem = inventory.find(i => i.id === resourceId && i.type === 'equipment');
-          if (!equipmentItem || !equipmentItem.lifespanYears || equipmentItem.lifespanYears === 0) return acc;
-          const lifespanInMinutes = (equipmentItem.lifespanYears || 5) * 365 * 8 * 60;
-          const costPerMinute = (equipmentItem.costPerUnit || 0) / lifespanInMinutes;
-          return acc + (costPerMinute * totalDuration);
-      }, 0);
-
-      return timeCost + productCost + equipmentDepreciation;
-  }, [duration, padBefore, padAfter, products, requiredResourceIds, tmhr, inventory]);
-  
-  const handleOpenChange = (isOpen: boolean) => {
-    onOpenChange(isOpen);
-  }
-
-  const onSubmit = (data: ServiceFormData) => {
-      const enabledTiers = (['apprentice', 'junior', 'senior', 'master'] as const)
-        .filter(tier => data.pricingTiers[tier].enabled)
-        .map(tier => ({
-            level: tier,
-            price: data.pricingTiers[tier].price!,
-            durationMinutes: data.pricingTiers[tier].durationMinutes!,
-        }));
-      
-      const finalPrice = data.pricingTiers.senior.price || enabledTiers[0]?.price || 0;
-      const netProfit = finalPrice - breakEvenCost;
-      const margin = finalPrice > 0 ? (netProfit / finalPrice) * 100 : 0;
-      
-      const newService: Service = {
-        id: `svc-${Date.now()}`,
+    const newProduct: InventoryItem = {
+        id: `prod-${Date.now()}`,
         name: data.name,
-        type: data.isAddon ? 'addon' : 'service',
-        category: data.category || 'Uncategorized',
-        duration: data.duration,
-        padBefore: data.padBefore,
-        padAfter: data.padAfter,
-        price: finalPrice,
-        serviceTiers: data.serviceTiers,
-        cost: breakEvenCost,
-        profit: netProfit,
-        margin: margin,
+        type: data.type,
+        category: data.category,
+        totalStock: data.initialStock || 0,
+        supplier: data.supplier || '',
+        supplierUrl: finalPurchaseLink,
+        costPerUnit: costPerUnit,
+        reorderPoint: data.reorderPoint,
         imageUrl: data.imageUrl,
-        products: data.products,
-        requiredResourceIds: data.requiredResourceIds,
-        description: data.description,
-        isPrivate: data.isPrivate,
-        confirmationMessage: data.confirmationMessage,
-        requiredFormIds: data.requiredFormIds,
-        depositType: data.depositType,
-        depositSubType: data.depositSubType,
-        depositAmount: data.depositAmount,
-        compatibleAddOnIds: data.compatibleAddOnIds,
-        capacity: data.capacity || 1,
-      };
-      
-      onServiceAdded(newService);
-
-      toast({
-          title: `New ${data.isAddon ? 'Add-on' : 'Service'} Created`,
-          description: `${data.name} has been added to your library.`
-      })
-      handleOpenChange(false);
+        primaryLocationId: data.primaryLocationId,
+        costingMethod: data.costingMethod,
+        size: data.containerSize,
+        unit: data.containerUnit as any,
+        estimatedUses: data.usesPerContainer,
+        msrp: data.msrp,
+        markdownPrice: data.markdownPrice,
+        restockingMarkup: data.restockingMarkup,
+        internalNotes: data.internalNotes,
+        wholesalePrice: data.wholesalePrice,
+        packagingCost: data.packagingCost,
+        shippingCostToCustomer: data.shippingCostToCustomer,
+        batches: [{
+            id: `batch-${Date.now()}`,
+            stock: data.initialStock || 0,
+            costPerUnit: costPerUnit,
+            receivedDate: new Date().toISOString(),
+            expirationDate: data.expirationDate?.toISOString(),
+        }],
+    };
+    onProductAdded(newProduct);
+    onOpenChange(false);
   };
   
     const handleNext = async (e: React.MouseEvent<HTMLButtonElement>) => {
         e.preventDefault();
-        const fieldsToValidate: (keyof ServiceFormData)[] = [];
+        const fieldsToValidate: (keyof ProductFormData)[] = [];
         if (step === 1) {
-        fieldsToValidate.push('name', 'category', 'duration');
+            fieldsToValidate.push('name', 'category');
         }
         if (step === 3) {
-        fieldsToValidate.push('serviceTiers');
+            fieldsToValidate.push('initialStock');
         }
         
         const isValid = fieldsToValidate.length > 0 ? await trigger(fieldsToValidate) : true;
@@ -663,19 +663,28 @@ export const AddServiceDialog: React.FC<{
             setStep(step - 1);
         }
     };
+  
+  const handleOpenChange = (isOpen: boolean) => {
+    onOpenChange(isOpen);
+    if (!isOpen) {
+      setTimeout(() => {
+        setStep(1);
+        methods.reset();
+      }, 300);
+    }
+  };
 
   const getStepContent = () => {
       switch(step) {
           case 1: return <Step1_BasicDetails categories={categories} onNewCategory={onNewCategory} />;
-          case 2: return <Step2_Formula onScanClick={() => setIsScannerOpen(true)} resources={resources} allServices={services} />;
-          case 3: return <Step3_PricingBooking breakEvenCost={breakEvenCost} pricingTiers={[]} />;
-          case 4: return <Step4_VisibilityConfirmation consentForms={consentForms || []} />;
+          case 2: return <Step2_CostingPricing />;
+          case 3: return <Step3_InventorySupplier onAddLocationClick={onAddLocationClick} locations={locations} />;
           default: return null;
       }
   }
   
-  const formId = `add-service-form`;
-  const title = `Add New ${methods.getValues('isAddon') ? 'Add-on' : 'Service'}`;
+  const formId = `add-product-form-${initialType}`;
+  const title = `Add New ${initialType === 'retail' ? 'Retail Product' : 'Professional Product'}`;
   const description = "Use this wizard to add a new item to your inventory.";
 
   const formBody = (
@@ -699,7 +708,7 @@ export const AddServiceDialog: React.FC<{
               {step < totalSteps ? (
                 <Button onClick={handleNext} type="button">Next</Button>
               ) : (
-                <Button type="submit" form={formId}>Save Service</Button>
+                <Button type="submit" form={formId}>Save Product</Button>
               )}
             </div>
           </div>
@@ -726,5 +735,3 @@ export const AddServiceDialog: React.FC<{
     </Dialog>
   );
 };
-
-    

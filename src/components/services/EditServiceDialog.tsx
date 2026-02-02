@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -35,7 +34,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ImageUpload } from '@/components/shared/ImageUpload';
-import { type InventoryItem, type Location, type ConsentForm, type Resource } from '@/lib/data';
+import { type InventoryItem, type Location, type ConsentForm, type Resource, type PricingTier } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { useForm, FormProvider, useFormContext, Controller, type Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -173,7 +172,7 @@ const Step1_BasicDetails = ({
 
     <div className="grid grid-cols-3 gap-4">
         <div className="space-y-2">
-            <Label htmlFor="duration-edit">Default Duration (min)</Label>
+            <Label htmlFor="duration-edit">Duration (min)</Label>
             <Input id="duration-edit" type="number" placeholder="e.g., 60" {...register('duration', { valueAsNumber: true })}/>
             {errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}
         </div>
@@ -197,6 +196,148 @@ const Step1_BasicDetails = ({
        <Controller name="imageUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} initialImage={field.value}/> )}/>
     </div>
   </div>
+    );
+};
+
+const PackagingCostCalculatorDialog = ({ open, onOpenChange, onCalculated }: { open: boolean, onOpenChange: (open: boolean) => void, onCalculated: (cost: number) => void }) => {
+    const [totalCost, setTotalCost] = useState('');
+    const [numItems, setNumItems] = useState('');
+
+    const costPerItem = useMemo(() => {
+        const tc = parseFloat(totalCost);
+        const ni = parseInt(numItems);
+        if (tc > 0 && ni > 0) {
+            return (tc / ni);
+        }
+        return 0;
+    }, [totalCost, numItems]);
+
+    const handleApply = () => {
+        onCalculated(costPerItem);
+        onOpenChange(false);
+    };
+
+    useEffect(() => {
+        if (!open) {
+            setTotalCost('');
+            setNumItems('');
+        }
+    }, [open]);
+
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Calculate Packaging Cost</DialogTitle>
+                    <DialogDescription>Enter the total cost of your packaging materials and the number of packages to find the cost per item.</DialogDescription>
+                </DialogHeader>
+                <div className="py-4 space-y-4">
+                    <div className="space-y-2">
+                        <Label htmlFor="total-packaging-cost">Total Packaging Cost</Label>
+                        <Input id="total-packaging-cost" type="number" placeholder="e.g., 50.00" value={totalCost} onChange={e => setTotalCost(e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="num-packages">Number of Packages</Label>
+                        <Input id="num-packages" type="number" placeholder="e.g., 100" value={numItems} onChange={e => setNumItems(e.target.value)} />
+                    </div>
+                    <Card className="bg-muted/50">
+                        <CardContent className="p-4 flex items-center justify-between">
+                            <span className="font-medium">Cost Per Item:</span>
+                            <span className="text-2xl font-bold text-primary">${costPerItem.toFixed(2)}</span>
+                        </CardContent>
+                    </Card>
+                </div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                    <Button onClick={handleApply} disabled={costPerItem <= 0}>Apply Cost</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
+const ShippingCostCalculatorDialog = ({ open, onOpenChange, onCalculated }: { open: boolean, onOpenChange: (open: boolean) => void, onCalculated: (cost: number) => void }) => {
+    const [costs, setCosts] = useState<number[]>([]);
+    const [newCost, setNewCost] = useState('');
+
+    const averageCost = useMemo(() => {
+        if (costs.length === 0) return 0;
+        const sum = costs.reduce((a, b) => a + b, 0);
+        return (sum / costs.length);
+    }, [costs]);
+
+    const handleAddCost = () => {
+        const cost = parseFloat(newCost);
+        if (cost > 0) {
+            setCosts([...costs, cost]);
+            setNewCost('');
+        }
+    };
+
+    const handleRemoveCost = (index: number) => {
+        setCosts(costs.filter((_, i) => i !== index));
+    };
+
+    const handleApply = () => {
+        onCalculated(averageCost);
+        onOpenChange(false);
+    };
+
+    useEffect(() => {
+        if (!open) {
+            setCosts([]);
+            setNewCost('');
+        }
+    }, [open]);
+
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Calculate Average Shipping Cost</DialogTitle>
+                    <DialogDescription>Enter several recent shipping costs to calculate an average for your DTC pricing.</DialogDescription>
+                </DialogHeader>
+                <div className="py-4 space-y-4">
+                    <div className="flex gap-2">
+                        <Input
+                            type="number"
+                            placeholder="Enter a shipping cost..."
+                            value={newCost}
+                            onChange={(e) => setNewCost(e.target.value)}
+                            onKeyDown={(e) => { if(e.key === 'Enter') { e.preventDefault(); handleAddCost(); }}}
+                        />
+                        <Button onClick={handleAddCost} type="button">Add</Button>
+                    </div>
+                    <div className="space-y-2">
+                        <Label>Entered Costs</Label>
+                        <ScrollArea className="h-40 border rounded-md">
+                            <div className="p-2 space-y-1">
+                                {costs.length > 0 ? costs.map((cost, index) => (
+                                    <div key={index} className="flex items-center justify-between p-1.5 bg-muted/50 rounded-md">
+                                        <span className="font-mono">${cost.toFixed(2)}</span>
+                                        <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveCost(index)}>
+                                            <Trash2 className="w-4 h-4" />
+                                        </Button>
+                                    </div>
+                                )) : (
+                                    <p className="text-sm text-center text-muted-foreground p-4">No costs entered yet.</p>
+                                )}
+                            </div>
+                        </ScrollArea>
+                    </div>
+                    <Card className="bg-muted/50">
+                        <CardContent className="p-4 flex items-center justify-between">
+                            <span className="font-medium">Average Shipping Cost:</span>
+                            <span className="text-2xl font-bold text-primary">${averageCost.toFixed(2)}</span>
+                        </CardContent>
+                    </Card>
+                </div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                    <Button onClick={handleApply} disabled={averageCost <= 0}>Apply Average</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     );
 };
 
@@ -305,42 +446,56 @@ const Step2_Formula = ({ onScanClick, resources, allServices }: { onScanClick: (
     );
 };
 
-const PricingTierInput = ({ level }: { level: 'apprentice' | 'junior' | 'senior' | 'master' }) => {
-    const { register, control, watch, formState: { errors } } = useFormContext<ServiceFormData>();
-    const isEnabled = watch(`pricingTiers.${level}.enabled`);
+const PricingTierInput = ({ tier, control }: { tier: PricingTier, control: Control<ServiceFormData> }) => {
+    const { watch, setValue } = useFormContext<ServiceFormData>();
+    
+    const serviceTiers = watch('serviceTiers') || [];
+    const tierData = serviceTiers.find(t => t.tierId === tier.id);
+    const isEnabled = !!tierData;
+
+    const handleToggle = (checked: boolean) => {
+        let newTiers = [...serviceTiers];
+        if (checked) {
+            if (!newTiers.find(t => t.tierId === tier.id)) {
+                newTiers.push({ tierId: tier.id, price: 0, durationMinutes: 0 });
+            }
+        } else {
+            newTiers = newTiers.filter(t => t.tierId !== tier.id);
+        }
+        setValue('serviceTiers', newTiers, { shouldDirty: true });
+    };
+
+    const handlePriceChange = (price: number) => {
+        const newTiers = serviceTiers.map(t => t.tierId === tier.id ? {...t, price} : t);
+        setValue('serviceTiers', newTiers, { shouldDirty: true });
+    };
+
+    const handleDurationChange = (durationMinutes: number) => {
+        const newTiers = serviceTiers.map(t => t.tierId === tier.id ? {...t, durationMinutes} : t);
+        setValue('serviceTiers', newTiers, { shouldDirty: true });
+    };
 
     return (
         <Card>
             <CardHeader className="p-4 flex flex-row items-center justify-between">
-                <CardTitle className="text-base capitalize">{level}</CardTitle>
-                <Controller
-                    name={`pricingTiers.${level}.enabled`}
-                    control={control}
-                    render={({ field }) => (
-                        <Switch
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                        />
-                    )}
-                />
+                <CardTitle className="text-base capitalize">{tier.name}</CardTitle>
+                <Switch checked={isEnabled} onCheckedChange={handleToggle} />
             </CardHeader>
             {isEnabled && (
                 <CardContent className="p-4 pt-0 grid grid-cols-2 gap-4">
                     <div className="space-y-1">
-                        <Label htmlFor={`${level}-price-edit`} className="text-xs flex items-center gap-1.5"><DollarSign className="w-3 h-3 text-muted-foreground"/>Price</Label>
+                        <Label htmlFor={`${tier.id}-price`} className="text-xs flex items-center gap-1.5"><DollarSign className="w-3 h-3 text-muted-foreground"/>Price</Label>
                         <div className="relative">
                             <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                            <Input id={`${level}-price-edit`} type="number" placeholder="0.00" {...register(`pricingTiers.${level}.price`)} className="pl-7" />
+                            <Input id={`${tier.id}-price`} type="number" placeholder="0.00" value={tierData?.price ?? ''} onChange={e => handlePriceChange(parseFloat(e.target.value) || 0)} className="pl-7" />
                         </div>
-                        {(errors.pricingTiers as any)?.[level]?.price && <p className="text-xs text-destructive">{(errors.pricingTiers as any)[level].price.message}</p>}
                     </div>
                     <div className="space-y-1">
-                        <Label htmlFor={`${level}-durationMinutes-edit`} className="text-xs flex items-center gap-1.5"><Clock className="w-3 h-3 text-muted-foreground"/>Duration</Label>
+                        <Label htmlFor={`${tier.id}-durationMinutes`} className="text-xs flex items-center gap-1.5"><Clock className="w-3 h-3 text-muted-foreground"/>Duration</Label>
                         <div className="relative">
-                            <Input id={`${level}-durationMinutes-edit`} type="number" placeholder="0" {...register(`pricingTiers.${level}.durationMinutes`)} className="pr-12"/>
+                            <Input id={`${tier.id}-durationMinutes`} type="number" placeholder="0" value={tierData?.durationMinutes ?? ''} onChange={e => handleDurationChange(parseInt(e.target.value) || 0)} className="pr-12"/>
                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">mins</span>
                         </div>
-                        {(errors.pricingTiers as any)?.[level]?.durationMinutes && <p className="text-xs text-destructive">{(errors.pricingTiers as any)[level].durationMinutes.message}</p>}
                     </div>
                 </CardContent>
             )}
@@ -349,21 +504,11 @@ const PricingTierInput = ({ level }: { level: 'apprentice' | 'junior' | 'senior'
 };
 
 
-const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
+const Step3_PricingBooking = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricingTiers: PricingTier[] }) => {
     const { control, watch, register, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
     const isAddon = watch('isAddon');
     const depositType = watch('depositType');
-    const pricingTiers = watch('pricingTiers');
-
-    const tiers = useMemo(() => {
-        if (!pricingTiers) return [];
-        return (['apprentice', 'junior', 'senior', 'master'] as const)
-            .filter(tier => pricingTiers[tier]?.enabled)
-            .map(tier => ({
-                level: tier,
-                price: pricingTiers[tier].price || 0,
-            }));
-    }, [pricingTiers]);
+    const serviceTiers = watch('serviceTiers');
 
     useEffect(() => {
         if (depositType === 'breakeven') {
@@ -377,15 +522,10 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
             <CardHeader><CardTitle>Pricing & Booking</CardTitle></CardHeader>
             <CardContent className="space-y-6">
                 <div className="space-y-4">
-                    <Label>Pricing & Duration Tiers</Label>
-                     {errors.pricingTiers && (
-                        <Alert variant="destructive"><AlertTriangle className="h-4 w-4" /><AlertDescription>At least one tier must be enabled and have a valid price/duration.</AlertDescription></Alert>
-                    )}
+                    <Label>Pricing & Duration by Tier</Label>
+                     {errors.serviceTiers && <Alert variant="destructive"><AlertTriangle className="h-4 w-4" /><AlertDescription>At least one tier must be configured.</AlertDescription></Alert>}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <PricingTierInput level="apprentice" />
-                        <PricingTierInput level="junior" />
-                        <PricingTierInput level="senior" />
-                        <PricingTierInput level="master" />
+                        {pricingTiers.map(tier => <PricingTierInput key={tier.id} tier={tier} control={control} />)}
                     </div>
                 </div>
 
@@ -396,12 +536,15 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
                         <p className="font-semibold">Profit</p>
                         <p className="font-semibold">Margin</p>
                     </div>
-                     {tiers.map(tier => {
+                     {(serviceTiers || []).map(tier => {
+                        const tierInfo = pricingTiers.find(t => t.id === tier.tierId);
+                        if (!tierInfo) return null;
+
                         const netProfit = tier.price - breakEvenCost;
                         const profitMargin = tier.price > 0 ? (netProfit / tier.price) * 100 : 0;
                         return (
-                            <div key={tier.level} className="grid grid-cols-3 gap-2 text-center text-sm items-center">
-                                <p className="capitalize font-medium">{tier.level}</p>
+                            <div key={tier.tierId} className="grid grid-cols-3 gap-2 text-center text-sm items-center">
+                                <p className="capitalize font-medium">{tierInfo.name}</p>
                                 <p className={cn("font-mono", netProfit >= 0 ? 'text-primary' : 'text-destructive')}>${netProfit.toFixed(2)}</p>
                                 <p className={cn("font-mono", profitMargin >= 0 ? 'text-primary' : 'text-destructive')}>{profitMargin.toFixed(1)}%</p>
                             </div>
@@ -484,17 +627,6 @@ const Step4_VisibilityConfirmation = ({ consentForms }: { consentForms: ConsentF
     );
 };
 
-
-interface EditServiceDialogProps { 
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  service: Service;
-  services: Service[];
-  onServiceUpdated: (service: Service) => void;
-  categories: string[];
-  onNewCategory: (category: string) => void;
-  resources: Resource[];
-}
 
 export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({ 
     open, 
@@ -597,7 +729,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
 
       const equipmentDepreciation = (requiredResourceIds || []).reduce((acc, resourceId) => {
           const equipmentItem = inventory.find(i => i.id === resourceId && i.type === 'equipment');
-          if (!equipmentItem) return acc;
+          if (!equipmentItem || !equipmentItem.lifespanYears || equipmentItem.lifespanYears === 0) return acc;
           const lifespanInMinutes = (equipmentItem.lifespanYears || 5) * 365 * 8 * 60;
           const costPerMinute = (equipmentItem.costPerUnit || 0) / lifespanInMinutes;
           return acc + (costPerMinute * totalDuration);
@@ -665,7 +797,7 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
       switch(step) {
           case 1: return <Step1_BasicDetails categories={categories} onNewCategory={onNewCategory} />;
           case 2: return <Step2_Formula onScanClick={() => setIsScannerOpen(true)} resources={resources} allServices={services} />;
-          case 3: return <Step3_PricingBooking breakEvenCost={breakEvenCost} />;
+          case 3: return <Step3_PricingBooking breakEvenCost={breakEvenCost} pricingTiers={[]} />;
           case 4: return <Step4_VisibilityConfirmation consentForms={consentForms || []} />;
           default: return null;
       }
