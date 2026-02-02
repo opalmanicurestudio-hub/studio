@@ -15,7 +15,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DollarSign, Gift, Save, ListChecks, MessageSquare, Clock, Building, Edit, PlusCircle, MoreHorizontal, Globe, Check, Link as LinkIcon, Calendar, Loader, FilePen, X } from 'lucide-react';
+import { DollarSign, Gift, Save, ListChecks, MessageSquare, Clock, Building, Edit, PlusCircle, MoreHorizontal, Globe, Check, Link as LinkIcon, Calendar, Loader, FilePen, X, User, Briefcase, List as ListIcon, Percent as PercentIcon } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
@@ -32,6 +32,7 @@ import { type Tenant } from '@/lib/data';
 import { nanoid } from 'nanoid';
 import { useTenant } from '@/context/TenantContext';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
   const timeOptions = Array.from({ length: (22 - 8) * 2 + 1 }, (_, i) => {
@@ -132,6 +133,7 @@ export default function SettingsPage() {
   const [isReferralEditing, setIsReferralEditing] = useState(false);
   const [isQueueEditing, setIsQueueEditing] = useState(false);
   const [isSmsEditing, setIsSmsEditing] = useState(false);
+  const [isTiersEditing, setIsTiersEditing] = useState(false);
 
   // Data states
   const [tenantData, setTenantData] = useState<Partial<Tenant>>({});
@@ -308,11 +310,13 @@ export default function SettingsPage() {
   const referralFields: (keyof Tenant)[] = ['referrerReward', 'newClientDiscount'];
   const queueFields: (keyof Tenant)[] = ['queueSkipTimeMinutes'];
   const smsFields: (keyof Tenant)[] = ['smsNotificationMessage', 'twilioAccountSid', 'twilioAuthToken', 'twilioPhoneNumber'];
+  const tiersFields: (keyof Tenant)[] = ['pricingTiers'];
 
   const { handleEdit: handlePoliciesEdit, handleCancel: handlePoliciesCancel, handleSave: handlePoliciesSave } = createGenericHandlers(isPoliciesEditing, setIsPoliciesEditing, tenantData, setTenantData, backupTenantData, setBackupTenantData, policiesFields);
   const { handleEdit: handleReferralEdit, handleCancel: handleReferralCancel, handleSave: handleReferralSave } = createGenericHandlers(isReferralEditing, setIsReferralEditing, tenantData, setTenantData, backupTenantData, setBackupTenantData, referralFields);
   const { handleEdit: handleQueueEdit, handleCancel: handleQueueCancel, handleSave: handleQueueSave } = createGenericHandlers(isQueueEditing, setIsQueueEditing, tenantData, setTenantData, backupTenantData, setBackupTenantData, queueFields);
   const { handleEdit: handleSmsEdit, handleCancel: handleSmsCancel, handleSave: handleSmsSave } = createGenericHandlers(isSmsEditing, setIsSmsEditing, tenantData, setTenantData, backupTenantData, setBackupTenantData, smsFields);
+  const { handleEdit: handleTiersEdit, handleCancel: handleTiersCancel, handleSave: handleTiersSave } = createGenericHandlers(isTiersEditing, setIsTiersEditing, tenantData, setTenantData, backupTenantData, setBackupTenantData, tiersFields);
   
   const generatePolicy = (type: 'cancellation' | 'noShow' | 'late') => {
     let policy = '';
@@ -365,403 +369,292 @@ export default function SettingsPage() {
             </p>
           </div>
           
-            <Card>
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2"><Building className="w-5 h-5 text-primary"/>Business Profile</CardTitle>
-                    <CardDescription>Manage your business locations and branding.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                     {tenants.map(tenant => (
-                        <div key={tenant.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-md">
-                            {editingTenantId === tenant.id ? (
-                                <div className="flex-1 flex items-center gap-2">
-                                    <Input
-                                        value={tempTenantName}
-                                        onChange={(e) => setTempTenantName(e.target.value)}
-                                        onKeyDown={(e) => e.key === 'Enter' && handleUpdateBusinessName(tenant.id, tempTenantName)}
-                                        autoFocus
-                                    />
-                                    <Button size="icon" className="h-9 w-9" onClick={() => handleUpdateBusinessName(tenant.id, tempTenantName)}>
-                                        <Check className="h-4 w-4" />
-                                    </Button>
-                                    <Button size="icon" variant="ghost" className="h-9 w-9" onClick={() => setEditingTenantId(null)}>
-                                        <X className="h-4 w-4" />
-                                    </Button>
-                                </div>
-                            ) : (
-                                <>
-                                    <p className="font-medium">{tenant.name}</p>
-                                    <div className="flex items-center gap-2">
-                                        {tenant.id === selectedTenant?.id && <Badge>Active</Badge>}
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-8 w-8"
-                                            onClick={() => {
-                                                setEditingTenantId(tenant.id);
-                                                setTempTenantName(tenant.name);
-                                            }}
-                                        >
-                                            <Edit className="w-4 h-4" />
+           <Tabs defaultValue="profile" className="w-full">
+            <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 lg:grid-cols-7 h-auto">
+              <TabsTrigger value="profile">Profile</TabsTrigger>
+              <TabsTrigger value="hours">Hours</TabsTrigger>
+              <TabsTrigger value="policies">Policies</TabsTrigger>
+              <TabsTrigger value="referrals">Referrals</TabsTrigger>
+              <TabsTrigger value="queue">Queue</TabsTrigger>
+              <TabsTrigger value="messaging">Messaging</TabsTrigger>
+              <TabsTrigger value="tiers">Tiers</TabsTrigger>
+            </TabsList>
+            <TabsContent value="profile" className="mt-6">
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2"><Building className="w-5 h-5 text-primary"/>Business Profile</CardTitle>
+                        <CardDescription>Manage your business locations and branding.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                        {tenants.map(tenant => (
+                            <div key={tenant.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-md">
+                                {editingTenantId === tenant.id ? (
+                                    <div className="flex-1 flex items-center gap-2">
+                                        <Input
+                                            value={tempTenantName}
+                                            onChange={(e) => setTempTenantName(e.target.value)}
+                                            onKeyDown={(e) => e.key === 'Enter' && handleUpdateBusinessName(tenant.id, tempTenantName)}
+                                            autoFocus
+                                        />
+                                        <Button size="icon" className="h-9 w-9" onClick={() => handleUpdateBusinessName(tenant.id, tempTenantName)}>
+                                            <Check className="h-4 w-4" />
+                                        </Button>
+                                        <Button size="icon" variant="ghost" className="h-9 w-9" onClick={() => setEditingTenantId(null)}>
+                                            <X className="h-4 w-4" />
                                         </Button>
                                     </div>
-                                </>
-                            )}
-                        </div>
-                     ))}
-                     <Button variant="outline" className="w-full" onClick={handleCreateNewLocation}><PlusCircle className="w-4 h-4 mr-2"/>Create New Location</Button>
-                </CardContent>
-            </Card>
+                                ) : (
+                                    <>
+                                        <p className="font-medium">{tenant.name}</p>
+                                        <div className="flex items-center gap-2">
+                                            {tenant.id === selectedTenant?.id && <Badge>Active</Badge>}
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-8 w-8"
+                                                onClick={() => {
+                                                    setEditingTenantId(tenant.id);
+                                                    setTempTenantName(tenant.name);
+                                                }}
+                                            >
+                                                <Edit className="w-4 h-4" />
+                                            </Button>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        ))}
+                        <Button variant="outline" className="w-full" onClick={handleCreateNewLocation}><PlusCircle className="w-4 h-4 mr-2"/>Create New Location</Button>
+                    </CardContent>
+                </Card>
+            </TabsContent>
 
-           <Card>
-            <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <CardTitle className="flex items-center gap-2">
-                        <Building className="w-5 h-5 text-primary" />
-                        Business Hours &amp; Availability
-                    </CardTitle>
-                    <CardDescription>
-                        Set your schedules for financial calculations and public booking pages.
-                    </CardDescription>
-                </div>
-                 <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
-                  {isScheduleEditing ? (
-                      <>
-                          <Button variant="outline" onClick={handleScheduleCancel} className="flex-1 sm:w-auto">Cancel</Button>
-                          <Button onClick={handleScheduleSave} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save</Button>
-                      </>
-                  ) : (
-                      <Button onClick={handleScheduleEdit} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit</Button>
-                  )}
-                </div>
-            </CardHeader>
-            <CardContent className="p-0">
-               {activeScheduleProfile && (
-                <div>
-                     {orderedDays.map((day) => {
-                        const dayData = activeScheduleProfile.week[day];
-                        if (!dayData) return null;
-                        return (
-                            <DayScheduleRow 
-                                key={day} 
-                                day={day} 
-                                dayData={dayData} 
-                                onDayChange={(field: string, value: any) => handleDayChange(day, field, value)}
-                                isEditing={isScheduleEditing} 
-                            />
-                        )
-                    })}
-                </div>
-               )}
-            </CardContent>
-            {activeScheduleProfile && (
-                <CardFooter className="pt-6 grid md:grid-cols-3 gap-6">
-                    <div className="space-y-2">
-                        <Label>Vacation Days / Year</Label>
-                        <Input 
-                            type="number" 
-                            value={activeScheduleProfile.timeOff?.vacationDays || ''}
-                            onChange={(e) => handleTimeOffChange('vacationDays', parseInt(e.target.value) || 0)} 
-                            disabled={!isScheduleEditing} 
-                        />
-                    </div>
-                     <div className="space-y-2">
-                        <Label>Statutory Holidays / Year</Label>
-                        <Input 
-                            type="number" 
-                            value={activeScheduleProfile.timeOff?.holidays || ''}
-                            onChange={(e) => handleTimeOffChange('holidays', parseInt(e.target.value) || 0)} 
-                            disabled={!isScheduleEditing} 
-                        />
-                    </div>
-                     <div className="space-y-2">
-                        <Label htmlFor="slot-interval">Booking Slot Interval</Label>
-                        <Select
-                            value={activeScheduleProfile.bookingSlotInterval?.toString() || '15'}
-                            onValueChange={handleBookingIntervalChange}
-                            disabled={!isScheduleEditing}
-                        >
-                            <SelectTrigger id="slot-interval">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="15">Every 15 minutes</SelectItem>
-                                <SelectItem value="30">Every 30 minutes</SelectItem>
-                                <SelectItem value="60">On the hour</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-                </CardFooter>
-            )}
-        </Card>
-
-          <Card>
-            <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <Clock className="w-5 h-5 text-primary" />
-                  Scheduling Policies
-                </CardTitle>
-                <CardDescription>
-                  Define rules for appointments, cancellations, and late arrivals.
-                </CardDescription>
-              </div>
-               <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
-                  {isPoliciesEditing ? (
-                      <>
-                          <Button variant="outline" onClick={handlePoliciesCancel} className="flex-1 sm:w-auto">Cancel</Button>
-                          <Button onClick={handlePoliciesSave} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save Policies</Button>
-                      </>
-                  ) : (
-                      <Button onClick={handlePoliciesEdit} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit Policies</Button>
-                  )}
-                </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                     <div className="space-y-2">
-                        <Label htmlFor="late-grace-period">Late Arrival Grace Period (minutes)</Label>
-                        <Input
-                            id="late-grace-period"
-                            type="number"
-                            value={tenantData.lateArrivalGracePeriod || ''}
-                            onChange={(e) => setTenantData(prev => ({...prev, lateArrivalGracePeriod: Number(e.target.value)}))}
-                            placeholder="e.g., 15"
-                            disabled={!isPoliciesEditing}
-                        />
-                    </div>
-                     <div className="space-y-2">
-                        <Label htmlFor="cancellation-window">Cancellation Window (hours)</Label>
-                        <Input 
-                            id="cancellation-window" 
-                            type="number" 
-                            value={tenantData.cancellationWindowHours || ''}
-                            onChange={(e) => setTenantData(prev => ({...prev, cancellationWindowHours: Number(e.target.value)}))} 
-                            placeholder="e.g., 24"
-                            disabled={!isPoliciesEditing}
-                        />
-                    </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="cancellation-fee">Late Cancellation Fee</Label>
-                        <div className="relative">
-                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input
-                            id="cancellation-fee"
-                            type="number"
-                             value={tenantData.cancellationFee?.toString() || ''}
-                             onChange={(e) => setTenantData(prev => ({...prev, cancellationFee: Number(e.target.value)}))}
-                            placeholder="25.00"
-                            className="pl-8"
-                            disabled={!isPoliciesEditing}
-                            />
+            <TabsContent value="hours" className="mt-6">
+                 <Card>
+                    <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                            <CardTitle className="flex items-center gap-2">
+                                <Clock className="w-5 h-5 text-primary" />
+                                Business Hours &amp; Availability
+                            </CardTitle>
+                            <CardDescription>
+                                Set your schedules for financial calculations and public booking pages.
+                            </CardDescription>
                         </div>
-                    </div>
-                     <div className="space-y-2">
-                        <Label htmlFor="no-show-fee">No-Show Fee</Label>
-                        <div className="relative">
-                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input
-                            id="no-show-fee"
-                            type="number"
-                             value={tenantData.noShowFee?.toString() || ''}
-                             onChange={(e) => setTenantData(prev => ({...prev, noShowFee: Number(e.target.value)}))}
-                            placeholder="50.00"
-                            className="pl-8"
-                            disabled={!isPoliciesEditing}
-                            />
+                        <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
+                        {isScheduleEditing ? (
+                            <>
+                                <Button variant="outline" onClick={handleScheduleCancel} className="flex-1 sm:w-auto">Cancel</Button>
+                                <Button onClick={handleScheduleSave} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save</Button>
+                            </>
+                        ) : (
+                            <Button onClick={handleScheduleEdit} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit</Button>
+                        )}
                         </div>
-                    </div>
-                    <div className="flex items-center justify-between rounded-lg border p-4 md:col-span-2">
-                        <div className="space-y-0.5">
-                            <Label htmlFor="auto-cancel" className="font-semibold">Auto-Cancel Late Arrivals</Label>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                    {activeScheduleProfile && (
+                        <div>
+                            {orderedDays.map((day) => {
+                                const dayData = activeScheduleProfile.week[day];
+                                if (!dayData) return null;
+                                return (
+                                    <DayScheduleRow 
+                                        key={day} 
+                                        day={day} 
+                                        dayData={dayData} 
+                                        onDayChange={(field: string, value: any) => handleDayChange(day, field, value)}
+                                        isEditing={isScheduleEditing} 
+                                    />
+                                )
+                            })}
                         </div>
-                        <Switch
-                            id="auto-cancel"
-                             checked={tenantData.autoCancelLateArrivals}
-                             onCheckedChange={(checked) => setTenantData(prev => ({...prev, autoCancelLateArrivals: checked}))}
-                            disabled={!isPoliciesEditing}
-                        />
-                    </div>
-                </div>
-                 <div className="space-y-2">
-                    <Label htmlFor="cancellation-policy">Cancellation Policy</Label>
-                     <div className="relative">
-                        <Textarea id="cancellation-policy" value={tenantData.cancellationPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationPolicy: e.target.value}))} placeholder={generatePolicy('cancellation') || 'Set rules above or write your own policy.'} rows={3} disabled={!isPoliciesEditing} />
-                        {isPoliciesEditing && <Button size="xs" variant="secondary" className="absolute top-2 right-2" onClick={() => setTenantData(prev => ({...prev, cancellationPolicy: generatePolicy('cancellation')}))} type="button">Auto-generate</Button>}
-                    </div>
-                </div>
-                <div className="space-y-2">
-                    <Label htmlFor="late-arrival-policy">Late Arrival Policy</Label>
-                    <div className="relative">
-                        <Textarea id="late-arrival-policy" value={tenantData.lateArrivalPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, lateArrivalPolicy: e.target.value}))} placeholder={generatePolicy('late') || 'Set rules above or write your own policy.'} rows={3} disabled={!isPoliciesEditing} />
-                        {isPoliciesEditing && <Button size="xs" variant="secondary" className="absolute top-2 right-2" onClick={() => setTenantData(prev => ({...prev, lateArrivalPolicy: generatePolicy('late')}))} type="button">Auto-generate</Button>}
-                    </div>
-                </div>
-                <div className="space-y-2">
-                    <Label htmlFor="no-show-policy">No-Show Policy</Label>
-                    <div className="relative">
-                        <Textarea id="no-show-policy" value={tenantData.noShowPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, noShowPolicy: e.target.value}))} placeholder={generatePolicy('noShow') || 'Set rules above or write your own policy.'} rows={3} disabled={!isPoliciesEditing} />
-                        {isPoliciesEditing && <Button size="xs" variant="secondary" className="absolute top-2 right-2" onClick={() => setTenantData(prev => ({...prev, noShowPolicy: generatePolicy('noShow')}))} type="button">Auto-generate</Button>}
-                    </div>
-                </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <CardTitle className="flex items-center gap-2">
-                        <Gift className="w-5 h-5 text-primary" />
-                        Referral Program
-                    </CardTitle>
-                </div>
-                 <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
-                  {isReferralEditing ? (
-                      <>
-                          <Button variant="outline" onClick={handleReferralCancel} className="flex-1 sm:w-auto">Cancel</Button>
-                          <Button onClick={handleReferralSave} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save</Button>
-                      </>
-                  ) : (
-                      <Button onClick={handleReferralEdit} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit</Button>
-                  )}
-                </div>
-            </CardHeader>
-            <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <Label htmlFor="referrer-reward">Referrer Reward</Label>
-                <div className="relative">
-                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="referrer-reward"
-                    type="number"
-                    value={tenantData.referrerReward?.toString() || ''}
-                    onChange={(e) => setTenantData(prev => ({...prev, referrerReward: Number(e.target.value)}))}
-                    placeholder="10.00"
-                    className="pl-8"
-                    disabled={!isReferralEditing}
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="new-client-discount">New Client Discount</Label>
-                <div className="relative">
-                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="new-client-discount"
-                    type="number"
-                    value={tenantData.newClientDiscount?.toString() || ''}
-                    onChange={(e) => setTenantData(prev => ({...prev, newClientDiscount: Number(e.target.value)}))}
-                    placeholder="15.00"
-                    className="pl-8"
-                    disabled={!isReferralEditing}
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          
-           <Card>
-            <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <CardTitle className="flex items-center gap-2">
-                        <ListChecks className="w-5 h-5 text-primary" />
-                        Queue Settings
-                    </CardTitle>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
-                    {isQueueEditing ? (
-                        <>
-                            <Button variant="outline" onClick={handleQueueCancel} className="flex-1 sm:w-auto">Cancel</Button>
-                            <Button onClick={handleQueueSave} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save</Button>
-                        </>
-                    ) : (
-                        <Button onClick={handleQueueEdit} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit</Button>
                     )}
-                </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <Label htmlFor="skip-timer">Skip Timer (minutes)</Label>
-                <Input
-                  id="skip-timer"
-                  type="number"
-                  value={tenantData.queueSkipTimeMinutes || ''}
-                  onChange={(e) => setTenantData(prev => ({...prev, queueSkipTimeMinutes: Number(e.target.value)}))}
-                  placeholder="e.g., 5"
-                  disabled={!isQueueEditing}
-                />
-              </div>
-            </CardContent>
-          </Card>
+                    </CardContent>
+                    {activeScheduleProfile && (
+                        <CardFooter className="pt-6 grid md:grid-cols-3 gap-6">
+                            <div className="space-y-2">
+                                <Label>Vacation Days / Year</Label>
+                                <Input 
+                                    type="number" 
+                                    value={activeScheduleProfile.timeOff?.vacationDays || ''}
+                                    onChange={(e) => handleTimeOffChange('vacationDays', parseInt(e.target.value) || 0)} 
+                                    disabled={!isScheduleEditing} 
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Statutory Holidays / Year</Label>
+                                <Input 
+                                    type="number" 
+                                    value={activeScheduleProfile.timeOff?.holidays || ''}
+                                    onChange={(e) => handleTimeOffChange('holidays', parseInt(e.target.value) || 0)} 
+                                    disabled={!isScheduleEditing} 
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="slot-interval">Booking Slot Interval</Label>
+                                <Select
+                                    value={activeScheduleProfile.bookingSlotInterval?.toString() || '15'}
+                                    onValueChange={handleBookingIntervalChange}
+                                    disabled={!isScheduleEditing}
+                                >
+                                    <SelectTrigger id="slot-interval">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="15">Every 15 minutes</SelectItem>
+                                        <SelectItem value="30">Every 30 minutes</SelectItem>
+                                        <SelectItem value="60">On the hour</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </CardFooter>
+                    )}
+                </Card>
+            </TabsContent>
 
-          <Card>
-            <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <MessageSquare className="w-5 h-5 text-primary" />
-                  Messaging &amp; Notifications
-                </CardTitle>
-                 <CardDescription>Configure your third-party messaging providers and templates.</CardDescription>
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
-                  {isSmsEditing ? (
-                      <>
-                          <Button variant="outline" onClick={handleSmsCancel} className="flex-1 sm:w-auto">Cancel</Button>
-                          <Button onClick={handleSmsSave} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save</Button>
-                      </>
-                  ) : (
-                      <Button onClick={handleSmsEdit} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit</Button>
-                  )}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-2">
-                <Label htmlFor="twilio-sid">Twilio Account SID</Label>
-                <Input
-                  id="twilio-sid"
-                  value={tenantData.twilioAccountSid || ''}
-                  onChange={(e) => setTenantData(prev => ({...prev, twilioAccountSid: e.target.value}))}
-                  placeholder="AC..."
-                  disabled={!isSmsEditing}
-                />
-              </div>
-               <div className="space-y-2">
-                <Label htmlFor="twilio-token">Twilio Auth Token</Label>
-                <Input
-                  id="twilio-token"
-                  type="password"
-                  value={tenantData.twilioAuthToken || ''}
-                  onChange={(e) => setTenantData(prev => ({...prev, twilioAuthToken: e.target.value}))}
-                  placeholder="••••••••••••••••"
-                  disabled={!isSmsEditing}
-                />
-              </div>
-               <div className="space-y-2">
-                <Label htmlFor="twilio-phone">Twilio Phone Number</Label>
-                <Input
-                  id="twilio-phone"
-                  value={tenantData.twilioPhoneNumber || ''}
-                  onChange={(e) => setTenantData(prev => ({...prev, twilioPhoneNumber: e.target.value}))}
-                  placeholder="+15551234567"
-                  disabled={!isSmsEditing}
-                />
-              </div>
-              <div className="space-y-2 pt-4 border-t">
-                <Label htmlFor="sms-message">Walk-in Notification Message</Label>
-                <Textarea
-                  id="sms-message"
-                  value={tenantData.smsNotificationMessage || ''}
-                  onChange={(e) => setTenantData(prev => ({...prev, smsNotificationMessage: e.target.value}))}
-                  placeholder="Enter your SMS message..."
-                  rows={4}
-                  disabled={!isSmsEditing}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Use placeholders like "{'{clientName}'}" and "{'{businessName}'}".
-                </p>
-              </div>
-            </CardContent>
-          </Card>
+            <TabsContent value="policies" className="mt-6">
+                <Card>
+                    <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                            <CardTitle className="flex items-center gap-2">
+                            <FileText className="w-5 h-5 text-primary" />
+                            Scheduling Policies
+                            </CardTitle>
+                            <CardDescription>
+                            Define rules for appointments, cancellations, and late arrivals.
+                            </CardDescription>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
+                        {isPoliciesEditing ? (
+                            <>
+                                <Button variant="outline" onClick={handlePoliciesCancel} className="flex-1 sm:w-auto">Cancel</Button>
+                                <Button onClick={handlePoliciesSave} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save Policies</Button>
+                            </>
+                        ) : (
+                            <Button onClick={handlePoliciesEdit} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit Policies</Button>
+                        )}
+                        </div>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-2">
+                                <Label htmlFor="late-grace-period">Late Arrival Grace Period (minutes)</Label>
+                                <Input id="late-grace-period" type="number" value={tenantData.lateArrivalGracePeriod || ''} onChange={(e) => setTenantData(prev => ({...prev, lateArrivalGracePeriod: Number(e.target.value)}))} placeholder="e.g., 15" disabled={!isPoliciesEditing}/>
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="cancellation-window">Cancellation Window (hours)</Label>
+                                <Input id="cancellation-window" type="number" value={tenantData.cancellationWindowHours || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationWindowHours: Number(e.target.value)}))} placeholder="e.g., 24" disabled={!isPoliciesEditing} />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="cancellation-fee">Late Cancellation Fee</Label>
+                                <div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input id="cancellation-fee" type="number" value={tenantData.cancellationFee?.toString() || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationFee: Number(e.target.value)}))} placeholder="25.00" className="pl-8" disabled={!isPoliciesEditing}/></div>
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="no-show-fee">No-Show Fee</Label>
+                                <div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input id="no-show-fee" type="number" value={tenantData.noShowFee?.toString() || ''} onChange={(e) => setTenantData(prev => ({...prev, noShowFee: Number(e.target.value)}))} placeholder="50.00" className="pl-8" disabled={!isPoliciesEditing} /></div>
+                            </div>
+                            <div className="flex items-center justify-between rounded-lg border p-4 md:col-span-2">
+                                <div className="space-y-0.5"><Label htmlFor="auto-cancel" className="font-semibold">Auto-Cancel Late Arrivals</Label></div>
+                                <Switch id="auto-cancel" checked={tenantData.autoCancelLateArrivals} onCheckedChange={(checked) => setTenantData(prev => ({...prev, autoCancelLateArrivals: checked}))} disabled={!isPoliciesEditing} />
+                            </div>
+                        </div>
+                        <div className="space-y-2"><Label htmlFor="cancellation-policy">Cancellation Policy</Label><div className="relative"><Textarea id="cancellation-policy" value={tenantData.cancellationPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, cancellationPolicy: e.target.value}))} placeholder={generatePolicy('cancellation') || 'Set rules above or write your own policy.'} rows={3} disabled={!isPoliciesEditing} />{isPoliciesEditing && <Button size="xs" variant="secondary" className="absolute top-2 right-2" onClick={() => setTenantData(prev => ({...prev, cancellationPolicy: generatePolicy('cancellation')}))} type="button">Auto-generate</Button>}</div></div>
+                        <div className="space-y-2"><Label htmlFor="late-arrival-policy">Late Arrival Policy</Label><div className="relative"><Textarea id="late-arrival-policy" value={tenantData.lateArrivalPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, lateArrivalPolicy: e.target.value}))} placeholder={generatePolicy('late') || 'Set rules above or write your own policy.'} rows={3} disabled={!isPoliciesEditing} />{isPoliciesEditing && <Button size="xs" variant="secondary" className="absolute top-2 right-2" onClick={() => setTenantData(prev => ({...prev, lateArrivalPolicy: generatePolicy('late')}))} type="button">Auto-generate</Button>}</div></div>
+                        <div className="space-y-2"><Label htmlFor="no-show-policy">No-Show Policy</Label><div className="relative"><Textarea id="no-show-policy" value={tenantData.noShowPolicy || ''} onChange={(e) => setTenantData(prev => ({...prev, noShowPolicy: e.target.value}))} placeholder={generatePolicy('noShow') || 'Set rules above or write your own policy.'} rows={3} disabled={!isPoliciesEditing} />{isPoliciesEditing && <Button size="xs" variant="secondary" className="absolute top-2 right-2" onClick={() => setTenantData(prev => ({...prev, noShowPolicy: generatePolicy('noShow')}))} type="button">Auto-generate</Button>}</div></div>
+                    </CardContent>
+                </Card>
+            </TabsContent>
+            
+             <TabsContent value="referrals" className="mt-6">
+                 <Card>
+                    <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                            <CardTitle className="flex items-center gap-2">
+                                <Gift className="w-5 h-5 text-primary" />
+                                Referral Program
+                            </CardTitle>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
+                        {isReferralEditing ? (
+                            <>
+                                <Button variant="outline" onClick={handleReferralCancel} className="flex-1 sm:w-auto">Cancel</Button>
+                                <Button onClick={handleReferralSave} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save</Button>
+                            </>
+                        ) : (
+                            <Button onClick={handleReferralEdit} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit</Button>
+                        )}
+                        </div>
+                    </CardHeader>
+                    <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                            <Label htmlFor="referrer-reward">Referrer Reward</Label>
+                            <div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input id="referrer-reward" type="number" value={tenantData.referrerReward?.toString() || ''} onChange={(e) => setTenantData(prev => ({...prev, referrerReward: Number(e.target.value)}))} placeholder="10.00" className="pl-8" disabled={!isReferralEditing}/></div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="new-client-discount">New Client Discount</Label>
+                            <div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input id="new-client-discount" type="number" value={tenantData.newClientDiscount?.toString() || ''} onChange={(e) => setTenantData(prev => ({...prev, newClientDiscount: Number(e.target.value)}))} placeholder="15.00" className="pl-8" disabled={!isReferralEditing}/></div>
+                        </div>
+                    </CardContent>
+                </Card>
+            </TabsContent>
+            
+            <TabsContent value="queue" className="mt-6">
+                 <Card>
+                    <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                            <CardTitle className="flex items-center gap-2"><ListChecks className="w-5 h-5 text-primary" />Queue Settings</CardTitle>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
+                            {isQueueEditing ? (<><Button variant="outline" onClick={handleQueueCancel} className="flex-1 sm:w-auto">Cancel</Button><Button onClick={handleQueueSave} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save</Button></>) : (<Button onClick={handleQueueEdit} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit</Button>)}
+                        </div>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="space-y-2">
+                            <Label htmlFor="skip-timer">Skip Timer (minutes)</Label>
+                            <Input id="skip-timer" type="number" value={tenantData.queueSkipTimeMinutes || ''} onChange={(e) => setTenantData(prev => ({...prev, queueSkipTimeMinutes: Number(e.target.value)}))} placeholder="e.g., 5" disabled={!isQueueEditing} />
+                        </div>
+                    </CardContent>
+                </Card>
+            </TabsContent>
+
+            <TabsContent value="messaging" className="mt-6">
+                <Card>
+                    <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                            <CardTitle className="flex items-center gap-2"><MessageSquare className="w-5 h-5 text-primary" />Messaging &amp; Notifications</CardTitle>
+                            <CardDescription>Configure your third-party messaging providers and templates.</CardDescription>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">{isSmsEditing ? (<><Button variant="outline" onClick={handleSmsCancel} className="flex-1 sm:w-auto">Cancel</Button><Button onClick={handleSmsSave} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save</Button></>) : (<Button onClick={handleSmsEdit} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit</Button>)}</div>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                        <div className="space-y-2"><Label htmlFor="twilio-sid">Twilio Account SID</Label><Input id="twilio-sid" value={tenantData.twilioAccountSid || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioAccountSid: e.target.value}))} placeholder="AC..." disabled={!isSmsEditing} /></div>
+                        <div className="space-y-2"><Label htmlFor="twilio-token">Twilio Auth Token</Label><Input id="twilio-token" type="password" value={tenantData.twilioAuthToken || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioAuthToken: e.target.value}))} placeholder="••••••••••••••••" disabled={!isSmsEditing}/></div>
+                        <div className="space-y-2"><Label htmlFor="twilio-phone">Twilio Phone Number</Label><Input id="twilio-phone" value={tenantData.twilioPhoneNumber || ''} onChange={(e) => setTenantData(prev => ({...prev, twilioPhoneNumber: e.target.value}))} placeholder="+15551234567" disabled={!isSmsEditing}/></div>
+                        <div className="space-y-2 pt-4 border-t"><Label htmlFor="sms-message">Walk-in Notification Message</Label><Textarea id="sms-message" value={tenantData.smsNotificationMessage || ''} onChange={(e) => setTenantData(prev => ({...prev, smsNotificationMessage: e.target.value}))} placeholder="Enter your SMS message..." rows={4} disabled={!isSmsEditing}/><p className="text-xs text-muted-foreground">Use placeholders like "{'{clientName}'}" and "{'{businessName}'}".</p></div>
+                    </CardContent>
+                </Card>
+            </TabsContent>
+            <TabsContent value="tiers" className="mt-6">
+                 <Card>
+                    <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                            <CardTitle className="flex items-center gap-2"><PercentIcon className="w-5 h-5 text-primary" />Pricing Tiers</CardTitle>
+                             <CardDescription>Customize the names for your staff skill levels.</CardDescription>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
+                            {isTiersEditing ? (<><Button variant="outline" onClick={handleTiersCancel} className="flex-1 sm:w-auto">Cancel</Button><Button onClick={handleTiersSave} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save</Button></>) : (<Button onClick={handleTiersEdit} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit</Button>)}
+                        </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="space-y-2"><Label htmlFor="tier-apprentice">Apprentice Tier Name</Label><Input id="tier-apprentice" value={tenantData.pricingTiers?.apprentice || 'Apprentice'} onChange={e => setTenantData(prev => ({...prev, pricingTiers: {...prev.pricingTiers, apprentice: e.target.value}}))} disabled={!isTiersEditing} /></div>
+                        <div className="space-y-2"><Label htmlFor="tier-junior">Junior Tier Name</Label><Input id="tier-junior" value={tenantData.pricingTiers?.junior || 'Junior'} onChange={e => setTenantData(prev => ({...prev, pricingTiers: {...prev.pricingTiers, junior: e.target.value}}))} disabled={!isTiersEditing} /></div>
+                        <div className="space-y-2"><Label htmlFor="tier-senior">Senior Tier Name</Label><Input id="tier-senior" value={tenantData.pricingTiers?.senior || 'Senior'} onChange={e => setTenantData(prev => ({...prev, pricingTiers: {...prev.pricingTiers, senior: e.target.value}}))} disabled={!isTiersEditing} /></div>
+                        <div className="space-y-2"><Label htmlFor="tier-master">Master Tier Name</Label><Input id="tier-master" value={tenantData.pricingTiers?.master || 'Master'} onChange={e => setTenantData(prev => ({...prev, pricingTiers: {...prev.pricingTiers, master: e.target.value}}))} disabled={!isTiersEditing} /></div>
+                    </CardContent>
+                </Card>
+            </TabsContent>
+          </Tabs>
         </div>
       </main>
     </div>

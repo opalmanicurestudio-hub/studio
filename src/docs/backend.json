@@ -1,4 +1,5 @@
 
+
 {
   "entities": {
     "User": {
@@ -120,6 +121,16 @@
         "twilioPhoneNumber": {
           "type": "string",
           "description": "The Twilio phone number used for sending SMS messages."
+        },
+        "pricingTiers": {
+            "type": "object",
+            "description": "Customizable names for the pricing tiers.",
+            "properties": {
+                "apprentice": { "type": "string", "default": "Apprentice" },
+                "junior": { "type": "string", "default": "Junior" },
+                "senior": { "type": "string", "default": "Senior" },
+                "master": { "type": "string", "default": "Master" }
+            }
         }
       },
       "required": [
@@ -414,6 +425,25 @@
         "walletCredit": {
             "type": "number",
             "description": "The amount of store credit a client has, often earned via referrals."
+        },
+        "outstandingBalance": {
+            "type": "number",
+            "description": "The total amount of outstanding fees (e.g., from cancellations, no-shows)."
+        },
+        "unpaidFees": {
+            "type": "array",
+            "description": "A detailed list of individual unpaid fees.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "feeId": { "type": "string" },
+                    "appointmentId": { "type": "string" },
+                    "appointmentDate": { "type": "string", "format": "date-time" },
+                    "feeAmount": { "type": "number" },
+                    "reason": { "type": "string" }
+                },
+                "required": ["feeId", "appointmentId", "appointmentDate", "feeAmount", "reason"]
+            }
         }
       },
       "required": [
@@ -512,6 +542,19 @@
         "recurrenceId": {
             "type": "string",
             "description": "A unique ID grouping a series of recurring appointments."
+        },
+        "cancellationReason": {
+            "type": "string",
+            "enum": ["late", "no-show", "client_request", "other"],
+            "description": "The reason for the cancellation."
+        },
+        "cancellationFeeApplied": {
+            "type": "number",
+            "description": "The amount of the cancellation fee that was applied, if any."
+        },
+        "cancellationFeeWaived": {
+            "type": "boolean",
+            "description": "True if an applied cancellation fee was waived by an admin."
         }
       },
       "required": [
@@ -954,6 +997,26 @@
         "generatedRevenue": { "type": "number", "description": "The total revenue generated from this campaign." }
       },
       "required": ["id", "name", "type", "targetAudience", "status"]
+    },
+    "Review": {
+      "title": "Review",
+      "type": "object",
+      "description": "A review submitted by a client for a service.",
+      "properties": {
+        "id": { "type": "string" },
+        "tenantId": { "type": "string" },
+        "clientId": { "type": "string" },
+        "clientName": { "type": "string" },
+        "clientAvatarUrl": { "type": "string", "format": "uri" },
+        "staffId": { "type": "string" },
+        "serviceId": { "type": "string" },
+        "serviceName": { "type": "string" },
+        "rating": { "type": "number" },
+        "text": { "type": "string" },
+        "isPublic": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "tenantId", "clientId", "rating", "createdAt"]
     }
   },
   "auth": {
@@ -1101,6 +1164,12 @@
         "$ref": "#/entities/Campaign"
       },
       "description": "Stores marketing campaigns for a tenant."
+    },
+    "/tenants/{tenantId}/reviews/{reviewId}": {
+      "schema": {
+        "$ref": "#/entities/Review"
+      },
+      "description": "Client reviews for the tenant."
     }
   }
 }

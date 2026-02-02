@@ -197,7 +197,7 @@ export type Service = {
   pricingTiers?: {
       level: 'apprentice' | 'junior' | 'senior' | 'master';
       price: number;
-      duration: number;
+      durationMinutes: number;
   }[];
   price: number; // Default or senior price, for display
   cost: number;
@@ -491,6 +491,12 @@ export type Tenant = {
   referrerReward?: number;
   newClientDiscount?: number;
   smsNotificationMessage?: string;
+  pricingTiers?: {
+    apprentice?: string;
+    junior?: string;
+    senior?: string;
+    master?: string;
+  };
 };
 
 export type Resource = {
@@ -728,10 +734,10 @@ export const services: Service[] = [
     padBefore: 10,
     padAfter: 5,
     pricingTiers: [
-        { level: 'apprentice', price: 25.00, duration: 60 },
-        { level: 'junior', price: 35.00, duration: 50 },
-        { level: 'senior', price: 45.00, duration: 45 },
-        { level: 'master', price: 55.00, duration: 40 },
+        { level: 'apprentice', price: 25.00, durationMinutes: 60 },
+        { level: 'junior', price: 35.00, durationMinutes: 50 },
+        { level: 'senior', price: 45.00, durationMinutes: 45 },
+        { level: 'master', price: 55.00, durationMinutes: 40 },
     ],
     price: 45.00,
     cost: 3.50,
@@ -761,10 +767,10 @@ export const services: Service[] = [
     duration: 60,
     padAfter: 15,
     pricingTiers: [
-        { level: 'apprentice', price: 50, duration: 90 },
-        { level: 'junior', price: 65.00, duration: 75 },
-        { level: 'senior', price: 85.00, duration: 60 },
-        { level: 'master', price: 105.00, duration: 60 },
+        { level: 'apprentice', price: 50, durationMinutes: 90 },
+        { level: 'junior', price: 65.00, durationMinutes: 75 },
+        { level: 'senior', price: 85.00, durationMinutes: 60 },
+        { level: 'master', price: 105.00, durationMinutes: 60 },
     ],
     price: 85.00,
     cost: 5.00,
@@ -787,10 +793,10 @@ export const services: Service[] = [
     duration: 120,
     padAfter: 30,
     pricingTiers: [
-        { level: 'apprentice', price: 150, duration: 180 },
-        { level: 'junior', price: 200.00, duration: 150 },
-        { level: 'senior', price: 250.00, duration: 120 },
-        { level: 'master', price: 300.00, duration: 120 },
+        { level: 'apprentice', price: 150, durationMinutes: 180 },
+        { level: 'junior', price: 200.00, durationMinutes: 150 },
+        { level: 'senior', price: 250.00, durationMinutes: 120 },
+        { level: 'master', price: 300.00, durationMinutes: 120 },
     ],
     price: 250.00,
     cost: 35.00,
@@ -812,10 +818,10 @@ export const services: Service[] = [
     category: 'Skincare', 
     duration: 75,
     pricingTiers: [
-        { level: 'apprentice', price: 80, duration: 90 },
-        { level: 'junior', price: 100.00, duration: 90 },
-        { level: 'senior', price: 120.00, duration: 75 },
-        { level: 'master', price: 140.00, duration: 70 },
+        { level: 'apprentice', price: 80, durationMinutes: 90 },
+        { level: 'junior', price: 100.00, durationMinutes: 90 },
+        { level: 'senior', price: 120.00, durationMinutes: 75 },
+        { level: 'master', price: 140.00, durationMinutes: 70 },
     ],
     price: 120.00,
     cost: 15.00,
@@ -835,10 +841,10 @@ export const services: Service[] = [
     duration: 180,
     padAfter: 30,
     pricingTiers: [
-        { level: 'apprentice', price: 250, duration: 240 },
-        { level: 'junior', price: 300.00, duration: 210 },
-        { level: 'senior', price: 350.00, duration: 180 },
-        { level: 'master', price: 425.00, duration: 170 },
+        { level: 'apprentice', price: 250, durationMinutes: 240 },
+        { level: 'junior', price: 300.00, durationMinutes: 210 },
+        { level: 'senior', price: 350.00, durationMinutes: 180 },
+        { level: 'master', price: 425.00, durationMinutes: 170 },
     ],
     price: 350.00,
     cost: 50.00,
@@ -858,10 +864,10 @@ export const services: Service[] = [
     duration: 45,
     padAfter: 10,
     pricingTiers: [
-        { level: 'apprentice', price: 30, duration: 60 },
-        { level: 'junior', price: 40.00, duration: 50 },
-        { level: 'senior', price: 50.00, duration: 45 },
-        { level: 'master', price: 65.00, duration: 40 },
+        { level: 'apprentice', price: 30, durationMinutes: 60 },
+        { level: 'junior', price: 40.00, durationMinutes: 50 },
+        { level: 'senior', price: 50.00, durationMinutes: 45 },
+        { level: 'master', price: 65.00, durationMinutes: 40 },
     ],
     price: 50.00,
     cost: 2.00,
@@ -882,10 +888,10 @@ export const services: Service[] = [
     padBefore: 10,
     padAfter: 10,
     pricingTiers: [
-        { level: 'apprentice', price: 65, duration: 120 },
-        { level: 'junior', price: 80.00, duration: 100 },
-        { level: 'senior', price: 95.00, duration: 90 },
-        { level: 'master', price: 110.00, duration: 80 },
+        { level: 'apprentice', price: 65, durationMinutes: 120 },
+        { level: 'junior', price: 80.00, durationMinutes: 100 },
+        { level: 'senior', price: 95.00, durationMinutes: 90 },
+        { level: 'master', price: 110.00, durationMinutes: 80 },
     ],
     price: 95.00,
     cost: 12.00,
@@ -906,10 +912,10 @@ export const services: Service[] = [
     category: 'Skincare', 
     duration: 15,
     pricingTiers: [
-        { level: 'apprentice', price: 15, duration: 25 },
-        { level: 'junior', price: 20.00, duration: 20 },
-        { level: 'senior', price: 25.00, duration: 15 },
-        { level: 'master', price: 30.00, duration: 15 },
+        { level: 'apprentice', price: 15, durationMinutes: 25 },
+        { level: 'junior', price: 20.00, durationMinutes: 20 },
+        { level: 'senior', price: 25.00, durationMinutes: 15 },
+        { level: 'master', price: 30.00, durationMinutes: 15 },
     ],
     price: 25.00,
     cost: 1.50,
@@ -928,10 +934,10 @@ export const services: Service[] = [
     duration: 90,
     padAfter: 20,
     pricingTiers: [
-        { level: 'apprentice', price: 80, duration: 120 },
-        { level: 'junior', price: 100.00, duration: 100 },
-        { level: 'senior', price: 120.00, duration: 90 },
-        { level: 'master', price: 140.00, duration: 80 },
+        { level: 'apprentice', price: 80, durationMinutes: 120 },
+        { level: 'junior', price: 100.00, durationMinutes: 100 },
+        { level: 'senior', price: 120.00, durationMinutes: 90 },
+        { level: 'master', price: 140.00, durationMinutes: 80 },
     ],
     price: 120.00,
     cost: 20.00,
@@ -950,10 +956,10 @@ export const services: Service[] = [
     category: 'Hair', 
     duration: 45,
     pricingTiers: [
-        { level: 'apprentice', price: 45, duration: 60 },
-        { level: 'junior', price: 60.00, duration: 50 },
-        { level: 'senior', price: 75.00, duration: 45 },
-        { level: 'master', price: 90.00, duration: 40 },
+        { level: 'apprentice', price: 45, durationMinutes: 60 },
+        { level: 'junior', price: 60.00, durationMinutes: 50 },
+        { level: 'senior', price: 75.00, durationMinutes: 45 },
+        { level: 'master', price: 90.00, durationMinutes: 40 },
     ],
     price: 75.00,
     cost: 10.00,
@@ -972,10 +978,10 @@ export const services: Service[] = [
     category: 'Hair', 
     duration: 45,
     pricingTiers: [
-        { level: 'apprentice', price: 40, duration: 60 },
-        { level: 'junior', price: 50.00, duration: 55 },
-        { level: 'senior', price: 60.00, duration: 45 },
-        { level: 'master', price: 75.00, duration: 40 },
+        { level: 'apprentice', price: 40, durationMinutes: 60 },
+        { level: 'junior', price: 50.00, durationMinutes: 55 },
+        { level: 'senior', price: 60.00, durationMinutes: 45 },
+        { level: 'master', price: 75.00, durationMinutes: 40 },
     ],
     price: 60.00,
     cost: 5.00,
@@ -994,10 +1000,10 @@ export const services: Service[] = [
     category: 'Hair', 
     duration: 60,
     pricingTiers: [
-        { level: 'apprentice', price: 60, duration: 90 },
-        { level: 'junior', price: 75.00, duration: 75 },
-        { level: 'senior', price: 90.00, duration: 60 },
-        { level: 'master', price: 110.00, duration: 50 },
+        { level: 'apprentice', price: 60, durationMinutes: 90 },
+        { level: 'junior', price: 75.00, durationMinutes: 75 },
+        { level: 'senior', price: 90.00, durationMinutes: 60 },
+        { level: 'master', price: 110.00, durationMinutes: 50 },
     ],
     price: 90.00,
     cost: 8.00,
