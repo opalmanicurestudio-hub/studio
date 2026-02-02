@@ -116,6 +116,7 @@ interface AppointmentDetailsProps {
     requiredResources: Resource[];
     onStartService: (appointmentId: string) => void;
     onFinishService: (appointment: Appointment) => void;
+    setIsDetailsOpen: (isOpen: boolean) => void;
 }
 
 const AppointmentDetails = ({
@@ -133,6 +134,7 @@ const AppointmentDetails = ({
     requiredResources,
     onStartService,
     onFinishService,
+    setIsDetailsOpen,
 }: AppointmentDetailsProps) => {
     const { toast } = useToast();
     const [isFinishConfirmOpen, setIsFinishConfirmOpen] = useState(false);
@@ -647,33 +649,59 @@ export function AppointmentCard({
             requiredResources={requiredResources}
             onStartService={onStartService}
             onFinishService={onFinishService}
+            setIsDetailsOpen={setIsDetailsOpen}
           />
-           <SheetFooter className="p-4 pt-4 border-t grid grid-cols-2 gap-2 sm:flex">
-                <Button variant="outline" asChild><Link href={`/clients/${client.id}`}>View Client</Link></Button>
-                <Button variant="outline" onClick={() => { setIsDetailsOpen(false); setTimeout(() => onEdit(appointment), 150)}}>Edit Details</Button>
-                <div className="sm:flex-1" />
+           <SheetFooter className="p-4 pt-4 border-t grid">
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <Button variant="outline">More Actions</Button>
+                        <Button className="w-full">Actions</Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => { setIsDetailsOpen(false); setTimeout(() => onRebook(appointment), 150) }}><Repeat className="mr-2 h-4 w-4" /> Rebook Same Service</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => { setIsDetailsOpen(false); setTimeout(() => onBookNewForClient(client.id), 150) }}><Book className="mr-2" /> Book New Service</DropdownMenuItem>
+                    <DropdownMenuContent align="end" className="w-[var(--radix-dropdown-menu-trigger-width)]">
+                        <DropdownMenuItem asChild>
+                            <Link href={`/clients/${client.id}`} className="flex items-center">
+                                <UserIcon className="mr-2"/>View Client Profile
+                            </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => { setIsDetailsOpen(false); setTimeout(() => onEdit(appointment), 150)}}>
+                            <Edit className="mr-2"/>Edit Appointment
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => { setIsDetailsOpen(false); setTimeout(() => onReschedule(appointment), 150)}}>
+                            <Calendar className="mr-2"/>Reschedule
+                        </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={handleShareLink}><LinkIcon className="mr-2 h-4 w-4" /> Share Check-in Link</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => onPrintTicket({ appointment, client, service })}><TicketIcon className="mr-2" /> Print Ticket</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => { toast({ title: 'Confirmation Resent', description: `An email confirmation has been resent to ${client.email}.`}) }}><Send className="mr-2 h-4 w-4"/>Resend Confirmation</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => { setIsDetailsOpen(false); setTimeout(() => onRebook(appointment), 150) }}>
+                            <Repeat className="mr-2"/>Rebook Same Service
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => { setIsDetailsOpen(false); setTimeout(() => onBookNewForClient(client.id), 150) }}>
+                            <Book className="mr-2"/>Book New Service
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={handleShareLink}>
+                            <LinkIcon className="mr-2"/>Share Check-in Link
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onPrintTicket({ appointment, client, service })}>
+                            <TicketIcon className="mr-2"/>Print Ticket
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => { toast({ title: 'Confirmation Resent', description: `An email confirmation has been resent to ${client.email}.`}) }}>
+                            <Send className="mr-2"/>Resend Confirmation
+                        </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuSub>
-                            <DropdownMenuSubTrigger><Clock10 className="mr-2"/> Change Status</DropdownMenuSubTrigger>
+                            <DropdownMenuSubTrigger>
+                                <Clock10 className="mr-2"/>Change Status
+                            </DropdownMenuSubTrigger>
                             <DropdownMenuPortal>
-                            <DropdownMenuSubContent>
-                                <DropdownMenuItem onClick={() => onUpdateStatus(appointment.id, 'confirmed')}>Confirmed</DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => onUpdateStatus(appointment.id, 'cancelled')}>Cancelled</DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => onUpdateStatus(appointment.id, 'deposit_pending')}>Awaiting Payment</DropdownMenuItem>
-                            </DropdownMenuSubContent>
+                                <DropdownMenuSubContent>
+                                    <DropdownMenuItem onClick={() => onUpdateStatus(appointment.id, 'confirmed')}>Confirmed</DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => onUpdateStatus(appointment.id, 'cancelled')}>Cancelled</DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => onUpdateStatus(appointment.id, 'deposit_pending')}>Awaiting Payment</DropdownMenuItem>
+                                </DropdownMenuSubContent>
                             </DropdownMenuPortal>
                         </DropdownMenuSub>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem className="text-destructive" onClick={() => onDelete(appointment.id)}>
+                            <Trash2 className="mr-2"/>Delete Appointment
+                        </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
             </SheetFooter>
@@ -695,3 +723,5 @@ export function AppointmentCard({
     </div>
   );
 }
+
+```
