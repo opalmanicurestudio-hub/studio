@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -276,14 +277,12 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUp
   const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
   
   const performance = useMemo(() => {
-    if (!appointments) return { totalBookings: 0, totalRevenue: 0, uniqueClients: 0 };
+    if (!appointments) return { totalBookings: 0, totalRevenue: 0 };
     const bookings = appointments.filter(apt => apt.serviceId === service.id && apt.status === 'completed');
     const totalRevenue = bookings.length * service.price;
-    const uniqueClients = new Set(bookings.map(apt => apt.clientId)).size;
     return {
         totalBookings: bookings.length,
         totalRevenue,
-        uniqueClients
     };
   }, [service.id, service.price, appointments]);
 
@@ -328,52 +327,40 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUp
                 data-ai-hint="manicure nails" 
             />
           </Link>
-          <div className="flex-1 space-y-1 min-w-0">
-            <div className="flex justify-between items-start">
-              <Link href={`/services/${service.id}`} className="group">
-                <p className="font-semibold text-base leading-tight group-hover:underline pr-2">{service.name}</p>
-              </Link>
+          <div className="flex-1 min-w-0">
+             <div className="flex justify-between items-start">
+                <Link href={`/services/${service.id}`} className="group">
+                    <p className="font-semibold text-base leading-tight group-hover:underline pr-2">{service.name}</p>
+                </Link>
             </div>
             {service.isPrivate && (
-                <Badge variant="secondary" className="text-xs">
+                <Badge variant="secondary" className="text-xs mt-1">
                     <EyeOff className="w-3 h-3 mr-1.5" />
                     Private
                 </Badge>
             )}
             <div className="text-sm text-muted-foreground space-y-1 pt-1">
                 <div className="flex items-center gap-1.5"><Clock className="w-4 h-4" /> {service.duration} min {totalPadding > 0 && <span className='text-muted-foreground/50'>(+{totalPadding} pad)</span>}</div>
-                <div className="flex items-center gap-1.5">
-                    <DollarSign className="w-4 h-4" /> 
-                    {sortedTiers ? (
-                        <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-xs font-medium">
-                            {sortedTiers.map(tier => (
-                                <div key={tier.level} className="flex items-center gap-1">
-                                    <span className="capitalize text-muted-foreground">{tier.level.charAt(0)}:</span>
-                                    <span>${tier.price.toFixed(2)}</span>
-                                </div>
-                            ))}
-                        </div>
-                    ) : (
-                        <span>{service.price.toFixed(2)}</span>
-                    )}
-                </div>
-                {service.capacity && service.capacity > 1 && <div className="flex items-center gap-1.5"><Users className="w-4 h-4" /> Up to {service.capacity}</div>}
             </div>
           </div>
         </div>
         
-        <div className="grid grid-cols-3 gap-2 text-center">
-            <div className="p-2 rounded-md bg-muted/50">
-                <p className="text-xs text-muted-foreground">Cost</p>
-                <p className="font-semibold text-destructive">${service.cost.toFixed(2)}</p>
+        <div className="grid grid-cols-2 gap-4 text-center">
+             <div className="p-2 rounded-md bg-muted/50">
+                <p className="text-xs text-muted-foreground">Bookings</p>
+                <p className="font-bold text-lg">{performance.totalBookings}</p>
             </div>
             <div className="p-2 rounded-md bg-muted/50">
+                <p className="text-xs text-muted-foreground">Revenue</p>
+                <p className="font-bold text-lg">${performance.totalRevenue.toFixed(2)}</p>
+            </div>
+             <div className="p-2 rounded-md bg-muted/50">
                 <p className="text-xs text-muted-foreground">Profit</p>
-                <p className={`font-semibold ${service.profit >= 0 ? 'text-primary' : 'text-destructive'}`}>${service.profit.toFixed(2)}</p>
+                <p className={`font-bold text-lg ${service.profit >= 0 ? 'text-primary' : 'text-destructive'}`}>${service.profit.toFixed(2)}</p>
             </div>
             <div className="p-2 rounded-md bg-muted/50">
                 <p className="text-xs text-muted-foreground">Margin</p>
-                <p className={`font-semibold ${service.margin >= 0 ? 'text-primary' : 'text-destructive'}`}>{service.margin.toFixed(0)}%</p>
+                <p className={`font-bold text-lg ${service.margin >= 0 ? 'text-primary' : 'text-destructive'}`}>{service.margin.toFixed(0)}%</p>
             </div>
         </div>
 
@@ -381,32 +368,15 @@ const ServiceCard = ({ service, onEditServiceOpen, tmhr, appointments, onPriceUp
             <AccordionItem value="details" className="border-b-0">
                 <AccordionTrigger className='p-2.5 text-sm font-medium hover:no-underline rounded-md bg-muted/50'>
                     <div className='flex items-center gap-2'>
-                         <Sparkles className='w-4 h-4 text-primary' /> More Details
+                         <Sparkles className='w-4 h-4 text-primary' /> Profitability Details
                     </div>
                 </AccordionTrigger>
                 <AccordionContent className='pt-4 space-y-4'>
-                    <Tabs defaultValue="performance">
-                        <TabsList className="grid w-full grid-cols-3 text-xs h-8 rounded-sm">
-                            <TabsTrigger value="performance" className="h-full rounded-sm">Performance</TabsTrigger>
+                    <Tabs defaultValue="profit">
+                        <TabsList className="grid w-full grid-cols-2 text-xs h-8 rounded-sm">
                             <TabsTrigger value="profit" className="h-full rounded-sm">Profit Tester</TabsTrigger>
                             <TabsTrigger value="cost" className="h-full rounded-sm">Cost Breakdown</TabsTrigger>
                         </TabsList>
-                        <TabsContent value="performance" className="mt-4">
-                            <div className='grid grid-cols-3 gap-2'>
-                                <div className='text-center p-2 rounded-md bg-background'>
-                                    <p className="text-xs text-muted-foreground">Bookings</p>
-                                    <p className='font-bold text-lg'>{performance.totalBookings}</p>
-                                </div>
-                                <div className='text-center p-2 rounded-md bg-background'>
-                                    <p className="text-xs text-muted-foreground">Revenue</p>
-                                    <p className='font-bold text-base'>${performance.totalRevenue.toFixed(2)}</p>
-                                </div>
-                                <div className='text-center p-2 rounded-md bg-background'>
-                                    <p className="text-xs text-muted-foreground">Clients</p>
-                                    <p className='font-bold text-lg'>{performance.uniqueClients}</p>
-                                </div>
-                            </div>
-                        </TabsContent>
                         <TabsContent value="profit" className="mt-4">
                              <InlineProfitTester service={service} tmhr={tmhr} onPriceUpdate={(newPrice) => onPriceUpdate(service.id, newPrice)} />
                         </TabsContent>
@@ -819,4 +789,3 @@ export default function ServicesPage() {
   );
 }
 
-    
