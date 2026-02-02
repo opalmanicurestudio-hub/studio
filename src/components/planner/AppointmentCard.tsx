@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -732,7 +733,7 @@ export function AppointmentCard({
       )}
       
       <DialogOrSheet open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
-        <DialogOrSheetContent className={cn(isMobile ? "h-[90vh] flex flex-col p-0" : "p-0 sm:max-w-md")}>
+        <ContentComponent className={cn(isMobile ? "h-[90vh] flex flex-col p-0" : "p-0 sm:max-w-md")}>
           <SheetHeader className="p-6 pb-0">
             <SheetTitle>Appointment Details</SheetTitle>
             <SheetDescription>
@@ -756,7 +757,7 @@ export function AppointmentCard({
             onPrintTicket={onPrintTicket}
             resources={resources}
           />
-        </DialogOrSheetContent>
+        </ContentComponent>
       </DialogOrSheet>
 
       {imageUrl && (
@@ -793,4 +794,4 @@ export function AppointmentCard({
     </AlertDialog>
     </div>
   );
-}
+};
