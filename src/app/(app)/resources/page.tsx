@@ -15,21 +15,15 @@ import {
 import { Button } from '@/components/ui/button';
 import {
   PlusCircle,
-  MoreHorizontal,
   Box,
   Building,
   HardHat,
   Trash2,
   Users,
   Edit,
+  Calendar,
 } from 'lucide-react';
 import Image from 'next/image';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { useInventory } from '@/context/InventoryContext';
 import type { Resource, InventoryItem } from '@/lib/data';
 import { AddResourceDialog } from '@/components/resources/AddResourceDialog';
@@ -39,6 +33,7 @@ import { nanoid } from 'nanoid';
 import { useToast } from '@/hooks/use-toast';
 import Link from 'next/link';
 import { useTenant } from '@/context/TenantContext';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
 const ResourceCard = ({ resource, inventory, onDelete, onEdit }: { resource: Resource, inventory: InventoryItem[], onDelete: (id: string) => void, onEdit: (resource: Resource) => void }) => {
     const linkedItem = resource.inventoryItemId ? inventory.find(i => i.id === resource.inventoryItemId) : null;
@@ -56,22 +51,6 @@ const ResourceCard = ({ resource, inventory, onDelete, onEdit }: { resource: Res
                         <CardTitle className="text-lg">{resource.name}</CardTitle>
                         <CardDescription className="capitalize">{resource.type}</CardDescription>
                     </div>
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 ml-auto shrink-0" onClick={(e) => e.stopPropagation()}>
-                                <MoreHorizontal className="w-4 h-4" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent>
-                            <DropdownMenuItem onClick={() => onEdit(resource)}>
-                                <Edit className="w-4 h-4 mr-2" />
-                                Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem className="text-destructive" onClick={() => onDelete(resource.id)}>
-                                <Trash2 className="w-4 h-4 mr-2" /> Delete
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
                 </div>
             </CardHeader>
             <CardContent className="p-4 flex-1 space-y-4">
@@ -95,10 +74,37 @@ const ResourceCard = ({ resource, inventory, onDelete, onEdit }: { resource: Res
                     <p className="font-bold text-lg">{resource.capacity || 1}</p>
                 </div>
             </CardContent>
-            <CardFooter className="p-2 border-t">
-                <Button asChild variant="ghost" className="w-full">
-                    <Link href="/planner?view=resources">View Schedule</Link>
-                </Button>
+             <CardFooter className="p-2 border-t">
+                <TooltipProvider>
+                    <div className="flex justify-around w-full">
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button asChild variant="ghost" size="icon">
+                                    <Link href="/planner?view=resources">
+                                        <Calendar className="w-4 h-4" />
+                                    </Link>
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent><p>View Schedule</p></TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="ghost" size="icon" onClick={() => onEdit(resource)}>
+                                    <Edit className="w-4 h-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent><p>Edit</p></TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="ghost" size="icon" className="text-destructive" onClick={() => onDelete(resource.id)}>
+                                    <Trash2 className="w-4 h-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent><p>Delete</p></TooltipContent>
+                        </Tooltip>
+                    </div>
+                </TooltipProvider>
             </CardFooter>
         </Card>
     );
