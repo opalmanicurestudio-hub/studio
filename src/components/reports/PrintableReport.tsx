@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React from 'react';
@@ -230,5 +231,3 @@ export const PrintableReport = React.forwardRef<HTMLDivElement, PrintableReportP
 });
 
 PrintableReport.displayName = 'PrintableReport';
-
-    
