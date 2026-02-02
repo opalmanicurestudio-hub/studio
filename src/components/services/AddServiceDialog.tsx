@@ -55,7 +55,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Calendar } from '../ui/calendar';
 import { CalendarIcon } from 'lucide-react';
 import { ScrollArea } from '../ui/scroll-area';
-import { useFirebase, useTenant, useCollection, useMemoFirebase } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
+import { useTenant } from '@/context/TenantContext';
 import { collection } from 'firebase/firestore';
 
 
@@ -332,6 +333,7 @@ const PricingTierInput = ({ level }: { level: 'apprentice' | 'junior' | 'senior'
     );
 };
 
+
 const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
     const { control, watch, register, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
     const isAddon = watch('isAddon');
@@ -432,18 +434,10 @@ const Step3_PricingBooking = ({ breakEvenCost }: { breakEvenCost: number }) => {
     );
 };
 
-const Step4_VisibilityConfirmation = () => {
+const Step4_VisibilityConfirmation = ({ consentForms }: { consentForms: ConsentForm[] }) => {
     const { register, control, setValue, watch } = useFormContext<ServiceFormData>();
     const requiredFormIds = watch('requiredFormIds') || [];
     const [isConsentFormBrowserOpen, setIsConsentFormBrowserOpen] = useState(false);
-    
-    const { firestore } = useFirebase();
-    const { selectedTenant } = useTenant();
-    const consentFormsQuery = useMemoFirebase(() => {
-        if (!firestore || !selectedTenant) return null;
-        return collection(firestore, `tenants/${selectedTenant.id}/consentForms`);
-    }, [firestore, selectedTenant]);
-    const { data: consentForms } = useCollection<ConsentForm>(consentFormsQuery);
     
     const requiredForms = consentForms?.filter(f => requiredFormIds.includes(f.id)) || [];
 
@@ -473,7 +467,7 @@ const Step4_VisibilityConfirmation = () => {
 export const AddServiceDialog: React.FC<{ 
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  initialType?: 'service' | 'addon';
+  initialType: 'professional' | 'retail';
   categories: string[];
   onNewCategory: (category: string) => void;
   onServiceAdded: (service: Service) => void;
@@ -504,15 +498,7 @@ export const AddServiceDialog: React.FC<{
 
   useEffect(() => {
     if (open) {
-      methods.reset({ 
-        isAddon: initialType === 'addon',
-        products: [],
-        requiredResourceIds: [],
-        compatibleAddOnIds: [],
-        depositType: 'none',
-        requiredFormIds: [],
-        pricingTiers: { apprentice: {price: 0, duration: 0}, junior: {price: 0, duration: 0}, senior: {price: 0, duration: 0}, master: {price: 0, duration: 0} },
-      });
+      methods.reset({ type: initialType === 'retail' ? 'retail' : 'professional', isAddon: initialType === 'addon' });
       setStep(1);
     }
   }, [open, initialType, methods]);
@@ -523,6 +509,14 @@ export const AddServiceDialog: React.FC<{
   const [tmhr, setTmhr] = useState(0);
 
   const { inventory } = useInventory();
+
+  const { firestore } = useFirebase();
+  const { selectedTenant } = useTenant();
+  const consentFormsQuery = useMemoFirebase(() => {
+    if (!firestore || !selectedTenant) return null;
+    return collection(firestore, `tenants/${selectedTenant.id}/consentForms`);
+  }, [firestore, selectedTenant]);
+  const { data: consentForms } = useCollection<ConsentForm>(consentFormsQuery);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -640,7 +634,7 @@ export const AddServiceDialog: React.FC<{
           case 1: return <Step1_BasicDetails categories={categories} onNewCategory={onNewCategory} />;
           case 2: return <Step2_Formula onScanClick={() => setIsScannerOpen(true)} resources={resources} allServices={services} />;
           case 3: return <Step3_PricingBooking breakEvenCost={breakEvenCost} />;
-          case 4: return <Step4_VisibilityConfirmation />;
+          case 4: return <Step4_VisibilityConfirmation consentForms={consentForms || []} />;
           default: return null;
       }
   }
@@ -697,5 +691,3 @@ export const AddServiceDialog: React.FC<{
     </Dialog>
   );
 };
-
-    
