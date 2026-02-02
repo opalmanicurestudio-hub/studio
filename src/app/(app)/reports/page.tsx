@@ -23,6 +23,7 @@ import { PrintableReport } from '@/components/reports/PrintableReport';
 import { Loader } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { PrintableStaffReport } from '@/components/staff/PrintableStaffReport';
 
 
 const chartConfig = {
