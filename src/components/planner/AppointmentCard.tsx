@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -90,6 +89,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/
 import { useInventory } from '@/context/InventoryContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription } from "@/components/ui/alert-dialog";
 
 interface AppointmentDetailsProps {
     appointment: Appointment;
@@ -127,7 +127,7 @@ const AppointmentDetails = ({
     resources,
 }: AppointmentDetailsProps) => {
     const { toast } = useToast();
-    const [isFinishConfirmOpen, useState] = useState(false);
+    const [isFinishConfirmOpen, setIsFinishConfirmOpen] = useState(false);
     const { inventory, services: allServices } = useInventory();
     
     const addOnServices = useMemo(() => {
@@ -209,12 +209,13 @@ const AppointmentDetails = ({
             const serviceRevenue = appointmentTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + t.amount, 0);
             const retailRevenue = appointmentTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + t.amount, 0);
             const totalRevenue = serviceRevenue + retailRevenue;
-            const totalTips = appointmentTransactions.filter(t => t.category === 'Tips').reduce((acc, t) => acc + t.amount, 0);
+            const totalTips = appointmentTransactions.reduce((acc, t) => acc + (t.tipAmount || 0), 0);
             const totalDiscounts = appointmentTransactions.reduce((acc, t) => acc + (t.discountAmount || 0), 0);
-            const finalNetProfit = totalRevenue - finalBreakEvenCost;
+            
+            const finalNetProfit = serviceRevenue - finalBreakEvenCost;
 
             const actualItems = appointmentTransactions
-                .filter(t => ['Service Revenue', 'Retail', 'Tips'].includes(t.category))
+                .filter(t => ['Service Revenue', 'Retail'].includes(t.category))
                 .map(t => ({ name: t.description, amount: t.amount, isDiscount: false }));
             
             if (totalDiscounts > 0) {
@@ -801,6 +802,28 @@ export function AppointmentCard({
               </DialogContent>
           </Dialog>
       )}
+      
+       <AlertDialog open={isFinishConfirmOpen} onOpenChange={setIsFinishConfirmOpen}>
+        <AlertDialogContent>
+            <AlertDialogHeader>
+                <AlertDialogTitle>Are you sure you want to finish this service?</AlertDialogTitle>
+                <AlertDialogDescription>
+                    This will stop the timer and mark the service as ready for checkout.
+                </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={() => {
+                    onFinishService(appointment);
+                    setIsFinishConfirmOpen(false);
+                }}>
+                    Yes, Finish Service
+                </AlertDialogAction>
+            </AlertDialogFooter>
+        </AlertDialogContent>
+    </AlertDialog>
     </div>
   );
 }
+
+    
