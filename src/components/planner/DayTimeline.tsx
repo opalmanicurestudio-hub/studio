@@ -4,7 +4,7 @@
 
 import { AppHeaderClient } from '@/components/shared/AppHeaderClient';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, QrCode, Globe, Building, HardHat } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, QrCode, Globe, Building, HardHat, Repeat, Link as LinkIcon, Car } from 'lucide-react';
 import { type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState, type Resource } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
 import { format, addDays, subDays, startOfWeek, getHours, getMinutes, differenceInMinutes, isPast, isToday, setHours, startOfDay, startOfMonth, endOfMonth, endOfDay, getDate, parseISO, addMinutes, subMinutes, eachDayOfInterval, addWeeks, subWeeks, isSameDay, isBefore, isEqual, areIntervalsOverlapping, addMonths } from 'date-fns';
@@ -107,6 +107,11 @@ export const DayTimeline = ({
     services,
     resources,
     publicScheduleProfile,
+    isMobile,
+    activeView,
+    allStaff,
+    mobileSelectedStaffId,
+    onMobileStaffChange,
 }: { 
     date: Date; 
     columns: (Staff | Resource)[];
@@ -134,12 +139,16 @@ export const DayTimeline = ({
     services: Service[] | null;
     resources: Resource[];
     publicScheduleProfile: any;
+    isMobile: boolean;
+    activeView: 'staff' | 'resources';
+    allStaff: Staff[];
+    mobileSelectedStaffId: string;
+    onMobileStaffChange: (id: string) => void;
 }) => {
     const START_HOUR = 0; // Start at midnight
     const hours = Array.from({ length: 24 - START_HOUR }, (_, i) => i + START_HOUR);
     const [tmhr, setTmhr] = useState(0);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
-    const isMobile = useIsMobile();
 
     useEffect(() => {
       if (typeof window !== 'undefined') {
@@ -362,23 +371,57 @@ export const DayTimeline = ({
             <div className="grid grid-cols-[auto,1fr] min-w-max">
                 
                 <div className="sticky top-0 z-30 bg-background h-14 border-b border-r grid" style={{ width: isMobile ? '40px' : '48px' }} />
+                
                 <div className="sticky top-0 z-20 grid col-start-2 bg-background" style={gridStyle}>
-                    {columns.map(column => (
-                        <div key={column.id} className="p-2 h-14 border-b border-r text-center flex items-center justify-center">
-                            {showColumnHeader && (
-                                <div className="flex items-center justify-center gap-2 h-full">
-                                    {'avatarUrl' in column ? (
-                                        <Avatar className="w-6 h-6"><AvatarImage src={(column as Staff).avatarUrl} /><AvatarFallback>{column.name.charAt(0)}</AvatarFallback></Avatar>
-                                    ) : (
-                                        <div className="w-6 h-6 flex items-center justify-center">
-                                            {(column as Resource).type === 'room' ? <Building className="w-5 h-5 text-muted-foreground" /> : <HardHat className="w-5 h-5 text-muted-foreground" />}
-                                        </div>
-                                    )}
-                                    <p className="font-semibold text-sm truncate">{column.name}</p>
-                                </div>
-                            )}
-                        </div>
-                    ))}
+                    {columns.map(column => {
+                        const staffColumn = column as Staff; // Cast to access staff properties
+                        return (
+                            <div key={column.id} className="p-2 h-14 border-b border-r text-center flex items-center justify-center">
+                                {isMobile && activeView === 'staff' ? (
+                                    <Select value={mobileSelectedStaffId} onValueChange={onMobileStaffChange}>
+                                        <SelectTrigger className="border-none h-auto p-0 focus:ring-0 w-full bg-transparent">
+                                            <SelectValue asChild>
+                                                <div className="flex items-center justify-center gap-2 h-full w-full">
+                                                    <Avatar className="w-8 h-8">
+                                                        <AvatarImage src={staffColumn.avatarUrl} />
+                                                        <AvatarFallback>{staffColumn.name.charAt(0)}</AvatarFallback>
+                                                    </Avatar>
+                                                    <div>
+                                                        <p className="font-semibold text-base truncate">{staffColumn.name}</p>
+                                                        <p className="text-xs text-muted-foreground capitalize">{staffColumn.skillLevel || 'Staff'}</p>
+                                                    </div>
+                                                </div>
+                                            </SelectValue>
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {allStaff.map(s => (
+                                                <SelectItem key={s.id} value={s.id}>
+                                                    <div className="flex items-center gap-2">
+                                                        <Avatar className="w-6 h-6">
+                                                            <AvatarImage src={s.avatarUrl} />
+                                                            <AvatarFallback>{s.name.charAt(0)}</AvatarFallback>
+                                                        </Avatar>
+                                                        <span>{s.name}</span>
+                                                    </div>
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                ) : (
+                                    <div className="flex items-center justify-center gap-2 h-full">
+                                        {'avatarUrl' in column ? (
+                                            <Avatar className="w-6 h-6"><AvatarImage src={staffColumn.avatarUrl} /><AvatarFallback>{column.name.charAt(0)}</AvatarFallback></Avatar>
+                                        ) : (
+                                            <div className="w-6 h-6 flex items-center justify-center">
+                                                {(column as Resource).type === 'room' ? <Building className="w-5 h-5 text-muted-foreground" /> : <HardHat className="w-5 h-5 text-muted-foreground" />}
+                                            </div>
+                                        )}
+                                        <p className="font-semibold text-sm truncate">{column.name}</p>
+                                    </div>
+                                )}
+                            </div>
+                        )
+                    })}
                 </div>
                 
                 {/* Time labels column */}

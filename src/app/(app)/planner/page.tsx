@@ -380,22 +380,20 @@ function PlannerPageContent() {
   }, [itemsByColumnRaw, activeView, staff, resources]);
 
   const staffToDisplay = useMemo(() => {
-    if (isMobile) {
+    if (isMobile && activeView === 'staff') {
         if (!mobileSelectedStaffId || !staff) return [];
         const selected = (staff || []).find(s => s.id === mobileSelectedStaffId);
         return selected ? [selected] : [];
     }
     return staff || [];
-  }, [isMobile, mobileSelectedStaffId, staff]);
+  }, [isMobile, mobileSelectedStaffId, staff, activeView]);
 
-  const staffItemsToDisplay = useMemo(() => {
-      if (!itemsByColumn) return new Map();
-      if (isMobile && activeView === 'staff') {
-          if (!mobileSelectedStaffId || !itemsByColumn.has(mobileSelectedStaffId)) return new Map();
-          return new Map([[mobileSelectedStaffId, itemsByColumn.get(mobileSelectedStaffId)!]]);
-      }
-      return itemsByColumn;
-  }, [isMobile, mobileSelectedStaffId, itemsByColumn, activeView]);
+  const columnsToDisplay = useMemo(() => {
+    if (activeView === 'staff') {
+      return staffToDisplay;
+    }
+    return resources || [];
+  }, [activeView, staffToDisplay, resources]);
 
 
   const handleCompleteClick = (appointment: Appointment) => {
@@ -1207,7 +1205,6 @@ function PlannerPageContent() {
     }
 }, [isScannerOpen, handleScan, toast]);
   
-  const showStaffColumnHeader = !isMobile;
   const isDataLoading = isLoading || isUserLoading || isTenantLoading || scheduleProfilesLoading || resourcesLoading || checkInsLoading;
 
   if (isDataLoading) {
@@ -1367,6 +1364,36 @@ function PlannerPageContent() {
                         </div>
                     </div>
                 )}
+                {isMobile && (
+                    <div className="flex items-center gap-2">
+                        <RadioGroup
+                            value={activeView}
+                            onValueChange={(value) => setActiveView(value as 'staff' | 'resources')}
+                            className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1"
+                        >
+                            <div>
+                                <RadioGroupItem value="staff" id="staff-view-mobile-toggle" className="peer sr-only" />
+                                <Label
+                                    htmlFor="staff-view-mobile-toggle"
+                                    className="flex items-center justify-center gap-2 rounded-sm px-3 py-1 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
+                                >
+                                    <User className="h-4 w-4" />
+                                    Staff
+                                </Label>
+                            </div>
+                            <div>
+                                <RadioGroupItem value="resources" id="resource-view-mobile-toggle" className="peer sr-only" />
+                                <Label
+                                    htmlFor="resource-view-mobile-toggle"
+                                    className="flex items-center justify-center gap-2 rounded-sm px-3 py-1 text-sm cursor-pointer transition-colors peer-data-[state=checked]:bg-background peer-data-[state=checked]:shadow peer-data-[state=checked]:text-foreground"
+                                >
+                                    <Building className="h-4 w-4" />
+                                    Resources
+                                </Label>
+                            </div>
+                        </RadioGroup>
+                    </div>
+                )}
                  <div className="-mx-4 md:m-0">
                     <ScrollArea className="w-full">
                         <div className="flex w-full px-4 md:px-0">
@@ -1391,77 +1418,6 @@ function PlannerPageContent() {
                         <ScrollBar orientation="horizontal" className="md:hidden" />
                     </ScrollArea>
                 </div>
-                 <Accordion type="single" collapsible className="w-full border-b md:hidden">
-                    <AccordionItem value="view-options" className="border-b-0">
-                        <AccordionTrigger className="p-0 pt-2 text-base font-semibold hover:no-underline flex-1">View Options</AccordionTrigger>
-                        <AccordionContent className="p-4 pt-2 space-y-4">
-                            <div className="flex flex-col gap-4">
-                                <div className="space-y-2">
-                                  <Label>View Mode</Label>
-                                   <RadioGroup
-                                        value={activeView}
-                                        onValueChange={(value) => setActiveView(value as 'staff' | 'resources')}
-                                        className="grid grid-cols-2 gap-2"
-                                    >
-                                        <div>
-                                            <RadioGroupItem value="staff" id="staff-view-mobile" className="peer sr-only" />
-                                            <Label
-                                                htmlFor="staff-view-mobile"
-                                                className="flex items-center justify-center gap-2 rounded-md border-2 border-muted bg-popover p-2 text-sm peer-data-[state=checked]:border-primary"
-                                            >
-                                                <User className="h-4 w-4" />
-                                                Staff
-                                            </Label>
-                                        </div>
-                                        <div>
-                                            <RadioGroupItem value="resources" id="resource-view-mobile" className="peer sr-only" />
-                                            <Label
-                                                htmlFor="resource-view-mobile"
-                                                className="flex items-center justify-center gap-2 rounded-md border-2 border-muted bg-popover p-2 text-sm peer-data-[state=checked]:border-primary"
-                                            >
-                                                <Building className="h-4 w-4" />
-                                                Resources
-                                            </Label>
-                                        </div>
-                                    </RadioGroup>
-                                </div>
-                                {isMobile && activeView === 'staff' && (
-                                    <div className="space-y-1">
-                                        <Label htmlFor="staff-selector" className="text-xs">Viewing Schedule For</Label>
-                                        <Select value={mobileSelectedStaffId} onValueChange={setMobileSelectedStaffId}>
-                                        <SelectTrigger id="staff-selector" className="mt-1">
-                                            {mobileSelectedStaffId && staff?.find(s => s.id === mobileSelectedStaffId) ? (
-                                            <div className="flex items-center gap-2">
-                                                <Avatar className="w-6 h-6">
-                                                <AvatarImage src={staff.find(s => s.id === mobileSelectedStaffId)?.avatarUrl} />
-                                                <AvatarFallback>{staff.find(s => s.id === mobileSelectedStaffId)?.name.charAt(0)}</AvatarFallback>
-                                                </Avatar>
-                                                <span>{staff.find(s => s.id === mobileSelectedStaffId)?.name}</span>
-                                            </div>
-                                            ) : (
-                                            <SelectValue placeholder="Select a staff member" />
-                                            )}
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {(staff || []).map(s => (
-                                            <SelectItem key={s.id} value={s.id}>
-                                                <div className="flex items-center gap-2">
-                                                    <Avatar className="w-6 h-6">
-                                                        <AvatarImage src={s.avatarUrl} />
-                                                        <AvatarFallback>{s.name.charAt(0)}</AvatarFallback>
-                                                    </Avatar>
-                                                    <span>{s.name}</span>
-                                                </div>
-                                            </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                        </Select>
-                                    </div>
-                                )}
-                            </div>
-                        </AccordionContent>
-                    </AccordionItem>
-                </Accordion>
             </div>
       </div>
       
@@ -1470,8 +1426,13 @@ function PlannerPageContent() {
             <DayTimeline 
                 date={currentDate} 
                 columns={staffToDisplay}
-                itemsByColumn={staffItemsToDisplay}
-                showColumnHeader={showStaffColumnHeader}
+                showColumnHeader={false} // Header logic is now internal
+                isMobile={isMobile || false}
+                activeView={activeView}
+                allStaff={staff || []}
+                mobileSelectedStaffId={mobileSelectedStaffId}
+                onMobileStaffChange={setMobileSelectedStaffId}
+                itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
                 onUpdateStatus={handleUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
@@ -1501,8 +1462,13 @@ function PlannerPageContent() {
              <DayTimeline 
                 date={currentDate} 
                 columns={resources || []}
-                itemsByColumn={itemsByColumn}
                 showColumnHeader={true}
+                isMobile={isMobile || false}
+                activeView={activeView}
+                allStaff={staff || []}
+                mobileSelectedStaffId={mobileSelectedStaffId}
+                onMobileStaffChange={setMobileSelectedStaffId}
+                itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
                 onUpdateStatus={handleUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
