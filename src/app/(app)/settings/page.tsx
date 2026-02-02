@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
@@ -13,7 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DollarSign, Gift, Save, ListChecks, MessageSquare, Clock, Building, Edit, PlusCircle, MoreHorizontal, Globe, Check, Link as LinkIcon, Calendar, Loader, FilePen, X, User, Briefcase, List as ListIcon, Percent as PercentIcon, FileText, Trash2, ChevronDown } from 'lucide-react';
+import { DollarSign, Gift, Save, ListChecks, MessageSquare, Clock, Building, Edit, PlusCircle, MoreHorizontal, Globe, Check, Link as LinkIcon, Calendar, Loader, FilePen, X, User, Briefcase, List as ListIcon, Percent as PercentIcon, FileText, Trash2, ChevronDown, Award } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
@@ -33,6 +34,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 
 
 const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
@@ -341,6 +343,14 @@ export default function SettingsPage() {
   };
 
   const handleDeleteTier = (id: string) => {
+    if (editableTiers.length <= 1) {
+        toast({
+            variant: "destructive",
+            title: "Cannot Delete",
+            description: "You must have at least one pricing tier.",
+        });
+        return;
+    }
     setEditableTiers(editableTiers.filter(t => t.id !== id));
   };
   
@@ -446,7 +456,7 @@ export default function SettingsPage() {
           </div>
           
            <Tabs defaultValue="profile" value={activeTab} onValueChange={setActiveTab} className="w-full">
-            {isMobile ? (
+             <div className="md:hidden">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" className="w-full justify-between mb-4">
@@ -466,17 +476,20 @@ export default function SettingsPage() {
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
-            ) : (
-              <TabsList>
-                {tabs.map(tab => (
-                  <TabsTrigger key={tab.value} value={tab.value}>
-                    {React.cloneElement(tab.icon, { className: "w-4 h-4 mr-2" })}
-                    {tab.label}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            )}
-
+             </div>
+             <div className="hidden md:block">
+                <ScrollArea>
+                    <TabsList>
+                        {tabs.map(tab => (
+                        <TabsTrigger key={tab.value} value={tab.value}>
+                            {React.cloneElement(tab.icon, { className: "w-4 h-4 mr-2" })}
+                            {tab.label}
+                        </TabsTrigger>
+                        ))}
+                    </TabsList>
+                    <ScrollBar orientation="horizontal" />
+                </ScrollArea>
+             </div>
             <TabsContent value="profile" className="mt-6">
                 <Card>
                     <CardHeader>
@@ -747,34 +760,60 @@ export default function SettingsPage() {
                                 <Button onClick={handleTiersSave}><Save className="mr-2 h-4 w-4" />Save Tiers</Button>
                                 </>
                             ) : (
-                                <Button onClick={() => setIsTiersEditing(true)}><Edit className="mr-2 h-4 w-4"/>Edit Tiers</Button>
+                                <Button onClick={() => setIsTiersEditing(true)}>
+                                    {pricingTiersData && pricingTiersData.length > 0 ? (
+                                        <><Edit className="mr-2 h-4 w-4"/>Edit Tiers</>
+                                    ) : (
+                                        <><PlusCircle className="mr-2 h-4 w-4"/>Create Tiers</>
+                                    )}
+                                </Button>
                             )}
                         </div>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                        {editableTiers.map((tier, index) => (
-                             <div key={tier.id} className="flex items-center gap-2">
-                                <Input 
-                                    value={tier.name}
-                                    onChange={(e) => handleTierNameChange(tier.id, e.target.value)}
-                                    disabled={!isTiersEditing}
-                                    className="h-9"
-                                />
-                                 <Button variant="ghost" size="icon" className="text-destructive h-9 w-9" onClick={() => handleDeleteTier(tier.id)} disabled={!isTiersEditing}>
-                                    <Trash2 className="w-4 h-4" />
+                        {!isTiersEditing && (!pricingTiersData || pricingTiersData.length === 0) ? (
+                            <div className="text-center py-10 px-6">
+                                <div className="mx-auto bg-muted/50 w-16 h-16 rounded-full flex items-center justify-center mb-4">
+                                    <PercentIcon className="w-8 h-8 text-muted-foreground" />
+                                </div>
+                                <h3 className="text-xl font-semibold">No Pricing Tiers Defined</h3>
+                                <p className="text-muted-foreground mt-2 mb-6 max-w-sm mx-auto">
+                                    Create skill levels like "Junior" or "Master" to apply different prices and durations to your services.
+                                </p>
+                                <Button onClick={() => setIsTiersEditing(true)}>
+                                    <PlusCircle className="mr-2 h-4 w-4" />
+                                    Create Your First Tier
                                 </Button>
                             </div>
-                        ))}
-                        {isTiersEditing && (
-                            <div className="flex items-center gap-2 border-t pt-4">
-                                <Input
-                                    placeholder="New tier name..."
-                                    value={newTierName}
-                                    onChange={e => setNewTierName(e.target.value)}
-                                    onKeyDown={e => e.key === 'Enter' && handleAddTier()}
-                                />
-                                <Button onClick={handleAddTier}>Add Tier</Button>
-                            </div>
+                        ) : (
+                            <>
+                                {editableTiers.map((tier, index) => (
+                                    <div key={tier.id} className="flex items-center gap-2">
+                                        <Input 
+                                            value={tier.name}
+                                            onChange={(e) => handleTierNameChange(tier.id, e.target.value)}
+                                            disabled={!isTiersEditing}
+                                            className="h-9"
+                                        />
+                                        {isTiersEditing && (
+                                            <Button variant="ghost" size="icon" className="text-destructive h-9 w-9" onClick={() => handleDeleteTier(tier.id)} disabled={editableTiers.length <= 1}>
+                                                <Trash2 className="w-4 w-4" />
+                                            </Button>
+                                        )}
+                                    </div>
+                                ))}
+                                {isTiersEditing && (
+                                    <div className="flex items-center gap-2 border-t pt-4">
+                                        <Input
+                                            placeholder="New tier name..."
+                                            value={newTierName}
+                                            onChange={e => setNewTierName(e.target.value)}
+                                            onKeyDown={e => e.key === 'Enter' && handleAddTier()}
+                                        />
+                                        <Button onClick={handleAddTier} type="button">Add Tier</Button>
+                                    </div>
+                                )}
+                            </>
                         )}
                     </CardContent>
                 </Card>
