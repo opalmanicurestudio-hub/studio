@@ -262,7 +262,7 @@ const AppointmentDetails = ({
                     {client.medicalNotes && <div className="flex items-center gap-2"><ShieldPlus className="w-4 h-4 text-red-500 flex-shrink-0"/><span>{client.medicalNotes}</span></div>}
                     {client.allergyNotes && <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-yellow-500 flex-shrink-0"/><span>{client.allergyNotes}</span></div>}
                     {client.sensoryNeeds && <div className="flex items-center gap-2"><Ear className="w-4 h-4 text-blue-500 flex-shrink-0"/><span>{client.sensoryNeeds}</span></div>}
-                    {client.isMember && <div className="flex items-center gap-2"><Award className="w-4 h-4 flex-shrink-0"/><span>Client is a member</span></div>}
+                    {client.activeMembershipId && <div className="flex items-center gap-2"><Award className="w-4 h-4 flex-shrink-0"/><span>Client is a member</span></div>}
                 </div>
             </div>
         </div>
@@ -285,6 +285,7 @@ const AppointmentDetails = ({
                 </AlertDialogAction>
             </AlertDialogFooter>
         </AlertDialogContent>
+    </AlertDialog>
     </>
   );
 };
@@ -425,7 +426,7 @@ export function AppointmentCard({
 
   const addOnServices = useMemo(() => {
       return (appointment.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
-  }, [appointment.addOnIds]);
+  }, [appointment.addOnIds, services]);
 
   const { revenue, breakEvenCost, netProfit, timeCost, productCost, equipmentCost } = useMemo(() => {
     let totalRevenue = service.price;
