@@ -369,17 +369,12 @@ export default function ClientsPage() {
                                   </select>
                               </div>
                               <div className="ml-auto flex w-full flex-col sm:flex-row sm:w-auto items-center gap-2">
-                                  <DropdownMenu>
-                                      <DropdownMenuTrigger asChild>
-                                          <Button variant="outline" className='w-full sm:w-auto'>
-                                              <MoreHorizontal className="mr-2 h-4 w-4" /> More
-                                          </Button>
-                                      </DropdownMenuTrigger>
-                                      <DropdownMenuContent>
-                                          <DropdownMenuItem onClick={() => setIsMergeClientsOpen(true)}><Merge className="mr-2 h-4 w-4"/>Merge Duplicates</DropdownMenuItem>
-                                          <DropdownMenuItem onClick={handleExport}><FileDown className="mr-2 h-4 w-4"/>Export List</DropdownMenuItem>
-                                      </DropdownMenuContent>
-                                  </DropdownMenu>
+                                  <Button variant="outline" className='w-full sm:w-auto' onClick={() => setIsMergeClientsOpen(true)}>
+                                      <Merge className="mr-2 h-4 w-4"/>Merge Duplicates
+                                  </Button>
+                                  <Button variant="outline" className='w-full sm:w-auto' onClick={handleExport}>
+                                      <FileDown className="mr-2 h-4 w-4"/>Export List
+                                  </Button>
                                   <Button className='w-full sm:w-auto' onClick={() => setIsAddClientOpen(true)}><UserPlus className="mr-2 h-4 w-4" /> New Client</Button>
                               </div>
                           </div>
@@ -486,3 +481,5 @@ export default function ClientsPage() {
     </div>
   );
 }
+
+    
