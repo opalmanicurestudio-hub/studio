@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
@@ -14,7 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DollarSign, Gift, Save, ListChecks, MessageSquare, Clock, Building, Edit, PlusCircle, MoreHorizontal, Globe, Check, Link as LinkIcon, Calendar, Loader, FilePen, X, User, Briefcase, List as ListIcon, Percent as PercentIcon, FileText, Trash2 } from 'lucide-react';
+import { DollarSign, Gift, Save, ListChecks, MessageSquare, Clock, Building, Edit, PlusCircle, MoreHorizontal, Globe, Check, Link as LinkIcon, Calendar, Loader, FilePen, X, User, Briefcase, List as ListIcon, Percent as PercentIcon, FileText, Trash2, ChevronDown } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
@@ -33,7 +32,8 @@ import { useTenant } from '@/context/TenantContext';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+
 
 const DayScheduleRow = ({ day, dayData, onDayChange, isEditing }: { day: string; dayData: any; onDayChange: any; isEditing: boolean }) => {
   const timeOptions = Array.from({ length: (22 - 8) * 2 + 1 }, (_, i) => {
@@ -411,7 +411,7 @@ export default function SettingsPage() {
   }
 
   const isLoading = isTenantContextLoading || (selectedTenant && (scheduleProfilesLoading || pricingTiersLoading));
-
+  
   const tabs = [
     { value: "profile", label: "Profile", icon: <Building /> },
     { value: "hours", label: "Hours", icon: <Clock /> },
@@ -421,7 +421,6 @@ export default function SettingsPage() {
     { value: "messaging", label: "Messaging", icon: <MessageSquare /> },
     { value: "tiers", label: "Tiers", icon: <PercentIcon /> }
   ];
-
 
   if (isLoading) {
     return (
@@ -447,19 +446,37 @@ export default function SettingsPage() {
           </div>
           
            <Tabs defaultValue="profile" value={activeTab} onValueChange={setActiveTab} className="w-full">
-             <div className="border-b">
-                 <ScrollArea>
-                    <TabsList className="h-auto p-1.5 -mb-px">
-                        {tabs.map(tab => (
-                            <TabsTrigger key={tab.value} value={tab.value} className="text-muted-foreground data-[state=active]:text-foreground">
-                            {React.cloneElement(tab.icon, { className: "w-4 h-4 mr-2" })}
-                            {tab.label}
-                            </TabsTrigger>
-                        ))}
-                    </TabsList>
-                    <ScrollBar orientation="horizontal" />
-                </ScrollArea>
-             </div>
+            {isMobile ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="w-full justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                        {tabs.find(t => t.value === activeTab)?.icon}
+                        <span>{tabs.find(t => t.value === activeTab)?.label}</span>
+                    </div>
+                    <ChevronDown className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width)]">
+                  {tabs.map(tab => (
+                    <DropdownMenuItem key={tab.value} onClick={() => setActiveTab(tab.value)}>
+                      {React.cloneElement(tab.icon, { className: "w-4 h-4 mr-2" })}
+                      {tab.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <TabsList>
+                {tabs.map(tab => (
+                  <TabsTrigger key={tab.value} value={tab.value}>
+                    {React.cloneElement(tab.icon, { className: "w-4 h-4 mr-2" })}
+                    {tab.label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            )}
+
             <TabsContent value="profile" className="mt-6">
                 <Card>
                     <CardHeader>
@@ -768,5 +785,3 @@ export default function SettingsPage() {
     </div>
   );
 }
-
-    
