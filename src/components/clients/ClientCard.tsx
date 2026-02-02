@@ -77,7 +77,6 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
 
                     <div className="flex-1 flex flex-wrap gap-1 justify-end">
                         {!!client.activeMembershipId && <Badge variant="secondary" className="bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300">Member</Badge>}
-                        <Badge variant="secondary">VIP</Badge>
                     </div>
                 </div>
             </CardContent>
