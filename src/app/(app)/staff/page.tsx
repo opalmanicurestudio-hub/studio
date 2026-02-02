@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -13,12 +14,11 @@ import {
 } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Users, Calendar as CalendarIcon, FlaskConical, AlertTriangle, List, TrendingUp, DollarSign, BarChart, Clock, Play, Square, Coffee, ShieldAlert } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Users, Calendar as CalendarIcon, FlaskConical, AlertTriangle, List, TrendingUp, DollarSign, BarChart, Clock, Play, Square, Coffee, ShieldAlert, Phone, Mail } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
@@ -50,6 +50,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import Link from 'next/link';
 import { useTenant } from '@/context/TenantContext';
+import { formatPhoneNumber } from 'react-phone-number-input';
 
 const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewActivity: (member: Staff & { stats: any }) => void }) => {
     const [licenseInfo, setLicenseInfo] = useState<{
@@ -112,6 +113,20 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity }: { m
                 <div className="flex items-center justify-center gap-2">
                     <p className="text-sm text-muted-foreground capitalize">{member.role}</p>
                     {member.skillLevel && <Badge variant="outline" className="capitalize">{member.skillLevel}</Badge>}
+                </div>
+                <div className="text-xs text-muted-foreground mt-2 space-y-1 text-center">
+                    {member.email && (
+                        <a href={`mailto:${member.email}`} className="flex items-center justify-center gap-2 hover:text-primary transition-colors" onClick={(e) => e.stopPropagation()}>
+                            <Mail className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span className="truncate">{member.email}</span>
+                        </a>
+                    )}
+                    {member.phone && (
+                        <a href={`tel:${member.phone}`} className="flex items-center justify-center gap-2 hover:text-primary transition-colors" onClick={(e) => e.stopPropagation()}>
+                            <Phone className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span className="truncate">{formatPhoneNumber(member.phone)}</span>
+                        </a>
+                    )}
                 </div>
                 <Separator className="my-4" />
                 <div className="w-full text-left space-y-3 text-sm">
@@ -190,8 +205,8 @@ export default function StaffPage() {
     if (!rawAppointments) return [];
     return rawAppointments.map(apt => ({
       ...apt,
-      startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime),
-      endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime),
+      startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : parseISO(apt.startTime as any),
+      endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : parseISO(apt.endTime as any),
       actualStartTime: apt.actualStartTime ? ((apt.actualStartTime as any)?.toDate ? (apt.actualStartTime as any).toDate() : parseISO(apt.actualStartTime)) : undefined,
       actualEndTime: apt.actualEndTime ? ((apt.actualEndTime as any)?.toDate ? (apt.actualEndTime as any).toDate() : parseISO(apt.actualEndTime)) : undefined,
     }));
@@ -576,4 +591,3 @@ export default function StaffPage() {
     </div>
   );
 }
-
