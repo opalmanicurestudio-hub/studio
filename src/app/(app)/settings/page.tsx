@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
@@ -15,7 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DollarSign, Gift, Save, ListChecks, MessageSquare, Clock, Building, Edit, PlusCircle, MoreHorizontal, Globe, Check, Link as LinkIcon, Calendar, Loader, FilePen, X, User, Briefcase, List as ListIcon, Percent as PercentIcon, FileText, Trash2, ChevronDown, Award } from 'lucide-react';
+import { DollarSign, Save, ListChecks, MessageSquare, Clock, Building, Edit, PlusCircle, MoreHorizontal, Globe, Check, LinkIcon, Calendar, Loader, FilePen, X, User, Briefcase, ListIcon, PercentIcon, FileText, Trash2, ChevronDown, Award } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
@@ -182,7 +181,6 @@ export default function SettingsPage() {
   // Editing states for each card
   const [isScheduleEditing, setIsScheduleEditing] = useState(false);
   const [isPoliciesEditing, setIsPoliciesEditing] = useState(false);
-  const [isReferralEditing, setIsReferralEditing] = useState(false);
   const [isQueueEditing, setIsQueueEditing] = useState(false);
   const [isSmsEditing, setIsSmsEditing] = useState(false);
   const [isTiersEditing, setIsTiersEditing] = useState(false);
@@ -433,12 +431,10 @@ export default function SettingsPage() {
   };
 
   const policiesFields: (keyof Tenant)[] = ['lateArrivalGracePeriod', 'cancellationWindowHours', 'cancellationFee', 'noShowFee', 'autoCancelLateArrivals', 'cancellationPolicy', 'lateArrivalPolicy', 'noShowPolicy'];
-  const referralFields: (keyof Tenant)[] = ['referrerReward', 'newClientDiscount'];
   const queueFields: (keyof Tenant)[] = ['queueSkipTimeMinutes'];
   const smsFields: (keyof Tenant)[] = ['smsNotificationMessage', 'twilioAccountSid', 'twilioAuthToken', 'twilioPhoneNumber'];
 
   const { handleEdit: handlePoliciesEdit, handleCancel: handlePoliciesCancel, handleSave: handlePoliciesSave } = createGenericHandlers(isPoliciesEditing, setIsPoliciesEditing, tenantData, setTenantData, backupTenantData, setBackupTenantData, policiesFields);
-  const { handleEdit: handleReferralEdit, handleCancel: handleReferralCancel, handleSave: handleReferralSave } = createGenericHandlers(isReferralEditing, setIsReferralEditing, tenantData, setTenantData, backupTenantData, setBackupTenantData, referralFields);
   const { handleEdit: handleQueueEdit, handleCancel: handleQueueCancel, handleSave: handleQueueSave } = createGenericHandlers(isQueueEditing, setIsQueueEditing, tenantData, setTenantData, backupTenantData, setBackupTenantData, queueFields);
   const { handleEdit: handleSmsEdit, handleCancel: handleSmsCancel, handleSave: handleSmsSave } = createGenericHandlers(isSmsEditing, setIsSmsEditing, tenantData, setTenantData, backupTenantData, setBackupTenantData, smsFields);
   
@@ -474,7 +470,6 @@ export default function SettingsPage() {
     { value: "profile", label: "Profile", icon: <Building /> },
     { value: "hours", label: "Hours", icon: <Clock /> },
     { value: "policies", label: "Policies", icon: <FileText /> },
-    { value: "referrals", label: "Referrals", icon: <Gift /> },
     { value: "queue", label: "Queue", icon: <ListChecks /> },
     { value: "messaging", label: "Messaging", icon: <MessageSquare /> },
     { value: "tiers", label: "Tiers", icon: <PercentIcon /> }
@@ -563,12 +558,21 @@ export default function SettingsPage() {
                                         <p className="font-medium">{tenant.name}</p>
                                         <div className="flex items-center gap-2">
                                             {tenant.id === selectedTenant?.id && <Badge>Active</Badge>}
-                                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingTenantId(tenant.id); setTempTenantName(tenant.name); }}>
-                                                <Edit className="w-4 h-4" />
-                                            </Button>
-                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDeleteTenantClick(tenant)} disabled={tenants.length <= 1 || tenant.id === selectedTenant?.id}>
-                                                <Trash2 className="w-4 h-4" />
-                                            </Button>
+                                            <DropdownMenu>
+                                              <DropdownMenuTrigger asChild>
+                                                <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                    <MoreHorizontal className="w-4 h-4" />
+                                                </Button>
+                                              </DropdownMenuTrigger>
+                                              <DropdownMenuContent align="end">
+                                                  <DropdownMenuItem onClick={() => { setEditingTenantId(tenant.id); setTempTenantName(tenant.name); }}>
+                                                    <Edit className="w-4 h-4 mr-2" /> Rename
+                                                  </DropdownMenuItem>
+                                                  <DropdownMenuItem className="text-destructive" onClick={() => handleDeleteTenantClick(tenant)} disabled={tenants.length <= 1 || tenant.id === selectedTenant?.id}>
+                                                    <Trash2 className="w-4 h-4 mr-2" /> Delete
+                                                  </DropdownMenuItem>
+                                              </DropdownMenuContent>
+                                            </DropdownMenu>
                                         </div>
                                     </>
                                 )}
@@ -716,39 +720,6 @@ export default function SettingsPage() {
                 </Card>
             </TabsContent>
             
-             <TabsContent value="referrals" className="mt-6">
-                 <Card>
-                    <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                        <div>
-                            <CardTitle className="flex items-center gap-2">
-                                <Gift className="w-5 h-5 text-primary" />
-                                Referral Program
-                            </CardTitle>
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
-                        {isReferralEditing ? (
-                            <>
-                                <Button variant="outline" onClick={handleReferralCancel} className="flex-1 sm:w-auto">Cancel</Button>
-                                <Button onClick={handleReferralSave} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save</Button>
-                            </>
-                        ) : (
-                            <Button onClick={handleReferralEdit} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit</Button>
-                        )}
-                        </div>
-                    </CardHeader>
-                    <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-2">
-                            <Label htmlFor="referrer-reward">Referrer Reward</Label>
-                            <div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input id="referrer-reward" type="number" value={tenantData.referrerReward?.toString() || ''} onChange={(e) => setTenantData(prev => ({...prev, referrerReward: Number(e.target.value)}))} placeholder="10.00" className="pl-8" disabled={!isReferralEditing}/></div>
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="new-client-discount">New Client Discount</Label>
-                            <div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input id="new-client-discount" type="number" value={tenantData.newClientDiscount?.toString() || ''} onChange={(e) => setTenantData(prev => ({...prev, newClientDiscount: Number(e.target.value)}))} placeholder="15.00" className="pl-8" disabled={!isReferralEditing}/></div>
-                        </div>
-                    </CardContent>
-                </Card>
-            </TabsContent>
-            
             <TabsContent value="queue" className="mt-6">
                  <Card>
                     <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -880,5 +851,3 @@ export default function SettingsPage() {
     </div>
   );
 }
-
-

@@ -1,16 +1,15 @@
-
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, Search, DollarSign, Percent, Repeat, BarChart, Star, TicketIcon, Gift } from 'lucide-react';
+import { PlusCircle, Search, DollarSign, Percent, Repeat, BarChart, Star, TicketIcon, Gift, Save, Edit } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useInventory } from '@/context/InventoryContext';
 import { AddDiscountDialog } from '@/components/discounts/AddDiscountDialog';
 import { DiscountCard } from '@/components/discounts/DiscountCard';
-import { type Discount } from '@/lib/data';
+import { type Discount, type Tenant } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
@@ -18,6 +17,7 @@ import { collection, doc } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { Label } from '@/components/ui/label';
 
 const EmptyState = ({ onAdd }: { onAdd: () => void }) => (
     <div className="text-center py-20 px-6 border-2 border-dashed rounded-lg">
@@ -58,13 +58,53 @@ export default function DiscountsPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
 
-    const defaultTab = searchParams.get('tab') === 'automations' ? 'automations' : 'codes';
+    const defaultTab = searchParams.get('tab') || 'codes';
 
     const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
     const [editingDiscount, setEditingDiscount] = useState<Discount | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [activeTab, setActiveTab] = useState(defaultTab);
     const [initialAutomationTrigger, setInitialAutomationTrigger] = useState<'none' | 'new_client' | 'loyalty' | 're_engagement' | 'birthday'>('none');
+    
+    const [isReferralEditing, setIsReferralEditing] = useState(false);
+    const [tenantData, setTenantData] = useState<Partial<Tenant>>(selectedTenant || {});
+    const [backupTenantData, setBackupTenantData] = useState<Partial<Tenant>>({});
+
+    useEffect(() => {
+      if (selectedTenant) {
+        setTenantData(selectedTenant);
+      }
+    }, [selectedTenant]);
+    
+    const handleReferralEdit = () => {
+        setBackupTenantData(tenantData);
+        setIsReferralEditing(true);
+    };
+
+    const handleReferralCancel = () => {
+        setTenantData(backupTenantData);
+        setIsReferralEditing(false);
+    };
+
+    const handleReferralSave = async () => {
+        if (!selectedTenant || !firestore) return;
+        const referralFields: (keyof Tenant)[] = ['referrerReward', 'newClientDiscount'];
+        const dataToUpdate: Partial<Tenant> = {};
+        referralFields.forEach(field => {
+            dataToUpdate[field] = tenantData[field] as any;
+        });
+
+        try {
+            const tenantRef = doc(firestore, 'tenants', selectedTenant.id);
+            await updateDocumentNonBlocking(tenantRef, dataToUpdate);
+            toast({ title: 'Referral Settings Saved!' });
+            setIsReferralEditing(false);
+        } catch (error) {
+            console.error("Save error:", error);
+            toast({ variant: 'destructive', title: 'Save Failed' });
+        }
+    };
+
 
     const handleTabChange = (value: string) => {
         setActiveTab(value);
@@ -275,6 +315,7 @@ export default function DiscountsPage() {
                     <TabsList>
                         <TabsTrigger value="codes">Discount Codes</TabsTrigger>
                         <TabsTrigger value="automations">Automations</TabsTrigger>
+                        <TabsTrigger value="referrals">Referrals</TabsTrigger>
                     </TabsList>
                     <TabsContent value="codes" className="mt-6">
                         <Card>
@@ -326,6 +367,41 @@ export default function DiscountsPage() {
                             />
                         </div>
                     </TabsContent>
+                     <TabsContent value="referrals" className="mt-6">
+                        <Card>
+                            <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                <div>
+                                    <CardTitle className="flex items-center gap-2">
+                                        <Gift className="w-5 h-5 text-primary" />
+                                        Referral Program Settings
+                                    </CardTitle>
+                                    <CardDescription>Configure rewards for client referrals.</CardDescription>
+                                </div>
+                                <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
+                                {isReferralEditing ? (
+                                    <>
+                                        <Button variant="outline" onClick={handleReferralCancel} className="flex-1 sm:w-auto">Cancel</Button>
+                                        <Button onClick={handleReferralSave} className="flex-1 sm:w-auto"><Save className="mr-2 h-4 w-4" />Save</Button>
+                                    </>
+                                ) : (
+                                    <Button onClick={handleReferralEdit} className="w-full sm:w-auto"><Edit className="mr-2 h-4 w-4"/>Edit</Button>
+                                )}
+                                </div>
+                            </CardHeader>
+                            <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="space-y-2">
+                                    <Label htmlFor="referrer-reward">Referrer Reward</Label>
+                                    <p className="text-xs text-muted-foreground">Store credit given to the existing client for a successful referral.</p>
+                                    <div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input id="referrer-reward" type="number" value={tenantData.referrerReward?.toString() || ''} onChange={(e) => setTenantData(prev => ({...prev, referrerReward: Number(e.target.value)}))} placeholder="10.00" className="pl-8" disabled={!isReferralEditing}/></div>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="new-client-discount">New Client Discount</Label>
+                                    <p className="text-xs text-muted-foreground">Discount on first service for the new client who was referred.</p>
+                                    <div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input id="new-client-discount" type="number" value={tenantData.newClientDiscount?.toString() || ''} onChange={(e) => setTenantData(prev => ({...prev, newClientDiscount: Number(e.target.value)}))} placeholder="15.00" className="pl-8" disabled={!isReferralEditing}/></div>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
                 </Tabs>
                  <AddDiscountDialog
                     open={isAddDialogOpen}
@@ -342,8 +418,5 @@ export default function DiscountsPage() {
             </main>
         </div>
     )
-
-    
-}
 
     

@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { usePathname, useSearchParams } from 'next/navigation';
@@ -102,6 +101,7 @@ const marketingNavItems = [
     { href: '/discounts?tab=codes', icon: Percent, label: 'Discounts' },
     { href: '/reviews', icon: Star, label: 'Reviews' },
     { href: '/discounts?tab=automations', icon: Award, label: 'Loyalty' },
+    { href: '/discounts?tab=referrals', icon: Gift, label: 'Referrals' },
 ];
 
 export function AppSidebar() {
@@ -260,4 +260,3 @@ export function AppSidebar() {
     </Sidebar>
   );
 }
-
