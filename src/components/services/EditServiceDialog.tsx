@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -46,6 +47,7 @@ import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { BrowseConsentFormsDialog } from './BrowseConsentFormsDialog';
 import { Switch } from '../ui/switch';
 import { useInventory } from '@/context/InventoryContext';
+import { SelectResourcesDialog as NewSelectResourcesDialog } from '../services/SelectResourcesDialog';
 import { cn } from '@/lib/utils';
 import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
 import { ScrollArea } from '../ui/scroll-area';
@@ -304,7 +306,7 @@ const ShippingCostCalculatorDialog = ({ open, onOpenChange, onCalculated }: { op
                                     <div key={index} className="flex items-center justify-between p-1.5 bg-muted/50 rounded-md">
                                         <span className="font-mono">${cost.toFixed(2)}</span>
                                         <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleRemoveCost(index)}>
-                                            <Trash2 className="w-4 h-4" />
+                                            <Trash2 className="h-4 w-4" />
                                         </Button>
                                     </div>
                                 )) : (
@@ -505,7 +507,7 @@ const Step3_PricingBooking = ({ breakEvenCost, pricingTiers }: { breakEvenCost: 
     const isAddon = watch('isAddon');
     const depositType = watch('depositType');
     const serviceTiers = watch('serviceTiers') || [];
-    const standardPrice = watch('price') || 0;
+    const standardPrice = Number(watch('price')) || 0;
 
     useEffect(() => {
         if (depositType === 'breakeven') {
@@ -528,10 +530,10 @@ const Step3_PricingBooking = ({ breakEvenCost, pricingTiers }: { breakEvenCost: 
                     </div>
                 ) : (
                     <div className="space-y-2">
-                        <Label htmlFor="standard-price">Standard Price</Label>
+                        <Label htmlFor="standard-price-edit">Standard Price</Label>
                         <div className="relative">
                             <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input id="standard-price" type="number" placeholder="0.00" {...register('price')} className="pl-8" />
+                            <Input id="standard-price-edit" type="number" placeholder="0.00" {...register('price')} className="pl-8" />
                         </div>
                         {errors.price && <p className="text-sm text-destructive">{errors.price.message}</p>}
                     </div>
@@ -789,7 +791,8 @@ export const EditServiceDialog: React.FC<EditServiceDialogProps> = ({
       let finalTiers = data.serviceTiers;
 
       if (pricingTiersData && pricingTiersData.length > 0) {
-          const seniorTier = finalTiers?.find(t => t.tierId === 'tier-senior'); // This is old logic, but might be needed for fallback
+          const seniorTierInfo = pricingTiersData.find(t => t.name.toLowerCase() === 'senior');
+          const seniorTier = finalTiers?.find(t => t.tierId === seniorTierInfo?.id);
           if (seniorTier) {
               finalPrice = seniorTier.price;
           } else if (finalTiers && finalTiers.length > 0) {

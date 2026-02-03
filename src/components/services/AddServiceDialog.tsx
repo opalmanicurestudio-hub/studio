@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
@@ -327,12 +327,78 @@ const Step2_Formula = ({ onScanClick, resources, allServices }: { onScanClick: (
     );
 };
 
+const PricingTierInput = ({ tier, control }: { tier: PricingTier, control: Control<ServiceFormData> }) => {
+    const { watch, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
+    const serviceTiers = watch('serviceTiers') || [];
+    const tierData = serviceTiers.find(t => t.tierId === tier.id);
+    const isEnabled = !!tierData;
+
+    const handleToggle = (checked: boolean) => {
+        let newTiers = [...serviceTiers];
+        if (checked) {
+            if (!newTiers.find(t => t.tierId === tier.id)) {
+                newTiers.push({ tierId: tier.id, price: 0, durationMinutes: watch('duration') || 0 });
+            }
+        } else {
+            newTiers = newTiers.filter(t => t.tierId !== tier.id);
+        }
+        setValue('serviceTiers', newTiers, { shouldDirty: true, shouldValidate: true });
+    };
+
+    const handlePriceChange = (price: number) => {
+        const newTiers = serviceTiers.map(t => t.tierId === tier.id ? {...t, price} : t);
+        setValue('serviceTiers', newTiers, { shouldDirty: true });
+    };
+
+    const handleDurationChange = (durationMinutes: number) => {
+        const newTiers = serviceTiers.map(t => t.tierId === tier.id ? {...t, durationMinutes} : t);
+        setValue('serviceTiers', newTiers, { shouldDirty: true });
+    };
+    
+    const getError = (fieldName: 'price' | 'durationMinutes') => {
+        if (!errors.serviceTiers) return null;
+        const tierIndex = serviceTiers.findIndex(t => t.tierId === tier.id);
+        if (tierIndex === -1) return null;
+        const error = (errors.serviceTiers as any)[tierIndex]?.[fieldName] as any;
+        return error?.message;
+    };
+
+    return (
+        <Card>
+            <CardHeader className="p-4 flex flex-row items-center justify-between">
+                <CardTitle className="text-base capitalize">{tier.name}</CardTitle>
+                <Switch checked={isEnabled} onCheckedChange={handleToggle} />
+            </CardHeader>
+            {isEnabled && (
+                <CardContent className="p-4 pt-0 grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                        <Label htmlFor={`${tier.id}-price`} className="text-xs flex items-center gap-1.5"><DollarSign className="w-3 h-3 text-muted-foreground"/>Price</Label>
+                        <div className="relative">
+                            <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                            <Input id={`${tier.id}-price`} type="number" placeholder="0.00" value={tierData?.price ?? ''} onChange={e => handlePriceChange(parseFloat(e.target.value) || 0)} className="pl-7" />
+                        </div>
+                         {getError('price') && <p className="text-sm text-destructive">{getError('price')}</p>}
+                    </div>
+                    <div className="space-y-1">
+                        <Label htmlFor={`${tier.id}-durationMinutes`} className="text-xs flex items-center gap-1.5"><Clock className="w-3 h-3 text-muted-foreground"/>Duration</Label>
+                        <div className="relative">
+                            <Input id={`${tier.id}-durationMinutes`} type="number" placeholder="0" value={tierData?.durationMinutes ?? ''} onChange={e => handleDurationChange(parseInt(e.target.value) || 0)} className="pr-12"/>
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">mins</span>
+                        </div>
+                        {getError('durationMinutes') && <p className="text-sm text-destructive">{getError('durationMinutes')}</p>}
+                    </div>
+                </CardContent>
+            )}
+        </Card>
+    );
+};
+
 const Step3_PricingBooking = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number, pricingTiers: PricingTier[] }) => {
     const { control, watch, register, setValue, formState: { errors } } = useFormContext<ServiceFormData>();
     const isAddon = watch('isAddon');
     const depositType = watch('depositType');
     const serviceTiers = watch('serviceTiers') || [];
-    const standardPrice = watch('price') || 0;
+    const standardPrice = Number(watch('price')) || 0;
 
     useEffect(() => {
         if (depositType === 'breakeven') {
