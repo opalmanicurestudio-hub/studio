@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
@@ -269,7 +268,10 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     const finalProductCost = calculateCost(service, editableFormula);
 
     const actualServiceDuration = appointment.actualEndTime && appointment.actualStartTime
-      ? differenceInMinutes(parseISO(appointment.actualEndTime), parseISO(appointment.actualStartTime))
+      ? differenceInMinutes(
+          typeof appointment.actualEndTime === 'string' ? parseISO(appointment.actualEndTime) : appointment.actualEndTime,
+          typeof appointment.actualStartTime === 'string' ? parseISO(appointment.actualStartTime) : appointment.actualStartTime
+        )
       : actualDuration;
       
     const finalTimeCost = ((actualServiceDuration + (service.padBefore || 0) + (service.padAfter || 0)) / 60) * tmhr;
@@ -570,7 +572,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
         ...selectedAddOns.map(s => ({ name: s.name, quantity: 1, price: s.price })),
         ...retailItems.map(item => {
           const product = inventory.find(p => p.id === item.id);
-          const price = product?.costPerUnit ? product.costPerUnit * 1.75 : 0; // Mocked markup
+          const price = product?.msrp || product?.costPerUnit || 0;
           return { name: item.name, quantity: item.quantity, price };
         }),
         ...(additionalCharge > 0 && applyAdditionalCharges
@@ -641,15 +643,6 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     }
   };
   
-  const actualServiceDuration = useMemo(() => {
-    if (appointment.actualStartTime && appointment.actualEndTime) {
-      const startTime = typeof appointment.actualStartTime === 'string' ? parseISO(appointment.actualStartTime) : appointment.actualStartTime;
-      const endTime = typeof appointment.actualEndTime === 'string' ? parseISO(appointment.actualEndTime) : appointment.actualEndTime;
-      return differenceInMinutes(endTime, startTime);
-    }
-    return actualDuration;
-  }, [appointment, actualDuration]);
-  
   const handleConfirmAndClose = () => {
     setIsSubmitting(true);
     if (checkoutData) {
@@ -699,13 +692,13 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                   <Input 
                       id="actual-duration"
                       type="number"
-                      value={actualServiceDuration}
+                      value={actualDuration}
                       onChange={(e) => setActualDuration(parseInt(e.target.value) || 0)}
                       readOnly={!!(appointment.actualStartTime && appointment.actualEndTime)}
                   />
                     {appointment.actualStartTime && appointment.actualEndTime && (
                       <p className="text-xs text-muted-foreground">
-                          Service duration tracked from start to finish: {actualServiceDuration} min. (Scheduled: {service.duration} min)
+                          Service duration tracked from start to finish: {actualDuration} min. (Scheduled: {service.duration} min)
                       </p>
                   )}
                 </div>
@@ -904,7 +897,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                         </div>
                     )})}
                 </div>
-                <div className='flex gap-2'><Button variant="outline" size="sm" onClick={() => setIsRetailBrowserOpen(true)}><PlusCircle className="mr-2 h-4 w-4"/>Browse Retail</Button></div>
+                <div className='flex gap-2'><Button variant="outline" size="sm" onClick={() => setIsRetailBrowserOpen(true)} type="button"><PlusCircle className="mr-2 h-4 w-4"/>Browse Retail</Button></div>
           </CardContent>
         </Card>
         <Card>
