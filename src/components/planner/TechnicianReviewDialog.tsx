@@ -132,7 +132,10 @@ const FormContent = ({
     }, 0);
 
     const actualServiceDuration = appointment.actualEndTime && appointment.actualStartTime
-      ? differenceInMinutes(parseISO(appointment.actualEndTime), parseISO(appointment.actualStartTime))
+      ? differenceInMinutes(
+          typeof appointment.actualEndTime === 'string' ? parseISO(appointment.actualEndTime) : appointment.actualEndTime,
+          typeof appointment.actualStartTime === 'string' ? parseISO(appointment.actualStartTime) : appointment.actualStartTime
+      )
       : actualDuration;
       
     const finalTimeCost = ((actualServiceDuration + (service.padBefore || 0) + (service.padAfter || 0)) / 60) * tmhr;
@@ -363,7 +366,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   staff,
 }) => {
   const { appointment, client, service } = appointmentData;
-  const { inventory, services } = useInventory();
+  const { services } = useInventory();
   const isMobile = useIsMobile();
   
   const [editableFormula, setEditableFormula] = useState<EditableFormulaItem[]>([]);
@@ -387,7 +390,10 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
 
         setActualDuration(checkoutState?.actualDuration || 
             (appointment.actualStartTime && appointment.actualEndTime 
-                ? differenceInMinutes(parseISO(appointment.actualEndTime), parseISO(appointment.actualStartTime)) 
+                ? differenceInMinutes(
+                    typeof appointment.actualEndTime === 'string' ? parseISO(appointment.actualEndTime) : appointment.actualEndTime,
+                    typeof appointment.actualStartTime === 'string' ? parseISO(appointment.actualStartTime) : appointment.actualStartTime
+                ) 
                 : service.duration));
         
         const initialOverrides: Record<string, string> = {};

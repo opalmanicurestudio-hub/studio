@@ -169,7 +169,10 @@ const AppointmentDetails = ({
         }, 0);
 
         const actualServiceDuration = appointment.actualEndTime && appointment.actualStartTime
-            ? differenceInMinutes(parseISO(appointment.actualEndTime), parseISO(appointment.actualStartTime))
+            ? differenceInMinutes(
+                typeof appointment.actualEndTime === 'string' ? parseISO(appointment.actualEndTime) : appointment.actualEndTime,
+                typeof appointment.actualStartTime === 'string' ? parseISO(appointment.actualStartTime) : appointment.actualStartTime
+              )
             : allServicesInAppointment.reduce((acc, s) => acc + (s?.duration || 0), 0);
         
         const finalTimeCost = ((actualServiceDuration + (service.padBefore || 0) + (service.padAfter || 0)) / 60) * tmhr;
@@ -576,8 +579,8 @@ export function AppointmentCard({
 
   const finalDuration = useMemo(() => {
     if (appointment.actualStartTime && appointment.actualEndTime) {
-      const start = parseISO(appointment.actualStartTime);
-      const end = parseISO(appointment.actualEndTime);
+      const start = typeof appointment.actualStartTime === 'string' ? parseISO(appointment.actualStartTime) : appointment.actualStartTime;
+      const end = typeof appointment.actualEndTime === 'string' ? parseISO(appointment.actualEndTime) : appointment.actualEndTime;
       return differenceInMinutes(end, start);
     }
     return null;
