@@ -187,6 +187,7 @@ export default function StaffDetailPage() {
         const newAppointment = {
             ...appointmentDetails,
             id: newAppointmentId,
+            tenantId: tenantId,
             clientId: clientId,
             clientName: clientName,
             clientEmail: formData.clientEmail,
@@ -215,13 +216,60 @@ export default function StaffDetailPage() {
 
   const isLoading = staffLoading || servicesLoading || consentFormsLoading || tenantLoading || allStaffLoading;
 
+    const formattedSchedule = useMemo(() => {
+        const availability = staffMember?.availability;
+        if (!availability?.week) return 'Not available';
+
+        const weekOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+        const groups: { startDay: string, endDay: string, start: string, end: string }[] = [];
+
+        let currentGroup: { startDay: string, endDay: string, start: string, end: string } | null = null;
+
+        for (const day of weekOrder) {
+            const dayInfo = availability.week[day as keyof typeof availability.week];
+            if (dayInfo && dayInfo.enabled) {
+                if (currentGroup && currentGroup.start === dayInfo.start && currentGroup.end === dayInfo.end) {
+                    currentGroup.endDay = day;
+                } else {
+                    if (currentGroup) {
+                        groups.push(currentGroup);
+                    }
+                    currentGroup = {
+                        startDay: day,
+                        endDay: day,
+                        start: dayInfo.start,
+                        end: dayInfo.end
+                    };
+                }
+            } else {
+                if (currentGroup) {
+                    groups.push(currentGroup);
+                }
+                currentGroup = null;
+            }
+        }
+        if (currentGroup) {
+            groups.push(currentGroup);
+        }
+        
+        if (groups.length === 0) return 'Not available on weekdays.';
+
+        return groups.map(group => {
+            const startDay = group.startDay.slice(0, 3);
+            const endDay = group.endDay.slice(0, 3);
+            const dayRange = startDay === endDay ? startDay.charAt(0).toUpperCase() + startDay.slice(1) : `${startDay.charAt(0).toUpperCase() + startDay.slice(1)} - ${endDay.charAt(0).toUpperCase() + endDay.slice(1)}`;
+            
+            return `${dayRange} (${group.start} - ${group.end})`;
+        }).join(' | ');
+    }, [staffMember?.availability]);
+  
   if (isLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4">
-        <Loader className="h-8 w-8 animate-spin" />
-        <p className="text-muted-foreground">Loading staff profile...</p>
-      </div>
-    );
+      return (
+          <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4">
+            <Loader className="h-8 w-8 animate-spin" />
+            <p className="text-muted-foreground">Loading staff profile...</p>
+          </div>
+      )
   }
 
   if (!staffMember) {
@@ -259,8 +307,6 @@ export default function StaffDetailPage() {
                     <ArrowLeft className="h-4 w-4" />
                 </Link>
             </Button>
-            <div className="flex-1 text-center font-semibold">{tenant?.name}</div>
-            <div className="w-9"></div> {/* Spacer for balance */}
         </header>
 
       <main className="flex-1 p-4 md:p-6 space-y-6 pb-24">
@@ -316,31 +362,7 @@ export default function StaffDetailPage() {
                     </Card>
                     <Card>
                         <CardHeader><CardTitle>Working Time</CardTitle></CardHeader>
-                        <CardContent className="space-y-2">
-                            {staffMember?.availability?.week ? (
-                                weekOrder.map(day => {
-                                    const hours = staffMember.availability.week[day as keyof typeof staffMember.availability.week];
-                                    if (!hours) return null;
-                                    return (
-                                        <div key={day} className="flex justify-between items-center text-sm">
-                                            <span className="capitalize font-medium">{day.charAt(0).toUpperCase() + day.slice(1)}</span>
-                                            <span className="text-muted-foreground flex items-center gap-2">
-                                                {hours.enabled ? (
-                                                    <>
-                                                        <Clock className="w-4 h-4" />
-                                                        <span>{hours.start} - {hours.end}</span>
-                                                    </>
-                                                ) : (
-                                                    'Closed'
-                                                )}
-                                            </span>
-                                        </div>
-                                    )
-                                })
-                            ) : (
-                                <p className="text-muted-foreground">Not available</p>
-                            )}
-                        </CardContent>
+                        <CardContent><p className="text-muted-foreground">{formattedSchedule}</p></CardContent>
                     </Card>
 
                     <div id="services" className="space-y-4 pt-6">

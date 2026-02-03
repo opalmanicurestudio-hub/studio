@@ -1,11 +1,12 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useFirebase, useCollection, useMemoFirebase, useDoc, addDocumentNonBlocking, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
-import { collection, doc, query, where, getDocs } from 'firebase/firestore';
-import { type Service, type Staff, type Tenant, type Appointment, type Event, type ConsentForm, type Client, memberships, packages, type Membership, type Package } from '@/lib/data';
+import { useFirebase, useDoc, useCollection, useMemoFirebase, setDocumentNonBlocking } from '@/firebase';
+import { doc, collection, query, where, getDocs } from 'firebase/firestore';
+import type { Staff, Service, Appointment, Event, ConsentForm, Tenant, Client } from '@/lib/data';
 import { Loader, ArrowDown, Users } from 'lucide-react';
 import { BookingSheet } from '@/components/booking/BookingSheet';
 import { isSameDay, parseISO } from 'date-fns';
@@ -131,6 +132,7 @@ export default function BookingPage() {
         const newAppointment = {
             ...appointmentDetails,
             id: newAppointmentId,
+            tenantId: tenantId,
             clientId: clientId,
             clientName: clientName,
             clientEmail: formData.clientEmail,
