@@ -886,7 +886,7 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
                 <div className="space-y-2 text-sm">
                     {retailItems.map((item) => {
                         const product = inventory.find(p => p.id === item.id);
-                        const price = product?.costPerUnit ? product.costPerUnit * 1.75 : 0; // Mocked markup
+                        const price = product?.msrp || product?.costPerUnit || 0;
                         return (
                         <div key={item.id} className="flex justify-between items-center p-2 bg-muted/50 rounded-md">
                             <div><p className="font-medium">{item.name}</p><p className="text-xs text-muted-foreground">Price: ${price.toFixed(2)}</p></div>
@@ -1085,3 +1085,5 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
     </>
   );
 };
+
+    
