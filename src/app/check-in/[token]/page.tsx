@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -278,13 +276,14 @@ export default function CheckInPage() {
 
         const newEndTime = addMinutes(newStartTime, service.duration);
         
-        const updateData = {
+        const updateData: any = {
             startTime: newStartTime.toISOString(),
             endTime: newEndTime.toISOString(),
             status: 'confirmed' as const,
             checkInStatus: 'pending' as const,
             lateTimeMinutes: 0,
             automatedRescheduleOffered: true,
+            tenantId: tenantId,
         };
 
         const appointmentCheckInRef = doc(firestore, 'appointmentCheckIns', token);
@@ -533,4 +532,3 @@ export default function CheckInPage() {
         </Card>
     );
 }
-

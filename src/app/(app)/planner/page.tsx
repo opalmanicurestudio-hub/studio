@@ -909,7 +909,7 @@ function PlannerPageContent() {
     const appointment = appointments.find(apt => apt.id === appointmentId);
     if (appointment?.checkInToken) {
         const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
-        updateDocumentNonBlocking(checkInRef, { status: 'ready_for_checkout' });
+        updateDocumentNonBlocking(checkInRef, { status: 'ready_for_checkout', tenantId: tenantId });
     }
 
     const staffIdsInvolved = new Set(Object.values(checkoutState.serviceStaffOverrides || {}));
@@ -990,7 +990,7 @@ function PlannerPageContent() {
     const appointment = appointments.find(apt => apt.id === appointmentId);
     if (appointment?.checkInToken) {
         const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
-        updateDocumentNonBlocking(checkInRef, { status });
+        updateDocumentNonBlocking(checkInRef, { status, tenantId: tenantId });
     }
 
     toast({
@@ -1014,7 +1014,7 @@ function PlannerPageContent() {
     
     if (startConfirmAppointment.checkInToken) {
         const checkInRef = doc(firestore, 'appointmentCheckIns', startConfirmAppointment.checkInToken);
-        updateDocumentNonBlocking(checkInRef, { status: 'servicing' });
+        updateDocumentNonBlocking(checkInRef, { status: 'servicing', tenantId: tenantId });
     }
 
     if (startConfirmAppointment.staffId) {
