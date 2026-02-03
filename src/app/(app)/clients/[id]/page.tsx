@@ -257,6 +257,8 @@ export default function ClientDetailPage() {
         ...apt,
         startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : new Date(apt.startTime),
         endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : new Date(apt.endTime),
+        actualStartTime: apt.actualStartTime ? ((apt.actualStartTime as any)?.toDate ? (apt.actualStartTime as any).toDate() : new Date(apt.actualStartTime)) : undefined,
+        actualEndTime: apt.actualEndTime ? ((apt.actualEndTime as any)?.toDate ? (apt.actualEndTime as any).toDate() : new Date(apt.actualEndTime)) : undefined,
         service: services.find(s => s.id === apt.serviceId)
       }));
   }, [allAppointments, services, clientId]);
@@ -955,5 +957,6 @@ export default function ClientDetailPage() {
     </div>
   );
 }
+
 
 

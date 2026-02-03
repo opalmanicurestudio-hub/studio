@@ -120,6 +120,8 @@ function PlannerPageContent() {
         ...apt,
         startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : new Date(apt.startTime),
         endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : new Date(apt.endTime),
+        actualStartTime: apt.actualStartTime ? ((apt.actualStartTime as any)?.toDate ? (apt.actualStartTime as any).toDate() : new Date(apt.actualStartTime)) : undefined,
+        actualEndTime: apt.actualEndTime ? ((apt.actualEndTime as any)?.toDate ? (apt.actualEndTime as any).toDate() : new Date(apt.actualEndTime)) : undefined,
     }));
 
     if (!checkIns) {
@@ -201,6 +203,40 @@ function PlannerPageContent() {
   const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(scheduleProfilesQuery);
   const { data: resources, isLoading: resourcesLoading } = useCollection<Resource>(resourcesQuery);
   const publicScheduleProfile = useMemo(() => scheduleProfiles?.[0], [scheduleProfiles]);
+
+  const [notifiedOvertime, setNotifiedOvertime] = useState<Set<string>>(new Set());
+
+    useEffect(() => {
+        const timer = setInterval(() => {
+            const now = new Date();
+            (appointments || []).forEach(apt => {
+                if (apt.status === 'servicing' && apt.actualStartTime) {
+                    const service = (services || []).find(s => s.id === apt.serviceId);
+                    if (!service) return;
+
+                    const elapsedMinutes = differenceInMinutes(now, apt.actualStartTime);
+
+                    if (elapsedMinutes > service.duration && !notifiedOvertime.has(apt.id)) {
+                        const client = (clients || []).find(c => c.id === apt.clientId);
+                        toast({
+                            variant: 'destructive',
+                            title: 'Service Running Over',
+                            description: `${client?.name || 'A client'}'s ${service.name} service is over its scheduled time.`,
+                        });
+                        setNotifiedOvertime(prev => new Set(prev).add(apt.id));
+                    }
+                } else if (apt.status !== 'servicing' && notifiedOvertime.has(apt.id)) {
+                    setNotifiedOvertime(prev => {
+                        const newSet = new Set(prev);
+                        newSet.delete(apt.id);
+                        return newSet;
+                    });
+                }
+            });
+        }, 30000); // Check every 30 seconds
+
+        return () => clearInterval(timer);
+    }, [appointments, services, clients, toast, notifiedOvertime]);
 
   useEffect(() => {
     if (staff && staff.length > 0 && !mobileSelectedStaffId) {

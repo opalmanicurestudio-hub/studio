@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -485,6 +486,7 @@ export function AppointmentCard({
   const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
   const [elapsedTime, setElapsedTime] = useState<string | null>(null);
   const [isFinishConfirmOpen, setIsFinishConfirmOpen] = useState(false);
+  const [isRunningOver, setIsRunningOver] = useState(false);
   const { toast } = useToast();
 
   const isMobile = useIsMobile();
@@ -510,10 +512,15 @@ export function AppointmentCard({
         } else {
           setElapsedTime(`${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
         }
+
+        const elapsedMinutes = Math.floor(diffInSeconds / 60);
+        setIsRunningOver(elapsedMinutes > service.duration);
+
       }, 1000);
       timer = interval;
     } else {
       setElapsedTime(null);
+      setIsRunningOver(false);
     }
 
     return () => {
@@ -521,7 +528,7 @@ export function AppointmentCard({
         clearInterval(timer);
       }
     };
-  }, [appointment.status, appointment.actualStartTime]);
+  }, [appointment.status, appointment.actualStartTime, service.duration]);
 
 
   const scheduledDuration = useMemo(() => {
@@ -632,7 +639,14 @@ export function AppointmentCard({
       <div style={{ height: mainHeight }} className="min-h-fit">
         {isCompact ? (
           <div
-            className={cn('p-2 border rounded-lg w-full h-full flex items-center justify-between cursor-pointer gap-2', statusDisplay[cardStatus]?.bgClassName, statusDisplay[cardStatus]?.className, hasPadBefore ? 'rounded-t-none' : '', hasPadAfter ? 'rounded-b-none' : '')}
+            className={cn(
+                'p-2 border rounded-lg w-full h-full flex items-center justify-between cursor-pointer gap-2', 
+                statusDisplay[cardStatus]?.bgClassName, 
+                statusDisplay[cardStatus]?.className, 
+                hasPadBefore ? 'rounded-t-none' : '', 
+                hasPadAfter ? 'rounded-b-none' : '',
+                isRunningOver && 'bg-destructive/20 border-destructive/50 ring-2 ring-destructive/50 animate-pulse'
+            )}
             onClick={handleCardClick}
             data-is-event-card="true"
           >
@@ -670,7 +684,14 @@ export function AppointmentCard({
           </div>
         ) : (
           <div 
-              className={cn('p-2 border rounded-lg w-full h-full flex flex-col justify-between cursor-pointer', statusDisplay[cardStatus]?.bgClassName, statusDisplay[cardStatus]?.className, hasPadBefore ? 'rounded-t-none' : '', hasPadAfter ? 'rounded-b-none' : '')}
+              className={cn(
+                'p-2 border rounded-lg w-full h-full flex flex-col justify-between cursor-pointer', 
+                statusDisplay[cardStatus]?.bgClassName, 
+                statusDisplay[cardStatus]?.className, 
+                hasPadBefore ? 'rounded-t-none' : '', 
+                hasPadAfter ? 'rounded-b-none' : '',
+                isRunningOver && 'bg-destructive/20 border-destructive/50 ring-2 ring-destructive/50 animate-pulse'
+                )}
               onClick={handleCardClick}
               data-is-event-card="true"
           >
