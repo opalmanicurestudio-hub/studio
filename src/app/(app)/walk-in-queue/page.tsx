@@ -778,6 +778,8 @@ export default function WalkInQueuePage() {
         const allServicesForWalkIn = walkIn.serviceIds.map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
         const allRequiredResourceIds = [...new Set(allServicesForWalkIn.flatMap(s => s.requiredResourceIds || []))];
 
+        const checkInToken = nanoid(16);
+
         const newAppointmentForFirestore: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & { startTime: Date, endTime: Date, clientName: string, clientEmail?: string, clientPhone?: string } = {
             clientId: finalClientId!,
             clientName: finalClientName!,
@@ -791,12 +793,15 @@ export default function WalkInQueuePage() {
             source: 'walk-in',
             isWalkIn: true,
             addOnIds: walkIn.serviceIds.slice(1),
-            checkInToken: nanoid(16),
+            checkInToken: checkInToken,
             requiredResourceIds: allRequiredResourceIds,
             tenantId: tenantId,
         };
         const aptDocRef = doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkIn.id}`);
         setDocumentNonBlocking(aptDocRef, newAppointmentForFirestore, {});
+        
+        const checkInDocRef = doc(firestore, 'appointmentCheckIns', checkInToken);
+        setDocumentNonBlocking(checkInDocRef, newAppointmentForFirestore, {});
     }
   }, [firestore, tenantId, walkIns, staff, services, clients, toast]);
 

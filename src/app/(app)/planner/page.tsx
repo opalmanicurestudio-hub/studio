@@ -829,8 +829,14 @@ function PlannerPageContent() {
         ...updatedAppointment,
         startTime: updatedAppointment.startTime.toISOString(),
         endTime: updatedAppointment.endTime.toISOString()
-    }
+    };
     updateDocumentNonBlocking(appointmentRef, dataToSave);
+
+    if (updatedAppointment.checkInToken) {
+        const checkInRef = doc(firestore, 'appointmentCheckIns', updatedAppointment.checkInToken);
+        updateDocumentNonBlocking(checkInRef, dataToSave);
+    }
+    
     toast({
         title: "Appointment Updated",
         description: `The appointment has been successfully updated.`
