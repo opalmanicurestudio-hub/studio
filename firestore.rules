@@ -148,7 +148,13 @@ service cloud.firestore {
       allow read: if true;
       allow create: if false; // These are created by a trusted server process.
       allow delete: if false;
-      allow update: if canUpdateAppointment(token);
+      allow update: if 
+        // Case 1: Authenticated user (owner/staff) can update.
+        (request.auth != null && resource.data.tenantId != null &&
+            (isTenantOwner(resource.data.tenantId) || isStaff(resource.data.tenantId))) ||
+        // Case 2: Unauthenticated client with the correct token can update specific fields.
+        (request.auth == null && resource.data.checkInToken == token &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checkInStatus', 'lateTimeMinutes', 'status']));
     }
 
 
