@@ -573,10 +573,8 @@ export default function FinancialFoundationPage() {
 
     useEffect(() => {
         if (lifestyleProfilesLoading || !firestore || !user || !tenantId) return;
-        const sessionKey = `lifestyle_init_${tenantId}`;
         
-        if ((!lifestyleProfilesData || lifestyleProfilesData.length === 0) && !sessionStorage.getItem(sessionKey)) {
-            sessionStorage.setItem(sessionKey, 'true');
+        if (lifestyleProfilesData && lifestyleProfilesData.length === 0) {
             const defaultProfileId = nanoid();
             const defaultProfile = {
                 id: defaultProfileId,
@@ -598,10 +596,8 @@ export default function FinancialFoundationPage() {
 
     useEffect(() => {
         if (businessProfilesLoading || !firestore || !user || !tenantId) return;
-        const sessionKey = `business_init_${tenantId}`;
 
-        if ((!businessProfilesData || businessProfilesData.length === 0) && !sessionStorage.getItem(sessionKey)) {
-            sessionStorage.setItem(sessionKey, 'true');
+        if (businessProfilesData && businessProfilesData.length === 0) {
             const defaultProfileId = nanoid();
             const defaultProfile = {
                 id: defaultProfileId,

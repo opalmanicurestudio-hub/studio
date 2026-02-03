@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
@@ -231,10 +232,8 @@ export default function SettingsPage() {
 
     useEffect(() => {
         if (scheduleProfilesLoading || !firestore || !user || !tenantId) return;
-        const sessionKey = `schedule_init_${tenantId}`;
 
-        if ((!initialScheduleProfiles || initialScheduleProfiles.length === 0) && !sessionStorage.getItem(sessionKey)) {
-            sessionStorage.setItem(sessionKey, 'true');
+        if (initialScheduleProfiles && initialScheduleProfiles.length === 0) {
             const defaultProfileId = nanoid();
             const defaultProfile = {
                 id: defaultProfileId,
