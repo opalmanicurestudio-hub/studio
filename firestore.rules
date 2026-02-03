@@ -122,15 +122,14 @@ service cloud.firestore {
      * 2. An unauthenticated client updating only their own status via a secret token.
      */
     function canUpdateAppointment(token) {
-      // Case 1: Authenticated owner or staff can update anything.
-      // We check if the user is signed in and if the document being updated has a valid tenantId.
-      if (request.auth != null && resource.data.tenantId != null && (isTenantOwner(resource.data.tenantId) || isStaff(resource.data.tenantId))) {
+      // Case 1: Authenticated owner can update anything.
+      // The user is the owner of the business, and is not a "staff member" in the auth sense.
+      if (request.auth != null && resource.data.tenantId != null && isTenantOwner(resource.data.tenantId)) {
           return true;
       }
       
       // Case 2: Unauthenticated client can only update specific fields if they provide the correct token.
-      // We check that the user is not authenticated and that the incoming data contains the secret checkInToken.
-      if (request.auth == null && request.resource.data.checkInToken == token) {
+      if (request.auth == null && resource.data.checkInToken == token) {
         let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
         // They are only allowed to change their check-in status or specify their lateness.
         return changedKeys.hasOnly(['checkInStatus', 'lateTimeMinutes']);
