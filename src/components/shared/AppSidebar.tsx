@@ -98,10 +98,8 @@ const moneyNavItems = [
 
 const marketingNavItems = [
     { href: '/campaigns', icon: Megaphone, label: 'Campaigns' },
-    { href: '/discounts?tab=codes', icon: Percent, label: 'Discounts' },
+    { href: '/discounts', icon: Percent, label: 'Discounts' },
     { href: '/reviews', icon: Star, label: 'Reviews' },
-    { href: '/discounts?tab=automations', icon: Award, label: 'Loyalty' },
-    { href: '/discounts?tab=referrals', icon: Gift, label: 'Referrals' },
 ];
 
 export function AppSidebar() {
@@ -113,6 +111,11 @@ export function AppSidebar() {
     const currentTab = searchParams.get('tab');
     const [hrefPath, hrefQuery] = href.split('?');
 
+    // Special handling for /discounts to be active on any of its tabs
+    if (hrefPath === '/discounts') {
+      return pathname === '/discounts';
+    }
+
     // If path doesn't match, it's not active
     if (pathname !== hrefPath) {
         return false;
@@ -123,11 +126,6 @@ export function AppSidebar() {
         const hrefParams = new URLSearchParams(hrefQuery);
         const hrefTab = hrefParams.get('tab');
         return currentTab === hrefTab;
-    }
-
-    // For base /discounts link, it should be active if tab is 'codes' or not present.
-    if (hrefPath === '/discounts') {
-        return !currentTab || currentTab === 'codes';
     }
 
     // Default behavior for other links
