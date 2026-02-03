@@ -59,7 +59,7 @@ type ClientPhoto = {
 };
 
 const ClientIntelBanner = ({ client }: { client: Client }) => {
-    const hasIntel = client.intel?.hasIncidents || client.medicalNotes || client.allergyNotes || client.sensoryNeeds;
+    const hasIntel = client.intel?.hasIncidents || client.medicalNotes || client.allergyNotes || client.sensoryNeeds || (Array.isArray(client.intel?.incidents) && client.intel.incidents.some(i => i.type === 'No-Show'));
     if (!hasIntel) return null;
 
     return (
@@ -517,6 +517,11 @@ export default function ClientDetailPage() {
                             </div>
                         </div>
                     </div>
+                     <Button variant="outline" asChild>
+                        <Link href={`/clients/${client.id}/report`}>
+                            <FileText className="mr-2 h-4 w-4"/> View Report
+                        </Link>
+                    </Button>
                 </CardContent>
             </Card>
 
@@ -957,6 +962,7 @@ export default function ClientDetailPage() {
     </div>
   );
 }
+
 
 
 

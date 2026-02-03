@@ -61,6 +61,7 @@ export const LogIncidentForm = () => {
                   <SelectItem value="Property Damage">Property Damage</SelectItem>
                   <SelectItem value="Facility Issue">Facility Issue</SelectItem>
                   <SelectItem value="Inappropriate Behavior">Inappropriate Behavior</SelectItem>
+                  <SelectItem value="No-Show">No-Show</SelectItem>
                   <SelectItem value="Other">Other</SelectItem>
                 </SelectContent>
               </Select>

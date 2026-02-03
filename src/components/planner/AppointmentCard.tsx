@@ -45,6 +45,7 @@ import {
   HardHat,
   Cake,
   Globe,
+  Package,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -444,6 +445,8 @@ const AppointmentDetails = ({
   );
 };
 
+// ... (rest of the component)
+// ... (The rest of the component remains the same, so it's omitted for brevity)
 interface AppointmentCardProps {
   appointment: Appointment;
   client: Client;

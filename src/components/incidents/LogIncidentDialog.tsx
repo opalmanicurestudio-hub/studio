@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React from 'react';
@@ -16,6 +17,7 @@ import { useForm, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { incidentSchema } from './LogIncidentForm';
 import type { Client } from '@/lib/data';
+import { ScrollArea } from '../ui/scroll-area';
 
 interface LogIncidentDialogProps {
   open: boolean;
@@ -37,7 +39,7 @@ export const LogIncidentDialog: React.FC<LogIncidentDialogProps> = ({
       severity: 'Minor',
       description: '',
       actionsTaken: '',
-      photoUrl: '',
+      photoUrls: [],
     }
   });
 
@@ -60,12 +62,14 @@ export const LogIncidentDialog: React.FC<LogIncidentDialogProps> = ({
         </DialogHeader>
         <FormProvider {...methods}>
           <form id="log-incident-form" onSubmit={handleSubmit(handleFormSubmit)}>
-            <div className="max-h-[60vh] overflow-y-auto pr-4 -mr-6 py-4 pl-6">
-              <LogIncidentForm />
-            </div>
+             <ScrollArea className="max-h-[60vh] -mr-6 pr-6">
+                 <div className="py-4 pl-6">
+                    <LogIncidentForm />
+                 </div>
+            </ScrollArea>
           </form>
         </FormProvider>
-        <DialogFooter>
+        <DialogFooter className="pt-4 border-t pr-6">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button type="submit" form="log-incident-form">Log Incident</Button>
         </DialogFooter>

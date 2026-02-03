@@ -1,11 +1,12 @@
 
+
 'use client';
 
 import React, { useMemo } from 'react';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { ShieldPlus, AlertTriangle, Ear, Edit, Mail, Phone } from 'lucide-react';
+import { ShieldPlus, AlertTriangle, Ear, Edit, Mail, Phone, ShieldAlert, Ban } from 'lucide-react';
 import { type Client } from '@/lib/data';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
@@ -74,6 +75,12 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                 </div>
                 <div className="flex items-center gap-2 border-t pt-3">
                     <TooltipProvider>
+                         {client.intel?.hasIncidents && (
+                            <Tooltip>
+                                <TooltipTrigger><ShieldAlert className="w-5 h-5 text-purple-500" /></TooltipTrigger>
+                                <TooltipContent><p>Client has incident history</p></TooltipContent>
+                            </Tooltip>
+                         )}
                          {client.medicalNotes && (
                             <Tooltip>
                                 <TooltipTrigger><ShieldPlus className="w-5 h-5 text-red-500" /></TooltipTrigger>
@@ -90,6 +97,12 @@ export const ClientCard = ({ client, isSelected, onSelect }: { client: Client, i
                              <Tooltip>
                                 <TooltipTrigger><Ear className="w-5 h-5 text-blue-500" /></TooltipTrigger>
                                 <TooltipContent><p>Sensory Needs</p></TooltipContent>
+                            </Tooltip>
+                         )}
+                          {Array.isArray(client.intel?.incidents) && client.intel.incidents.some(i => i.type === 'No-Show') && (
+                            <Tooltip>
+                                <TooltipTrigger><Ban className="w-5 h-5 text-gray-500" /></TooltipTrigger>
+                                <TooltipContent><p>No-Show History</p></TooltipContent>
                             </Tooltip>
                          )}
                     </TooltipProvider>
