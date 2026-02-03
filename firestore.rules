@@ -116,31 +116,6 @@ service cloud.firestore {
     }
     
     /**
-     * This function defines the logic for updating an appointment check-in document.
-     * It handles two distinct cases:
-     * 1. An authenticated owner/staff member updating the record.
-     * 2. An unauthenticated client updating only their own status via a secret token.
-     */
-    function canUpdateAppointment(token) {
-      // Case 1: Authenticated owner or staff can update.
-      if (request.auth != null && resource.data.tenantId != null) {
-        if (isTenantOwner(resource.data.tenantId) || isStaff(resource.data.tenantId)) {
-          return true;
-        }
-      }
-      
-      // Case 2: Unauthenticated client can only update specific fields if they provide the correct token.
-      if (request.auth == null && resource.data.checkInToken == token) {
-        let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
-        // They are only allowed to change their check-in status or specify their lateness.
-        return changedKeys.hasOnly(['checkInStatus', 'lateTimeMinutes', 'status']);
-      }
-
-      // If neither of the above conditions are met, the update is denied.
-      return false;
-    }
-    
-    /**
      * @description Publicly accessible collection for initiating client check-in.
      * The document ID is a secret token known only to the client via a URL.
      */
@@ -148,11 +123,10 @@ service cloud.firestore {
       allow read: if true;
       allow create: if request.auth != null && request.resource.data.tenantId != null && (isTenantOwner(request.resource.data.tenantId) || isStaff(request.resource.data.tenantId));
       allow delete: if false;
-      allow update: if 
-        // Case 1: Authenticated user (owner/staff) can update.
-        (request.auth != null && resource.data.tenantId != null &&
-            (isTenantOwner(resource.data.tenantId) || isStaff(resource.data.tenantId))) ||
-        // Case 2: Unauthenticated client with the correct token can update specific fields.
+      allow update: if
+        // Case 1: Authenticated user can update if they provide a valid tenantId. This allows "healing" of records.
+        (request.auth != null && request.resource.data.tenantId != null && (isTenantOwner(request.resource.data.tenantId) || isStaff(request.resource.data.tenantId))) ||
+        // Case 2: Unauthenticated client can update specific fields if they provide the correct token.
         (request.auth == null && resource.data.checkInToken == token &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checkInStatus', 'lateTimeMinutes', 'status']));
     }

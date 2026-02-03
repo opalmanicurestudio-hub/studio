@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -10,7 +9,7 @@ import { User, Users, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon,
 import { useInventory } from '@/context/InventoryContext';
 import { useCollection, useFirebase, updateDocumentNonBlocking, useMemoFirebase, setDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc, getDocs, query, where } from 'firebase/firestore';
-import type { WalkIn, Staff, Appointment, Service, ActivityLog, Client, Event, Resource } from '@/lib/data';
+import type { WalkIn, Staff, Appointment, Service, ActivityLog, Client, Event, Resource, AppointmentCheckoutState } from '@/lib/data';
 import { formatDistanceToNowStrict, parseISO, addMinutes, differenceInMinutes, differenceInSeconds, format, areIntervalsOverlapping, isToday } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -22,7 +21,7 @@ import {
 import Link from 'next/link';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { PrintWalkInTicket, WalkInTicketData } from '@/components/walk-in/PrintWalkInTicket';
-import { CompleteAppointmentDialog } from '@/components/planner/CompleteAppointmentDialog';
+import { CompleteAppointmentDialog, type CheckoutData } from '@/components/planner/CompleteAppointmentDialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
@@ -37,6 +36,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { useTenant } from '@/context/TenantContext';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { type Transaction } from '@/lib/financial-data';
 
 const Timer = ({ startTime }: { startTime: string }) => {
     const [elapsed, setElapsed] = useState('');
@@ -190,6 +190,8 @@ const StaffStatusCard = ({ staffMember, onStatusChange, isNextUp, appointments, 
     </Card>
   );
 }
+
+// ... rest of the components from walk-in-queue page
 
 const WaitingCustomerCard = ({ walkIn, services, resources, onPrintTicket, onOpenAssignDialog, queuePosition, estimatedWaitTime }: { walkIn: WalkIn, services: any[], resources: Resource[], onPrintTicket: (data: WalkIn) => void, onOpenAssignDialog: (walkIn: WalkIn) => void, queuePosition: number, estimatedWaitTime?: number | null }) => {
     const walkInServices = services.filter(s => walkIn.serviceIds.includes(s.id));
@@ -638,6 +640,7 @@ export default function WalkInQueuePage() {
   const { data: fetchedEvents, isLoading: eventsLoading } = useCollection<Event>(eventsQuery);
   const { data: appointmentsFromDB } = useCollection<Appointment>(appointmentsQuery);
   const { data: resources, isLoading: resourcesLoading } = useCollection<Resource>(resourcesQuery);
+  const { data: transactions, isLoading: transactionsLoading } = useCollection<Transaction>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'transactions') : null, [firestore, tenantId]));
 
   const events = useMemo(() => {
     if (!fetchedEvents) return [];
@@ -780,7 +783,7 @@ export default function WalkInQueuePage() {
 
         const checkInToken = nanoid(16);
 
-        const newAppointmentForFirestore: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & { startTime: Date, endTime: Date, clientName: string, clientEmail?: string, clientPhone?: string } = {
+        const newAppointmentForFirestore = {
             clientId: finalClientId!,
             clientName: finalClientName!,
             clientEmail: walkIn.customerEmail,
@@ -789,13 +792,14 @@ export default function WalkInQueuePage() {
             staffId: staffId,
             startTime: now,
             endTime: appointmentEndTime,
-            status: 'confirmed',
-            source: 'walk-in',
+            status: 'confirmed' as const,
+            source: 'walk-in' as const,
             isWalkIn: true,
             addOnIds: walkIn.serviceIds.slice(1),
             checkInToken: checkInToken,
             requiredResourceIds: allRequiredResourceIds,
             tenantId: tenantId,
+            id: `apt-walkin-${walkIn.id}`,
         };
         const aptDocRef = doc(firestore, 'tenants', tenantId, 'appointments', `apt-walkin-${walkIn.id}`);
         setDocumentNonBlocking(aptDocRef, newAppointmentForFirestore, {});
@@ -1160,13 +1164,60 @@ export default function WalkInQueuePage() {
     };
     setCheckoutAppointment(tempAppointment);
   };
+  
+  const handleConfirmCheckout = (data: CheckoutData) => {
+    if (!checkoutAppointment || !firestore || !tenantId || !transactions) return;
 
-  const handleConfirmCheckout = () => {
-    if (!checkoutAppointment) return;
+    const { receiptData, tipAllocations } = data;
 
+    const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+    const serviceTransaction: Omit<Transaction, 'id'|'date'> = {
+        description: `Walk-in: ${receiptData.items.map(i => i.name).join(', ')}`,
+        clientOrVendor: receiptData.clientName,
+        clientId: checkoutAppointment.clientId,
+        type: 'income',
+        context: 'Business',
+        category: 'Service Revenue',
+        amount: receiptData.subtotal,
+        paymentMethod: receiptData.payment.method,
+        hasReceipt: false,
+        staffId: checkoutAppointment.staffId,
+        appointmentId: checkoutAppointment.id,
+    };
+    addDocumentNonBlocking(transactionsRef, {...serviceTransaction, date: new Date().toISOString() });
+
+    Object.entries(tipAllocations).forEach(([staffId, tipAmount]) => {
+        if (tipAmount > 0) {
+            const tipTransaction: Omit<Transaction, 'id'|'date'> = {
+                description: `Tip for Walk-in #${checkoutAppointment.id.slice(-4)}`,
+                clientOrVendor: receiptData.clientName,
+                clientId: checkoutAppointment.clientId,
+                type: 'income',
+                context: 'Business',
+                category: 'Tips',
+                amount: tipAmount,
+                paymentMethod: receiptData.payment.method,
+                hasReceipt: false,
+                staffId: staffId,
+                tipAmount: tipAmount,
+                appointmentId: checkoutAppointment.id,
+            };
+            addDocumentNonBlocking(transactionsRef, {...tipTransaction, date: new Date().toISOString()});
+        }
+    });
+
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', checkoutAppointment.id);
+    updateDocumentNonBlocking(appointmentRef, { status: 'completed' });
+
+    if (checkoutAppointment.checkInToken) {
+        const checkInRef = doc(firestore, 'appointmentCheckIns', checkoutAppointment.checkInToken);
+        updateDocumentNonBlocking(checkInRef, { status: 'completed', tenantId });
+    }
+    
     const walkInId = checkoutAppointment.id.replace('apt-walkin-', '');
     handleWalkInStatusChange(walkInId, checkoutAppointment.staffId || '', 'completed');
     
+    toast({ title: "Checkout Complete!" });
     setCheckoutAppointment(null);
   };
 
@@ -1250,8 +1301,13 @@ export default function WalkInQueuePage() {
         actualEndTime: new Date().toISOString(),
     });
     
-    const staffIdsInvolved = new Set(Object.values(checkoutState.serviceStaffOverrides || {}));
     const appointment = appointments.find(apt => apt.id === appointmentId);
+    if (appointment?.checkInToken) {
+        const checkInRef = doc(firestore, 'appointmentCheckIns', appointment.checkInToken);
+        updateDocumentNonBlocking(checkInRef, { status: 'ready_for_checkout', tenantId: tenantId });
+    }
+
+    const staffIdsInvolved = new Set(Object.values(checkoutState.serviceStaffOverrides || {}));
     if (appointment?.staffId) {
       staffIdsInvolved.add(appointment.staffId);
     }
