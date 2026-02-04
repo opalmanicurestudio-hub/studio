@@ -1,6 +1,4 @@
 
-      
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -1219,7 +1217,7 @@ function PlannerPageContent() {
   
   const isDataLoading = isLoading || isUserLoading || isTenantLoading || scheduleProfilesLoading || resourcesLoading || checkInsLoading;
   
-  const handleStartService = (appointmentId: string) => {
+  const onStartService = (appointmentId: string) => {
     const appointmentToStart = (appointments || []).find(apt => apt.id === appointmentId);
     if (appointmentToStart) {
         setStartConfirmAppointment(appointmentToStart);
@@ -1733,5 +1731,3 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
-
-    
