@@ -1,4 +1,5 @@
 
+      
 
 'use client';
 
@@ -1217,14 +1218,14 @@ function PlannerPageContent() {
 }, [isScannerOpen, handleScan, toast]);
   
   const isDataLoading = isLoading || isUserLoading || isTenantLoading || scheduleProfilesLoading || resourcesLoading || checkInsLoading;
-
+  
   const handleStartService = (appointmentId: string) => {
     const appointmentToStart = (appointments || []).find(apt => apt.id === appointmentId);
     if (appointmentToStart) {
         setStartConfirmAppointment(appointmentToStart);
     }
   };
-
+  
   const confirmStartService = () => {
     if (!startConfirmAppointment || !firestore || !tenantId) return;
     const nowISO = new Date().toISOString();
@@ -1732,3 +1733,5 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
+
+    
