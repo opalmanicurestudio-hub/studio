@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
@@ -16,8 +14,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle, UserPlus, Coins, Printer, Wallet, Award, Repeat, CheckCircle, Percent, Check } from 'lucide-react';
-import { type InventoryItem, type StockCorrection, type Transaction, type Client, type Appointment, type Service, type AppointmentCheckoutState, type Membership, type Package, type ClientFormData, type WalkIn, type Discount } from '@/lib/data';
+import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle, UserPlus, Coins, Printer, Wallet, Award, Repeat, CheckCircle, Percent, Check, Package } from 'lucide-react';
+import { type InventoryItem, type StockCorrection, type Transaction, type Client, type Appointment, type Service, type AppointmentCheckoutState, type Membership, type Package as PackageType, type ClientFormData, type WalkIn, type Discount } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -123,7 +121,7 @@ const MembershipProductCard = ({ membership, onClick }: { membership: Membership
 };
 
 
-const PackageProductCard = ({ pack, onClick, services }: { pack: Package; onClick: () => void; services: Service[] }) => {
+const PackageProductCard = ({ pack, onClick, services }: { pack: PackageType; onClick: () => void; services: Service[] }) => {
     const service = services.find(s => s.id === pack.serviceId);
     return (
         <Card onClick={onClick} className="cursor-pointer hover:shadow-lg transition-shadow">
@@ -404,19 +402,7 @@ const CartContent = ({
                 onValueChange={setPaymentTab}
                 className="w-full"
             >
-                <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="card">
-                    <CreditCard className="w-4 h-4 mr-2" />
-                    Card
-                </TabsTrigger>
-                <TabsTrigger value="cash">
-                    <Banknote className="w-4 h-4 mr-2" />
-                    Cash
-                </TabsTrigger>
-                <TabsTrigger value="other">
-                    <Gift className="w-4 h-4 mr-2" />
-                    Other
-                </TabsTrigger>
+                <TabsList className="grid w-full grid-cols-3"><TabsTrigger value="card"><CreditCard className="w-4 h-4 mr-2" />Card</TabsTrigger><TabsTrigger value="cash"><Banknote className="w-4 h-4 mr-2" />Cash</TabsTrigger><TabsTrigger value="other"><Gift className="w-4 h-4 mr-2" />Other</TabsTrigger>
                 </TabsList>
                 <TabsContent value="cash" className="pt-4 space-y-4">
                 <div className="grid grid-cols-2 gap-4">
@@ -662,7 +648,7 @@ export default function RetailPage() {
     }
   }, [cart, toast]);
 
-  const addToCart = useCallback((item: InventoryItem | Membership | Package, type: 'product' | 'membership' | 'package') => {
+  const addToCart = useCallback((item: InventoryItem | Membership | PackageType, type: 'product' | 'membership' | 'package') => {
     const existingItem = cart.find(cartItem => cartItem.id === item.id);
     
     if (type === 'membership') {
@@ -694,7 +680,7 @@ export default function RetailPage() {
     if (type === 'product') {
         price = (item as InventoryItem).msrp || 0;
     } else {
-        price = (item as Membership | Package).price;
+        price = (item as Membership | PackageType).price;
     }
 
     const stock = type === 'product' ? (item as InventoryItem).totalStock : Infinity;
@@ -918,7 +904,7 @@ export default function RetailPage() {
                 const pack = packages.find(pkg => pkg.id === p.id);
                 return {
                     packageId: p.id,
-                    sessionsRemaining: pack?.sessions || 0,
+                    sessionsRemaining: (pack as PackageType)?.sessions || 0,
                 };
             });
             clientUpdate.activePackages = [...(selectedClient.activePackages || []), ...newPackages];
