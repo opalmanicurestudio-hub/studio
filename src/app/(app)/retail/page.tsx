@@ -57,6 +57,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { useTenant } from '@/context/TenantContext';
 import { Loader } from 'lucide-react';
 import { BrowseDiscountsDialog } from '@/components/discounts/BrowseDiscountsDialog';
+import { Checkbox } from '@/components/ui/checkbox';
 
 
 type CartItem = {
