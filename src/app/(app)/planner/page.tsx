@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -227,7 +228,7 @@ function PlannerPageContent() {
                         toast({
                             variant: 'destructive',
                             title: 'Service Running Over',
-                            description: `\${client?.name || 'A client'}'s \${service.name} service is over its scheduled time.`,
+                            description: `${client?.name || 'A client'}'s ${service.name} service is over its scheduled time.`,
                         });
                         setNotifiedOvertime(prev => new Set(prev).add(apt.id));
                     }
@@ -483,7 +484,7 @@ function PlannerPageContent() {
 
     const newTransaction: Omit<Transaction, 'id'> = {
         date: paymentData.date.toISOString(),
-        description: `Payment for \${selectedBill.definition.name}`,
+        description: `Payment for ${selectedBill.definition.name}`,
         clientOrVendor: selectedBill.definition.name,
         type: 'payment',
         context: selectedBill.definition.context,
@@ -499,7 +500,7 @@ function PlannerPageContent() {
     
     toast({
         title: "Payment Logged",
-        description: `A payment of $\${paymentData.amount.toFixed(2)} has been logged for \${selectedBill.definition.name}.`
+        description: `A payment of $${paymentData.amount.toFixed(2)} has been logged for ${selectedBill.definition.name}.`
     })
 
     setSelectedBill(null);
@@ -533,7 +534,7 @@ function PlannerPageContent() {
     allPerformedServices.forEach(service => {
         const staffId = serviceStaffOverrides[service.id] || selectedAppointment.staffId;
         const newTransaction: Omit<Transaction, 'id' | 'date'> = {
-            description: `Service: \${service.name}`,
+            description: `Service: ${service.name}`,
             clientOrVendor: (clients || []).find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
             clientId: selectedAppointment.clientId,
             type: 'income',
@@ -552,7 +553,7 @@ function PlannerPageContent() {
     Object.entries(tipAllocations).forEach(([staffId, tipAmount]) => {
         if (tipAmount > 0) {
             const newTransaction: Omit<Transaction, 'id' | 'date'> = {
-                description: `Tip for Appointment #\${selectedAppointment.id.slice(-4)}\`,
+                description: `Tip for Appointment #${selectedAppointment.id.slice(-4)}`,
                 clientOrVendor: (clients || []).find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
                 clientId: selectedAppointment.clientId,
                 type: 'income',
@@ -579,7 +580,7 @@ function PlannerPageContent() {
             
             if (retailTotal > 0) {
                 const newTransaction: Omit<Transaction, 'id' | 'date'> = {
-                    description: `Retail: \${item.quantity}x \${item.name}\`,
+                    description: `Retail: ${item.quantity}x ${item.name}`,
                     clientOrVendor: (clients || []).find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
                     clientId: selectedAppointment.clientId,
                     type: 'income',
@@ -598,7 +599,7 @@ function PlannerPageContent() {
     
     // 4. Update stock corrections
     newCorrections.forEach((correction) => {
-        addDocumentNonBlocking(collection(firestore, `tenants/\${tenantId}/stockCorrections`), correction);
+        addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), correction);
     });
 
     // 4.5 Updated to persist batch data
@@ -613,7 +614,7 @@ function PlannerPageContent() {
                              JSON.stringify(item.batches) !== JSON.stringify(originalItem.batches);
 
         if (stockChanged) {
-            const itemDocRef = doc(firestore, `tenants/\${tenantId}/inventory`, item.id);
+            const itemDocRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
             updateDocumentNonBlocking(itemDocRef, {
                 totalStock: item.totalStock,
                 partialContainerUses: item.partialContainerUses,
@@ -630,7 +631,6 @@ function PlannerPageContent() {
         absorbedCost: absorbedCost,
         inventoryProcessed: true,
         discountAmount: discountAmount,
-        appliedDiscountCode: appliedDiscountId
     };
     updateDocumentNonBlocking(appointmentRef, updateData);
 
@@ -661,7 +661,7 @@ function PlannerPageContent() {
     // 8. Update Client Document
     const clientToUpdate = (clients || []).find(c => c.id === selectedAppointment.clientId);
     if (clientToUpdate) {
-        const clientDocRef = doc(firestore, `tenants/\${tenantId}/clients`, clientToUpdate.id);
+        const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, clientToUpdate.id);
         
         const clientUpdates: Partial<Client> & { [key: string]: any } = {
             lifetimeValue: (clientToUpdate.lifetimeValue || 0) + receiptData.total,
@@ -797,7 +797,7 @@ function PlannerPageContent() {
         await batch.commit();
         toast({
             title: "Recurring Appointments Booked",
-            description: `Appointments with \${finalClientName} have been added to the calendar.`
+            description: `Appointments with ${finalClientName} have been added to the calendar.`
         });
     } else {
         const appointmentDocId = nanoid();
@@ -823,7 +823,7 @@ function PlannerPageContent() {
         
         toast({
             title: "Appointment Booked",
-            description: `Appointment with \${finalClientName} has been added.`
+            description: `Appointment with ${finalClientName} has been added.`
         });
     }
     
@@ -892,7 +892,7 @@ function PlannerPageContent() {
 
     if (newEvent.cost && newEvent.cost > 0 && newEvent.type !== 'blocked') {
         const newTransaction = {
-            description: `Expense for: \${newEvent.title}\`,
+            description: `Expense for: ${newEvent.title}`,
             clientOrVendor: 'N/A',
             type: 'expense' as const,
             context: newEvent.type === 'business' ? 'Business' : 'Personal',
@@ -907,7 +907,7 @@ function PlannerPageContent() {
 
     toast({
         title: "Event Added",
-        description: `"\${newEvent.title}" has been added to your calendar.`
+        description: `"${newEvent.title}" has been added to your calendar.`
     });
     setIsAddEventOpen(false);
   };
@@ -923,7 +923,7 @@ function PlannerPageContent() {
         updateDocumentNonBlocking(eventRef, dataToSave);
         toast({
             title: "Event Updated",
-            description: `"\${updatedEvent.title}" has been updated.`
+            description: `"${updatedEvent.title}" has been updated.`
         });
         setIsEditEventOpen(false);
     }
@@ -945,7 +945,7 @@ function PlannerPageContent() {
         addDocumentNonBlocking(transactionRef, newTransaction);
         toast({
             title: "Expense Logged",
-            description: `An expense of $\${transaction.amount.toFixed(2)} for "\${transaction.description}" has been recorded in your ledger.`
+            description: `An expense of $${transaction.amount.toFixed(2)} for "${transaction.description}" has been recorded in your ledger.`
         });
   }
   
@@ -1011,7 +1011,7 @@ function PlannerPageContent() {
 
             if (timeDiffHours < cancellationWindow && appointment.status !== 'cancelled') {
                 const fee = selectedTenant.cancellationFee || 25; 
-                const clientRef = doc(firestore, `tenants/\${tenantId}/clients`, client.id);
+                const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
                 
                 const newFee = {
                     feeId: nanoid(),
@@ -1031,7 +1031,7 @@ function PlannerPageContent() {
 
                 toast({
                     title: "Late Cancellation Fee Applied",
-                    description: `$\${fee.toFixed(2)} fee has been added to \${client.name}'s account.`
+                    description: `$${fee.toFixed(2)} fee has been added to ${client.name}'s account.`
                 });
             }
         }
@@ -1047,7 +1047,7 @@ function PlannerPageContent() {
 
     toast({
         title: "Status Updated",
-        description: `Appointment status changed to \${status}.`
+        description: `Appointment status changed to ${status}.`
     });
   };
   
@@ -1093,7 +1093,7 @@ function PlannerPageContent() {
     const service = (services || []).find(s => s.id === selectedAppointment.serviceId);
 
     const walkIn = selectedAppointment.isWalkIn && walkIns
-      ? walkIns.find(w => `apt-walkin-\${w.id}` === selectedAppointment.id)
+      ? walkIns.find(w => `apt-walkin-${w.id}` === selectedAppointment.id)
       : undefined;
 
     if (!client && selectedAppointment.clientName) {
@@ -1257,6 +1257,7 @@ function PlannerPageContent() {
     setStartConfirmAppointment(null);
   };
 
+
   if (isDataLoading) {
     return (
       <div className="flex h-screen w-full flex-col">
@@ -1293,7 +1294,7 @@ function PlannerPageContent() {
                                         </Button>
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="end">
-                                        <DropdownMenuItem asChild><Link href={`/book/\${tenantId}`} target="_blank">View Booking Page</Link></DropdownMenuItem>
+                                        <DropdownMenuItem asChild><Link href={`/book/${tenantId}`} target="_blank">View Booking Page</Link></DropdownMenuItem>
                                         <DropdownMenuItem asChild><Link href={`/walk-in-queue`}>View Walk-in Kiosk</Link></DropdownMenuItem>
                                     </DropdownMenuContent>
                                 </DropdownMenu>
@@ -1301,7 +1302,7 @@ function PlannerPageContent() {
                         </div>
                          <div className="text-sm font-medium text-muted-foreground flex items-center justify-center gap-1.5 pt-1">
                             <DollarSign className="w-4 h-4" />
-                            <span>TMHR: $\${tmhr.toFixed(2)}/hr</span>
+                            <span>TMHR: ${tmhr.toFixed(2)}/hr</span>
                         </div>
                     </div>
                 ) : (
@@ -1370,7 +1371,7 @@ function PlannerPageContent() {
                          <div className="flex items-center justify-end gap-2">
                              <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground border-r pr-4 mr-2">
                                 <DollarSign className="w-4 h-4" />
-                                <span>TMHR: $\${tmhr.toFixed(2)}/hr</span>
+                                <span>TMHR: ${tmhr.toFixed(2)}/hr</span>
                             </div>
                             <TooltipProvider>
                                 <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="w-4 h-4" /><span className="sr-only">Weekly KPIs</span></Button></TooltipTrigger><TooltipContent><p>Weekly KPIs</p></TooltipContent></Tooltip>
@@ -1394,7 +1395,7 @@ function PlannerPageContent() {
                                             </DropdownMenuTrigger>
                                             <DropdownMenuContent align="end">
                                                 <DropdownMenuItem asChild>
-                                                    <Link href={`/book/\${tenantId}`} target="_blank">View Booking Page</Link>
+                                                    <Link href={`/book/${tenantId}`} target="_blank">View Booking Page</Link>
                                                 </DropdownMenuItem>
                                                 <DropdownMenuItem asChild>
                                                     <Link href={`/walk-in-queue`}>View Walk-in Kiosk</Link></DropdownMenuItem>
@@ -1465,7 +1466,7 @@ function PlannerPageContent() {
                 onReschedule={handleRescheduleClick}
                 onRebook={handleRebook}
                 onOpenPickingList={() => setIsPickingListOpen(true)}
-                onStartService={handleStartService}
+                onStartService={onStartService}
                 onFinishService={handleFinishService}
                 onBookNewForClient={handleBookNewForClient}
                 walkIns={walkIns}
@@ -1488,7 +1489,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1502,7 +1503,7 @@ function PlannerPageContent() {
                 onReschedule={handleRescheduleClick}
                 onRebook={handleRebook}
                 onOpenPickingList={() => setIsPickingListOpen(true)}
-                onStartService={handleStartService}
+                onStartService={onStartService}
                 onFinishService={handleFinishService}
                 onBookNewForClient={handleBookNewForClient}
                 walkIns={walkIns}
@@ -1731,5 +1732,3 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
-
-    
