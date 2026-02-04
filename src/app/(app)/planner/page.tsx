@@ -3,7 +3,7 @@
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, MoreHorizontal, CheckCircle, Printer, BellRing, TrendingUp, DollarSign, BarChart, AlertTriangle, Calendar as CalendarIcon, Plus, List, FileText as TicketIcon, Edit, Users, User, Play, Square, QrCode, Globe, Building, HardHat, Repeat, Link as LinkIcon, Car } from 'lucide-react';
 import { type Event, type EventChecklistItem, type StockCorrection, type Staff, type Appointment, type AppointmentCheckoutState, type Resource } from '@/lib/data';
 import { type Bill, type Transaction, type BillInstance, type BillDefinition } from '@/lib/financial-data';
@@ -106,6 +106,13 @@ function PlannerPageContent() {
       transactions,
       isLoading
   } = useInventory();
+
+  const [tmhr, setTmhr] = useState(0);
+
+  useEffect(() => {
+    const storedTmhr = localStorage.getItem('tmhr');
+    setTmhr(parseFloat(storedTmhr || '50'));
+  }, []);
 
   const checkInsQuery = useMemoFirebase(() => {
     if (!firestore || !tenantId) return null;
@@ -565,27 +572,29 @@ function PlannerPageContent() {
 
     // 3. Retail Transactions
     if (data.retailItems.length > 0 && inventory) {
-        const retailTotal = data.retailItems.reduce((acc, item) => {
+        data.retailItems.forEach(item => {
             const product = inventory.find(p => p.id === item.id);
-            const price = product?.msrp || product?.costPerUnit || 0;
-            return acc + (item.quantity * price);
-        }, 0);
-        if (retailTotal > 0) {
-            const newTransaction: Omit<Transaction, 'id' | 'date'> = {
-                description: `Retail Sale (${data.retailItems.length} items)`,
-                clientOrVendor: (clients || []).find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
-                clientId: selectedAppointment.clientId,
-                type: 'income',
-                context: 'Business',
-                category: 'Retail',
-                amount: retailTotal,
-                paymentMethod: receiptData.payment.method,
-                hasReceipt: true,
-                staffId: selectedAppointment.staffId, // Or assign to a specific staff
-                appointmentId: selectedAppointment.id,
-            };
-            addDocumentNonBlocking(transactionsRef, {...newTransaction, date: new Date().toISOString()});
-        }
+            if (!product) return;
+            const price = product.msrp || product.costPerUnit || 0;
+            const retailTotal = item.quantity * price;
+            
+            if (retailTotal > 0) {
+                const newTransaction: Omit<Transaction, 'id' | 'date'> = {
+                    description: `Retail: ${item.quantity}x ${item.name}`,
+                    clientOrVendor: (clients || []).find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
+                    clientId: selectedAppointment.clientId,
+                    type: 'income',
+                    context: 'Business',
+                    category: 'Retail',
+                    amount: retailTotal,
+                    paymentMethod: receiptData.payment.method,
+                    hasReceipt: true,
+                    staffId: selectedAppointment.staffId,
+                    appointmentId: selectedAppointment.id,
+                };
+                addDocumentNonBlocking(transactionsRef, {...newTransaction, date: new Date().toISOString()});
+            }
+        });
     }
     
     // 4. Update stock corrections
@@ -621,6 +630,8 @@ function PlannerPageContent() {
         status: 'completed',
         absorbedCost: absorbedCost,
         inventoryProcessed: true,
+        discountAmount: discountAmount,
+        appliedDiscountCode: appliedDiscountId
     };
     updateDocumentNonBlocking(appointmentRef, updateData);
 
@@ -1266,27 +1277,33 @@ function PlannerPageContent() {
       <div className="p-4 border-b">
             <div className="flex flex-col gap-4">
                 {isMobile ? (
-                    <div className="flex items-center gap-1">
-                        <h2 className="text-2xl font-semibold mr-auto">{format(currentDate, 'MMMM yyyy')}</h2>
-                        <div className="flex items-center gap-0.5">
-                            <Button variant="ghost" size="icon" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="w-5 h-5" /></Button>
-                            <Button variant="ghost" size="icon" className="relative" onClick={() => setIsBillsSheetOpen(true)}>
-                                <BellRing className={cn("h-5 w-5", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
-                                {dailyBillInstances.length > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-primary rounded-full" />}
-                            </Button>
-                            <Button variant="ghost" size="icon" onClick={() => setIsPickingListOpen(true)}><List className="w-5 h-5" /></Button>
-                            <Button variant="ghost" size="icon" onClick={() => setIsScannerOpen(true)}><QrCode className="w-5 h-5" /></Button>
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button variant="ghost" size="icon">
-                                        <Globe className="h-5 w-5" />
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                    <DropdownMenuItem asChild><Link href={`/book/${tenantId}`} target="_blank">View Booking Page</Link></DropdownMenuItem>
-                                    <DropdownMenuItem asChild><Link href={`/walk-in-queue`}>View Walk-in Kiosk</Link></DropdownMenuItem>
-                                </DropdownMenuContent>
-                            </DropdownMenu>
+                    <div className="flex flex-col gap-2">
+                        <div className="flex items-center gap-1">
+                            <h2 className="text-2xl font-semibold mr-auto">{format(currentDate, 'MMMM yyyy')}</h2>
+                            <div className="flex items-center gap-0.5">
+                                <Button variant="ghost" size="icon" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="w-5 h-5" /></Button>
+                                <Button variant="ghost" size="icon" className="relative" onClick={() => setIsBillsSheetOpen(true)}>
+                                    <BellRing className={cn("h-5 w-5", dailyBillInstances.length > 0 && "text-primary animate-pulse")} />
+                                    {dailyBillInstances.length > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-primary rounded-full" />}
+                                </Button>
+                                <Button variant="ghost" size="icon" onClick={() => setIsPickingListOpen(true)}><List className="w-5 h-5" /></Button>
+                                <Button variant="ghost" size="icon" onClick={() => setIsScannerOpen(true)}><QrCode className="w-5 h-5" /></Button>
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button variant="ghost" size="icon">
+                                            <Globe className="h-5 w-5" />
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                        <DropdownMenuItem asChild><Link href={`/book/${tenantId}`} target="_blank">View Booking Page</Link></DropdownMenuItem>
+                                        <DropdownMenuItem asChild><Link href={`/walk-in-queue`}>View Walk-in Kiosk</Link></DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            </div>
+                        </div>
+                         <div className="text-sm font-medium text-muted-foreground flex items-center justify-center gap-1.5 pt-1">
+                            <DollarSign className="w-4 h-4" />
+                            <span>TMHR: ${tmhr.toFixed(2)}/hr</span>
                         </div>
                     </div>
                 ) : (
@@ -1353,6 +1370,10 @@ function PlannerPageContent() {
                             </RadioGroup>
                         </div>
                          <div className="flex items-center justify-end gap-2">
+                             <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground border-r pr-4 mr-2">
+                                <DollarSign className="w-4 h-4" />
+                                <span>TMHR: ${tmhr.toFixed(2)}/hr</span>
+                            </div>
                             <TooltipProvider>
                                 <Tooltip><TooltipTrigger asChild><Button variant="outline" size="icon" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="w-4 h-4" /><span className="sr-only">Weekly KPIs</span></Button></TooltipTrigger><TooltipContent><p>Weekly KPIs</p></TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild>
@@ -1433,7 +1454,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1447,7 +1468,7 @@ function PlannerPageContent() {
                 onReschedule={handleRescheduleClick}
                 onRebook={handleRebook}
                 onOpenPickingList={() => setIsPickingListOpen(true)}
-                onStartService={handleStartService}
+                onStartService={onStartService}
                 onFinishService={handleFinishService}
                 onBookNewForClient={handleBookNewForClient}
                 walkIns={walkIns}
@@ -1470,7 +1491,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1484,7 +1505,7 @@ function PlannerPageContent() {
                 onReschedule={handleRescheduleClick}
                 onRebook={handleRebook}
                 onOpenPickingList={() => setIsPickingListOpen(true)}
-                onStartService={handleStartService}
+                onStartService={onStartService}
                 onFinishService={handleFinishService}
                 onBookNewForClient={handleBookNewForClient}
                 walkIns={walkIns}
