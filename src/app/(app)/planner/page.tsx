@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -510,7 +511,7 @@ function PlannerPageContent() {
 
   const handleCheckout = async (data: CheckoutData) => {
     if (!selectedAppointment || !firestore || !tenantId) return;
-    
+
     const {
       updatedInventory,
       newCorrections,
@@ -523,14 +524,13 @@ function PlannerPageContent() {
       redeemedOffer,
       appliedDiscountId,
       discountAmount,
+      finalBreakEven
     } = data;
 
-    const allPerformedServices = [services?.find(s => s.id === selectedAppointment.serviceId), ...addOns].filter((s): s is Service => !!s);
-    
     const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
 
     // 1. Service Revenue Transactions
-    allPerformedServices.forEach(service => {
+    allServicesForAppointment.forEach(service => {
         const staffId = serviceStaffOverrides[service.id] || selectedAppointment.staffId;
         const newTransaction: Omit<Transaction, 'id' | 'date'> = {
             description: `Service: ${service.name}`,
@@ -625,12 +625,18 @@ function PlannerPageContent() {
     
     // 5. Update appointment
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id);
-    const updateData: Partial<Appointment> = {
+    const updateData: Partial<Appointment> & {revenue?: number, cost?: number, profit?: number} = {
         status: 'completed',
         absorbedCost: absorbedCost,
         inventoryProcessed: true,
         discountAmount: discountAmount,
+        revenue: receiptData.total - receiptData.tip,
+        cost: finalBreakEven,
+        profit: receiptData.total - receiptData.tip - finalBreakEven,
     };
+    if (appliedDiscountId) {
+        (updateData as any).appliedDiscountCode = discounts?.find(d => d.id === appliedDiscountId)?.code;
+    }
     updateDocumentNonBlocking(appointmentRef, updateData);
 
     if (selectedAppointment.checkInToken) {
