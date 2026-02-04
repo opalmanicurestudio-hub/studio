@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle, UserPlus, Coins, Printer, Wallet, Award, Repeat, CheckCircle, Percent } from 'lucide-react';
+import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle, UserPlus, Coins, Printer, Wallet, Award, Repeat, CheckCircle, Percent, Check } from 'lucide-react';
 import { type InventoryItem, type StockCorrection, type Transaction, type Client, type Appointment, type Service, type AppointmentCheckoutState, type Membership, type Package, type ClientFormData, type WalkIn, type Discount } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { Separator } from '@/components/ui/separator';
@@ -60,13 +60,16 @@ import { BrowseDiscountsDialog } from '@/components/discounts/BrowseDiscountsDia
 
 
 type CartItem = {
-  id: string;
+  id: string; // productId, serviceId, membershipId, or packageId
   name: string;
   price: number;
   quantity: number;
   imageUrl?: string;
-  stock: number;
-  type: 'product' | 'membership' | 'package';
+  stock?: number;
+  type: 'product' | 'service' | 'membership' | 'package';
+  appointmentId?: string; // For service items
+  staffId?: string;
+  serviceObject?: Service; // To hold the full service object if needed
 };
 
 const MembershipProductCard = ({ membership, onClick }: { membership: Membership; onClick: () => void }) => {
@@ -170,6 +173,8 @@ const CartContent = ({
     setAppliedStoreCredit,
     membershipDiscount,
     setIsDiscountBrowserOpen,
+    isGroupCheckout,
+    payerOptions,
 }: any) => {
     
   const selectedClient = useMemo(() => {
@@ -190,29 +195,43 @@ const CartContent = ({
         </CardTitle>
         <div className="pt-4">
           <Label>Client</Label>
-          <div className="flex gap-2 mt-2">
-            <Select
-              value={selectedClientId || 'walk-in'}
-              onValueChange={(value) => {
-                if (value === 'walk-in') {
-                  setSelectedClientId(null);
-                } else {
-                  setSelectedClientId(value);
-                }
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Walk-in Customer" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="walk-in">Walk-in Customer</SelectItem>
-                {clients.map((c: Client) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+           <div className="flex gap-2 mt-2">
+              <Select
+                value={isGroupCheckout ? selectedClientId || 'group' : selectedClientId || 'walk-in'}
+                onValueChange={(value) => {
+                    if (value === 'walk-in' || value === 'group') {
+                        setSelectedClientId(null);
+                    } else {
+                        setSelectedClientId(value);
+                    }
+                }}
+              >
+                <SelectTrigger>
+                    {isGroupCheckout ? (
+                        <SelectValue placeholder="Select a primary payer" />
+                    ) : (
+                        <SelectValue placeholder="Walk-in Customer" />
+                    )}
+                </SelectTrigger>
+                <SelectContent>
+                  {isGroupCheckout ? (
+                     payerOptions.map((c: Client) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <>
+                        <SelectItem value="walk-in">Walk-in Customer</SelectItem>
+                        {clients.map((c: Client) => (
+                        <SelectItem key={c.id} value={c.id}>
+                            {c.name}
+                        </SelectItem>
+                        ))}
+                    </>
+                  )}
+                </SelectContent>
+              </Select>
             <Button
               variant="outline"
               size="icon"
@@ -258,16 +277,13 @@ const CartContent = ({
                 <div className="space-y-4">
                 {cart.map((item: CartItem) => (
                     <div key={item.id} className="flex items-center gap-4">
-                    <Image
-                        src={
-                        item.imageUrl ||
-                        `https://picsum.photos/seed/inv${item.id}/100/100`
-                        }
-                        alt={item.name}
-                        width={48}
-                        height={48}
-                        className="rounded-md"
-                    />
+                     <div className='w-12 h-12 bg-muted rounded-md flex-shrink-0 flex items-center justify-center'>
+                       {item.imageUrl ? (
+                           <Image src={item.imageUrl} alt={item.name} width={48} height={48} className='rounded-md object-cover h-full w-full'/>
+                       ) : (
+                           <Package className="w-6 h-6 text-muted-foreground" />
+                       )}
+                    </div>
                     <div className="flex-1">
                         <p className="text-sm font-medium truncate">{item.name}</p>
                         <p className="text-xs text-muted-foreground">
@@ -496,7 +512,7 @@ const CartContent = ({
 };
 
 export default function RetailPage() {
-  const [activeTab, setActiveTab] = useState('products');
+  const [activeTab, setActiveTab] = useState('catalog');
   const [searchTerm, setSearchTerm] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const { toast } = useToast();
@@ -550,6 +566,74 @@ export default function RetailPage() {
     }));
   }, [appointmentsFromDB]);
 
+  const [selectedAppointmentIds, setSelectedAppointmentIds] = useState(new Set<string>());
+
+  const readyForCheckoutAppointments = useMemo(() => {
+    return (liveAppointments || []).filter(apt => apt.status === 'ready_for_checkout');
+  }, [liveAppointments]);
+
+  const payerOptions = useMemo(() => {
+    const clientIds = new Set<string>();
+    selectedAppointmentIds.forEach(aptId => {
+      const apt = readyForCheckoutAppointments.find(a => a.id === aptId);
+      if (apt) {
+        clientIds.add(apt.clientId);
+      }
+    });
+    return (clients || []).filter(c => clientIds.has(c.id));
+  }, [selectedAppointmentIds, readyForCheckoutAppointments, clients]);
+
+
+  useEffect(() => {
+    const newCart: CartItem[] = [];
+    
+    // Add items from selected appointments
+    selectedAppointmentIds.forEach(aptId => {
+        const apt = readyForCheckoutAppointments.find(a => a.id === aptId);
+        if (!apt) return;
+        
+        const mainService = services.find(s => s.id === apt.serviceId);
+        if (mainService) {
+            newCart.push({
+                id: `svc-${apt.id}-${mainService.id}`,
+                appointmentId: apt.id,
+                name: mainService.name,
+                price: mainService.price,
+                quantity: 1,
+                type: 'service',
+                staffId: apt.staffId,
+            });
+        }
+
+        (apt.addOnIds || []).forEach(addOnId => {
+            const addOnService = services.find(s => s.id === addOnId);
+            if (addOnService) {
+                newCart.push({
+                    id: `svc-${apt.id}-${addOnService.id}`,
+                    appointmentId: apt.id,
+                    name: addOnService.name,
+                    price: addOnService.price,
+                    quantity: 1,
+                    type: 'service',
+                    staffId: apt.staffId, // Assuming add-ons are performed by the same staff
+                });
+            }
+        });
+    });
+
+    // Keep existing retail items
+    const retailItemsInCart = cart.filter(item => item.type === 'product');
+    setCart([...newCart, ...retailItemsInCart]);
+    
+    // Auto-select payer if only one
+    if (payerOptions.length === 1) {
+        setSelectedClientId(payerOptions[0].id);
+    } else {
+        setSelectedClientId(null);
+    }
+
+  }, [selectedAppointmentIds, readyForCheckoutAppointments, services]);
+
 
   const retailProducts = useMemo(() => {
     if (!inventory) return [];
@@ -564,7 +648,7 @@ export default function RetailPage() {
 
     if (newQuantity <= 0) {
       setCart(cart.filter(item => item.id !== productId));
-    } else if (cartItem.type === 'product' && newQuantity > cartItem.stock) {
+    } else if (cartItem.type === 'product' && cartItem.stock && newQuantity > cartItem.stock) {
         toast({
             variant: 'destructive',
             title: 'Not Enough Stock',
@@ -675,11 +759,6 @@ export default function RetailPage() {
         toast({ variant: 'destructive', title: 'Inactive Code', description: 'This promo code is either inactive or has reached its usage limit.' });
         return;
     }
-
-    if (discountToApply.applicableServiceIds && discountToApply.applicableServiceIds.length > 0) {
-        toast({ variant: 'destructive', title: 'Not Applicable', description: 'This code is for specific services only and cannot be used in retail checkout.' });
-        return;
-    }
     
     let discountValue = 0;
     if (discountToApply.type === 'percentage') {
@@ -711,24 +790,6 @@ export default function RetailPage() {
                 });
             }
         }
-    } else if (data.startsWith('clarityflow://checkout/')) {
-        const appointmentId = data.split('/').pop();
-        const appointmentToCheckout = liveAppointments.find(apt => apt.id === appointmentId);
-        
-        if (appointmentToCheckout && appointmentToCheckout.status === 'ready_for_checkout') {
-            setCheckoutAppointment(appointmentToCheckout);
-        } else if (appointmentToCheckout) {
-          toast({
-            title: 'Appointment Not Ready',
-            description: "This appointment is not yet marked as ready for checkout.",
-          });
-        } else {
-            toast({
-                variant: 'destructive',
-                title: 'Appointment Not Found',
-                description: 'Could not find a matching appointment.',
-            });
-        }
     } else {
         toast({
             variant: 'destructive',
@@ -736,7 +797,7 @@ export default function RetailPage() {
             description: 'Please scan a valid ClarityFlow product or ticket QR code.',
         });
     }
-  }, [inventory, addToCart, toast, liveAppointments]);
+  }, [inventory, addToCart, toast]);
 
   useEffect(() => {
     let html5QrCode: Html5Qrcode | undefined;
@@ -784,7 +845,7 @@ export default function RetailPage() {
     }
 }, [isScannerOpen, handleScan, toast]);
 
-  const handleRetailCheckout = () => {
+  const handleCheckout = () => {
     const hasMembershipOrPackage = cart.some(item => item.type === 'membership' || item.type === 'package');
     
     if (hasMembershipOrPackage && !selectedClientId) {
@@ -905,6 +966,7 @@ export default function RetailPage() {
     setDiscount(0);
     setPromoCode('');
     setAppliedStoreCredit(0);
+    setSelectedAppointmentIds(new Set());
   };
     
   const denominations = [100, 50, 20, 10, 5, 1, 0.25, 0.10, 0.05, 0.01];
@@ -919,137 +981,6 @@ export default function RetailPage() {
         setAmountTendered(grandTotal + changeDue); 
         toast({ title: "Tip Added!", description: `$${changeDue.toFixed(2)} has been added as a tip.` });
     }
-  };
-    
-  const handleAppointmentCheckout = async (data: CheckoutData) => {
-    if (!checkoutAppointment || !firestore || !clients || !inventory || !tenantId) return;
-
-    const {
-        newCorrections,
-        receiptData,
-        incident,
-        serviceStaffOverrides,
-        tipAllocations,
-        addOns,
-        absorbedCost,
-        redeemedOffer,
-        appliedDiscountCode,
-        discountAmount,
-    } = data;
-        
-    const allPerformedServices = [services?.find(s => s.id === checkoutAppointment.serviceId), ...addOns].filter((s): s is Service => !!s);
-        
-    const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
-    
-    const clientForTx = clients.find(c => c.id === checkoutAppointment.clientId);
-
-    const nonTipTotal = receiptData.total - receiptData.tip;
-
-    // Create one main transaction for the sale
-    const saleTransaction: Omit<Transaction, 'id' | 'date'> = {
-        description: `Sale for ${allPerformedServices.map(s => s.name).join(', ')}`,
-        clientOrVendor: clientForTx?.name || 'N/A',
-        clientId: clientForTx?.id,
-        type: 'income',
-        context: 'Business',
-        category: 'Service Revenue', 
-        amount: nonTipTotal, 
-        paymentMethod: receiptData.payment.method,
-        hasReceipt: true,
-        staffId: checkoutAppointment.staffId,
-        appointmentId: checkoutAppointment.id,
-        appliedDiscountCode: appliedDiscountCode,
-        discountAmount: discountAmount,
-    };
-    addDocumentNonBlocking(transactionsRef, {...saleTransaction, date: new Date().toISOString()});
-
-    // Tip Transactions
-    Object.entries(tipAllocations).forEach(([staffId, tipAmount]) => {
-        if (tipAmount > 0) {
-            const newTransaction: Omit<Transaction, 'id' | 'date'> = {
-                description: `Tip for Appointment #${checkoutAppointment.id.slice(-4)}`,
-                clientOrVendor: clientForTx?.name || 'N/A',
-                clientId: clientForTx?.id,
-                type: 'income',
-                context: 'Business',
-                category: 'Tips',
-                amount: tipAmount,
-                paymentMethod: receiptData.payment.method,
-                hasReceipt: true,
-                staffId: staffId,
-                tipAmount: tipAmount,
-                appointmentId: checkoutAppointment.id,
-            };
-            addDocumentNonBlocking(transactionsRef, {...newTransaction, date: new Date().toISOString()});
-        }
-    });
-        
-    // Update stock corrections
-    newCorrections.forEach((correction) => {
-        addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), correction);
-    });
-    
-    // Update appointment
-    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', checkoutAppointment.id);
-    const updateData: any = { 
-        status: 'completed',
-        absorbedCost: absorbedCost,
-        incident: incident,
-    };
-    updateDocumentNonBlocking(appointmentRef, updateData);
-    
-    // Update staff status
-    const staffIdsInvolved = new Set(Object.values(serviceStaffOverrides));
-    if (checkoutAppointment.staffId) {
-        staffIdsInvolved.add(checkoutAppointment.staffId);
-    }
-    staffIdsInvolved.forEach(staffId => {
-      if (staffId && staff) {
-        const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
-        updateDocumentNonBlocking(staffDocRef, {
-          status: 'idle',
-          lastServedTimestamp: new Date().toISOString(),
-        });
-      }
-    });
-
-    // Update Walk-in if applicable
-    if (checkoutAppointment.isWalkIn) {
-      const walkInId = checkoutAppointment.id.replace('apt-walkin-', '');
-      const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
-      updateDocumentNonBlocking(walkInDocRef, { status: 'completed' });
-    }
-
-     // Update Client Lifetime Value
-    if (clientForTx) {
-        const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, clientForTx.id);
-        const updates: Partial<Client> = {
-            lifetimeValue: (clientForTx.lifetimeValue || 0) + receiptData.total,
-            lastAppointment: new Date().toISOString()
-        };
-
-        if (redeemedOffer?.type === 'package') {
-            updates.activePackages = clientForTx.activePackages?.map(p => {
-                if (p.packageId === redeemedOffer.id) {
-                    return { ...p, sessionsRemaining: p.sessionsRemaining - 1 };
-                }
-                return p;
-            }).filter(p => p.sessionsRemaining > 0);
-        }
-
-        updateDocumentNonBlocking(clientDocRef, updates);
-    }
-        
-    toast({
-        title: "Appointment Completed",
-        description: `Inventory levels have been updated and financial transactions logged.`
-    });
-        
-    setCheckoutAppointment(null);
-    setReceiptDataForPrompt({
-        business: { name: 'ClarityFlow Salon', phone: '555-123-4567' },
-        ...receiptData
-    });
   };
 
   const handleAddClient = async (data: ClientFormData) => {
@@ -1101,15 +1032,15 @@ export default function RetailPage() {
     });
     setIsAddClientOpen(false);
   }
-    
+  
   const checkoutAppointmentData = useMemo(() => {
     if (!checkoutAppointment || !services || !clients) return null;
     const clientData = clients?.find(c => c.id === checkoutAppointment.clientId);
     const serviceData = services.find(s => s.id === checkoutAppointment.serviceId);
 
     const walkInClientName = checkoutAppointment.isWalkIn && walkIns ? 
-        (walkIns.find(w => `apt-walkin-${w.id}` === checkoutAppointment.id))?.customerName || 'Walk-in' 
-        : 'Unknown Client';
+      (walkIns.find(w => `apt-walkin-${w.id}` === checkoutAppointment.id))?.customerName || 'Walk-in' 
+      : 'Unknown Client';
 
     const displayClient = clientData || {
       id: checkoutAppointment.clientId,
@@ -1139,10 +1070,10 @@ export default function RetailPage() {
              <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col h-full">
                 <div className="p-4 border-b">
                     <div className="flex items-center gap-4">
-                        <TabsList>
-                            <TabsTrigger value="products">Products</TabsTrigger>
-                            <TabsTrigger value="memberships">Memberships</TabsTrigger>
-                            <TabsTrigger value="packages">Packages</TabsTrigger>
+                        <TabsList className="grid grid-cols-3 w-full sm:w-auto">
+                            <TabsTrigger value="catalog">Catalog</TabsTrigger>
+                            <TabsTrigger value="checkout">Checkout</TabsTrigger>
+                            <TabsTrigger value="memberships">Offers</TabsTrigger>
                         </TabsList>
                         <div className="relative flex-1">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -1154,7 +1085,7 @@ export default function RetailPage() {
                     </div>
                 </div>
                 <ScrollArea className="flex-1">
-                  <TabsContent value="products" className="m-0">
+                  <TabsContent value="catalog" className="m-0">
                       {isLoading ? (
                          <div className="flex items-center justify-center p-10"><Loader className="h-6 w-6 animate-spin"/></div>
                       ) : (
@@ -1178,19 +1109,60 @@ export default function RetailPage() {
                         </div>
                       )}
                   </TabsContent>
-                   <TabsContent value="memberships" className="m-0">
-                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
-                          {memberships.map(membership => (
-                              <MembershipProductCard key={membership.id} membership={membership} onClick={() => addToCart(membership, 'membership')} />
-                          ))}
+                   <TabsContent value="checkout" className="m-0 p-4">
+                      <div className="space-y-4">
+                          {readyForCheckoutAppointments.map(apt => {
+                            const client = clients?.find(c => c.id === apt.clientId);
+                            const service = services?.find(s => s.id === apt.serviceId);
+                            return (
+                                <Card key={apt.id} className="flex items-center p-3 gap-3">
+                                    <Checkbox 
+                                      id={`apt-${apt.id}`} 
+                                      checked={selectedAppointmentIds.has(apt.id)}
+                                      onCheckedChange={() => {
+                                          const newSet = new Set(selectedAppointmentIds);
+                                          if (newSet.has(apt.id)) {
+                                              newSet.delete(apt.id);
+                                          } else {
+                                              newSet.add(apt.id);
+                                          }
+                                          setSelectedAppointmentIds(newSet);
+                                      }}
+                                    />
+                                    <Label htmlFor={`apt-${apt.id}`} className="flex-1 flex items-center gap-3 cursor-pointer">
+                                        <Avatar>
+                                            <AvatarImage src={client?.avatarUrl} />
+                                            <AvatarFallback>{client?.name.charAt(0) || '?'}</AvatarFallback>
+                                        </Avatar>
+                                        <div>
+                                            <p className="font-semibold">{client?.name || 'Walk-in Client'}</p>
+                                            <p className="text-sm text-muted-foreground">{service?.name || 'Unknown Service'}</p>
+                                        </div>
+                                    </Label>
+                                </Card>
+                            )
+                          })}
                       </div>
                   </TabsContent>
-                  <TabsContent value="packages" className="m-0">
-                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
-                          {packages.map(pack => (
-                              <PackageProductCard key={pack.id} pack={pack} onClick={() => addToCart(pack, 'package')} services={services || []} />
-                          ))}
-                      </div>
+                   <TabsContent value="memberships" className="m-0 p-4">
+                        <div className="space-y-6">
+                            <div>
+                                <h3 className="text-lg font-semibold mb-2">Memberships</h3>
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                                {memberships.map(membership => (
+                                    <MembershipProductCard key={membership.id} membership={membership} onClick={() => addToCart(membership, 'membership')} />
+                                ))}
+                                </div>
+                            </div>
+                             <div>
+                                <h3 className="text-lg font-semibold mb-2">Packages</h3>
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                                {packages.map(pack => (
+                                    <PackageProductCard key={pack.id} pack={pack} onClick={() => addToCart(pack, 'package')} services={services || []} />
+                                ))}
+                                </div>
+                            </div>
+                        </div>
                   </TabsContent>
                 </ScrollArea>
             </Tabs>
@@ -1218,7 +1190,7 @@ export default function RetailPage() {
                     denominations={denominations}
                     handleDenominationClick={handleDenominationClick}
                     setAmountTendered={setAmountTendered}
-                    handleCheckout={handleRetailCheckout}
+                    handleCheckout={handleCheckout}
                     clients={clients || []}
                     updateQuantity={updateQuantity}
                     discount={discount}
@@ -1230,17 +1202,19 @@ export default function RetailPage() {
                     setAppliedStoreCredit={setAppliedStoreCredit}
                     membershipDiscount={membershipDiscount}
                     setIsDiscountBrowserOpen={setIsDiscountBrowserOpen}
+                    isGroupCheckout={selectedAppointmentIds.size > 0}
+                    payerOptions={payerOptions}
                 />
             </Card>
           </div>
         </div>
       </main>
 
-        {isMobile && cart.length > 0 && (
+        {isMobile && (
             <div className="fixed bottom-0 left-0 right-0 p-4 bg-background border-t lg:hidden">
                  <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
                     <SheetTrigger asChild>
-                        <Button className="w-full h-14 text-lg" size="lg">
+                        <Button className="w-full h-14 text-lg" size="lg" disabled={cart.length === 0}>
                             <div className="flex justify-between items-center w-full">
                                 <span>{cart.length} item(s)</span>
                                 <span>${grandTotal.toFixed(2)}</span>
@@ -1268,7 +1242,7 @@ export default function RetailPage() {
                             denominations={denominations}
                             handleDenominationClick={handleDenominationClick}
                             setAmountTendered={setAmountTendered}
-                            handleCheckout={handleRetailCheckout}
+                            handleCheckout={handleCheckout}
                             clients={clients || []}
                             updateQuantity={updateQuantity}
                             discount={discount}
@@ -1280,6 +1254,8 @@ export default function RetailPage() {
                             setAppliedStoreCredit={setAppliedStoreCredit}
                             membershipDiscount={membershipDiscount}
                             setIsDiscountBrowserOpen={setIsDiscountBrowserOpen}
+                            isGroupCheckout={selectedAppointmentIds.size > 0}
+                            payerOptions={payerOptions}
                         />
                     </SheetContent>
                 </Sheet>
@@ -1293,7 +1269,7 @@ export default function RetailPage() {
             open={!!checkoutAppointment}
             onOpenChange={() => setCheckoutAppointment(null)}
             appointmentData={checkoutAppointmentData}
-            onConfirmCheckout={handleAppointmentCheckout}
+            onConfirmCheckout={() => {}}
             onRebook={() => {}}
             staff={staff || []}
         />
