@@ -524,12 +524,12 @@ function PlannerPageContent() {
       redeemedOffer,
       appliedDiscountId,
       discountAmount,
-      finalBreakEven
     } = data;
 
     const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
 
     // 1. Service Revenue Transactions
+    const allServicesForAppointment = [service, ...addOns].filter(Boolean) as Service[];
     allServicesForAppointment.forEach(service => {
         const staffId = serviceStaffOverrides[service.id] || selectedAppointment.staffId;
         const newTransaction: Omit<Transaction, 'id' | 'date'> = {
@@ -630,13 +630,11 @@ function PlannerPageContent() {
         absorbedCost: absorbedCost,
         inventoryProcessed: true,
         discountAmount: discountAmount,
+        appliedDiscountCode: appliedDiscountCode,
         revenue: receiptData.total - receiptData.tip,
         cost: finalBreakEven,
         profit: receiptData.total - receiptData.tip - finalBreakEven,
     };
-    if (appliedDiscountId) {
-        (updateData as any).appliedDiscountCode = discounts?.find(d => d.id === appliedDiscountId)?.code;
-    }
     updateDocumentNonBlocking(appointmentRef, updateData);
 
     if (selectedAppointment.checkInToken) {
@@ -1457,7 +1455,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1494,7 +1492,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={onUpdateStatus}
+                onUpdateStatus={handleUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1737,3 +1735,5 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
+
+    
