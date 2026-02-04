@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
@@ -39,7 +40,7 @@ import { CompleteAppointmentDialog, type CheckoutData } from '@/components/plann
 import { nanoid } from 'nanoid';
 import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc, setDoc } from 'firebase/firestore';
-import { parseISO } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { Html5Qrcode } from 'html5-qrcode';
 import {
   AlertDialog,
@@ -1101,31 +1102,70 @@ export default function RetailPage() {
                           {readyForCheckoutAppointments.map(apt => {
                             const client = clients?.find(c => c.id === apt.clientId);
                             const service = services?.find(s => s.id === apt.serviceId);
+                            const staffForApt = staff?.find(s => s.id === apt.staffId);
+                            const addOns = (apt.addOnIds || []).map(id => services?.find(s => s.id === id)).filter(Boolean) as Service[];
+                            const totalPrice = (service?.price || 0) + addOns.reduce((acc, s) => acc + s.price, 0);
+
                             return (
-                                <Card key={apt.id} className="flex items-center p-3 gap-3">
-                                    <Checkbox 
-                                      id={`apt-${apt.id}`} 
+                               <Card
+                                  key={apt.id}
+                                  className={cn(
+                                    "transition-all",
+                                    selectedAppointmentIds.has(apt.id) && "border-primary ring-2 ring-primary"
+                                  )}
+                                >
+                                  <Label
+                                    htmlFor={`apt-${apt.id}`}
+                                    className="flex items-start gap-4 p-4 cursor-pointer"
+                                  >
+                                    <Checkbox
+                                      id={`apt-${apt.id}`}
                                       checked={selectedAppointmentIds.has(apt.id)}
                                       onCheckedChange={() => {
-                                          const newSet = new Set(selectedAppointmentIds);
-                                          if (newSet.has(apt.id)) {
-                                              newSet.delete(apt.id);
-                                          } else {
-                                              newSet.add(apt.id);
-                                          }
-                                          setSelectedAppointmentIds(newSet);
+                                        const newSet = new Set(selectedAppointmentIds);
+                                        if (newSet.has(apt.id)) {
+                                          newSet.delete(apt.id);
+                                        } else {
+                                          newSet.add(apt.id);
+                                        }
+                                        setSelectedAppointmentIds(newSet);
                                       }}
+                                      className="mt-1"
                                     />
-                                    <Label htmlFor={`apt-${apt.id}`} className="flex-1 flex items-center gap-3 cursor-pointer">
-                                        <Avatar>
-                                            <AvatarImage src={client?.avatarUrl} />
-                                            <AvatarFallback>{client?.name.charAt(0) || '?'}</AvatarFallback>
-                                        </Avatar>
+                                    <div className="flex-1 space-y-2">
+                                      <div className="flex justify-between items-start">
                                         <div>
-                                            <p className="font-semibold">{client?.name || 'Walk-in Client'}</p>
-                                            <p className="text-sm text-muted-foreground">{service?.name || 'Unknown Service'}</p>
+                                          <p className="font-semibold">{client?.name || 'Walk-in Client'}</p>
+                                          <p className="text-sm text-muted-foreground">{format(apt.startTime, 'h:mm a')}</p>
                                         </div>
-                                    </Label>
+                                        <div className="flex items-center gap-2 text-sm">
+                                          <Avatar className="w-6 h-6">
+                                            <AvatarImage src={staffForApt?.avatarUrl} />
+                                            <AvatarFallback>{staffForApt?.name.charAt(0)}</AvatarFallback>
+                                          </Avatar>
+                                          <span>{staffForApt?.name}</span>
+                                        </div>
+                                      </div>
+                                      <Separator />
+                                      <div className="space-y-1 text-sm">
+                                        <div className="flex justify-between">
+                                          <span>{service?.name}</span>
+                                          <span>${service?.price.toFixed(2)}</span>
+                                        </div>
+                                        {addOns.map(addon => (
+                                          <div key={addon.id} className="flex justify-between text-muted-foreground">
+                                            <span className="pl-4">+ {addon.name}</span>
+                                            <span>${addon.price.toFixed(2)}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                      <Separator />
+                                      <div className="flex justify-between font-semibold">
+                                        <span>Total</span>
+                                        <span>${totalPrice.toFixed(2)}</span>
+                                      </div>
+                                    </div>
+                                  </Label>
                                 </Card>
                             )
                           })}
