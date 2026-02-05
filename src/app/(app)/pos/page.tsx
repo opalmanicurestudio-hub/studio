@@ -314,6 +314,16 @@ const ServicingCustomerCard = ({ appointment, services, resources, staff, onUpda
     
     const itemServices = services.filter(s => serviceIds.includes(s.id));
     
+    const serviceStartTime = appointment.actualStartTime;
+
+    const assignedSlot = useMemo(() => {
+        if (!serviceStartTime || !appointment.endTime) return null;
+        
+        const start = typeof serviceStartTime === 'string' ? parseISO(serviceStartTime as string) : serviceStartTime;
+        const end = typeof appointment.endTime === 'string' ? parseISO(appointment.endTime) : appointment.endTime;
+        return `${format(start, 'h:mm a')} - ${format(end, 'h:mm a')}`;
+    }, [serviceStartTime, appointment.endTime]);
+
     const waitTime = useMemo(() => {
         if (appointment.isWalkIn && appointment.actualStartTime && walkIns) {
             const walkInId = appointment.id.replace('apt-walkin-', '');
@@ -327,15 +337,6 @@ const ServicingCustomerCard = ({ appointment, services, resources, staff, onUpda
     }, [appointment, walkIns]);
 
     const [elapsedTime, setElapsedTime] = useState<string | null>(null);
-
-    const serviceStartTime = appointment.actualStartTime;
-
-    const assignedSlot = useMemo(() => {
-        if (!serviceStartTime || !appointment.endTime) return null;
-        const start = typeof serviceStartTime === 'string' ? parseISO(serviceStartTime) : serviceStartTime;
-        const end = typeof appointment.endTime === 'string' ? parseISO(appointment.endTime) : appointment.endTime;
-        return `${format(start, 'h:mm a')} - ${format(end, 'h:mm a')}`;
-    }, [serviceStartTime, appointment.endTime]);
 
     useEffect(() => {
         let timer: NodeJS.Timeout | undefined;
@@ -1074,8 +1075,8 @@ export default function POSPage() {
     if (!appointments) return [];
     const inServiceAppointments = (appointments || []).filter(a => a.status === 'servicing');
     return inServiceAppointments.sort((a, b) => {
-        const timeA = a.actualStartTime ? getTime(a.actualStartTime) : 0;
-        const timeB = b.actualStartTime ? getTime(b.actualStartTime) : 0;
+        const timeA = getTime(a.actualStartTime);
+        const timeB = getTime(b.actualStartTime);
         return timeA - timeB;
     });
   }, [appointments]);
@@ -1239,32 +1240,6 @@ export default function POSPage() {
     queuePosition: (waitingQueue.findIndex(w => w.id === ticketToPrint.id) + 1) || 1, 
     checkInTime: ticketToPrint.checkInTime,
   } : null;
-
-  const checkoutAppointmentData = useMemo(() => {
-    if (!checkoutAppointment || !services || !clients) return null;
-    const clientData = clients.find(c => c.id === checkoutAppointment.clientId);
-    const serviceData = services.find(s => s.id === checkoutAppointment.serviceId);
-
-    const walkInClientName = checkoutAppointment.isWalkIn && walkIns ? 
-      (walkIns.find(w => `apt-walkin-${w.id}` === checkoutAppointment.id))?.customerName || 'Walk-in' 
-      : 'Unknown Client';
-
-    const displayClient = clientData || {
-      id: checkoutAppointment.clientId,
-      name: checkoutAppointment.isWalkIn ? walkInClientName : 'Unknown Client',
-      email: '',
-      phone: '',
-      avatarUrl: '',
-      lifetimeValue: 0,
-      lastAppointment: '',
-    };
-    
-    return {
-      appointment: checkoutAppointment,
-      client: displayClient,
-      service: serviceData,
-    };
-  }, [checkoutAppointment, clients, services, walkIns]);
 
   const selectedAppointmentData = useMemo(() => {
     if (!selectedAppointment || !clients || !services) return null;
@@ -1695,5 +1670,3 @@ export default function POSPage() {
     </>
   );
 }
-
-    
