@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle, UserPlus, Coins, Printer, Wallet, Award, Repeat, Percent, Check, Loader } from 'lucide-react';
+import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle, UserPlus, Coins, Printer, Wallet, Award, Repeat, Percent, Check, Loader, Package } from 'lucide-react';
 import { type InventoryItem, type StockCorrection, type Transaction, type Client, type Appointment, type Service, type AppointmentCheckoutState, type Membership, type Package as PackageType, type ClientFormData, type WalkIn, type Discount } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { Separator } from '@/components/ui/separator';
@@ -384,7 +384,6 @@ export default function RetailPage() {
   const { toast } = useToast();
   const isMobile = useIsMobile();
   const [isCartSheetOpen, setIsCartSheetOpen] = useState(false);
-  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [isAddClientOpen, setIsAddClientOpen] = useState(false);
@@ -422,6 +421,8 @@ export default function RetailPage() {
   }, [appointmentsFromDB]);
 
   const [selectedAppointmentIds, setSelectedAppointmentIds] = useState(new Set<string>());
+  
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
   const readyForCheckoutAppointments = useMemo(() => {
     return (liveAppointments || []).filter(apt => apt.status === 'ready_for_checkout');
@@ -596,7 +597,7 @@ export default function RetailPage() {
       }
     };
     
-    const clientsCollection = collection(firestore, `tenants/${tenantId}/clients`);
+    const clientsCollection = collection(firestore, 'tenants', tenantId, 'clients');
     const newClientRef = doc(clientsCollection);
     
     const newClientWithId = { ...newClient, id: newClientRef.id };
@@ -931,3 +932,5 @@ export default function RetailPage() {
     </>
   );
 }
+
+    
