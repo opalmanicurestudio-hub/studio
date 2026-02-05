@@ -1,10 +1,11 @@
+
 'use client';
 
 import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, parseISO } from 'date-fns';
 import { type Appointment } from '@/lib/data';
 
 interface OrderCardProps {
@@ -24,9 +25,9 @@ export const OrderCard: React.FC<OrderCardProps> = ({ order, isSelected, onSelec
     deposit_pending: 'bg-yellow-100 text-yellow-800',
   };
 
-  const statusText = {
-    waiting: 'Wait List',
-    servicing: 'In Kitchen',
+  const statusText: { [key: string]: string } = {
+    waiting: 'Waiting',
+    servicing: 'In Progress',
     ready_for_checkout: 'Ready',
     completed: 'Served',
     confirmed: 'Confirmed',
@@ -35,7 +36,7 @@ export const OrderCard: React.FC<OrderCardProps> = ({ order, isSelected, onSelec
   }
 
   const status = statusStyles[order.status as keyof typeof statusStyles] || 'bg-gray-100 text-gray-800';
-  const text = statusText[order.status as keyof typeof statusText] || 'Unknown';
+  const text = statusText[order.status] || 'Unknown';
   
   return (
     <Card
@@ -47,12 +48,12 @@ export const OrderCard: React.FC<OrderCardProps> = ({ order, isSelected, onSelec
     >
       <CardContent className="p-3 space-y-2">
         <div className="flex justify-between items-center">
-          <p className="font-bold">Order #{order.id.slice(-5).toUpperCase()}</p>
+          <p className="font-bold">{order.clientName}</p>
           <p className="text-sm font-medium">Table 03</p>
         </div>
-        <p className="text-sm text-muted-foreground">Item: { (order.addOnIds?.length || 0) + 1}X</p>
+        <p className="text-sm text-muted-foreground">Items: { (order.addOnIds?.length || 0) + 1}</p>
         <div className="flex justify-between items-center text-xs">
-          <p className="text-muted-foreground">{formatDistanceToNow(order.startTime, { addSuffix: true })}</p>
+          <p className="text-muted-foreground">{formatDistanceToNow(parseISO(order.startTime as string), { addSuffix: true })}</p>
           <Badge className={status}>{text}</Badge>
         </div>
       </CardContent>

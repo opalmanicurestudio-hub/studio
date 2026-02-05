@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -17,13 +18,13 @@ export const RetailCatalog: React.FC<RetailCatalogProps> = ({ inventory, service
   const [activeCategory, setActiveCategory] = useState('All');
 
   const categories = useMemo(() => {
-    const invCategories = inventory.map(i => i.category);
+    const invCategories = inventory.filter(i => i.type === 'retail').map(i => i.category);
     const serviceCategories = services.map(s => s.category);
     return ['All', ...Array.from(new Set([...invCategories, ...serviceCategories]))];
   }, [inventory, services]);
 
   const filteredItems = useMemo(() => {
-    const allItems = [...inventory, ...services];
+    const allItems = [...inventory.filter(i => i.type === 'retail'), ...services.filter(s => !s.isPrivate)];
     if (activeCategory === 'All') {
       return allItems;
     }

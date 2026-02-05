@@ -1,8 +1,8 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Banknote, CreditCard, Scan, Trash2, Edit, User, Printer } from 'lucide-react';
@@ -33,14 +33,13 @@ export const CheckoutHub = ({ order, cart, onCartChange }: { order: Appointment 
     return (
         <div className="flex flex-col h-full">
             <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-bold">Table No #04</h2>
+                <h2 className="text-xl font-bold">{order ? `Order #${order.id.slice(-5).toUpperCase()}`: "New Sale"}</h2>
                 <div className="flex items-center gap-2">
-                    <Button variant="ghost" size="icon"><Edit className="w-5 h-5"/></Button>
                     <Button variant="ghost" size="icon"><User className="w-5 h-5"/></Button>
-                    <p className="text-sm font-medium">2 People</p>
+                    <p className="text-sm font-medium">{order ? order.clientName : "Walk-in"}</p>
                 </div>
             </div>
-            <p className="text-sm text-muted-foreground mb-4">Order #{order?.id.slice(-5) || 'F0030'}</p>
+            <p className="text-sm text-muted-foreground mb-4">Staff: {order?.staffId ? 'Brenda' : 'N/A'}</p>
             <Separator />
 
             <div className="flex-1 my-4 overflow-y-auto pr-2 -mr-2">

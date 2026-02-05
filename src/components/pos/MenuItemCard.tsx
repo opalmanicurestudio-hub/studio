@@ -1,9 +1,10 @@
+
 'use client';
 
 import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus, Minus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import Image from 'next/image';
 import { type InventoryItem, type Service } from '@/lib/data';
 
@@ -14,7 +15,7 @@ interface MenuItemCardProps {
 
 export const MenuItemCard: React.FC<MenuItemCardProps> = ({ item, onAddToCart }) => {
   const imageUrl = 'imageUrl' in item ? item.imageUrl : undefined;
-  const price = 'price' in item ? item.price : ('msrp' in item ? item.msrp : 0);
+  const price = 'price' in item ? item.price : ('msrp' in item ? item.msrp || 0 : 0);
 
   return (
     <Card className="overflow-hidden hover:shadow-md transition-shadow">
