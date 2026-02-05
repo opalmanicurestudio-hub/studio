@@ -41,11 +41,13 @@ import {
   LifeBuoy,
   BookText,
   CreditCard,
+  Globe,
 } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ClientOnly } from './ClientOnly';
+import { useTenant } from '@/context/TenantContext';
 
 export const ClarityFlowLogo = () => (
     <svg
@@ -101,6 +103,8 @@ const financialsNavItems = [
 export function AppSidebar() {
   const pathname = usePathname();
   const { toggleSidebar } = useSidebar();
+  const { selectedTenant, isLoading: isTenantLoading } = useTenant();
+  const tenantId = selectedTenant?.id;
 
   const isNavItemActive = (href: string) => {
     if (href === '/dashboard') return pathname === href;
@@ -175,6 +179,28 @@ export function AppSidebar() {
                     </SidebarMenuButton>
                 </SidebarMenuItem>
              </SidebarMenu>
+        </SidebarGroup>
+        <SidebarSeparator />
+        <SidebarGroup>
+            <SidebarGroupLabel>Public Pages</SidebarGroupLabel>
+            <SidebarMenu>
+                <SidebarMenuItem>
+                    <SidebarMenuButton asChild tooltip="Booking Page" disabled={isTenantLoading || !tenantId}>
+                        <Link href={tenantId ? `/book/${tenantId}` : '#'} target="_blank">
+                            <Globe />
+                            <span>Booking Page</span>
+                        </Link>
+                    </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                    <SidebarMenuButton asChild tooltip="Walk-in Kiosk" disabled={isTenantLoading || !tenantId}>
+                        <Link href={tenantId ? `/walk-in/${tenantId}` : '#'} target="_blank">
+                            <Users />
+                            <span>Walk-in Kiosk</span>
+                        </Link>
+                    </SidebarMenuButton>
+                </SidebarMenuItem>
+            </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>
