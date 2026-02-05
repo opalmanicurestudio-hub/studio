@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -1029,7 +1030,11 @@ export default function POSPage() {
         return combined.sort((a,b) => {
             const aTime = 'checkInTime' in a ? a.checkInTime : a.startTime;
             const bTime = 'checkInTime' in b ? b.checkInTime : b.startTime;
-            return parseISO(aTime).getTime() - parseISO(bTime).getTime();
+            
+            const aTimestamp = aTime ? (typeof aTime === 'string' ? parseISO(aTime).getTime() : aTime.getTime()) : 0;
+            const bTimestamp = bTime ? (typeof bTime === 'string' ? parseISO(bTime).getTime() : bTime.getTime()) : 0;
+
+            return aTimestamp - bTimestamp;
         });
     }, [appointments, walkIns]);
 
@@ -1045,7 +1050,11 @@ export default function POSPage() {
     return combined.sort((a,b) => {
         const aTime = a.itemType === 'walk-in' ? a.serviceEndTime : a.endTime;
         const bTime = b.itemType === 'walk-in' ? b.serviceEndTime : b.endTime;
-        return (aTime ? parseISO(aTime as string).getTime() : 0) - (bTime ? parseISO(bTime as string).getTime() : 0);
+        
+        const aTimestamp = aTime ? (typeof aTime === 'string' ? parseISO(aTime).getTime() : (aTime as Date).getTime()) : 0;
+        const bTimestamp = bTime ? (typeof bTime === 'string' ? parseISO(bTime).getTime() : (bTime as Date).getTime()) : 0;
+
+        return aTimestamp - bTimestamp;
     });
   }, [walkIns, appointments]);
 
