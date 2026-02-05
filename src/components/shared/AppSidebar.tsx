@@ -1,7 +1,7 @@
 
 'use client';
 
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import {
   Sidebar,
   SidebarHeader,
@@ -14,7 +14,6 @@ import {
   SidebarGroup,
   SidebarGroupLabel,
   useSidebar,
-  SidebarRail,
 } from '@/components/ui/sidebar';
 import {
   LayoutDashboard,
@@ -25,19 +24,14 @@ import {
   List,
   Box,
   FileText,
-  Wallet,
   BookOpen,
   Landmark,
   DollarSign,
   FileSignature,
-  ShoppingCart,
   Gift,
   Briefcase,
   ListChecks,
   BarChart,
-  PanelLeft,
-  BookText,
-  Hammer,
   HardHat,
   Percent,
   Megaphone,
@@ -45,9 +39,13 @@ import {
   Award,
   LogOut,
   LifeBuoy,
+  BookText,
+  CreditCard,
 } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { ClientOnly } from './ClientOnly';
 
 export const ClarityFlowLogo = () => (
     <svg
@@ -72,36 +70,61 @@ export const ClarityFlowLogo = () => (
     </svg>
   );
 
-const navItems = [
+const mainNavItems = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { href: '/pos', icon: ListChecks, label: 'Order Line' },
   { href: '/planner', icon: Calendar, label: 'Planner' },
-  { href: '/inventory', icon: Box, label: 'Manage Dishes' },
-  { href: '/clients', icon: Users, label: 'Customers' },
+  { href: '/pos', icon: ListChecks, label: 'POS' },
+  { href: '/clients', icon: Users, label: 'Clients' },
+  { href: '/services', icon: BookOpen, label: 'Services' },
+  { href: '/staff', icon: Briefcase, label: 'Staff' },
+];
+
+const manageNavItems = [
+    { href: '/inventory', icon: Box, label: 'Inventory' },
+    { href: '/memberships', icon: Award, label: 'Memberships' },
+    { href: '/discounts', icon: Percent, label: 'Discounts' },
+    { href: '/campaigns', icon: Megaphone, label: 'Campaigns' },
+    { href: '/resources', icon: HardHat, label: 'Resources' },
+    { href: '/consents', icon: FileSignature, label: 'Consents' },
+    { href: '/reviews', icon: Star, label: 'Reviews' },
+    { href: '/quotes', icon: FileText, label: 'Quotes' },
+];
+
+const financialsNavItems = [
+    { href: '/financials', icon: Landmark, label: 'Foundation' },
+    { href: '/ledger', icon: BookText, label: 'Ledger' },
+    { href: '/bills', icon: CreditCard, label: 'Bills' },
+    { href: '/payday', icon: DollarSign, label: 'Payday' },
+    { href: '/reports', icon: BarChart, label: 'Reports' },
 ];
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const { toggleSidebar } = useSidebar();
 
   const isNavItemActive = (href: string) => {
+    if (href === '/dashboard') return pathname === href;
     return pathname.startsWith(href);
   }
 
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar>
       <SidebarHeader>
         <div className="flex items-center gap-2">
             <ClarityFlowLogo />
             <h2 className="text-xl font-semibold text-sidebar-foreground group-data-[collapsible=icon]:hidden">
-                Tasty Station
+                ClarityFlow
             </h2>
         </div>
       </SidebarHeader>
       <SidebarContent>
+        <div className="p-2">
+          <ClientOnly>
+            <TenantSwitcher />
+          </ClientOnly>
+        </div>
         <SidebarMenu>
-        {navItems.map((item) => (
+        {mainNavItems.map((item) => (
             <SidebarMenuItem key={item.href}>
             <SidebarMenuButton
                 asChild
@@ -116,6 +139,43 @@ export function AppSidebar() {
             </SidebarMenuItem>
         ))}
         </SidebarMenu>
+        <SidebarSeparator />
+        <SidebarGroup>
+            <SidebarGroupLabel>Manage</SidebarGroupLabel>
+            <SidebarMenu>
+                {manageNavItems.map((item) => (
+                     <SidebarMenuItem key={item.href}>
+                        <SidebarMenuButton asChild isActive={isNavItemActive(item.href)} tooltip={item.label}>
+                            <Link href={item.href}><item.icon /><span>{item.label}</span></Link>
+                        </SidebarMenuButton>
+                    </SidebarMenuItem>
+                ))}
+            </SidebarMenu>
+        </SidebarGroup>
+        <SidebarSeparator />
+         <SidebarGroup>
+            <SidebarGroupLabel>Financials</SidebarGroupLabel>
+            <SidebarMenu>
+                {financialsNavItems.map((item) => (
+                     <SidebarMenuItem key={item.href}>
+                        <SidebarMenuButton asChild isActive={isNavItemActive(item.href)} tooltip={item.label}>
+                            <Link href={item.href}><item.icon /><span>{item.label}</span></Link>
+                        </SidebarMenuButton>
+                    </SidebarMenuItem>
+                ))}
+            </SidebarMenu>
+        </SidebarGroup>
+        <SidebarSeparator />
+        <SidebarGroup>
+             <SidebarGroupLabel>Intelligence</SidebarGroupLabel>
+             <SidebarMenu>
+                 <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={isNavItemActive('/ai-cfo')} tooltip="AI CFO">
+                        <Link href="/ai-cfo"><Sparkles /><span>AI CFO</span></Link>
+                    </SidebarMenuButton>
+                </SidebarMenuItem>
+             </SidebarMenu>
+        </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
@@ -136,7 +196,7 @@ export function AppSidebar() {
                 </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
-              <SidebarMenuButton onClick={toggleSidebar} tooltip="Logout">
+              <SidebarMenuButton onClick={() => {}} tooltip="Logout">
                 <LogOut />
                 <span>Logout</span>
               </SidebarMenuButton>
