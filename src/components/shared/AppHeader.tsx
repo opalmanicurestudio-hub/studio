@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import {
@@ -13,7 +12,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { SidebarTrigger } from '@/components/ui/sidebar';
-import { Bell, LifeBuoy, LogOut, Settings, User, PackageX, Calendar, Landmark, Check, X, ShieldAlert, CreditCard, ChevronsUpDown, Building } from 'lucide-react';
+import { Bell, LifeBuoy, LogOut, Settings, User, PackageX, Calendar, Landmark, Check, X, ShieldAlert, CreditCard, ChevronsUpDown, Building, Search } from 'lucide-react';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { useState, useMemo, useEffect } from 'react';
 import { Badge } from '../ui/badge';
@@ -26,6 +25,7 @@ import { Skeleton } from '../ui/skeleton';
 import { cn } from '@/lib/utils';
 import { useUser } from '@/firebase';
 import { errorEmitter } from '@/firebase/error-emitter';
+import { Input } from '../ui/input';
 
 type Notification = {
     id: number | string;
@@ -197,10 +197,14 @@ export function AppHeader({ title }: { title?: string }) {
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-border/20 bg-background/80 px-4 backdrop-blur-sm md:px-6 print:hidden">
       <div className="flex flex-1 items-center gap-2">
-        <SidebarTrigger className="md:hidden" />
-        
-        {title && <h1 className="text-xl font-semibold truncate md:hidden">{title}</h1>}
-        
+        <SidebarTrigger className="lg:hidden" />
+        <div className="hidden lg:flex relative w-full max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input 
+                placeholder="Search menu, orders and more" 
+                className="pl-9 bg-card focus:bg-background"
+            />
+        </div>
       </div>
       
       <div className="flex items-center gap-2">
@@ -245,12 +249,16 @@ export function AppHeader({ title }: { title?: string }) {
         <ClientOnly>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="relative h-10 w-10 rounded-full">
-                <Avatar className="h-10 w-10">
-                  <AvatarImage src={user?.photoURL || ''} alt="User" />
-                  <AvatarFallback>{user?.displayName?.charAt(0) || 'U'}</AvatarFallback>
-                </Avatar>
-              </Button>
+                <div className="flex items-center gap-3 cursor-pointer">
+                    <Avatar className="h-9 w-9">
+                        <AvatarImage src={user?.photoURL || ''} alt="User" />
+                        <AvatarFallback>{user?.displayName?.charAt(0) || 'U'}</AvatarFallback>
+                    </Avatar>
+                    <div className="hidden sm:flex flex-col items-start">
+                        <p className="text-sm font-semibold">{user?.displayName || 'Admin'}</p>
+                        <p className="text-xs text-muted-foreground">Admin</p>
+                    </div>
+                </div>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel>My Account</DropdownMenuLabel>

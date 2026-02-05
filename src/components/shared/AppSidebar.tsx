@@ -1,4 +1,3 @@
-
 'use client';
 
 import { usePathname, useSearchParams } from 'next/navigation';
@@ -70,35 +69,12 @@ export const ClarityFlowLogo = () => (
     </svg>
   );
 
-const setupNavItems = [
-  { href: '/financials', icon: Wallet, label: 'Financials' },
-  { href: '/services', icon: List, label: 'Services' },
-  { href: '/inventory', icon: Box, label: 'Inventory' },
-  { href: '/resources', icon: HardHat, label: 'Resources' },
-  { href: '/clients', icon: Users, label: 'Clients' },
-  { href: '/staff', icon: Briefcase, label: 'Staff' },
-  { href: '/memberships', icon: Gift, label: 'Memberships' },
-  { href: '/consents', icon: FileSignature, label: 'Consents' },
-];
-
-const operationsNavItems = [
-    { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-    { href: '/planner', icon: Calendar, label: 'Planner' },
-    { href: '/pos', icon: ShoppingCart, label: 'POS' },
-    { href: '/quotes', icon: FileText, label: 'Quotes' },
-    { href: '/reports', icon: BarChart, label: 'Reports' },
-];
-
-const moneyNavItems = [
-    { href: '/ledger', icon: BookOpen, label: 'Ledger' },
-    { href: '/bills', icon: Landmark, label: 'Bills' },
-    { href: '/payday', icon: DollarSign, label: 'Payday' },
-];
-
-const marketingNavItems = [
-    { href: '/campaigns', icon: Megaphone, label: 'Campaigns' },
-    { href: '/discounts', icon: Percent, label: 'Discounts' },
-    { href: '/reviews', icon: Star, label: 'Reviews' },
+const navItems = [
+  { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+  { href: '/pos', icon: ListChecks, label: 'Order Line' },
+  { href: '/planner', icon: Calendar, label: 'Planner' },
+  { href: '/inventory', icon: Box, label: 'Manage Dishes' },
+  { href: '/clients', icon: Users, label: 'Customers' },
 ];
 
 export function AppSidebar() {
@@ -107,27 +83,6 @@ export function AppSidebar() {
   const { toggleSidebar } = useSidebar();
 
   const isNavItemActive = (href: string) => {
-    const currentTab = searchParams.get('tab');
-    const [hrefPath, hrefQuery] = href.split('?');
-
-    // Special handling for /discounts to be active on any of its tabs
-    if (hrefPath === '/discounts') {
-      return pathname === '/discounts';
-    }
-
-    // If path doesn't match, it's not active
-    if (pathname !== hrefPath) {
-        return false;
-    }
-
-    // If href has a query string, we need to match the tab
-    if (href.includes('?')) {
-        const hrefParams = new URLSearchParams(hrefQuery);
-        const hrefTab = hrefParams.get('tab');
-        return currentTab === hrefTab;
-    }
-
-    // Default behavior for other links
     return pathname.startsWith(href);
   }
 
@@ -137,103 +92,26 @@ export function AppSidebar() {
         <div className="flex items-center gap-2">
             <ClarityFlowLogo />
             <h2 className="text-xl font-semibold text-sidebar-foreground group-data-[collapsible=icon]:hidden">
-                ClarityFlow
+                Tasty Station
             </h2>
-        </div>
-         <div className="group-data-[collapsible=icon]:hidden">
-            <TenantSwitcher />
         </div>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup>
-             <SidebarGroupLabel>Setup</SidebarGroupLabel>
-            <SidebarMenu>
-            {setupNavItems.map((item) => (
-                <SidebarMenuItem key={item.href}>
-                <SidebarMenuButton
-                    asChild
-                    isActive={isNavItemActive(item.href)}
-                    tooltip={item.label}
-                >
-                    <Link href={item.href}>
-                    <item.icon />
-                    <span>{item.label}</span>
-                    </Link>
-                </SidebarMenuButton>
-                </SidebarMenuItem>
-            ))}
-            </SidebarMenu>
-        </SidebarGroup>
-        <SidebarSeparator />
-         <SidebarGroup>
-            <SidebarGroupLabel>Operations</SidebarGroupLabel>
-            <SidebarMenu>
-            {operationsNavItems.map((item) => (
-                <SidebarMenuItem key={item.href}>
-                <SidebarMenuButton
-                    asChild
-                    isActive={isNavItemActive(item.href)}
-                    tooltip={item.label}
-                >
-                    <Link href={item.href}>
-                    <item.icon />
-                    <span>{item.label}</span>
-                    </Link>
-                </SidebarMenuButton>
-                </SidebarMenuItem>
-            ))}
-            </SidebarMenu>
-        </SidebarGroup>
-        <SidebarSeparator />
-        <SidebarGroup>
-            <SidebarGroupLabel>Money</SidebarGroupLabel>
-            <SidebarMenu>
-                {moneyNavItems.map((item) => (
-                    <SidebarMenuItem key={item.href}>
-                    <SidebarMenuButton
-                        asChild
-                        isActive={isNavItemActive(item.href)}
-                        tooltip={item.label}
-                    >
-                        <Link href={item.href}>
-                        <item.icon />
-                        <span>{item.label}</span>
-                        </Link>
-                    </SidebarMenuButton>
-                    </SidebarMenuItem>
-                ))}
-            </SidebarMenu>
-        </SidebarGroup>
-         <SidebarSeparator />
-         <SidebarGroup>
-            <SidebarGroupLabel>Marketing</SidebarGroupLabel>
-            <SidebarMenu>
-                {marketingNavItems.map((item) => (
-                    <SidebarMenuItem key={item.href}>
-                    <SidebarMenuButton
-                        asChild
-                        isActive={isNavItemActive(item.href)}
-                        tooltip={item.label}
-                    >
-                        <Link href={item.href}>
-                        <item.icon />
-                        <span>{item.label}</span>
-                        </Link>
-                    </SidebarMenuButton>
-                    </SidebarMenuItem>
-                ))}
-            </SidebarMenu>
-        </SidebarGroup>
-         <SidebarSeparator />
-          <SidebarMenu>
-            <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={isNavItemActive('/ai-cfo')} tooltip="AI CFO">
-                  <Link href="/ai-cfo">
-                    <Sparkles />
-                    <span>AI CFO</span>
-                  </Link>
-                </SidebarMenuButton>
+        <SidebarMenu>
+        {navItems.map((item) => (
+            <SidebarMenuItem key={item.href}>
+            <SidebarMenuButton
+                asChild
+                isActive={isNavItemActive(item.href)}
+                tooltip={item.label}
+            >
+                <Link href={item.href}>
+                <item.icon />
+                <span>{item.label}</span>
+                </Link>
+            </SidebarMenuButton>
             </SidebarMenuItem>
+        ))}
         </SidebarMenu>
       </SidebarContent>
       <SidebarFooter>
@@ -247,9 +125,17 @@ export function AppSidebar() {
                 </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
-              <SidebarMenuButton onClick={toggleSidebar} tooltip="Collapse sidebar">
-                <PanelLeft />
-                <span>Collapse</span>
+                <SidebarMenuButton asChild tooltip="Help Center">
+                  <Link href="#">
+                    <LifeBuoy />
+                    <span>Help Center</span>
+                  </Link>
+                </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton onClick={toggleSidebar} tooltip="Logout">
+                <LogOut />
+                <span>Logout</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
         </SidebarMenu>
