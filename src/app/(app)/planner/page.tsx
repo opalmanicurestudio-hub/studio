@@ -525,27 +525,34 @@ function PlannerPageContent() {
       appliedDiscountId,
       discountAmount,
     } = data;
+    
+    const service = services?.find(s => s.id === selectedAppointment.serviceId);
+    if (!service) return;
 
-    const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+    const finalBreakEven = (service.cost || 0) + addOns.reduce((acc, s) => acc + (s.cost || 0), 0);
+    
+    const batch = writeBatch(firestore);
+
+    const transactionsRef = collection(firestore, `tenants/${tenantId}/transactions`);
 
     // 1. Service Revenue Transactions
     const allServicesForAppointment = [service, ...addOns].filter(Boolean) as Service[];
-    allServicesForAppointment.forEach(service => {
-        const staffId = serviceStaffOverrides[service.id] || selectedAppointment.staffId;
+    allServicesForAppointment.forEach(s => {
+        const staffId = serviceStaffOverrides[s.id] || selectedAppointment.staffId;
         const newTransaction: Omit<Transaction, 'id' | 'date'> = {
-            description: `Service: ${service.name}`,
+            description: `Service: ${s.name}`,
             clientOrVendor: (clients || []).find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
             clientId: selectedAppointment.clientId,
             type: 'income',
             context: 'Business',
             category: 'Service Revenue',
-            amount: redeemedOffer ? 0 : service.price,
+            amount: redeemedOffer ? 0 : s.price,
             paymentMethod: receiptData.payment.method,
             hasReceipt: true,
             staffId: staffId,
             appointmentId: selectedAppointment.id,
         };
-        addDocumentNonBlocking(transactionsRef, {...newTransaction, date: new Date().toISOString()});
+        batch.set(doc(transactionsRef), {...newTransaction, date: new Date().toISOString()});
     });
 
     // 2. Tip Transactions
@@ -565,7 +572,7 @@ function PlannerPageContent() {
                 tipAmount: tipAmount,
                 appointmentId: selectedAppointment.id,
             };
-            addDocumentNonBlocking(transactionsRef, {...newTransaction, date: new Date().toISOString()});
+            batch.set(doc(transactionsRef), {...newTransaction, date: new Date().toISOString()});
         }
     });
 
@@ -591,14 +598,14 @@ function PlannerPageContent() {
                     staffId: selectedAppointment.staffId,
                     appointmentId: selectedAppointment.id,
                 };
-                addDocumentNonBlocking(transactionsRef, {...newTransaction, date: new Date().toISOString()});
+                 batch.set(doc(transactionsRef), {...newTransaction, date: new Date().toISOString()});
             }
         });
     }
     
     // 4. Update stock corrections
     newCorrections.forEach((correction) => {
-        addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), correction);
+        batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), correction);
     });
 
     // 4.5 Updated to persist batch data
@@ -614,7 +621,7 @@ function PlannerPageContent() {
 
         if (stockChanged) {
             const itemDocRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
-            updateDocumentNonBlocking(itemDocRef, {
+            batch.update(itemDocRef, {
                 totalStock: item.totalStock,
                 partialContainerUses: item.partialContainerUses,
                 partialContainerSize: item.partialContainerSize,
@@ -630,16 +637,16 @@ function PlannerPageContent() {
         absorbedCost: absorbedCost,
         inventoryProcessed: true,
         discountAmount: discountAmount,
-        appliedDiscountCode: appliedDiscountCode,
+        appliedDiscountCode: appliedDiscountId || '',
         revenue: receiptData.total - receiptData.tip,
         cost: finalBreakEven,
         profit: receiptData.total - receiptData.tip - finalBreakEven,
     };
-    updateDocumentNonBlocking(appointmentRef, updateData);
+    batch.update(appointmentRef, updateData);
 
     if (selectedAppointment.checkInToken) {
         const checkInRef = doc(firestore, 'appointmentCheckIns', selectedAppointment.checkInToken);
-        updateDocumentNonBlocking(checkInRef, { status: 'completed' });
+        batch.update(checkInRef, { status: 'completed' });
     }
     
     // 6. Update staff status for all involved staff
@@ -647,7 +654,7 @@ function PlannerPageContent() {
     staffIdsInvolved.forEach(staffId => {
       if (staffId) {
         const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
-        updateDocumentNonBlocking(staffDocRef, {
+        batch.update(staffDocRef, {
           status: 'idle',
           lastServedTimestamp: new Date().toISOString(),
         });
@@ -658,7 +665,7 @@ function PlannerPageContent() {
     if (selectedAppointment.isWalkIn) {
       const walkInId = selectedAppointment.id.replace('apt-walkin-', '');
       const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
-      updateDocumentNonBlocking(walkInDocRef, { status: 'completed' });
+      batch.update(walkInDocRef, { status: 'completed' });
     }
     
     // 8. Update Client Document
@@ -666,13 +673,13 @@ function PlannerPageContent() {
     if (clientToUpdate) {
         const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, clientToUpdate.id);
         
-        const clientUpdates: Partial<Client> & { [key: string]: any } = {
-            lifetimeValue: (clientToUpdate.lifetimeValue || 0) + receiptData.total,
+        const clientLTVUpdates: Partial<Client> & { [key: string]: any } = {
+            lifetimeValue: increment(receiptData.total),
             lastAppointment: new Date().toISOString()
         };
         
         if (redeemedOffer?.type === 'package') {
-            clientUpdates.activePackages = clientToUpdate.activePackages?.map(p => {
+            clientLTVUpdates.activePackages = clientToUpdate.activePackages?.map(p => {
                 if (p.packageId === redeemedOffer.id) {
                     return { ...p, sessionsRemaining: p.sessionsRemaining - 1 };
                 }
@@ -687,8 +694,8 @@ function PlannerPageContent() {
                 date: new Date().toISOString(),
                 appointmentId: selectedAppointment.id,
             };
-            clientUpdates['intel.hasIncidents'] = true;
-            clientUpdates['intel.incidents'] = arrayUnion(incidentToSave);
+            clientLTVUpdates['intel.hasIncidents'] = true;
+            clientLTVUpdates['intel.incidents'] = arrayUnion(incidentToSave);
 
             errorEmitter.emit('incident-reported', {
                 clientName: clientToUpdate.name,
@@ -697,7 +704,7 @@ function PlannerPageContent() {
             });
         }
 
-        updateDocumentNonBlocking(clientDocRef, clientUpdates);
+        batch.update(clientDocRef, clientLTVUpdates);
     }
     
     // 9. Update Discount Usage
@@ -709,8 +716,10 @@ function PlannerPageContent() {
         if (selectedAppointment.clientId) {
             discountUpdate.usedByClientIds = arrayUnion(selectedAppointment.clientId);
         }
-        updateDocumentNonBlocking(discountRef, discountUpdate);
+        batch.update(discountRef, discountUpdate);
     }
+    
+    await batch.commit();
 
     setReceiptDataForPrompt({
         business: { name: 'ClarityFlow Salon', phone: '555-123-4567' },
@@ -1455,7 +1464,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={onUpdateStatus}
+                onUpdateStatus={handleUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
