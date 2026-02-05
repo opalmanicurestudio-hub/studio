@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -7,18 +8,12 @@ import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
 import { useInventory } from '@/context/InventoryContext';
 import { type Appointment, type Service, type InventoryItem, type Client } from '@/lib/data';
-
-// Mock data to represent the structure
-const mockAppointments: (Appointment & { client: Client, service: Service })[] = [
-    { id: 'apt-1', status: 'servicing', clientName: 'Eleanor Vance', serviceId: 'svc-1', startTime: new Date(), endTime: new Date(), tenantId: '', clientId: 'cli-1', source: 'walk-in' },
-    { id: 'apt-2', status: 'waiting', clientName: 'Marcus Holloway', serviceId: 'svc-2', startTime: new Date(), endTime: new Date(), tenantId: '', clientId: 'cli-2', source: 'walk-in' },
-    { id: 'apt-3', status: 'ready_for_checkout', clientName: 'Anya Sharma', serviceId: 'svc-3', startTime: new Date(), endTime: new Date(), tenantId: '', clientId: 'cli-3', source: 'walk-in' },
-    { id: 'apt-4', status: 'servicing', clientName: 'Leo Gallagher', serviceId: 'svc-4', startTime: new Date(), endTime: new Date(), tenantId: '', clientId: 'cli-4', source: 'walk-in' },
-    { id: 'apt-5', status: 'completed', clientName: 'Sofia Chen', serviceId: 'svc-5', startTime: new Date(), endTime: new Date(), tenantId: '', clientId: 'cli-5', source: 'walk-in' },
-];
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { WalkInQueue } from '@/components/pos/WalkInQueue';
+import { Badge } from '@/components/ui/badge';
 
 export default function POSPage() {
-    const { inventory, services, appointments, clients } = useInventory();
+    const { inventory, services, appointments, clients, walkIns, staff } = useInventory();
     const [activeOrder, setActiveOrder] = useState<Appointment | null>(null);
     const [cart, setCart] = useState<any[]>([]);
 
@@ -32,7 +27,7 @@ export default function POSPage() {
                 client: client,
                 service: service
             };
-        }).filter(a => a.client && a.service);
+        }).filter((a): a is Appointment & { client: Client, service: Service } => !!(a.client && a.service));
     }, [appointments, clients, services]);
 
     const handleSelectOrder = (order: Appointment) => {
@@ -94,11 +89,32 @@ export default function POSPage() {
                         onSelectOrder={handleSelectOrder}
                         selectedOrderId={activeOrder?.id}
                     />
-                    <RetailCatalog 
-                        services={services}
-                        inventory={inventory}
-                        onAddToCart={handleAddToCart}
-                    />
+                    
+                    <Tabs defaultValue="catalog" className="flex-1 flex flex-col">
+                        <TabsList className="grid w-full grid-cols-2">
+                            <TabsTrigger value="catalog">Retail Catalog</TabsTrigger>
+                            <TabsTrigger value="queue">
+                                Walk-in Queue
+                                <Badge className="ml-2">{walkIns?.filter(w => w.status === 'waiting' || w.status === 'notified').length || 0}</Badge>
+                            </TabsTrigger>
+                        </TabsList>
+                        <TabsContent value="catalog" className="flex-1 mt-6">
+                            <RetailCatalog 
+                                services={services || []}
+                                inventory={inventory || []}
+                                onAddToCart={handleAddToCart}
+                            />
+                        </TabsContent>
+                        <TabsContent value="queue" className="flex-1 mt-6">
+                            <WalkInQueue 
+                                walkIns={walkIns}
+                                appointments={appointments}
+                                services={services}
+                                staff={staff}
+                            />
+                        </TabsContent>
+                    </Tabs>
+
                 </main>
                 <aside className="border-l bg-card p-4 lg:p-6 flex flex-col h-full overflow-y-auto">
                     <CheckoutHub 
