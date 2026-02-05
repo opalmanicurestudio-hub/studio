@@ -84,8 +84,7 @@ const setupNavItems = [
 const operationsNavItems = [
     { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { href: '/planner', icon: Calendar, label: 'Planner' },
-    { href: '/walk-in-queue', icon: ListChecks, label: 'Walk-in Queue' },
-    { href: '/retail', icon: ShoppingCart, label: 'Retail' },
+    { href: '/pos', icon: ShoppingCart, label: 'POS' },
     { href: '/quotes', icon: FileText, label: 'Quotes' },
     { href: '/reports', icon: BarChart, label: 'Reports' },
 ];
