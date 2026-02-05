@@ -20,6 +20,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
 import { differenceInMinutes, parseISO } from 'date-fns';
+import { AppHeader } from '@/components/shared/AppHeader';
 
 
 export default function POSPage() {
