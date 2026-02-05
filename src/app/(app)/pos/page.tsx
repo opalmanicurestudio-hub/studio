@@ -1,10 +1,9 @@
 
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { User, Users, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal, Printer, UserPlus, ArrowUp, ArrowDown, DollarSign, Bell, Lock, Building, HardHat, TrendingUp, UserX, SlidersHorizontal, MessageSquare, ShoppingCart } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
@@ -601,6 +600,13 @@ export default function POSPage() {
   const isMobile = useIsMobile();
   const [isKpiSheetOpen, setIsKpiSheetOpen] = useState(false);
 
+  // Helper function to safely get timestamp from a date string or Date object
+  const getTime = (date: string | Date | undefined): number => {
+      if (!date) return 0;
+      if (typeof date === 'string') return parseISO(date).getTime();
+      return date.getTime();
+  };
+
   // ... (All the useMemoFirebase and useCollection hooks from the original walk-in-queue page)
     const staffQuery = useMemoFirebase(() => {
     if (!firestore || !user || !tenantId) return null;
@@ -661,7 +667,7 @@ export default function POSPage() {
         ...apt,
         startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : new Date(apt.startTime),
         endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : new Date(apt.endTime),
-        actualStartTime: apt.actualStartTime ? ((apt.actualStartTime as any)?.toDate ? (apt.actualStartTime as any).toDate() : (apt.actualStartTime as string)) : undefined,
+        actualStartTime: apt.actualStartTime ? ((apt.actualStartTime as any)?.toDate ? (apt.actualStartTime as any).toDate() : parseISO(apt.actualStartTime as string)) : undefined,
     }));
   }, [appointmentsFromDB]);
 
@@ -1062,26 +1068,13 @@ export default function POSPage() {
   
   const servicingQueue = useMemo(() => {
     if (!appointments) return [];
-    
-    // The single source of truth for what is "in service" is the appointments collection.
-    // Any active service, walk-in or not, will have an appointment record with status 'servicing'.
     const inServiceAppointments = (appointments || []).filter(a => a.status === 'servicing');
-    
-    return inServiceAppointments.sort((a,b) => {
-        // Use actualStartTime if available for more accurate sorting
-        const aTime = a.actualStartTime || a.startTime;
-        const bTime = b.actualStartTime || b.startTime;
-        
-        const aTimestamp = aTime ? (typeof aTime === 'string' ? parseISO(aTime).getTime() : aTime.getTime()) : 0;
-        const bTimestamp = bTime ? (typeof bTime === 'string' ? parseISO(bTime).getTime() : bTime.getTime()) : 0;
-
-        return aTimestamp - bTimestamp;
-    });
+    return inServiceAppointments.sort((a,b) => getTime(a.actualStartTime) - getTime(b.actualStartTime));
   }, [appointments]);
 
   const readyForCheckoutQueue = useMemo(() => {
     const walkInsReady = (walkIns || []).filter(w => w.status === 'ready_for_checkout');
-    const appointmentsReady = (appointments || []).filter(apt => apt.status === 'ready_for_checkout' && !apt.isWalkIn);
+    const appointmentsReady = (appointments || []).filter(apt => apt.status === 'ready_for_checkout');
 
     const combined = [
         ...walkInsReady.map(w => ({ ...w, itemType: 'walk-in' as const })),
@@ -1091,7 +1084,7 @@ export default function POSPage() {
     return combined.sort((a,b) => {
         const aTime = a.itemType === 'walk-in' ? a.serviceEndTime : a.endTime;
         const bTime = b.itemType === 'walk-in' ? b.serviceEndTime : b.endTime;
-        return (aTime ? parseISO(aTime as string).getTime() : 0) - (bTime ? parseISO(bTime as string).getTime() : 0);
+        return getTime(aTime) - getTime(bTime);
     });
   }, [walkIns, appointments]);
 
@@ -1157,7 +1150,7 @@ export default function POSPage() {
         });
     }
   }, [firestore, tenantId]);
-  
+
   const handleUpdateAppointmentStatus = (appointmentId: string, status: Appointment['status']) => {
     if (!firestore || !tenantId) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
