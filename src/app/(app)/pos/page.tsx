@@ -37,6 +37,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/co
 import { useTenant } from '@/context/TenantContext';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { type Transaction } from '@/lib/financial-data';
+import { Checkbox } from '@/components/ui/checkbox';
 
 const Timer = ({ startTime }: { startTime: string }) => {
     const [elapsed, setElapsed] = useState('');
@@ -433,7 +434,14 @@ const ServicingCustomerCard = ({ appointment, services, resources, staff, onUpda
     )
 };
 
-const ReadyForCheckoutCard = ({ item, services, clients, onCheckoutClick }: { item: WalkIn | Appointment, services: Service[], clients: Client[], onCheckoutClick: (item: WalkIn | Appointment) => void }) => {
+const ReadyForCheckoutCard = ({ item, services, clients, onCheckoutClick, isSelected, onSelect }: { 
+    item: WalkIn | Appointment, 
+    services: Service[], 
+    clients: Client[], 
+    onCheckoutClick: (item: WalkIn | Appointment) => void,
+    isSelected: boolean;
+    onSelect: () => void;
+}) => {
     const isWalkIn = 'customerName' in item;
     const client = isWalkIn ? null : clients.find(c => c.id === item.clientId);
     const customerName = isWalkIn ? item.customerName : client?.name;
@@ -441,12 +449,15 @@ const ReadyForCheckoutCard = ({ item, services, clients, onCheckoutClick }: { it
     const itemServices = services.filter(s => serviceIds.includes(s.id));
     
     return (
-        <Card className="bg-orange-500/5 border-orange-500/20">
+        <Card className={cn(isSelected && "border-primary ring-2 ring-primary")}>
             <CardContent className="p-4">
                 <div className="flex justify-between items-start">
-                    <div className="space-y-1">
-                        <p className="font-bold text-xl">{customerName}</p>
-                        <p className="text-sm text-muted-foreground">Finished Service</p>
+                    <div className="flex items-start gap-4">
+                         <Checkbox checked={isSelected} onCheckedChange={onSelect} className="mt-1" />
+                        <div className="space-y-1">
+                            <p className="font-bold text-xl">{customerName}</p>
+                            <p className="text-sm text-muted-foreground">Finished Service</p>
+                        </div>
                     </div>
                     <div className="flex flex-col items-end gap-1">
                         <Badge className="bg-orange-500 hover:bg-orange-500/90 text-orange-foreground capitalize flex items-center gap-1">
@@ -455,13 +466,13 @@ const ReadyForCheckoutCard = ({ item, services, clients, onCheckoutClick }: { it
                         </Badge>
                     </div>
                 </div>
-                <div className="mt-4 space-y-2">
+                <div className="mt-4 space-y-2 pl-10">
                     <p className="font-semibold text-sm">Services Rendered:</p>
                     <ul className="list-disc list-inside text-sm text-muted-foreground">
                         {itemServices.map(s => <li key={s.id}>{s.name}</li>)}
                     </ul>
                 </div>
-                 <div className="mt-4 border-t pt-4 flex justify-end gap-2">
+                 <div className="mt-4 border-t pt-4 flex justify-end gap-2 pl-10">
                     <Button size="sm" onClick={() => onCheckoutClick(item)}>Checkout Client</Button>
                 </div>
             </CardContent>
@@ -581,7 +592,6 @@ export default function POSPage() {
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
   const [ticketToPrint, setTicketToPrint] = useState<WalkIn | null>(null);
-  const [checkoutAppointment, setCheckoutAppointment] = useState<Appointment | null>(null);
   const [appointmentsToCheckout, setAppointmentsToCheckout] = useState<any[]>([]);
   const [walkInToAssign, setWalkInToAssign] = useState<WalkIn | null>(null);
   const [assignmentMode, setAssignmentMode] = useState<'automatic' | 'ordered'>('automatic');
@@ -589,6 +599,7 @@ export default function POSPage() {
   const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [isNewRetailSaleOpen, setIsNewRetailSaleOpen] = useState(false);
+  const [selectedAppointmentIds, setSelectedAppointmentIds] = useState(new Set<string>());
 
   const isMobile = useIsMobile();
   const [isKpiSheetOpen, setIsKpiSheetOpen] = useState(false);
@@ -1084,7 +1095,7 @@ export default function POSPage() {
         return getTime(aTime) - getTime(bTime);
     });
   }, [walkIns, appointments]);
-
+  
   const handleFinishService = (item: Appointment) => {
     if (!firestore || !services || !tenantId) return;
     
@@ -1148,13 +1159,44 @@ export default function POSPage() {
     }
   }, [firestore, tenantId]);
 
-  const handleUpdateAppointmentStatus = (appointmentId: string, status: Appointment['status']) => {
-    if (!firestore || !tenantId) return;
-    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-    updateDocumentNonBlocking(appointmentRef, { status });
-  }
+  const handleAppointmentSelect = (itemId: string) => {
+    const newSelection = new Set(selectedAppointmentIds);
+    if (newSelection.has(itemId)) {
+      newSelection.delete(itemId);
+    } else {
+      newSelection.add(itemId);
+    }
+    setSelectedAppointmentIds(newSelection);
+  };
+  
+  const handleGroupCheckout = () => {
+    const appointmentsForCheckout = readyForCheckoutQueue
+        .filter(item => selectedAppointmentIds.has(item.id))
+        .map(item => {
+            const isWalkIn = 'customerName' in item;
+            let appointment: Appointment | undefined;
+
+            if (isWalkIn) {
+                appointment = appointments?.find(apt => apt.id === `apt-walkin-${item.id}`);
+            } else {
+                appointment = item as Appointment;
+            }
+
+            if (!appointment) return null;
+
+            const client = clients?.find(c => c.id === appointment!.clientId);
+            const service = services?.find(s => s.id === appointment!.serviceId);
+
+            return { appointment, client, service };
+        })
+        .filter((i): i is { appointment: Appointment; client: Client | undefined; service: Service | undefined; } => i !== null);
+    
+    setAppointmentsToCheckout(appointmentsForCheckout);
+    setIsNewRetailSaleOpen(true);
+  };
 
   const handleCompleteClick = (item: WalkIn | Appointment) => {
+    setSelectedAppointmentIds(new Set()); // Reset selection
     if (!services || !clients) return;
 
     const isWalkIn = 'customerName' in item;
@@ -1163,7 +1205,7 @@ export default function POSPage() {
     if (isWalkIn) {
         appointmentForCheckout = appointments?.find(apt => apt.id === `apt-walkin-${item.id}`);
     } else {
-        appointmentForCheckout = item;
+        appointmentForCheckout = item as Appointment;
     }
 
     if (!appointmentForCheckout) {
@@ -1513,7 +1555,7 @@ export default function POSPage() {
                                         services={services || []} 
                                         resources={resources || []}
                                         staff={staff || []}
-                                        onUpdateStatus={handleUpdateAppointmentStatus}
+                                        onUpdateStatus={handleWalkInStatusChange}
                                         onPrintTicket={setTicketToPrint}
                                         onFinishService={handleFinishService}
                                         walkIns={walkIns}
@@ -1536,6 +1578,12 @@ export default function POSPage() {
                  <CardContent className="flex-1 p-0 flex flex-col">
                     <ScrollArea className="h-full">
                         <div className="p-6 space-y-4">
+                            {selectedAppointmentIds.size > 1 && (
+                                <Button onClick={handleGroupCheckout} className="w-full">
+                                    <Users className="mr-2 h-4 w-4" />
+                                    Group Checkout ({selectedAppointmentIds.size} items)
+                                </Button>
+                            )}
                             {readyForCheckoutQueue.length > 0 ? (
                                 readyForCheckoutQueue.map(item => (
                                     <ReadyForCheckoutCard 
@@ -1544,6 +1592,8 @@ export default function POSPage() {
                                         services={services || []} 
                                         clients={clients || []}
                                         onCheckoutClick={handleCompleteClick}
+                                        isSelected={selectedAppointmentIds.has(item.id)}
+                                        onSelect={() => handleAppointmentSelect(item.id)}
                                     />
                                 ))
                             ) : (
