@@ -22,7 +22,7 @@ import { collection, getDocs, query, where, doc } from 'firebase/firestore';
 import { type Service, type Staff, type ConsentForm, type Tenant, type Client } from '@/lib/data';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { Progress } from '@/components/ui/progress';
-import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock } from 'lucide-react';
+import { CheckCircle, Sparkles, User, Phone, List, ArrowRight, ArrowLeft, Users, Mail, CalendarIcon, Loader, Clock, Trash2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -35,8 +35,17 @@ import { format, getDay } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
 import { FormFieldRenderer } from '@/components/consents/FormFieldRenderer';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
 
 type Step = 'services' | 'consents' | 'details' | 'confirmation';
+type PartyMember = { id: string; name: string; serviceIds: string[] };
 
 const StaffSelectionCard = ({ staff, isSelected, onSelect }: { staff: Staff | { id: string, name: string, avatarUrl: string }, isSelected: boolean, onSelect: () => void }) => {
     const isAnyStaff = staff.id === 'any';
@@ -151,6 +160,68 @@ const formatTime = (timeStr: string) => {
     return format(date, 'h:mm a');
 };
 
+const AddPartyMemberDialog = ({ open, onOpenChange, onSave, services }: { open: boolean, onOpenChange: (open: boolean) => void, onSave: (member: PartyMember) => void, services: Service[] }) => {
+    const [name, setName] = useState('');
+    const [selectedServices, setSelectedServices] = useState<Service[]>([]);
+
+    const handleServiceToggle = (service: Service) => {
+        setSelectedServices(prev =>
+        prev.some(s => s.id === service.id)
+            ? prev.filter(s => s.id !== service.id)
+            : [...prev, service]
+        );
+    };
+
+    const handleSave = () => {
+        if (name.trim() && selectedServices.length > 0) {
+            onSave({
+                id: nanoid(),
+                name: name.trim(),
+                serviceIds: selectedServices.map(s => s.id)
+            });
+            onOpenChange(false);
+        }
+    }
+
+    useEffect(() => {
+        if (open) {
+            setName('');
+            setSelectedServices([]);
+        }
+    }, [open]);
+
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Add Party Member</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                        <Label htmlFor="party-member-name">Name</Label>
+                        <Input id="party-member-name" value={name} onChange={e => setName(e.target.value)} placeholder="Enter name" />
+                    </div>
+                    <div className="space-y-2">
+                        <Label>Services</Label>
+                        <ScrollArea className="h-48 border rounded-md p-2">
+                           {services.map(service => (
+                               <label key={service.id} htmlFor={`party-${service.id}`} className="flex items-center space-x-2 p-1.5 rounded-md hover:bg-muted cursor-pointer">
+                                  <Checkbox id={`party-${service.id}`} checked={selectedServices.some(s => s.id === service.id)} onCheckedChange={() => handleServiceToggle(service)} />
+                                  <span className="text-sm font-normal flex-1">{service.name}</span>
+                               </label>
+                           ))}
+                        </ScrollArea>
+                    </div>
+                </div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                    <Button onClick={handleSave} disabled={!name.trim() || selectedServices.length === 0}>Add to Party</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    )
+}
+
 export default function WalkInPage() {
   const { firestore } = useFirebase();
   const router = useRouter();
@@ -215,6 +286,10 @@ export default function WalkInPage() {
 
   const [potentialMatches, setPotentialMatches] = useState<Client[]>([]);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  
+  const [partyMembers, setPartyMembers] = useState<PartyMember[]>([]);
+  const [isAddingPerson, setIsAddingPerson] = useState(false);
+
 
   const mainServices = useMemo(() => (services || []).filter(s => s.type === 'service'), [services]);
   const addOnServices = useMemo(() => (services || []).filter(s => s.type === 'addon'), [services]);
@@ -280,19 +355,34 @@ export default function WalkInPage() {
         : [...prev, service]
     );
   };
+  
+   const handleSavePartyMember = (member: PartyMember) => {
+    setPartyMembers(prev => [...prev, member]);
+    setIsAddingPerson(false);
+  };
+
+  const handleRemovePartyMember = (memberId: string) => {
+    setPartyMembers(prev => prev.filter(m => m.id !== memberId));
+  };
+
 
   const { totalDuration, totalPrice } = useMemo(() => {
-    const duration = selectedServices.reduce((acc, s) => acc + s.duration, 0);
-    const price = selectedServices.reduce((acc, s) => acc + s.price, 0);
+    const allServices = [...selectedServices, ...partyMembers.flatMap(m => m.serviceIds.map(id => services?.find(s => s.id === id)).filter(Boolean) as Service[])];
+    const duration = allServices.reduce((acc, s) => acc + s.duration, 0);
+    const price = allServices.reduce((acc, s) => acc + s.price, 0);
     return { totalDuration: duration, totalPrice: price };
-  }, [selectedServices]);
+  }, [selectedServices, partyMembers, services]);
 
   const requiredForms = useMemo(() => {
-    if (selectedServices.length === 0 || !consentForms) return [];
-    const formIds = new Set(selectedServices.flatMap(s => s.requiredFormIds || []));
+    const allServiceIds = new Set([...selectedServices.map(s => s.id), ...partyMembers.flatMap(m => m.serviceIds)]);
+    if (allServiceIds.size === 0 || !consentForms) return [];
+    
+    const allSelectedServices = (services || []).filter(s => allServiceIds.has(s.id));
+    const formIds = new Set(allSelectedServices.flatMap(s => s.requiredFormIds || []));
+
     if (formIds.size === 0) return [];
     return consentForms.filter(f => formIds.has(f.id));
-  }, [selectedServices, consentForms]);
+  }, [selectedServices, partyMembers, consentForms, services]);
 
   const handleServicesNext = () => {
     if (requiredForms.length > 0) {
@@ -325,6 +415,7 @@ export default function WalkInPage() {
       customerBirthday: customerBirthday?.toISOString(),
       clientId: selectedClientId,
       serviceIds: selectedServices.map(s => s.id),
+      partyMembers,
       requiredSkills: [...new Set(selectedServices.flatMap(s => s.requiredSkills || []))],
       estimatedDuration: totalDuration,
       checkInTime: new Date().toISOString(),
@@ -372,6 +463,7 @@ export default function WalkInPage() {
     setWaitForPreferred(false);
     setCompletedForms(new Set());
     setSelectedClientId(null);
+    setPartyMembers([]);
     setStep('services');
     setIsSubmitting(false);
   };
@@ -433,6 +525,7 @@ export default function WalkInPage() {
   }
 
   return (
+    <>
     <div className="flex min-h-screen w-full flex-col items-center justify-center bg-muted/40 p-4">
       <div className="w-full max-w-2xl mx-auto">
         <header className="mb-8 text-center">
@@ -560,64 +653,88 @@ export default function WalkInPage() {
                         <CardTitle>Your Details</CardTitle>
                         <CardDescription>Just a few more details to get you on the list.</CardDescription>
                     </CardHeader>
-                    <CardContent className="space-y-6">
-                        {selectedClientId && (
-                            <div className="p-3 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                    <CheckCircle className="w-5 h-5 text-primary" />
-                                    <div>
-                                        <p className="text-sm font-medium">Welcome back, {customerName}!</p>
-                                        <p className="text-xs text-muted-foreground">Continuing with your profile.</p>
+                    <CardContent className="space-y-6 max-h-[50vh] overflow-y-auto">
+                        <div className="space-y-4">
+                            <h4 className="font-semibold text-lg">Primary Contact</h4>
+                             {selectedClientId && (
+                                <div className="p-3 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <CheckCircle className="w-5 h-5 text-primary" />
+                                        <div>
+                                            <p className="text-sm font-medium">Welcome back, {customerName}!</p>
+                                            <p className="text-xs text-muted-foreground">Continuing with your profile.</p>
+                                        </div>
+                                    </div>
+                                    <Button variant="ghost" size="sm" onClick={resetClientSelection}>Not you?</Button>
+                                </div>
+                            )}
+                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="phone">Phone Number (for SMS updates)</Label>
+                                    <div className="relative">
+                                        <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input id="phone" type="tel" value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="(555) 123-4567" className="pl-9" />
                                     </div>
                                 </div>
-                                <Button variant="ghost" size="sm" onClick={resetClientSelection}>Not you?</Button>
-                            </div>
-                        )}
-                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="phone">Phone Number (for SMS updates)</Label>
-                                <div className="relative">
-                                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                    <Input id="phone" type="tel" value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="(555) 123-4567" className="pl-9" />
+                                <div className="space-y-2">
+                                    <Label htmlFor="email">Email Address</Label>
+                                    <div className="relative">
+                                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input id="email" type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="jane.doe@example.com" className="pl-9" />
+                                    </div>
                                 </div>
                             </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="email">Email Address</Label>
+                            {potentialMatches.length > 0 && !selectedClientId && (
+                                <div className="space-y-3">
+                                    <p className="text-sm font-medium text-center">Are you an existing client?</p>
+                                    <Card>
+                                        <CardContent className="p-2 space-y-1">
+                                            {potentialMatches.map(client => (
+                                                <Button key={client.id} variant="ghost" className="w-full justify-start h-auto p-3" onClick={() => handleSelectClient(client)}>
+                                                    <Avatar className="w-10 h-10 mr-4">
+                                                        <AvatarImage src={client.avatarUrl} />
+                                                        <AvatarFallback>{client.name.charAt(0)}</AvatarFallback>
+                                                    </Avatar>
+                                                    <div>
+                                                        <p className="font-semibold text-base">{client.name}</p>
+                                                        <p className="text-sm text-muted-foreground">{client.email}</p>
+                                                    </div>
+                                                </Button>
+                                            ))}
+                                        </CardContent>
+                                    </Card>
+                                </div>
+                            )}
+                             <div className="space-y-2">
+                                <Label htmlFor="name">Your Name</Label>
                                 <div className="relative">
-                                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                    <Input id="email" type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="jane.doe@example.com" className="pl-9" />
+                                    <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                    <Input id="name" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Jane Doe" required className="pl-9" disabled={!!selectedClientId} />
                                 </div>
                             </div>
                         </div>
 
-                        {potentialMatches.length > 0 && !selectedClientId && (
-                            <div className="space-y-3">
-                                <p className="text-sm font-medium text-center">Are you an existing client?</p>
-                                <Card>
-                                    <CardContent className="p-2 space-y-1">
-                                        {potentialMatches.map(client => (
-                                            <Button key={client.id} variant="ghost" className="w-full justify-start h-auto p-3" onClick={() => handleSelectClient(client)}>
-                                                <Avatar className="w-10 h-10 mr-4">
-                                                    <AvatarImage src={client.avatarUrl} />
-                                                    <AvatarFallback>{client.name.charAt(0)}</AvatarFallback>
-                                                </Avatar>
+                        <div className="space-y-4">
+                            <h4 className="font-semibold text-lg">Your Party</h4>
+                            {partyMembers.length > 0 && (
+                                <div className="space-y-2">
+                                    {partyMembers.map(member => {
+                                        const memberServices = services?.filter(s => member.serviceIds.includes(s.id));
+                                        return (
+                                            <div key={member.id} className="p-3 border rounded-md flex items-center justify-between">
                                                 <div>
-                                                    <p className="font-semibold text-base">{client.name}</p>
-                                                    <p className="text-sm text-muted-foreground">{client.email}</p>
+                                                    <p className="font-medium">{member.name}</p>
+                                                    <p className="text-xs text-muted-foreground">{memberServices?.map(s => s.name).join(', ')}</p>
                                                 </div>
-                                            </Button>
-                                        ))}
-                                    </CardContent>
-                                </Card>
-                            </div>
-                        )}
-
-                         <div className="space-y-2">
-                            <Label htmlFor="name">Your Name</Label>
-                            <div className="relative">
-                                <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                <Input id="name" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Jane Doe" required className="pl-9" disabled={!!selectedClientId} />
-                            </div>
+                                                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleRemovePartyMember(member.id)}><Trash2 className="w-4 h-4" /></Button>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            )}
+                            <Button variant="outline" className="w-full" type="button" onClick={() => setIsAddingPerson(true)}>
+                                <PlusCircle className="mr-2 h-4 w-4" /> Add Person to Party
+                            </Button>
                         </div>
                         
                          <div className="space-y-2">
@@ -681,5 +798,12 @@ export default function WalkInPage() {
         </Card>
       </div>
     </div>
+    <AddPartyMemberDialog 
+        open={isAddingPerson}
+        onOpenChange={setIsAddingPerson}
+        onSave={handleSavePartyMember}
+        services={mainServices}
+    />
+    </>
   );
 }

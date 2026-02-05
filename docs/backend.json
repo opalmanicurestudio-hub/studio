@@ -121,6 +121,16 @@
         "twilioPhoneNumber": {
           "type": "string",
           "description": "The Twilio phone number used for sending SMS messages."
+        },
+        "pricingTiers": {
+            "type": "object",
+            "description": "Customizable names for the pricing tiers.",
+            "properties": {
+                "apprentice": { "type": "string", "default": "Apprentice" },
+                "junior": { "type": "string", "default": "Junior" },
+                "senior": { "type": "string", "default": "Senior" },
+                "master": { "type": "string", "default": "Master" }
+            }
         }
       },
       "required": [
@@ -130,28 +140,6 @@
         "subscriptionStatus",
         "subscriptionTier"
       ]
-    },
-    "PricingTier": {
-        "title": "Pricing Tier",
-        "type": "object",
-        "description": "Represents a customizable skill and pricing level for services.",
-        "properties": {
-            "id": { "type": "string" },
-            "name": { "type": "string" },
-            "rank": { "type": "number", "description": "An order for sorting the tiers." }
-        },
-        "required": ["id", "name", "rank"]
-    },
-     "ServiceTier": {
-        "title": "Service Tier",
-        "type": "object",
-        "description": "Defines the price and duration for a specific service at a specific pricing tier.",
-        "properties": {
-            "tierId": { "type": "string" },
-            "price": { "type": "number" },
-            "durationMinutes": { "type": "number" }
-        },
-        "required": ["tierId", "price", "durationMinutes"]
     },
     "DayHours": {
         "title": "Day Hours",
@@ -196,7 +184,11 @@
         "portfolioUrl": { "type": "string", "format": "uri", "description": "Link to an external portfolio or website."},
         "yearsOfExperience": { "type": "number", "description": "The staff member's years of experience in the industry." },
         "clientCount": { "type": "number", "description": "The approximate number of clients the staff member has served." },
-        "pricingTierId": { "type": "string", "description": "The ID of the PricingTier assigned to this staff member." },
+        "skillLevel": {
+            "type": "string",
+            "enum": ["apprentice", "junior", "senior", "master"],
+            "description": "The skill level of the staff member, used for tiered pricing."
+        },
         "role": { "type": "string", "enum": ["admin", "staff"] },
         "payStructure": { "type": "string", "enum": ["commission", "hourly", "salary"] },
         "commissionRate": { "type": "number", "description": "Commission rate as a percentage (e.g., 40 for 40%)." },
@@ -284,11 +276,17 @@
           "description": "URL for the primary service image."
         },
         "durationMinutes": { "type": "number", "description": "The base or default duration for the service in minutes." },
-        "serviceTiers": {
+        "pricingTiers": {
             "type": "array",
-            "description": "Tiered pricing and duration based on user-defined tiers.",
+            "description": "Tiered pricing and duration based on stylist skill level.",
             "items": {
-                "$ref": "#/entities/ServiceTier"
+                "type": "object",
+                "properties": {
+                    "level": { "type": "string", "enum": ["apprentice", "junior", "senior", "master"] },
+                    "price": { "type": "number" },
+                    "durationMinutes": { "type": "number" }
+                },
+                "required": ["level", "price", "durationMinutes"]
             }
         },
         "category": { "type": "string", "description": "The category of the service (e.g., nails, hair)." },
@@ -572,17 +570,30 @@
     "WalkIn": {
       "title": "Walk-In Queue Entry",
       "type": "object",
-      "description": "Represents a single customer in the smart walk-in queue.",
+      "description": "Represents a single customer or a group in the smart walk-in queue.",
       "properties": {
         "id": { "type": "string" },
-        "clientId": { "type": "string", "description": "The ID of an existing client, if applicable." },
-        "customerName": { "type": "string", "description": "The name of the walk-in customer." },
+        "clientId": { "type": "string", "description": "The ID of an existing client, if they are the primary contact." },
+        "customerName": { "type": "string", "description": "The name of the primary contact for the walk-in." },
         "customerPhone": { "type": "string", "description": "Phone number for SMS updates." },
         "customerEmail": { "type": "string", "description": "Email address of the walk-in customer.", "format": "email" },
         "customerBirthday": { "type": "string", "description": "Birthday of the walk-in customer.", "format": "date" },
-        "serviceIds": { "type": "array", "items": { "type": "string" } },
+        "serviceIds": { "type": "array", "items": { "type": "string" }, "description": "Services for the primary contact." },
+        "partyMembers": {
+          "type": "array",
+          "description": "Additional members in the walk-in party.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "serviceIds": { "type": "array", "items": { "type": "string" } }
+            },
+            "required": ["id", "name", "serviceIds"]
+          }
+        },
         "requiredSkills": { "type": "array", "items": { "type": "string" } },
-        "estimatedDuration": { "type": "number", "description": "Total estimated minutes for all requested services." },
+        "estimatedDuration": { "type": "number", "description": "Total estimated minutes for all requested services for the entire group." },
         "checkInTime": { "type": "string", "format": "date-time" },
         "notifiedTimestamp": { "type": "string", "format": "date-time", "description": "Timestamp for when the client was notified it's their turn." },
         "serviceStartTime": { "type": "string", "format": "date-time", "description": "The time the service actually began." },
@@ -1039,12 +1050,6 @@
       },
       "description": "Stores tenant (business) profiles. All business-specific data is nested under this."
     },
-    "/tenants/{tenantId}/pricingTiers/{tierId}": {
-      "schema": {
-        "$ref": "#/entities/PricingTier"
-      },
-      "description": "Stores user-defined pricing tiers for services and staff."
-    },
     "/appointmentCheckIns/{token}": {
         "schema": {
             "$ref": "#/entities/Appointment"
@@ -1181,6 +1186,6 @@
     }
   }
 }
-
+    
 
     
