@@ -392,7 +392,15 @@ const ServicingCustomerCard = ({ appointment, services, resources, staff, onUpda
                 <div className="flex justify-between items-start">
                     <div className="space-y-1">
                         <p className="font-bold text-xl">{customerName}</p>
-                        <p className="text-sm text-primary">With: {assignedStaff?.name || 'N/A'}</p>
+                        {assignedStaff && (
+                            <div className="flex items-center gap-2 text-sm text-primary">
+                                <Avatar className="w-6 h-6">
+                                    <AvatarImage src={assignedStaff.avatarUrl} alt={assignedStaff.name} />
+                                    <AvatarFallback>{assignedStaff.name.substring(0, 2)}</AvatarFallback>
+                                </Avatar>
+                                <span className="font-semibold">{assignedStaff.name}</span>
+                            </div>
+                        )}
                         {assignedSlot && <p className="text-sm font-semibold">{format(parseISO(serviceStartTime as string), 'MMM d, yyyy')} &middot; {assignedSlot}</p>}
                         {waitTime !== null && <p className="text-xs text-muted-foreground">Waited {waitTime} minutes</p>}
                     </div>
@@ -1083,18 +1091,12 @@ export default function POSPage() {
     return combined.sort((a,b) => {
         const aTime = a.itemType === 'walk-in' ? a.serviceEndTime : a.endTime;
         const bTime = b.itemType === 'walk-in' ? b.serviceEndTime : b.endTime;
-        
-        const aTimestamp = aTime ? (typeof aTime === 'string' ? parseISO(aTime).getTime() : (aTime as Date).getTime()) : 0;
-        const bTimestamp = bTime ? (typeof bTime === 'string' ? parseISO(bTime).getTime() : (bTime as Date).getTime()) : 0;
-
-        return aTimestamp - bTimestamp;
+        return (aTime ? parseISO(aTime as string).getTime() : 0) - (bTime ? parseISO(bTime as string).getTime() : 0);
     });
   }, [walkIns, appointments]);
 
   const handleFinishService = (item: Appointment) => {
     if (!firestore || !services || !tenantId) return;
-    
-    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', item.id);
     
     setSelectedAppointment(item);
     setIsTechnicianReviewOpen(true);
