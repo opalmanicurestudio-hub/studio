@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle, UserPlus, Coins, Printer, Wallet, Award, Repeat, CheckCircle, Percent, Check, Package } from 'lucide-react';
+import { Search, Plus, Minus, X, DollarSign, ShoppingCart, CreditCard, Banknote, Gift, QrCode, AlertTriangle, UserPlus, Coins, Printer, Wallet, Award, Repeat, Percent, Check, Loader } from 'lucide-react';
 import { type InventoryItem, type StockCorrection, type Transaction, type Client, type Appointment, type Service, type AppointmentCheckoutState, type Membership, type Package as PackageType, type ClientFormData, type WalkIn, type Discount } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { Separator } from '@/components/ui/separator';
@@ -54,7 +54,6 @@ import {
 } from "@/components/ui/alert-dialog"
 import { useInventory } from '@/context/InventoryContext';
 import { useTenant } from '@/context/TenantContext';
-import { Loader } from 'lucide-react';
 import { BrowseDiscountsDialog } from '@/components/discounts/BrowseDiscountsDialog';
 import { Checkbox } from '@/components/ui/checkbox';
 
@@ -153,24 +152,10 @@ const CartContent = ({
     tipAmount,
     setTipAmount,
     total,
-    paymentTab,
-    setPaymentTab,
-    amountTendered,
-    changeDue,
-    handleKeepTheChange,
-    denominations,
-    handleDenominationClick,
-    setAmountTendered,
-    handleCheckout,
+    onCheckout,
     clients,
     updateQuantity,
     discount,
-    setDiscount,
-    promoCode,
-    setPromoCode,
-    handleApplyPromo,
-    appliedStoreCredit,
-    setAppliedStoreCredit,
     membershipDiscount,
     setIsDiscountBrowserOpen,
     isGroupCheckout,
@@ -180,12 +165,6 @@ const CartContent = ({
   const selectedClient = useMemo(() => {
     return clients.find((c: Client) => c.id === selectedClientId);
   }, [selectedClientId, clients]);
-
-  const maxCreditToApply = Math.min(selectedClient?.walletCredit || 0, total);
-
-  const handleApplyCredit = () => {
-    setAppliedStoreCredit(maxCreditToApply);
-  }
 
   return (
     <>
@@ -337,19 +316,6 @@ const CartContent = ({
             )}
 
             <div className="w-full space-y-2 pt-6 border-t">
-                <div className="space-y-2">
-                <Label htmlFor="promo-code">Promo Code</Label>
-                 <div className="flex gap-2">
-                    <Input
-                        id="promo-code"
-                        value={promoCode}
-                        onChange={(e) => setPromoCode(e.target.value)}
-                        placeholder="e.g., NEWCLIENT15"
-                    />
-                    <Button variant="secondary" type="button" onClick={() => setIsDiscountBrowserOpen(true)}>Browse</Button>
-                    <Button variant="outline" type="button" onClick={() => handleApplyPromo()}>Apply</Button>
-                </div>
-                </div>
                 <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Subtotal</span>
                 <span>${subtotal.toFixed(2)}</span>
@@ -385,100 +351,12 @@ const CartContent = ({
                     />
                 </div>
                 </div>
-                {appliedStoreCredit > 0 && (
-                <div className="flex justify-between text-sm font-medium text-primary">
-                    <span>Store Credit Used</span>
-                    <span>-${appliedStoreCredit.toFixed(2)}</span>
-                </div>
-                )}
                 <Separator className="my-2" />
                 <div className="flex justify-between font-bold text-lg">
                 <span>Total</span>
                 <span>${total.toFixed(2)}</span>
                 </div>
             </div>
-
-            <Tabs
-                value={paymentTab}
-                onValueChange={setPaymentTab}
-                className="w-full"
-            >
-                <TabsList className="grid w-full grid-cols-3"><TabsTrigger value="card"><CreditCard className="w-4 h-4 mr-2" />Card</TabsTrigger><TabsTrigger value="cash"><Banknote className="w-4 h-4 mr-2" />Cash</TabsTrigger><TabsTrigger value="other"><Gift className="w-4 h-4 mr-2" />Other</TabsTrigger>
-                </TabsList>
-                <TabsContent value="cash" className="pt-4 space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                    <Label>Amount Tendered</Label>
-                    <div className='p-4 text-2xl font-bold text-center bg-background rounded-md border'>
-                        ${amountTendered.toFixed(2)}
-                    </div>
-                    </div>
-                    <div className="space-y-2">
-                    <Label>Change Due</Label>
-                    <div
-                        className={`p-4 text-2xl font-bold text-center rounded-md ${
-                        changeDue >= 0
-                            ? 'bg-green-500/10 text-green-600'
-                            : 'bg-red-500/10 text-red-600'
-                        }`}
-                    >
-                        ${Math.abs(changeDue).toFixed(2)}
-                    </div>
-                    </div>
-                </div>
-                {changeDue > 0 && (
-                    <Button
-                    variant="secondary"
-                    className="w-full"
-                    onClick={handleKeepTheChange}
-                    >
-                    <Coins className="w-4 h-4 mr-2" /> Keep the Change as Tip
-                    </Button>
-                )}
-                <div className="grid grid-cols-5 gap-2">
-                    {denominations.map((amount: number) => (
-                    <Button
-                        key={amount}
-                        variant="outline"
-                        onClick={() => handleDenominationClick(amount)}
-                    >
-                        {amount >= 1 ? `$${amount}` : `${amount * 100}¢`}
-                    </Button>
-                    ))}
-                </div>
-                <Button
-                    variant="secondary"
-                    className="w-full"
-                    onClick={() => setAmountTendered(0)}
-                >
-                    Clear
-                </Button>
-                </TabsContent>
-                <TabsContent value="other" className="pt-4 space-y-4">
-                {selectedClient && (selectedClient.walletCredit || 0) > 0 ? (
-                    <div className="p-4 rounded-lg bg-muted/50 text-center space-y-3">
-                    <p className="text-sm">
-                        Client has{' '}
-                        <span className="font-bold text-primary">
-                        ${(selectedClient.walletCredit || 0).toFixed(2)}
-                        </span>{' '}
-                        in store credit.
-                    </p>
-                    <Button
-                        variant="secondary"
-                        onClick={handleApplyCredit}
-                        disabled={appliedStoreCredit > 0 || total <= 0}
-                    >
-                        Apply ${maxCreditToApply.toFixed(2)} to this sale
-                    </Button>
-                    </div>
-                ) : (
-                    <p className="text-sm text-center text-muted-foreground p-4">
-                    No store credit available.
-                    </p>
-                )}
-                </TabsContent>
-            </Tabs>
             </CardContent>
         </div>
       </div>
@@ -487,11 +365,11 @@ const CartContent = ({
           <Button
             size="lg"
             className="w-full text-lg h-14"
-            onClick={handleCheckout}
-            disabled={total < 0}
+            onClick={onCheckout}
+            disabled={cart.length === 0}
           >
             <DollarSign className="mr-2 h-6 w-6" />
-            Charge ${total > 0 ? total.toFixed(2) : '0.00'}
+            Checkout
           </Button>
         </div>
       </CardFooter>
@@ -506,27 +384,16 @@ export default function RetailPage() {
   const { toast } = useToast();
   const isMobile = useIsMobile();
   const [isCartSheetOpen, setIsCartSheetOpen] = useState(false);
-
-  const [paymentTab, setPaymentTab] = useState('card');
-  const [amountTendered, setAmountTendered] = useState<number>(0);
-  const [tipAmount, setTipAmount] = useState<number>(0);
-  const [discount, setDiscount] = useState(0);
-  const [membershipDiscount, setMembershipDiscount] = useState(0);
-  const [promoCode, setPromoCode] = useState('');
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   
-  const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
-  const [receiptDataForPrompt, setReceiptDataForPrompt] = useState<ReceiptData | null>(null);
-  
-  const [checkoutAppointment, setCheckoutAppointment] = useState<Appointment | null>(null);
-
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [isAddClientOpen, setIsAddClientOpen] = useState(false);
   const [isDiscountBrowserOpen, setIsDiscountBrowserOpen] = useState(false);
-  
-  const [appliedStoreCredit, setAppliedStoreCredit] = useState(0);
-  
-  const [isScannerOpen, setIsScannerOpen] = useState(false);
 
+  const [appointmentsToCheckout, setAppointmentsToCheckout] = useState<any[]>([]);
+  const [initialRetailItems, setInitialRetailItems] = useState<any[]>([]);
+  const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
+  
   const { firestore, user } = useFirebase();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
@@ -603,17 +470,16 @@ export default function RetailPage() {
                     price: addOnService.price,
                     quantity: 1,
                     type: 'service',
-                    staffId: apt.staffId, // Assuming add-ons are performed by the same staff
+                    staffId: apt.staffId,
                 });
             }
         });
     });
 
-    // Keep existing retail items
-    const retailItemsInCart = cart.filter(item => item.type === 'product');
-    setCart([...newCart, ...retailItemsInCart]);
+    // Keep existing non-appointment items
+    const nonAppointmentItems = cart.filter(item => !item.appointmentId);
+    setCart([...newCart, ...nonAppointmentItems]);
     
-    // Auto-select payer if only one
     if (payerOptions.length === 1) {
         setSelectedClientId(payerOptions[0].id);
     } else {
@@ -630,12 +496,12 @@ export default function RetailPage() {
     );
   }, [inventory, searchTerm]);
   
-  const updateQuantity = useCallback((productId: string, newQuantity: number) => {
-    const cartItem = cart.find(item => item.id === productId);
+  const updateQuantity = useCallback((itemId: string, newQuantity: number) => {
+    const cartItem = cart.find(item => item.id === itemId);
     if (!cartItem) return;
 
     if (newQuantity <= 0) {
-      setCart(cart.filter(item => item.id !== productId));
+      setCart(cart.filter(item => item.id !== itemId));
     } else if (cartItem.type === 'product' && cartItem.stock && newQuantity > cartItem.stock) {
         toast({
             variant: 'destructive',
@@ -644,7 +510,7 @@ export default function RetailPage() {
         });
     } else {
       setCart(cart.map(item =>
-        item.id === productId ? { ...item, quantity: newQuantity } : item
+        item.id === itemId ? { ...item, quantity: newQuantity } : item
       ));
     }
   }, [cart, toast]);
@@ -705,272 +571,6 @@ export default function RetailPage() {
     }
   }, [cart, toast, updateQuantity]);
 
-  const subtotal = useMemo(() => cart.reduce((acc, item) => acc + item.price * item.quantity, 0), [cart]);
-  
-  const client = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
-
-  const retailTotal = useMemo(() => {
-    return cart.filter(item => item.type === 'product').reduce((acc, item) => acc + item.price * item.quantity, 0);
-  }, [cart]);
-
-  useEffect(() => {
-        if (client && client.activeMembershipId) {
-            const membership = memberships.find(m => m.id === client.activeMembershipId);
-            if (membership?.retailDiscount && retailTotal > 0) {
-                const discountValue = retailTotal * (membership.retailDiscount / 100);
-                setMembershipDiscount(discountValue);
-            } else {
-                setMembershipDiscount(0);
-            }
-        } else {
-            setMembershipDiscount(0);
-        }
-    }, [client, retailTotal, memberships]);
-
-  const totalDiscount = discount + membershipDiscount;
-  const subtotalAfterDiscounts = subtotal > totalDiscount ? subtotal - totalDiscount : 0;
-  const mockTax = subtotalAfterDiscounts * 0.07; // 7% tax for demo
-  const grandTotal = subtotalAfterDiscounts + mockTax + tipAmount;
-  
-  const changeDue = amountTendered > 0 && paymentTab === 'cash' ? amountTendered - grandTotal : 0;
-
-  const handleApplyPromo = (codeToApply?: string) => {
-    const code = (codeToApply || promoCode).trim().toUpperCase();
-    if (!code) return;
-
-    const discountToApply = discounts.find(d => d.code.toUpperCase() === code);
-    if (!discountToApply) {
-        toast({ variant: 'destructive', title: 'Invalid Code', description: 'This promo code could not be found.' });
-        return;
-    }
-    if (!discountToApply.isActive || (discountToApply.usageLimit > 0 && discountToApply.usageCount >= discountToApply.usageLimit)) {
-        toast({ variant: 'destructive', title: 'Inactive Code', description: 'This promo code is either inactive or has reached its usage limit.' });
-        return;
-    }
-    
-    let discountValue = 0;
-    if (discountToApply.type === 'percentage') {
-        discountValue = subtotal * (discountToApply.value / 100);
-    } else {
-        discountValue = discountToApply.value;
-    }
-    setDiscount(discountValue);
-    toast({ title: 'Discount Applied!', description: `You saved $${discountValue.toFixed(2)}.` });
-  }
-  
-  const handleScan = useCallback((data: string) => {
-    if (!inventory) return;
-    if (data.startsWith('clarityflow://product/')) {
-        const productId = data.split('/').pop();
-        if (productId) {
-            const product = inventory.find(p => p.id === productId);
-            if (product) {
-                addToCart(product, 'product');
-                toast({
-                    title: "Product Added",
-                    description: `${product.name} has been added to your cart.`,
-                });
-            } else {
-                 toast({
-                    variant: 'destructive',
-                    title: 'Product Not Found',
-                    description: 'The scanned product could not be found in your inventory.',
-                });
-            }
-        }
-    } else {
-        toast({
-            variant: 'destructive',
-            title: 'Invalid QR Code',
-            description: 'Please scan a valid ClarityFlow product or ticket QR code.',
-        });
-    }
-  }, [inventory, addToCart, toast]);
-
-  useEffect(() => {
-    let html5QrCode: Html5Qrcode | undefined;
-    if (isScannerOpen) {
-      const timer = setTimeout(() => {
-        const element = document.getElementById('qr-reader-retail');
-        if (element) {
-          html5QrCode = new Html5Qrcode('qr-reader-retail');
-          const onScanSuccess = (decodedText: string, decodedResult: any) => {
-            if (html5QrCode?.isScanning) {
-              html5QrCode.stop().catch(console.error);
-            }
-            handleScan(decodedText);
-            setIsScannerOpen(false);
-          };
-
-          const onScanFailure = (error: any) => { /* ignore */ };
-            
-          setTimeout(() => {
-                html5QrCode?.start(
-                    { facingMode: "environment" },
-                    { fps: 10, qrbox: { width: 250, height: 250 } },
-                    onScanSuccess,
-                    onScanFailure
-                ).catch(err => {
-                    toast({
-                        variant: 'destructive',
-                        title: 'Camera Error',
-                        description: 'Could not start the camera. Please check permissions and try again.',
-                    });
-                    setIsScannerOpen(false);
-                });
-            }, 300);
-        }
-      }, 100); 
-
-      return () => {
-          clearTimeout(timer);
-          if (html5QrCode && html5QrCode.isScanning) {
-            html5QrCode.stop().catch(err => {
-                console.error("Failed to stop QR Code scanner.", err);
-            });
-          }
-      };
-    }
-}, [isScannerOpen, handleScan, toast]);
-
-  const handleCheckout = () => {
-    const hasMembershipOrPackage = cart.some(item => item.type === 'membership' || item.type === 'package');
-    
-    if (hasMembershipOrPackage && !selectedClientId) {
-      toast({
-        variant: 'destructive',
-        title: 'Client Required',
-        description: 'Please select or create a client profile to sell memberships or packages.',
-      });
-      return;
-    }
-
-    if (cart.length === 0) {
-        toast({ variant: 'destructive', title: 'Empty Cart', description: 'Please add items to the cart before checking out.'});
-        return;
-    };
-    
-    const selectedClient = clients?.find(c => c.id === selectedClientId);
-
-    // Handle product stock corrections
-    const productItems = cart.filter(item => item.type === 'product');
-    productItems.forEach(item => {
-        const correction: Omit<StockCorrection, 'id'> = {
-            productId: item.id,
-            date: new Date().toISOString(),
-            change: -item.quantity,
-            unit: 'unit',
-            reason: `Retail Sale #${Date.now().toString().slice(-4)}`
-        };
-        addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), correction);
-    });
-    
-    // Create transaction
-    const newTransaction: Omit<Transaction, 'id' | 'date'> = {
-        description: `Retail Sale (${cart.map(i => i.name).join(', ')})`,
-        clientOrVendor: selectedClient?.name || 'In-Store Customer',
-        clientId: selectedClientId || undefined,
-        type: 'income',
-        context: 'Business',
-        category: 'Retail',
-        amount: grandTotal - tipAmount,
-        paymentMethod: paymentTab,
-        hasReceipt: true,
-        tipAmount: tipAmount > 0 ? tipAmount : undefined,
-        appliedDiscountCode: discount > 0 ? promoCode : undefined,
-        discountAmount: totalDiscount > 0 ? totalDiscount : undefined,
-    };
-    addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/transactions`), { ...newTransaction, date: new Date().toISOString() });
-    
-    // Update Client State
-    if (selectedClient && firestore && tenantId) {
-        const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id);
-        const clientUpdate: Partial<Client> = {
-            lifetimeValue: (selectedClient.lifetimeValue || 0) + grandTotal,
-            lastAppointment: new Date().toISOString(),
-        };
-        
-        if (appliedStoreCredit > 0) {
-            clientUpdate.walletCredit = (selectedClient.walletCredit || 0) - appliedStoreCredit;
-        }
-
-        const membershipItem = cart.find(item => item.type === 'membership');
-        if (membershipItem) {
-            clientUpdate.activeMembershipId = membershipItem.id;
-        }
-
-        const packageItems = cart.filter(item => item.type === 'package');
-        if (packageItems.length > 0) {
-            const newPackages = packageItems.map(p => {
-                const pack = packages.find(pkg => pkg.id === p.id);
-                return {
-                    packageId: p.id,
-                    sessionsRemaining: (pack as PackageType)?.sessions || 0,
-                };
-            });
-            clientUpdate.activePackages = [...(selectedClient.activePackages || []), ...newPackages];
-        }
-
-        updateDocumentNonBlocking(clientDocRef, clientUpdate);
-    }
-
-
-     const receiptData: Omit<ReceiptData, 'business'> = {
-        clientName: selectedClient?.name || 'In-Store Customer',
-        date: new Date(),
-        items: cart.map(item => ({
-            name: item.name,
-            quantity: item.quantity,
-            price: item.price,
-        })),
-        subtotal: subtotal,
-        discount: totalDiscount,
-        tax: mockTax,
-        tip: tipAmount,
-        total: grandTotal,
-        payment: {
-            method: paymentTab,
-            amountTendered: paymentTab === 'cash' ? amountTendered : grandTotal,
-            changeDue: changeDue > 0 ? changeDue : 0,
-        }
-    };
-    
-    setReceiptDataForPrompt({
-      business: { name: 'ClarityFlow Salon', phone: '555-123-4567' },
-      ...receiptData
-    });
-
-    toast({
-        title: 'Sale Complete!',
-        description: `Successfully processed a sale of $${grandTotal.toFixed(2)}. Inventory has been updated.`
-    });
-
-    // Reset State
-    setCart([]);
-    setAmountTendered(0);
-    setTipAmount(0);
-    setSelectedClientId(null);
-    setIsCartSheetOpen(false);
-    setDiscount(0);
-    setPromoCode('');
-    setAppliedStoreCredit(0);
-    setSelectedAppointmentIds(new Set());
-  };
-    
-  const denominations = [100, 50, 20, 10, 5, 1, 0.25, 0.10, 0.05, 0.01];
-
-  const handleDenominationClick = (amount: number) => {
-    setAmountTendered(prev => prev + amount);
-  };
-  
-  const handleKeepTheChange = () => {
-    if (changeDue > 0) {
-        setTipAmount(prevTip => prevTip + changeDue);
-        setAmountTendered(grandTotal + changeDue); 
-        toast({ title: "Tip Added!", description: `$${changeDue.toFixed(2)} has been added as a tip.` });
-    }
-  };
-
   const handleAddClient = async (data: ClientFormData) => {
     if (!firestore || !tenantId) return;
 
@@ -1020,32 +620,75 @@ export default function RetailPage() {
     });
     setIsAddClientOpen(false);
   }
+
+  const handleOpenCheckout = () => {
+    const serviceAppointmentsInCart = cart.filter(item => item.type === 'service');
+    const retailItemsInCart = cart.filter(item => item.type === 'product');
+
+    if (serviceAppointmentsInCart.length > 0) {
+      const appointmentIds = new Set(serviceAppointmentsInCart.map(item => item.appointmentId));
+      const dataForDialog = readyForCheckoutAppointments
+        .filter(apt => appointmentIds.has(apt.id))
+        .map(appointment => ({
+          appointment,
+          client: clients?.find(c => c.id === appointment.clientId),
+          service: services?.find(s => s.id === appointment.serviceId),
+        }));
+      setAppointmentsToCheckout(dataForDialog);
+      setInitialRetailItems(retailItemsInCart);
+      setIsCheckoutOpen(true);
+    } else {
+        // Handle pure retail checkout if needed
+        setAppointmentsToCheckout([]);
+        setInitialRetailItems(retailItemsInCart);
+        setIsCheckoutOpen(true);
+    }
+  };
+
+  const handleCheckoutComplete = (receiptData: Omit<ReceiptData, 'business'>) => {
+    // This is the callback after the dialog finishes its own checkout logic
+    setCart([]);
+    setSelectedAppointmentIds(new Set());
+    setReceiptToPrint({
+        business: { name: selectedTenant?.name || 'ClarityFlow', phone: '555-123-4567'},
+        ...receiptData
+    });
+  };
+
+  const handleRebook = (appointment: Appointment, weeksOut?: number) => {
+    // This would typically navigate to the planner with some state
+    // For now, we just log it.
+    toast({
+      title: 'Rebooking Initiated',
+      description: `Rebooking for ${appointment.clientName} in ${weeksOut} weeks.`,
+    });
+  };
   
-  const checkoutAppointmentData = useMemo(() => {
-    if (!checkoutAppointment || !services || !clients) return null;
-    const clientData = clients?.find(c => c.id === checkoutAppointment.clientId);
-    const serviceData = services.find(s => s.id === checkoutAppointment.serviceId);
+  const subtotal = useMemo(() => cart.reduce((acc, item) => acc + item.price * item.quantity, 0), [cart]);
+  const client = useMemo(() => clients?.find(c => c.id === selectedClientId), [clients, selectedClientId]);
+  const retailTotalForDiscount = useMemo(() => cart.filter(item => item.type === 'product').reduce((acc, item) => acc + item.price * item.quantity, 0), [cart]);
+  const [membershipDiscount, setMembershipDiscount] = useState(0);
+  const [discount, setDiscount] = useState(0);
 
-    const walkInClientName = checkoutAppointment.isWalkIn && walkIns ? 
-      (walkIns.find(w => `apt-walkin-${w.id}` === checkoutAppointment.id))?.customerName || 'Walk-in' 
-      : 'Unknown Client';
-
-    const displayClient = clientData || {
-      id: checkoutAppointment.clientId,
-      name: checkoutAppointment.isWalkIn ? walkInClientName : 'Unknown Client',
-      email: '',
-      phone: '',
-      avatarUrl: '',
-      lifetimeValue: 0,
-      lastAppointment: '',
-    };
+  useEffect(() => {
+        if (client && client.activeMembershipId) {
+            const membership = memberships.find(m => m.id === client.activeMembershipId);
+            if (membership?.retailDiscount && retailTotalForDiscount > 0) {
+                const discountValue = retailTotalForDiscount * (membership.retailDiscount / 100);
+                setMembershipDiscount(discountValue);
+            } else {
+                setMembershipDiscount(0);
+            }
+        } else {
+            setMembershipDiscount(0);
+        }
+    }, [client, retailTotalForDiscount, memberships]);
     
-    return {
-      appointment: checkoutAppointment,
-      client: displayClient,
-      service: serviceData,
-    };
-  }, [checkoutAppointment, clients, services, walkIns]);
+  const totalDiscount = discount + membershipDiscount;
+  const subtotalAfterDiscounts = subtotal > totalDiscount ? subtotal - totalDiscount : 0;
+  const mockTax = subtotalAfterDiscounts * 0.07; // 7% tax for demo
+  const [tipAmount, setTipAmount] = useState(0);
+  const grandTotal = subtotalAfterDiscounts + mockTax + tipAmount;
 
 
   return (
@@ -1067,9 +710,6 @@ export default function RetailPage() {
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                             <Input placeholder="Search items..." className="pl-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                         </div>
-                        <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
-                            <QrCode className="h-4 w-4" />
-                        </Button>
                     </div>
                 </div>
                 <ScrollArea className="flex-1">
@@ -1195,7 +835,6 @@ export default function RetailPage() {
             </Tabs>
           </div>
 
-          {/* Cart & Checkout */}
           <div className="hidden lg:flex lg:col-span-1 border-l flex-col h-full bg-muted/20">
             <Card className="flex-1 flex flex-col shadow-none border-0 rounded-none">
                 <CartContent 
@@ -1209,24 +848,10 @@ export default function RetailPage() {
                     tipAmount={tipAmount}
                     setTipAmount={setTipAmount}
                     total={grandTotal}
-                    paymentTab={paymentTab}
-                    setPaymentTab={setPaymentTab}
-                    amountTendered={amountTendered}
-                    changeDue={changeDue}
-                    handleKeepTheChange={handleKeepTheChange}
-                    denominations={denominations}
-                    handleDenominationClick={handleDenominationClick}
-                    setAmountTendered={setAmountTendered}
-                    handleCheckout={handleCheckout}
+                    onCheckout={handleOpenCheckout}
                     clients={clients || []}
                     updateQuantity={updateQuantity}
                     discount={discount}
-                    setDiscount={setDiscount}
-                    promoCode={promoCode}
-                    setPromoCode={setPromoCode}
-                    handleApplyPromo={handleApplyPromo}
-                    appliedStoreCredit={appliedStoreCredit}
-                    setAppliedStoreCredit={setAppliedStoreCredit}
                     membershipDiscount={membershipDiscount}
                     setIsDiscountBrowserOpen={setIsDiscountBrowserOpen}
                     isGroupCheckout={selectedAppointmentIds.size > 0}
@@ -1261,24 +886,10 @@ export default function RetailPage() {
                             tipAmount={tipAmount}
                             setTipAmount={setTipAmount}
                             total={grandTotal}
-                            paymentTab={paymentTab}
-                            setPaymentTab={setPaymentTab}
-                            amountTendered={amountTendered}
-                            changeDue={changeDue}
-                            handleKeepTheChange={handleKeepTheChange}
-                            denominations={denominations}
-                            handleDenominationClick={handleDenominationClick}
-                            setAmountTendered={setAmountTendered}
-                            handleCheckout={handleCheckout}
+                            onCheckout={handleOpenCheckout}
                             clients={clients || []}
                             updateQuantity={updateQuantity}
                             discount={discount}
-                            setDiscount={setDiscount}
-                            promoCode={promoCode}
-                            setPromoCode={setPromoCode}
-                            handleApplyPromo={handleApplyPromo}
-                            appliedStoreCredit={appliedStoreCredit}
-                            setAppliedStoreCredit={setAppliedStoreCredit}
                             membershipDiscount={membershipDiscount}
                             setIsDiscountBrowserOpen={setIsDiscountBrowserOpen}
                             isGroupCheckout={selectedAppointmentIds.size > 0}
@@ -1291,39 +902,15 @@ export default function RetailPage() {
     </div>
     <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={handleAddClient} />
     
-    {checkoutAppointmentData && (
-        <CompleteAppointmentDialog
-            open={!!checkoutAppointment}
-            onOpenChange={() => setCheckoutAppointment(null)}
-            appointmentData={checkoutAppointmentData}
-            onConfirmCheckout={() => {}}
-            onRebook={() => {}}
-            staff={staff || []}
-        />
-    )}
-
-    <AlertDialog open={!!receiptDataForPrompt} onOpenChange={() => setReceiptDataForPrompt(null)}>
-        <AlertDialogContent>
-            <AlertDialogHeader>
-                <AlertDialogTitle>Print Receipt?</AlertDialogTitle>
-                <AlertDialogDescription>
-                    Would you like to print a receipt for this transaction?
-                </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-                <AlertDialogCancel>No, Thanks</AlertDialogCancel>
-                <AlertDialogAction onClick={() => {
-                    if (receiptDataForPrompt) {
-                        setReceiptToPrint(receiptDataForPrompt);
-                    }
-                    setReceiptDataForPrompt(null);
-                }}>
-                    Print Receipt
-                </AlertDialogAction>
-            </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
+    <CompleteAppointmentDialog
+        open={isCheckoutOpen}
+        onOpenChange={setIsCheckoutOpen}
+        appointmentsData={appointmentsToCheckout}
+        initialRetailItems={initialRetailItems}
+        onCheckoutComplete={handleCheckoutComplete}
+        onRebook={handleRebook}
+    />
+    
     <Dialog open={!!receiptToPrint} onOpenChange={(open) => !open && setReceiptToPrint(null)}>
         <DialogContent className="max-w-sm print-content">
           <DialogHeader className="print:hidden">
@@ -1341,23 +928,6 @@ export default function RetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
-        <DialogContent className="sm:max-w-md p-0">
-            <DialogHeader className="p-4 pb-0">
-                <DialogTitle>Scan Product</DialogTitle>
-                <DialogDescription>
-                    Position the product's barcode or QR code inside the frame to add it to the cart.
-                </DialogDescription>
-            </DialogHeader>
-            <div className="p-4 relative">
-                <div id="qr-reader-retail" className="w-full rounded-md bg-muted" />
-            </div>
-            <DialogFooter className="p-4 pt-0">
-                <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button>
-            </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts} onSelect={(code) => { setPromoCode(code); handleApplyPromo(code); }} cartServiceIds={[]} />
     </>
   );
 }
