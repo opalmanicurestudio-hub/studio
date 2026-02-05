@@ -3,7 +3,7 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { User, Users, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal, Printer, UserPlus, ArrowUp, ArrowDown, DollarSign, Bell, Lock, Building, HardHat, TrendingUp, UserX, SlidersHorizontal, MessageSquare, ShoppingCart } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
@@ -318,7 +318,8 @@ const ServicingCustomerCard = ({ appointment, services, resources, staff, onUpda
             const walkInId = appointment.id.replace('apt-walkin-', '');
             const walkIn = walkIns.find(w => w.id === walkInId);
             if (walkIn) {
-                return differenceInMinutes(parseISO(appointment.actualStartTime as string), parseISO(walkIn.checkInTime));
+                const startTime = typeof appointment.actualStartTime === 'string' ? parseISO(appointment.actualStartTime) : appointment.actualStartTime;
+                return differenceInMinutes(startTime, parseISO(walkIn.checkInTime));
             }
         }
         return null;
@@ -330,7 +331,7 @@ const ServicingCustomerCard = ({ appointment, services, resources, staff, onUpda
 
     const assignedSlot = useMemo(() => {
         if (!serviceStartTime || !appointment.endTime) return null;
-        const start = parseISO(serviceStartTime as string);
+        const start = typeof serviceStartTime === 'string' ? parseISO(serviceStartTime) : serviceStartTime;
         const end = typeof appointment.endTime === 'string' ? parseISO(appointment.endTime) : appointment.endTime;
         return `${format(start, 'h:mm a')} - ${format(end, 'h:mm a')}`;
     }, [serviceStartTime, appointment.endTime]);
@@ -339,7 +340,7 @@ const ServicingCustomerCard = ({ appointment, services, resources, staff, onUpda
         let timer: NodeJS.Timeout | undefined;
 
         if (appointment.status === 'servicing' && serviceStartTime) {
-            const startTime = parseISO(serviceStartTime as string);
+            const startTime = typeof serviceStartTime === 'string' ? parseISO(serviceStartTime) : serviceStartTime;
             timer = setInterval(() => {
                 const now = new Date();
                 const diffInSeconds = differenceInSeconds(now, startTime);
@@ -366,15 +367,7 @@ const ServicingCustomerCard = ({ appointment, services, resources, staff, onUpda
     }, [appointment.status, serviceStartTime]);
 
     const handleSkip = () => {
-        if (appointment.isWalkIn) {
-            const walkInId = appointment.id.replace('apt-walkin-', '');
-            // This is a bit of a hack as onStatusChange was for walkins.
-            // A better refactor would unify status updates.
-            // For now, let's assume it updates the walkin status.
-            // onStatusChange(walkInId, assignedStaff?.id || '', 'skipped');
-        } else {
-            onUpdateStatus(appointment.id, 'cancelled');
-        }
+        onUpdateStatus(appointment.id, 'cancelled');
     };
     
     const handlePrintTicketClick = () => {
@@ -400,7 +393,7 @@ const ServicingCustomerCard = ({ appointment, services, resources, staff, onUpda
                                 <span className="font-semibold">{assignedStaff.name}</span>
                             </div>
                         )}
-                        {assignedSlot && <p className="text-sm font-semibold">{format(parseISO(serviceStartTime as string), 'MMM d, yyyy')} &middot; {assignedSlot}</p>}
+                        {assignedSlot && <p className="text-sm font-semibold">{format(typeof serviceStartTime === 'string' ? parseISO(serviceStartTime) : serviceStartTime!, 'MMM d, yyyy')} &middot; {assignedSlot}</p>}
                         {waitTime !== null && <p className="text-xs text-muted-foreground">Waited {waitTime} minutes</p>}
                     </div>
                     <div className="flex flex-col items-end gap-1">
@@ -1069,7 +1062,11 @@ export default function POSPage() {
   const servicingQueue = useMemo(() => {
     if (!appointments) return [];
     const inServiceAppointments = (appointments || []).filter(a => a.status === 'servicing');
-    return inServiceAppointments.sort((a,b) => getTime(a.actualStartTime) - getTime(b.actualStartTime));
+    return inServiceAppointments.sort((a, b) => {
+        const timeA = a.actualStartTime ? typeof a.actualStartTime === 'string' ? parseISO(a.actualStartTime).getTime() : a.actualStartTime.getTime() : 0;
+        const timeB = b.actualStartTime ? typeof b.actualStartTime === 'string' ? parseISO(b.actualStartTime).getTime() : b.actualStartTime.getTime() : 0;
+        return timeA - timeB;
+    });
   }, [appointments]);
 
   const readyForCheckoutQueue = useMemo(() => {
@@ -1084,7 +1081,7 @@ export default function POSPage() {
     return combined.sort((a,b) => {
         const aTime = a.itemType === 'walk-in' ? a.serviceEndTime : a.endTime;
         const bTime = b.itemType === 'walk-in' ? b.serviceEndTime : b.endTime;
-        return getTime(aTime) - getTime(bTime);
+        return (aTime ? parseISO(aTime as string).getTime() : 0) - (bTime ? parseISO(bTime as string).getTime() : 0);
     });
   }, [walkIns, appointments]);
 
