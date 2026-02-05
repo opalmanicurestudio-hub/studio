@@ -268,7 +268,7 @@ export default function BookingPage() {
                             Book an Appointment
                         </Button>
                         <Button size="lg" variant="outline" asChild>
-                            <Link href="/walk-in">
+                            <Link href={`/walk-in/${tenantId}`}>
                                 <Users className="mr-2 h-5 w-5" />
                                 Join Walk-in List
                             </Link>
