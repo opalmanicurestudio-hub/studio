@@ -160,6 +160,65 @@ export default function POSPage() {
             }
         });
     };
+
+    const handleAssignNext = () => {
+        if (!staff || !walkIns || !services) {
+            toast({ title: "Data not loaded", description: "Please wait a moment and try again." });
+            return;
+        }
+
+        const idleStaff = staff
+            .filter(s => s.status === 'idle' && s.active && !s.onBreak)
+            .sort((a, b) => {
+                const timeA = a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0;
+                const timeB = b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0;
+                return timeA - timeB; // Sorts oldest first
+            });
+
+        const waitingClients = walkIns
+            .filter(w => w.status === 'waiting')
+            .sort((a, b) => parseISO(a.checkInTime).getTime() - parseISO(b.checkInTime).getTime());
+
+        if (idleStaff.length === 0) {
+            toast({ variant: 'destructive', title: 'No Staff Available', description: 'All staff members are currently busy or on break.' });
+            return;
+        }
+
+        if (waitingClients.length === 0) {
+            toast({ title: 'No Clients Waiting', description: 'The waiting queue is empty.' });
+            return;
+        }
+
+        for (const staffMember of idleStaff) {
+            for (const client of waitingClients) {
+                const requiredSkills = client.requiredSkills || [];
+                const staffSkills = staffMember.skillSet || [];
+
+                const canPerformService = requiredSkills.every(skill => staffSkills.includes(skill));
+
+                if (canPerformService) {
+                    // Found a match!
+                    handleAssignStaff(client.id, staffMember.id);
+                    toast({ title: 'Assigned!', description: `${client.customerName} has been assigned to ${staffMember.name}.` });
+                    return; // Exit after assigning
+                }
+            }
+        }
+        
+        // If we get here, no suitable match was found
+        toast({
+            variant: 'destructive',
+            title: 'No Suitable Match',
+            description: "Couldn't find an available staff member with the required skills for the next client in queue.",
+        });
+    };
+
+     const handleAssignStaff = (walkInId: string, staffId: string) => {
+        if (!firestore || !selectedTenant) return;
+        const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
+        updateDocumentNonBlocking(walkInRef, { assignedStaffId: staffId, status: 'notified' });
+        toast({ title: "Staff Assigned", description: "The client has been notified." });
+    };
     
     return (
         <>
@@ -195,6 +254,8 @@ export default function POSPage() {
                                     appointments={appointments}
                                     services={services}
                                     staff={staff}
+                                    onAssignStaff={handleAssignStaff}
+                                    onAssignNext={handleAssignNext}
                                 />
                             </TabsContent>
                         </Tabs>

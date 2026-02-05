@@ -13,15 +13,26 @@ import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { collection, doc } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
+import { Button } from '../ui/button';
+import { Sparkles } from 'lucide-react';
 
 interface WalkInQueueProps {
     walkIns: WalkIn[] | null;
     staff: Staff[] | null;
     services: Service[] | null;
     appointments: Appointment[] | null;
+    onAssignStaff: (walkInId: string, staffId: string) => void;
+    onAssignNext: () => void;
 }
 
-export const WalkInQueue: React.FC<WalkInQueueProps> = ({ walkIns, staff, services, appointments }) => {
+export const WalkInQueue: React.FC<WalkInQueueProps> = ({ 
+    walkIns, 
+    staff, 
+    services, 
+    appointments, 
+    onAssignStaff,
+    onAssignNext,
+}) => {
     const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
     const { toast } = useToast();
@@ -41,13 +52,10 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({ walkIns, staff, servic
         setWalkInToAssign(walkIn);
     };
     
-    const handleAssignStaff = (walkInId: string, staffId: string) => {
-        if (!firestore || !selectedTenant) return;
-        const walkInRef = doc(firestore, 'tenants', selectedTenant.id, 'walkIns', walkInId);
-        updateDocumentNonBlocking(walkInRef, { assignedStaffId: staffId, status: 'notified' });
-        toast({ title: "Staff Assigned", description: "The client has been notified." });
+    const handleAssignConfirm = (walkInId: string, staffId: string) => {
+        onAssignStaff(walkInId, staffId);
         setWalkInToAssign(null);
-    };
+    }
 
     const handleStartService = (walkIn: WalkIn) => {
         if (!firestore || !selectedTenant || !services) return;
@@ -120,6 +128,12 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({ walkIns, staff, servic
                     <TabsTrigger value="ready_for_checkout">Checkout <Badge className="ml-2">{readyForCheckoutQueue.length}</Badge></TabsTrigger>
                 </TabsList>
                 <TabsContent value="waiting" className="mt-4 space-y-4">
+                    <div className="flex justify-end">
+                        <Button onClick={onAssignNext}>
+                            <Sparkles className="mr-2 h-4 w-4" />
+                            Assign Next (Fair Play)
+                        </Button>
+                    </div>
                     {waitingQueue.length > 0 ? waitingQueue.map(walkIn => (
                         <WaitingCustomerCard key={walkIn.id} walkIn={walkIn} services={services} onAssign={() => handleOpenAssignDialog(walkIn)} onStart={() => handleStartService(walkIn)} />
                     )) : <p className="text-center text-muted-foreground p-8">No clients are currently waiting.</p>}
@@ -144,7 +158,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({ walkIns, staff, servic
                     )}
                 </TabsContent>
             </Tabs>
-            <AssignStaffDialog open={!!walkInToAssign} onOpenChange={() => setWalkInToAssign(null)} walkIn={walkInToAssign} staff={staff} onAssign={handleAssignStaff} />
+            <AssignStaffDialog open={!!walkInToAssign} onOpenChange={() => setWalkInToAssign(null)} walkIn={walkInToAssign} staff={staff} onAssign={handleAssignConfirm} />
         </>
     );
 };
