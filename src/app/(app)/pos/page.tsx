@@ -1063,8 +1063,8 @@ export default function POSPage() {
     if (!appointments) return [];
     const inServiceAppointments = (appointments || []).filter(a => a.status === 'servicing');
     return inServiceAppointments.sort((a, b) => {
-        const timeA = a.actualStartTime ? typeof a.actualStartTime === 'string' ? parseISO(a.actualStartTime).getTime() : a.actualStartTime.getTime() : 0;
-        const timeB = b.actualStartTime ? typeof b.actualStartTime === 'string' ? parseISO(b.actualStartTime).getTime() : b.actualStartTime.getTime() : 0;
+        const timeA = a.actualStartTime ? getTime(a.actualStartTime) : 0;
+        const timeB = b.actualStartTime ? getTime(b.actualStartTime) : 0;
         return timeA - timeB;
     });
   }, [appointments]);
@@ -1081,7 +1081,7 @@ export default function POSPage() {
     return combined.sort((a,b) => {
         const aTime = a.itemType === 'walk-in' ? a.serviceEndTime : a.endTime;
         const bTime = b.itemType === 'walk-in' ? b.serviceEndTime : b.endTime;
-        return (aTime ? parseISO(aTime as string).getTime() : 0) - (bTime ? parseISO(bTime as string).getTime() : 0);
+        return getTime(aTime) - getTime(bTime);
     });
   }, [walkIns, appointments]);
 
@@ -1645,3 +1645,5 @@ export default function POSPage() {
     </>
   );
 }
+
+    
