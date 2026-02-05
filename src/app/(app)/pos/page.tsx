@@ -1,21 +1,37 @@
 
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import { AppHeader } from '@/components/shared/AppHeader';
+import React, { useState, useMemo, useCallback } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useInventory } from '@/context/InventoryContext';
+import { type Appointment, type Service, type Client, type WalkIn, type Staff, type ActivityLog } from '@/lib/data';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
 import { OrderLine } from '@/components/pos/OrderLine';
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
-import { useInventory } from '@/context/InventoryContext';
-import { type Appointment, type Service, type InventoryItem, type Client } from '@/lib/data';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { WalkInQueue } from '@/components/pos/WalkInQueue';
-import { Badge } from '@/components/ui/badge';
+import { TeamStatus } from '@/components/pos/TeamStatus';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { buttonVariants } from '@/components/ui/button';
+import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
+import { collection, doc } from 'firebase/firestore';
+import { useTenant } from '@/context/TenantContext';
+import { useToast } from '@/hooks/use-toast';
+import { nanoid } from 'nanoid';
+import { differenceInMinutes, parseISO } from 'date-fns';
+
 
 export default function POSPage() {
     const { inventory, services, appointments, clients, walkIns, staff } = useInventory();
     const [activeOrder, setActiveOrder] = useState<Appointment | null>(null);
     const [cart, setCart] = useState<any[]>([]);
+    const [activeTab, setActiveTab] = useState('catalog');
+    const { firestore } = useFirebase();
+    const { selectedTenant } = useTenant();
+    const { toast } = useToast();
+    const [confirmation, setConfirmation] = useState<{ isOpen: boolean; title: string; description: string; onConfirm: () => void; } | null>(null);
+
 
     const posAppointments = useMemo(() => {
         if (!appointments || !clients || !services) return [];
@@ -79,51 +95,133 @@ export default function POSPage() {
         setCart(newCart);
     }
     
-    return (
-        <div className="h-screen w-full flex flex-col bg-slate-50 dark:bg-slate-950">
-            <AppHeader />
-            <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
-                <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-6">
-                    <OrderLine 
-                        appointments={posAppointments}
-                        onSelectOrder={handleSelectOrder}
-                        selectedOrderId={activeOrder?.id}
-                    />
-                    
-                    <Tabs defaultValue="catalog" className="flex-1 flex flex-col">
-                        <TabsList className="grid w-full grid-cols-2">
-                            <TabsTrigger value="catalog">Retail Catalog</TabsTrigger>
-                            <TabsTrigger value="queue">
-                                Walk-in Queue
-                                <Badge className="ml-2">{walkIns?.filter(w => w.status === 'waiting' || w.status === 'notified').length || 0}</Badge>
-                            </TabsTrigger>
-                        </TabsList>
-                        <TabsContent value="catalog" className="flex-1 mt-6">
-                            <RetailCatalog 
-                                services={services || []}
-                                inventory={inventory || []}
-                                onAddToCart={handleAddToCart}
-                            />
-                        </TabsContent>
-                        <TabsContent value="queue" className="flex-1 mt-6">
-                            <WalkInQueue 
-                                walkIns={walkIns}
-                                appointments={appointments}
-                                services={services}
-                                staff={staff}
-                            />
-                        </TabsContent>
-                    </Tabs>
+    const handleStatusChange = (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
+        if (!firestore || !staff || !selectedTenant) return;
+        const tenantId = selectedTenant.id;
 
-                </main>
-                <aside className="border-l bg-card p-4 lg:p-6 flex flex-col h-full overflow-y-auto">
-                    <CheckoutHub 
-                        order={activeOrder}
-                        cart={cart}
-                        onCartChange={handleCartChange}
-                    />
-                </aside>
+        const staffMember = staff.find(s => s.id === staffId);
+        if (!staffMember) return;
+        
+        const activityLogsRef = collection(firestore, 'tenants', tenantId, 'activityLogs');
+        const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
+        const now = new Date().toISOString();
+
+        let staffUpdate: Partial<Staff> = {};
+        let logEntry: Omit<ActivityLog, 'id'> = { staffId, type: action, timestamp: now };
+
+        switch (action) {
+            case 'clock_in':
+                staffUpdate = { active: true };
+                break;
+            case 'clock_out':
+                staffUpdate = { active: false, onBreak: false, status: 'idle' };
+                break;
+            case 'break_start':
+                staffUpdate = { onBreak: true, breakStartTime: now };
+                break;
+            case 'break_end':
+                if(staffMember.breakStartTime) {
+                    const duration = differenceInMinutes(new Date(now), parseISO(staffMember.breakStartTime));
+                    logEntry.durationMinutes = duration;
+                }
+                staffUpdate = { onBreak: false, breakStartTime: undefined }; 
+                break;
+        }
+        
+        addDocumentNonBlocking(activityLogsRef, logEntry);
+        updateDocumentNonBlocking(staffDocRef, staffUpdate);
+    };
+
+    const handleStatusChangeWithConfirmation = (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
+        const staffMember = staff?.find(s => s.id === staffId);
+        if (!staffMember) return;
+  
+        const titles = {
+            clock_in: 'Confirm Clock In',
+            clock_out: 'Confirm Clock Out',
+            break_start: 'Confirm Start Break',
+            break_end: 'Confirm End Break',
+        };
+         const descriptions = {
+            clock_in: `Are you sure you want to clock in ${staffMember.name}?`,
+            clock_out: `Are you sure you want to clock out ${staffMember.name}?`,
+            break_start: `Are you sure you want to start a break for ${staffMember.name}?`,
+            break_end: `Are you sure you want to end the break for ${staffMember.name}?`,
+        };
+        
+        setConfirmation({
+            isOpen: true,
+            title: titles[action],
+            description: descriptions[action],
+            onConfirm: () => {
+                handleStatusChange(staffId, action);
+                setConfirmation(null);
+            }
+        });
+    };
+    
+    return (
+        <>
+            <div className="h-screen w-full flex flex-col bg-slate-50 dark:bg-slate-950">
+                <AppHeader />
+                <div className="flex-1 grid lg:grid-cols-[1fr,400px] xl:grid-cols-[1fr,450px] overflow-hidden">
+                    <main className="flex-1 flex flex-col overflow-auto p-4 md:p-6 lg:p-8 gap-6">
+                        <TeamStatus staff={staff} onStatusChange={handleStatusChangeWithConfirmation} />
+                        <OrderLine 
+                            appointments={posAppointments}
+                            onSelectOrder={handleSelectOrder}
+                            selectedOrderId={activeOrder?.id}
+                        />
+                        
+                        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
+                            <TabsList className="grid w-full grid-cols-2">
+                                <TabsTrigger value="catalog">Retail Catalog</TabsTrigger>
+                                <TabsTrigger value="queue">
+                                    Walk-in Queue
+                                    <Badge className="ml-2">{walkIns?.filter(w => w.status === 'waiting' || w.status === 'notified').length || 0}</Badge>
+                                </TabsTrigger>
+                            </TabsList>
+                            <TabsContent value="catalog" className="flex-1 mt-6">
+                                <RetailCatalog 
+                                    services={services || []}
+                                    inventory={inventory || []}
+                                    onAddToCart={handleAddToCart}
+                                />
+                            </TabsContent>
+                            <TabsContent value="queue" className="flex-1 mt-6">
+                                <WalkInQueue 
+                                    walkIns={walkIns}
+                                    appointments={appointments}
+                                    services={services}
+                                    staff={staff}
+                                />
+                            </TabsContent>
+                        </Tabs>
+
+                    </main>
+                    <aside className="border-l bg-card p-4 lg:p-6 flex flex-col h-full overflow-y-auto">
+                        <CheckoutHub 
+                            order={activeOrder}
+                            cart={cart}
+                            onCartChange={handleCartChange}
+                        />
+                    </aside>
+                </div>
             </div>
-        </div>
+             {confirmation && (
+                <AlertDialog open={confirmation.isOpen} onOpenChange={() => setConfirmation(null)}>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>{confirmation.title}</AlertDialogTitle>
+                            <AlertDialogDescription>{confirmation.description}</AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel onClick={() => setConfirmation(null)}>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={confirmation.onConfirm}>Confirm</AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+            )}
+        </>
     )
 }

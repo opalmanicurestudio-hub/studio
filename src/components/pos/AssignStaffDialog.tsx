@@ -30,7 +30,7 @@ export const AssignStaffDialog: React.FC<AssignStaffDialogProps> = ({ open, onOp
 
     if (!walkIn) return null;
 
-    const availableStaff = staff?.filter(s => s.status === 'idle');
+    const availableStaff = staff?.filter(s => s.status === 'idle' && s.active && !s.onBreak);
 
     const handleAssign = () => {
         if (selectedStaffId) {
