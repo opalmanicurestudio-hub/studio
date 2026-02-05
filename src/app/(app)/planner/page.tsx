@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -164,6 +162,34 @@ function PlannerPageContent() {
         endTime: (evt.endTime as any)?.toDate ? (evt.endTime as any).toDate() : new Date(evt.endTime),
     }));
   }, [eventsFromInventory]);
+  
+  useEffect(() => {
+    const fromDate = subDays(new Date(), 7); 
+    const toDate = new Date();
+    
+    const stuckAppointments = (appointments || []).filter(apt => 
+      apt.status === 'ready_for_checkout' && 
+      apt.endTime > fromDate &&
+      apt.endTime < toDate &&
+      (differenceInHours(new Date(), apt.endTime) > 2)
+    );
+      
+    const appointmentIdsWithTransactions = new Set(
+      (transactions || []).filter(t => t.appointmentId).map(t => t.appointmentId)
+    );
+
+    const appointmentsToFix = stuckAppointments.filter(apt => appointmentIdsWithTransactions.has(apt.id));
+
+    if (appointmentsToFix.length > 0 && firestore && tenantId) {
+        const batch = writeBatch(firestore);
+        appointmentsToFix.forEach(apt => {
+            const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, apt.id);
+            batch.update(appointmentRef, { status: 'completed' });
+        });
+        batch.commit();
+    }
+  }, [appointments, transactions, firestore, tenantId]);
+
 
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
@@ -509,224 +535,13 @@ function PlannerPageContent() {
     }
   };
 
-  const handleCheckout = async (data: CheckoutData) => {
-    if (!selectedAppointment || !firestore || !tenantId) return;
-
-    const {
-      updatedInventory,
-      newCorrections,
-      receiptData,
-      incident,
-      serviceStaffOverrides,
-      tipAllocations,
-      addOns,
-      absorbedCost,
-      redeemedOffer,
-      appliedDiscountId,
-      discountAmount,
-    } = data;
-    
-    const service = services?.find(s => s.id === selectedAppointment.serviceId);
-    if (!service) return;
-
-    const finalBreakEven = (service.cost || 0) + addOns.reduce((acc, s) => acc + (s.cost || 0), 0);
-    
-    const batch = writeBatch(firestore);
-
-    const transactionsRef = collection(firestore, `tenants/${tenantId}/transactions`);
-
-    // 1. Service Revenue Transactions
-    const allServicesForAppointment = [service, ...addOns].filter(Boolean) as Service[];
-    allServicesForAppointment.forEach(s => {
-        const staffId = serviceStaffOverrides[s.id] || selectedAppointment.staffId;
-        const newTransaction: Omit<Transaction, 'id' | 'date'> = {
-            description: `Service: ${s.name}`,
-            clientOrVendor: (clients || []).find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
-            clientId: selectedAppointment.clientId,
-            type: 'income',
-            context: 'Business',
-            category: 'Service Revenue',
-            amount: redeemedOffer ? 0 : s.price,
-            paymentMethod: receiptData.payment.method,
-            hasReceipt: true,
-            staffId: staffId,
-            appointmentId: selectedAppointment.id,
-        };
-        batch.set(doc(transactionsRef), {...newTransaction, date: new Date().toISOString()});
-    });
-
-    // 2. Tip Transactions
-    Object.entries(tipAllocations).forEach(([staffId, tipAmount]) => {
-        if (tipAmount > 0) {
-            const newTransaction: Omit<Transaction, 'id' | 'date'> = {
-                description: `Tip for Appointment #${selectedAppointment.id.slice(-4)}`,
-                clientOrVendor: (clients || []).find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
-                clientId: selectedAppointment.clientId,
-                type: 'income',
-                context: 'Business',
-                category: 'Tips',
-                amount: tipAmount,
-                paymentMethod: receiptData.payment.method,
-                hasReceipt: true,
-                staffId: staffId,
-                tipAmount: tipAmount,
-                appointmentId: selectedAppointment.id,
-            };
-            batch.set(doc(transactionsRef), {...newTransaction, date: new Date().toISOString()});
-        }
-    });
-
-    // 3. Retail Transactions
-    if (data.retailItems.length > 0 && inventory) {
-        data.retailItems.forEach(item => {
-            const product = inventory.find(p => p.id === item.id);
-            if (!product) return;
-            const price = product.msrp || product.costPerUnit || 0;
-            const retailTotal = item.quantity * price;
-            
-            if (retailTotal > 0) {
-                const newTransaction: Omit<Transaction, 'id' | 'date'> = {
-                    description: `Retail: ${item.quantity}x ${item.name}`,
-                    clientOrVendor: (clients || []).find(c => c.id === selectedAppointment.clientId)?.name || 'N/A',
-                    clientId: selectedAppointment.clientId,
-                    type: 'income',
-                    context: 'Business',
-                    category: 'Retail',
-                    amount: retailTotal,
-                    paymentMethod: receiptData.payment.method,
-                    hasReceipt: true,
-                    staffId: selectedAppointment.staffId,
-                    appointmentId: selectedAppointment.id,
-                };
-                 batch.set(doc(transactionsRef), {...newTransaction, date: new Date().toISOString()});
-            }
-        });
-    }
-    
-    // 4. Update stock corrections
-    newCorrections.forEach((correction) => {
-        batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), correction);
-    });
-
-    // 4.5 Updated to persist batch data
-    updatedInventory.forEach(item => {
-        if (!inventory) return;
-        const originalItem = inventory.find(i => i.id === item.id);
-        if (!originalItem) return;
-
-        const stockChanged = item.totalStock !== originalItem.totalStock ||
-                             item.partialContainerUses !== originalItem.partialContainerUses ||
-                             item.partialContainerSize !== originalItem.partialContainerSize ||
-                             JSON.stringify(item.batches) !== JSON.stringify(originalItem.batches);
-
-        if (stockChanged) {
-            const itemDocRef = doc(firestore, `tenants/${tenantId}/inventory`, item.id);
-            batch.update(itemDocRef, {
-                totalStock: item.totalStock,
-                partialContainerUses: item.partialContainerUses,
-                partialContainerSize: item.partialContainerSize,
-                batches: item.batches,
-            });
-        }
-    });
-    
-    // 5. Update appointment
-    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id);
-    const updateData: Partial<Appointment> & {revenue?: number, cost?: number, profit?: number} = {
-        status: 'completed',
-        absorbedCost: absorbedCost,
-        inventoryProcessed: true,
-        discountAmount: discountAmount,
-        appliedDiscountCode: appliedDiscountId || '',
-        revenue: receiptData.total - receiptData.tip,
-        cost: finalBreakEven,
-        profit: receiptData.total - receiptData.tip - finalBreakEven,
-    };
-    batch.update(appointmentRef, updateData);
-
-    if (selectedAppointment.checkInToken) {
-        const checkInRef = doc(firestore, 'appointmentCheckIns', selectedAppointment.checkInToken);
-        batch.update(checkInRef, { status: 'completed' });
-    }
-    
-    // 6. Update staff status for all involved staff
-    const staffIdsInvolved = new Set(Object.values(serviceStaffOverrides));
-    staffIdsInvolved.forEach(staffId => {
-      if (staffId) {
-        const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
-        batch.update(staffDocRef, {
-          status: 'idle',
-          lastServedTimestamp: new Date().toISOString(),
-        });
-      }
-    });
-    
-    // 7. Update Walk-in if applicable
-    if (selectedAppointment.isWalkIn) {
-      const walkInId = selectedAppointment.id.replace('apt-walkin-', '');
-      const walkInDocRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkInId);
-      batch.update(walkInDocRef, { status: 'completed' });
-    }
-    
-    // 8. Update Client Document
-    const clientToUpdate = (clients || []).find(c => c.id === selectedAppointment.clientId);
-    if (clientToUpdate) {
-        const clientDocRef = doc(firestore, `tenants/${tenantId}/clients`, clientToUpdate.id);
-        
-        const clientLTVUpdates: Partial<Client> & { [key: string]: any } = {
-            lifetimeValue: increment(receiptData.total),
-            lastAppointment: new Date().toISOString()
-        };
-        
-        if (redeemedOffer?.type === 'package') {
-            clientLTVUpdates.activePackages = clientToUpdate.activePackages?.map(p => {
-                if (p.packageId === redeemedOffer.id) {
-                    return { ...p, sessionsRemaining: p.sessionsRemaining - 1 };
-                }
-                return p;
-            }).filter(p => p.sessionsRemaining > 0);
-        }
-
-        if (incident) {
-            const incidentToSave: Incident = { 
-                ...incident, 
-                id: nanoid(), 
-                date: new Date().toISOString(),
-                appointmentId: selectedAppointment.id,
-            };
-            clientLTVUpdates['intel.hasIncidents'] = true;
-            clientLTVUpdates['intel.incidents'] = arrayUnion(incidentToSave);
-
-            errorEmitter.emit('incident-reported', {
-                clientName: clientToUpdate.name,
-                clientId: clientToUpdate.id,
-                incidentType: incident.type,
-            });
-        }
-
-        batch.update(clientDocRef, clientLTVUpdates);
-    }
-    
-    // 9. Update Discount Usage
-    if (appliedDiscountId) {
-        const discountRef = doc(firestore, 'tenants', tenantId, 'discounts', appliedDiscountId);
-        const discountUpdate: any = {
-            usageCount: increment(1)
-        };
-        if (selectedAppointment.clientId) {
-            discountUpdate.usedByClientIds = arrayUnion(selectedAppointment.clientId);
-        }
-        batch.update(discountRef, discountUpdate);
-    }
-    
-    await batch.commit();
-
+  const handleCheckoutComplete = (receiptData: Omit<ReceiptData, 'business'>) => {
     setReceiptDataForPrompt({
-        business: { name: 'ClarityFlow Salon', phone: '555-123-4567' },
+        business: { name: selectedTenant?.name || 'ClarityFlow', phone: '555-123-4567' },
         ...receiptData
     });
-  };
-  
+  }
+
   const handleAddAppointment = async (newAppointmentData: Omit<Appointment, 'id' | 'startTime' | 'endTime'> & {startTime: Date, endTime: Date, recurrence?: { frequency: string, endDate: Date }}) => {
     if (!firestore || !tenantId) return;
 
@@ -1464,7 +1279,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1501,7 +1316,7 @@ function PlannerPageContent() {
                 onMobileStaffChange={setMobileSelectedStaffId}
                 itemsByColumn={itemsByColumn}
                 onCompleteClick={handleCompleteClick} 
-                onUpdateStatus={handleUpdateStatus}
+                onUpdateStatus={onUpdateStatus}
                 onDeleteAppointment={handleDeleteAppointment} 
                 onPrintReceipt={handlePrintReceipt}
                 onPrintTicket={handlePrintTicket}
@@ -1539,10 +1354,9 @@ function PlannerPageContent() {
               if(!isOpen) setSelectedAppointment(null);
               setIsCheckoutOpen(isOpen);
             }}
-            appointmentData={selectedAppointmentData}
-            onConfirmCheckout={handleCheckout}
+            appointmentsData={[selectedAppointmentData]}
+            onCheckoutComplete={handleCheckoutComplete}
             onRebook={handleRebook}
-            staff={staff || []}
         />
       )}
       {selectedAppointmentData && (
@@ -1744,5 +1558,3 @@ export default function PlannerPageWrapper() {
     </Suspense>
   )
 }
-
-    
