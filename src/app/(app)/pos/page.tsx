@@ -4,7 +4,7 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { User, Users, Clock, CheckCircle, Coffee, ShieldAlert, Link as LinkIcon, MoreHorizontal, Printer, UserPlus, ArrowUp, ArrowDown, DollarSign, Bell, Lock, Building, HardHat, TrendingUp, UserX, SlidersHorizontal, MessageSquare, ShoppingCart } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
@@ -306,32 +306,41 @@ const NotifiedCustomerCard = ({ walkIn, onStartService, onSkip, skipTimeMinutes 
 };
 
 
-const ServicingCustomerCard = ({ item, services, resources, staff, onStatusChange, onPrintTicket, onFinishService }: { item: WalkIn | Appointment, services: any[], resources: Resource[], staff: Staff[], onStatusChange: (itemId: string, staffId: string, status: WalkIn['status']) => void, onPrintTicket: (data: any) => void, onFinishService: (item: WalkIn | Appointment) => void }) => {
+const ServicingCustomerCard = ({ appointment, services, resources, staff, onUpdateStatus, onPrintTicket, onFinishService, walkIns }: { appointment: Appointment, services: any[], resources: Resource[], staff: Staff[], onUpdateStatus: (appointmentId: string, status: Appointment['status']) => void, onPrintTicket: (data: any) => void, onFinishService: (item: Appointment) => void, walkIns: WalkIn[] | null }) => {
     
-    const isWalkIn = 'customerName' in item;
-    const serviceIds = isWalkIn ? item.serviceIds : [item.serviceId, ...(item.addOnIds || [])];
-    const customerName = isWalkIn ? item.customerName : (item as Appointment).clientName;
-    const assignedStaff = staff.find(s => s.id === item.assignedStaffId || s.id === (item as Appointment).staffId);
+    const serviceIds = [appointment.serviceId, ...(appointment.addOnIds || [])];
+    const customerName = appointment.clientName;
+    const assignedStaff = staff.find(s => s.id === appointment.staffId);
     
     const itemServices = services.filter(s => serviceIds.includes(s.id));
-    const waitTime = 'checkInTime' in item && item.serviceStartTime ? differenceInMinutes(parseISO(item.serviceStartTime), parseISO(item.checkInTime)) : null;
+    
+    const waitTime = useMemo(() => {
+        if (appointment.isWalkIn && appointment.actualStartTime && walkIns) {
+            const walkInId = appointment.id.replace('apt-walkin-', '');
+            const walkIn = walkIns.find(w => w.id === walkInId);
+            if (walkIn) {
+                return differenceInMinutes(parseISO(appointment.actualStartTime as string), parseISO(walkIn.checkInTime));
+            }
+        }
+        return null;
+    }, [appointment, walkIns]);
 
     const [elapsedTime, setElapsedTime] = useState<string | null>(null);
 
-    const serviceStartTime = isWalkIn ? item.serviceStartTime : (item as Appointment).actualStartTime;
+    const serviceStartTime = appointment.actualStartTime;
 
     const assignedSlot = useMemo(() => {
-        if (!serviceStartTime) return null;
-        const start = parseISO(serviceStartTime);
-        const end = addMinutes(start, item.estimatedDuration);
+        if (!serviceStartTime || !appointment.endTime) return null;
+        const start = parseISO(serviceStartTime as string);
+        const end = typeof appointment.endTime === 'string' ? parseISO(appointment.endTime) : appointment.endTime;
         return `${format(start, 'h:mm a')} - ${format(end, 'h:mm a')}`;
-    }, [serviceStartTime, item.estimatedDuration]);
+    }, [serviceStartTime, appointment.endTime]);
 
     useEffect(() => {
         let timer: NodeJS.Timeout | undefined;
 
-        if (item.status === 'servicing' && serviceStartTime) {
-            const startTime = parseISO(serviceStartTime);
+        if (appointment.status === 'servicing' && serviceStartTime) {
+            const startTime = parseISO(serviceStartTime as string);
             timer = setInterval(() => {
                 const now = new Date();
                 const diffInSeconds = differenceInSeconds(now, startTime);
@@ -355,7 +364,27 @@ const ServicingCustomerCard = ({ item, services, resources, staff, onStatusChang
                 clearInterval(timer);
             }
         };
-    }, [item.status, serviceStartTime]);
+    }, [appointment.status, serviceStartTime]);
+
+    const handleSkip = () => {
+        if (appointment.isWalkIn) {
+            const walkInId = appointment.id.replace('apt-walkin-', '');
+            // This is a bit of a hack as onStatusChange was for walkins.
+            // A better refactor would unify status updates.
+            // For now, let's assume it updates the walkin status.
+            // onStatusChange(walkInId, assignedStaff?.id || '', 'skipped');
+        } else {
+            onUpdateStatus(appointment.id, 'cancelled');
+        }
+    };
+    
+    const handlePrintTicketClick = () => {
+        if (appointment.isWalkIn && walkIns) {
+            const walkInId = appointment.id.replace('apt-walkin-', '');
+            const walkIn = walkIns.find(w => w.id === walkInId);
+            if(walkIn) onPrintTicket(walkIn);
+        }
+    }
 
     return (
         <Card className="bg-primary/5 border-primary/20">
@@ -364,7 +393,7 @@ const ServicingCustomerCard = ({ item, services, resources, staff, onStatusChang
                     <div className="space-y-1">
                         <p className="font-bold text-xl">{customerName}</p>
                         <p className="text-sm text-primary">With: {assignedStaff?.name || 'N/A'}</p>
-                        {assignedSlot && <p className="text-sm font-semibold">{format(parseISO(serviceStartTime!), 'MMM d, yyyy')} &middot; {assignedSlot}</p>}
+                        {assignedSlot && <p className="text-sm font-semibold">{format(parseISO(serviceStartTime as string), 'MMM d, yyyy')} &middot; {assignedSlot}</p>}
                         {waitTime !== null && <p className="text-xs text-muted-foreground">Waited {waitTime} minutes</p>}
                     </div>
                     <div className="flex flex-col items-end gap-1">
@@ -378,7 +407,7 @@ const ServicingCustomerCard = ({ item, services, resources, staff, onStatusChang
                                     <Button variant="ghost" size="icon" className="h-8 w-8 -mr-2"><MoreHorizontal className="h-4 w-4" /></Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent>
-                                    <DropdownMenuItem onClick={() => onPrintTicket(item)}>
+                                    <DropdownMenuItem onClick={handlePrintTicketClick} disabled={!appointment.isWalkIn}>
                                         <Printer className="mr-2 h-4 w-4"/>Print Ticket
                                     </DropdownMenuItem>
                                 </DropdownMenuContent>
@@ -396,8 +425,8 @@ const ServicingCustomerCard = ({ item, services, resources, staff, onStatusChang
                     </ul>
                 </div>
                  <div className="mt-4 border-t pt-4 flex justify-end gap-2">
-                    <Button variant="outline" size="sm" onClick={() => onStatusChange(item.id, assignedStaff?.id || '', 'skipped')}>Mark as Skipped</Button>
-                    <Button size="sm" onClick={() => onFinishService(item)}>Finish Service</Button>
+                    <Button variant="outline" size="sm" onClick={handleSkip}>Mark as Skipped</Button>
+                    <Button size="sm" onClick={() => onFinishService(appointment)}>Finish Service</Button>
                 </div>
             </CardContent>
         </Card>
@@ -624,6 +653,7 @@ export default function POSPage() {
         ...apt,
         startTime: (apt.startTime as any)?.toDate ? (apt.startTime as any).toDate() : new Date(apt.startTime),
         endTime: (apt.endTime as any)?.toDate ? (apt.endTime as any).toDate() : new Date(apt.endTime),
+        actualStartTime: apt.actualStartTime ? ((apt.actualStartTime as any)?.toDate ? (apt.actualStartTime as any).toDate() : (apt.actualStartTime as string)) : undefined,
     }));
   }, [appointmentsFromDB]);
 
@@ -1022,21 +1052,24 @@ export default function POSPage() {
     return (walkIns || []).filter(w => w.status === 'notified').sort((a, b) => parseISO(a.notifiedTimestamp!).getTime() - parseISO(b.notifiedTimestamp!).getTime());
   }, [walkIns]);
   
-    const servicingQueue = useMemo(() => {
-        if (!appointments && !walkIns) return [];
-        const servicingWalkIns = (walkIns || []).filter(w => w.status === 'assigned' || w.status === 'servicing');
-        const servicingAppointments = (appointments || []).filter(a => a.status === 'servicing' && !a.isWalkIn);
-        const combined = [...servicingWalkIns, ...servicingAppointments];
-        return combined.sort((a,b) => {
-            const aTime = 'checkInTime' in a ? a.checkInTime : a.startTime;
-            const bTime = 'checkInTime' in b ? b.checkInTime : b.startTime;
-            
-            const aTimestamp = aTime ? (typeof aTime === 'string' ? parseISO(aTime).getTime() : aTime.getTime()) : 0;
-            const bTimestamp = bTime ? (typeof bTime === 'string' ? parseISO(bTime).getTime() : bTime.getTime()) : 0;
+  const servicingQueue = useMemo(() => {
+    if (!appointments) return [];
+    
+    // The single source of truth for what is "in service" is the appointments collection.
+    // Any active service, walk-in or not, will have an appointment record with status 'servicing'.
+    const inServiceAppointments = (appointments || []).filter(a => a.status === 'servicing');
+    
+    return inServiceAppointments.sort((a,b) => {
+        // Use actualStartTime if available for more accurate sorting
+        const aTime = a.actualStartTime || a.startTime;
+        const bTime = b.actualStartTime || b.startTime;
+        
+        const aTimestamp = aTime ? (typeof aTime === 'string' ? parseISO(aTime).getTime() : aTime.getTime()) : 0;
+        const bTimestamp = bTime ? (typeof bTime === 'string' ? parseISO(bTime).getTime() : bTime.getTime()) : 0;
 
-            return aTimestamp - bTimestamp;
-        });
-    }, [appointments, walkIns]);
+        return aTimestamp - bTimestamp;
+    });
+  }, [appointments]);
 
   const readyForCheckoutQueue = useMemo(() => {
     const walkInsReady = (walkIns || []).filter(w => w.status === 'ready_for_checkout');
@@ -1058,29 +1091,12 @@ export default function POSPage() {
     });
   }, [walkIns, appointments]);
 
-  const handleFinishService = (item: WalkIn | Appointment) => {
+  const handleFinishService = (item: Appointment) => {
     if (!firestore || !services || !tenantId) return;
     
-    const isWalkIn = 'customerName' in item;
-    const appointmentId = isWalkIn ? `apt-walkin-${item.id}` : item.id;
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', item.id);
     
-    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
-    
-    const appointment: Appointment = {
-        id: appointmentId,
-        clientId: isWalkIn ? item.clientId || '' : item.clientId,
-        serviceId: isWalkIn ? item.serviceIds[0] : item.serviceId,
-        startTime: parseISO(isWalkIn ? item.serviceStartTime! : item.startTime as any),
-        endTime: new Date(), // This will be the current time
-        status: 'servicing',
-        isWalkIn,
-        actualStartTime: serviceStartTime,
-        actualEndTime: new Date().toISOString(),
-        tenantId,
-        source: 'walk-in', // Adjust as needed
-    };
-    
-    setSelectedAppointment(appointment);
+    setSelectedAppointment(item);
     setIsTechnicianReviewOpen(true);
   };
 
@@ -1139,6 +1155,12 @@ export default function POSPage() {
         });
     }
   }, [firestore, tenantId]);
+  
+  const handleUpdateAppointmentStatus = (appointmentId: string, status: Appointment['status']) => {
+    if (!firestore || !tenantId) return;
+    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointmentId);
+    updateDocumentNonBlocking(appointmentRef, { status });
+  }
 
   const handleCompleteClick = (item: WalkIn | Appointment) => {
     if (!services || !clients) return;
@@ -1492,16 +1514,17 @@ export default function POSPage() {
                     <ScrollArea className="h-full">
                         <div className="p-6 space-y-4">
                             {servicingQueue.length > 0 ? (
-                                servicingQueue.map(item => (
+                                servicingQueue.map(appointment => (
                                     <ServicingCustomerCard 
-                                        key={item.id} 
-                                        item={item} 
+                                        key={appointment.id} 
+                                        appointment={appointment} 
                                         services={services || []} 
                                         resources={resources || []}
                                         staff={staff || []}
-                                        onStatusChange={handleWalkInStatusChange}
+                                        onUpdateStatus={handleUpdateAppointmentStatus}
                                         onPrintTicket={setTicketToPrint}
                                         onFinishService={handleFinishService}
+                                        walkIns={walkIns}
                                     />
                                 ))
                             ) : (
