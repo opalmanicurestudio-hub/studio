@@ -182,8 +182,8 @@ const StaffMemberCard = ({ member, isNextUp, onStatusChange, appointments, servi
                                 <p className="text-xs text-muted-foreground truncate">{currentService.name}</p>
                                 <p className={cn("text-lg font-mono font-semibold", isOvertime ? "text-destructive" : "text-primary")}>{elapsedTime}</p>
                             </div>
-                        ) : availability && availability.status ? (
-                            <span className="text-lg text-blue-500">{availability.status}</span>
+                        ) : member.availability && member.availability.status ? (
+                            <span className="text-lg text-blue-500">{member.availability.status}</span>
                         ) : null}
                     </div>
                     
@@ -222,7 +222,10 @@ const StaffMemberCard = ({ member, isNextUp, onStatusChange, appointments, servi
                             Edit Profile
                         </Button>
                     </div>
-                </CardFooter>
+                     <Button asChild variant="link" size="sm" className="text-xs h-auto py-1 w-full">
+                    <Link href={`/staff/${member.id}`}>View Public Profile</Link>
+                </Button>
+            </CardFooter>
             </Card>
         </Reorder.Item>
     )
