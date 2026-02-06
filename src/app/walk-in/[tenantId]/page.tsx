@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useEffect, KeyboardEvent } from 'react';
@@ -44,7 +45,7 @@ import {
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
-type Step = 'services' | 'consents' | 'details' | 'confirmation';
+type Step = 'services' | 'consents' | 'confirmation';
 
 const StaffSelectionCard = ({ staff, isSelected, onSelect }: { staff: Staff | { id: string, name: string, avatarUrl: string }, isSelected: boolean, onSelect: () => void }) => {
     const isAnyStaff = staff.id === 'any';
@@ -376,25 +377,26 @@ export default function WalkInPage() {
     return consentForms.filter(f => formIds.has(f.id));
   }, [selectedServices, partyMembers, consentForms, services]);
 
-  const handleServicesNext = () => {
-    if (requiredForms.length > 0) {
-      setStep('consents');
-    } else {
-      setStep('details');
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
 
-    if (!customerName || (selectedServices.length === 0 && partyMembers.length === 0)) {
+    if (!customerName || (selectedServices.length === 0 && partyMembers.every(m => m.serviceIds.length === 0))) {
       toast({
         variant: 'destructive',
         title: 'Missing Information',
         description: 'Please enter your name and select at least one service for someone in your party.',
       });
       return;
+    }
+    if (!/^\S+@\S+\.\S+$/.test(customerEmail)) {
+        toast({ variant: 'destructive', title: 'Invalid Email', description: 'Please enter a valid email address.' });
+        return;
+    }
+
+    if (requiredForms.length > 0 && step === 'services') {
+        setStep('consents');
+        return;
     }
     
     setIsSubmitting(true);
@@ -440,7 +442,7 @@ export default function WalkInPage() {
     }
   };
 
-  const progressValue = step === 'services' ? 25 : step === 'consents' ? 50 : step === 'details' ? 75 : 100;
+  const progressValue = step === 'services' ? 33 : step === 'consents' ? 66 : 100;
   
   const resetFlow = () => {
     setCustomerName('');
@@ -576,248 +578,210 @@ export default function WalkInPage() {
           <div className="p-6 border-b">
             <Progress value={progressValue} className="h-2" />
           </div>
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={step}
-              initial={{ opacity: 0, x: 50 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -50 }}
-              transition={{ duration: 0.3, ease: "easeInOut" }}
-            >
-              {step === 'services' && (
-                <div>
-                  <CardHeader>
-                    <CardTitle>{partyType === 'group' ? "Build Your Party's Request" : "Select Your Services"}</CardTitle>
-                    <CardDescription>Select the services needed for each person.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-6 max-h-[50vh] overflow-y-auto">
-                    <div className="space-y-2">
-                        <Label className="font-semibold text-base">Your Services</Label>
-                        <Accordion type="multiple" defaultValue={['main-services']} className="w-full space-y-2">
-                            <AccordionItem value="main-services" className="border rounded-md">
-                                <AccordionTrigger className="p-3">Select services for yourself</AccordionTrigger>
-                                <AccordionContent className="space-y-2 px-3 pb-3">
-                                    {mainServices.map(service => {
-                                        const isSelected = selectedServices.some(s => s.id === service.id);
-                                        return (
-                                            <div key={service.id} className="border-b last:border-b-0">
-                                                <label htmlFor={`primary-${service.id}`} className="flex items-center space-x-4 p-2 cursor-pointer">
-                                                    <Checkbox id={`primary-${service.id}`} checked={isSelected} onCheckedChange={() => handleServiceToggle(service)} className="h-5 w-5" />
-                                                    <div className="flex-1">
-                                                        <span className="font-medium text-sm">{service.name}</span>
-                                                        <p className="text-xs text-muted-foreground">{service.duration} min &middot; ${service.price.toFixed(2)}</p>
-                                                    </div>
-                                                </label>
-                                            </div>
-                                        )
-                                    })}
-                                </AccordionContent>
-                            </AccordionItem>
-                        </Accordion>
-                    </div>
-
-                    {partyType === 'group' && (
-                      <div className="space-y-4">
-                        <Label className="font-semibold text-base">Your Group</Label>
-                        <div className="space-y-4">
-                            {partyMembers.map(member => (
-                                <PartyMemberEditor
-                                    key={member.id}
-                                    member={member}
-                                    onUpdate={handleUpdatePartyMember}
-                                    onRemove={handleRemovePartyMember}
-                                    services={mainServices}
-                                />
-                            ))}
-                        </div>
-                        <Button variant="outline" className="w-full" type="button" onClick={handleAddPartyMember}>
-                            <PlusCircle className="mr-2 h-4 w-4" /> Add Another Person
-                        </Button>
-                      </div>
-                    )}
-                  </CardContent>
-                  <CardFooter className="flex justify-between">
-                    <Button variant="ghost" onClick={() => setPartyType(null)}>
-                        <ArrowLeft className="mr-2 h-4 w-4" /> Back
-                    </Button>
-                    <Button onClick={handleServicesNext} disabled={selectedServices.length === 0 && partyMembers.length === 0}>
-                        Next <ArrowRight className="ml-2 h-4 w-4" />
-                    </Button>
-                  </CardFooter>
-                </div>
-              )}
-              {step === 'consents' && (
-                <div>
-                  <CardHeader>
-                    <CardTitle>Consent Forms</CardTitle>
-                    <CardDescription>Please review and acknowledge the following forms before continuing.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4 max-h-[40vh] overflow-y-auto">
-                    {requiredForms.map(form => (
-                        <Card key={form.id}>
-                            <CardHeader>
-                                <CardTitle className="text-lg">{form.title}</CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                                {form.fields?.map(field => <FormFieldRenderer key={field.id} field={field} />)}
-                                <div className="flex items-center space-x-2 pt-4 border-t">
-                                    <Checkbox id={`consent-ack-${form.id}`}
-                                        checked={completedForms.has(form.id)}
-                                        onCheckedChange={(checked) => {
-                                            const newCompleted = new Set(completedForms);
-                                            if (checked) {
-                                                newCompleted.add(form.id);
-                                            } else {
-                                                newCompleted.delete(form.id);
-                                            }
-                                            setCompletedForms(newCompleted);
-                                        }}
-                                    />
-                                    <Label htmlFor={`consent-ack-${form.id}`} className="text-sm font-normal">
-                                        I have read, understood, and agree to the terms of this form.
-                                    </Label>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    ))}
-                  </CardContent>
-                  <CardFooter className="flex justify-between">
-                        <Button variant="ghost" onClick={() => setStep('services')} type="button">
-                            <ArrowLeft className="mr-2 h-4 w-4" /> Back
-                        </Button>
-                        <Button onClick={() => setStep('details')} disabled={completedForms.size < requiredForms.length}>
-                            Next <ArrowRight className="ml-2 h-4 w-4" />
-                        </Button>
-                  </CardFooter>
-                </div>
-              )}
-              {step === 'details' && (
-                <form onSubmit={handleSubmit}>
+          <form onSubmit={handleSubmit}>
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={step}
+                initial={{ opacity: 0, x: 50 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -50 }}
+                transition={{ duration: 0.3, ease: "easeInOut" }}
+              >
+                {step === 'services' && (
+                  <div>
                     <CardHeader>
-                        <CardTitle>Your Details</CardTitle>
-                        <CardDescription>Just a few more details to get you on the list.</CardDescription>
+                      <CardTitle>{partyType === 'group' ? "Build Your Party's Request" : "Select Your Services"}</CardTitle>
+                      <CardDescription>Select the services needed and enter the primary contact's info.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-6 max-h-[50vh] overflow-y-auto">
+                      {/* Services for primary person */}
+                      <div className="space-y-2">
+                          <Label className="font-semibold text-base">Your Services</Label>
+                          <Accordion type="multiple" defaultValue={['main-services']} className="w-full space-y-2">
+                              <AccordionItem value="main-services" className="border rounded-md">
+                                  <AccordionTrigger className="p-3">Select services for yourself</AccordionTrigger>
+                                  <AccordionContent className="space-y-2 px-3 pb-3">
+                                      {mainServices.map(service => {
+                                          const isSelected = selectedServices.some(s => s.id === service.id);
+                                          return (
+                                              <div key={service.id} className="border-b last:border-b-0">
+                                                  <label htmlFor={`primary-${service.id}`} className="flex items-center space-x-4 p-2 cursor-pointer">
+                                                      <Checkbox id={`primary-${service.id}`} checked={isSelected} onCheckedChange={() => handleServiceToggle(service)} className="h-5 w-5" />
+                                                      <div className="flex-1">
+                                                          <span className="font-medium text-sm">{service.name}</span>
+                                                          <p className="text-xs text-muted-foreground">{service.duration} min &middot; ${service.price.toFixed(2)}</p>
+                                                      </div>
+                                                  </label>
+                                              </div>
+                                          )
+                                      })}
+                                  </AccordionContent>
+                              </AccordionItem>
+                          </Accordion>
+                      </div>
+
+                      {/* Party members */}
+                      {partyType === 'group' && (
                         <div className="space-y-4">
-                            <h4 className="font-semibold text-lg">Primary Contact</h4>
-                             {selectedClientId && (
-                                <div className="p-3 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <CheckCircle className="w-5 h-5 text-primary" />
-                                        <div>
-                                            <p className="text-sm font-medium">Welcome back, {customerName}!</p>
-                                            <p className="text-xs text-muted-foreground">Continuing with your profile.</p>
-                                        </div>
-                                    </div>
-                                    <Button variant="ghost" size="sm" onClick={resetClientSelection}>Not you?</Button>
-                                </div>
-                            )}
-                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="phone">Phone Number (for SMS updates)</Label>
-                                    <div className="relative">
-                                        <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                        <Input id="phone" type="tel" value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="(555) 123-4567" className="pl-9" />
-                                    </div>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="email">Email Address</Label>
-                                    <div className="relative">
-                                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                        <Input id="email" type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="jane.doe@example.com" className="pl-9" />
-                                    </div>
-                                </div>
-                            </div>
-                            {potentialMatches.length > 0 && !selectedClientId && (
-                                <div className="space-y-3">
-                                    <p className="text-sm font-medium text-center">Are you an existing client?</p>
-                                    <Card>
-                                        <CardContent className="p-2 space-y-1">
-                                            {potentialMatches.map(client => (
-                                                <Button key={client.id} variant="ghost" className="w-full justify-start h-auto p-3" onClick={() => handleSelectClient(client)}>
-                                                    <Avatar className="w-10 h-10 mr-4">
-                                                        <AvatarImage src={client.avatarUrl} />
-                                                        <AvatarFallback>{client.name.charAt(0)}</AvatarFallback>
-                                                    </Avatar>
-                                                    <div>
-                                                        <p className="font-semibold text-base">{client.name}</p>
-                                                        <p className="text-sm text-muted-foreground">{client.email}</p>
-                                                    </div>
-                                                </Button>
-                                            ))}
-                                        </CardContent>
-                                    </Card>
-                                </div>
-                            )}
-                             <div className="space-y-2">
-                                <Label htmlFor="name">Your Name</Label>
-                                <div className="relative">
-                                    <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                    <Input id="name" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Jane Doe" required className="pl-9" disabled={!!selectedClientId} />
-                                </div>
-                            </div>
+                          <Label className="font-semibold text-base">Your Group</Label>
+                          <div className="space-y-4">
+                              {partyMembers.map(member => (
+                                  <PartyMemberEditor
+                                      key={member.id}
+                                      member={member}
+                                      onUpdate={handleUpdatePartyMember}
+                                      onRemove={handleRemovePartyMember}
+                                      services={mainServices}
+                                  />
+                              ))}
+                          </div>
+                          <Button variant="outline" className="w-full" type="button" onClick={handleAddPartyMember}>
+                              <PlusCircle className="mr-2 h-4 w-4" /> Add Another Person
+                          </Button>
                         </div>
-                        
-                         <div className="space-y-2">
-                            <Label>Preferred Staff</Label>
-                             <RadioGroup value={preferredStaffId} onValueChange={setPreferredStaffId} className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                 <StaffSelectionCard staff={{id: 'any', name: 'Any Available', avatarUrl: ''}} isSelected={preferredStaffId === 'any'} onSelect={() => setPreferredStaffId('any')} />
-                                 {(staff || []).map(s => (
-                                     <StaffSelectionCard key={s.id} staff={s} isSelected={preferredStaffId === s.id} onSelect={() => setPreferredStaffId(s.id)} />
-                                 ))}
-                             </RadioGroup>
-                        </div>
-                        <div className={`mt-4 space-y-2 transition-opacity ${preferredStaffId === 'any' ? 'opacity-50' : 'opacity-100'}`}>
-                            <div className="flex items-center justify-between rounded-lg border p-4">
-                                <Label htmlFor="wait-for-preferred" className="flex flex-col gap-1">
-                                    <span>Wait for {staff?.find(s => s.id === preferredStaffId)?.name || 'Preferred Staff'}?</span>
-                                    <span className="text-xs font-normal text-muted-foreground">If unchecked, you may be assigned to the next available stylist.</span>
-                                </Label>
-                                <Switch
-                                    id="wait-for-preferred"
-                                    checked={waitForPreferred}
-                                    onCheckedChange={setWaitForPreferred}
-                                    disabled={preferredStaffId === 'any'}
-                                />
-                            </div>
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="preferences">Notes (Optional)</Label>
-                            <Textarea id="preferences" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g., preference for a quiet environment, allergy to certain scents..." />
-                        </div>
+                      )}
+
+                      {/* Primary Contact Info */}
+                      <div className="space-y-4 pt-6 border-t">
+                          <h4 className="font-semibold text-lg">Primary Contact Information</h4>
+                           {selectedClientId && (
+                              <div className="p-3 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-between">
+                                  <div className="flex items-center gap-3">
+                                      <CheckCircle className="w-5 h-5 text-primary" />
+                                      <div>
+                                          <p className="text-sm font-medium">Welcome back, {customerName}!</p>
+                                          <p className="text-xs text-muted-foreground">Continuing with your profile.</p>
+                                      </div>
+                                  </div>
+                                  <Button variant="ghost" size="sm" onClick={resetClientSelection}>Not you?</Button>
+                              </div>
+                          )}
+                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                  <Label htmlFor="phone">Phone Number (for SMS updates)</Label>
+                                  <div className="relative">
+                                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                      <Input id="phone" type="tel" value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="(555) 123-4567" className="pl-9" />
+                                  </div>
+                              </div>
+                              <div className="space-y-2">
+                                  <Label htmlFor="email">Email Address</Label>
+                                  <div className="relative">
+                                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                      <Input id="email" type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="jane.doe@example.com" className="pl-9" />
+                                  </div>
+                              </div>
+                          </div>
+                          {potentialMatches.length > 0 && !selectedClientId && (
+                              <div className="space-y-3">
+                                  <p className="text-sm font-medium text-center">Are you an existing client?</p>
+                                  <Card>
+                                      <CardContent className="p-2 space-y-1">
+                                          {potentialMatches.map(client => (
+                                              <Button key={client.id} variant="ghost" className="w-full justify-start h-auto p-3" onClick={() => handleSelectClient(client)}>
+                                                  <Avatar className="w-10 h-10 mr-4">
+                                                      <AvatarImage src={client.avatarUrl} />
+                                                      <AvatarFallback>{client.name.charAt(0)}</AvatarFallback>
+                                                  </Avatar>
+                                                  <div>
+                                                      <p className="font-semibold text-base">{client.name}</p>
+                                                      <p className="text-sm text-muted-foreground">{client.email}</p>
+                                                  </div>
+                                              </Button>
+                                          ))}
+                                      </CardContent>
+                                  </Card>
+                              </div>
+                          )}
+                           <div className="space-y-2">
+                              <Label htmlFor="name">Your Name</Label>
+                              <div className="relative">
+                                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                  <Input id="name" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Jane Doe" required className="pl-9" disabled={!!selectedClientId} />
+                              </div>
+                          </div>
+                      </div>
+
                     </CardContent>
                     <CardFooter className="flex justify-between">
-                        <Button variant="ghost" onClick={() => setStep(requiredForms.length > 0 ? 'consents' : 'services')} type="button">
-                            <ArrowLeft className="mr-2 h-4 w-4" /> Back
-                        </Button>
-                        <Button type="submit" disabled={isSubmitting}>
-                            {isSubmitting && <Loader className="mr-2 h-4 w-4 animate-spin" />}
-                            Join Waitlist
-                        </Button>
+                      <Button variant="ghost" onClick={resetFlow}>
+                          <ArrowLeft className="mr-2 h-4 w-4" /> Start Over
+                      </Button>
+                      <Button type="submit" disabled={isSubmitting || (selectedServices.length === 0 && partyMembers.every(m => m.serviceIds.length === 0))}>
+                          {isSubmitting && <Loader className="mr-2 h-4 w-4 animate-spin" />}
+                          {requiredForms.length > 0 ? 'Next' : 'Join Waitlist'} <ArrowRight className="ml-2 h-4 w-4" />
+                      </Button>
                     </CardFooter>
-                </form>
-              )}
-
-              {step === 'confirmation' && (
-                <div>
-                  <CardContent className="p-8 text-center space-y-4">
-                    <CheckCircle className="w-16 h-16 mx-auto text-green-500" />
-                    <h2 className="text-2xl font-bold">You're on the list!</h2>
-                    <p className="text-muted-foreground">
-                        You are number <span className="font-bold text-primary">{queuePosition}</span> in the queue.
-                        We will send a text message to the provided phone number when it's your turn.
-                    </p>
-                    <p className="text-sm">Feel free to have a seat!</p>
-                  </CardContent>
-                  <CardFooter>
-                      <Button className="w-full" onClick={resetFlow}>Done</Button>
-                  </CardFooter>
-                </div>
-              )}
-            </motion.div>
-          </AnimatePresence>
+                  </div>
+                )}
+                {step === 'consents' && (
+                  <div>
+                    <CardHeader>
+                      <CardTitle>Consent Forms</CardTitle>
+                      <CardDescription>Please review and acknowledge the following forms before continuing.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4 max-h-[50vh] overflow-y-auto">
+                      {requiredForms.map(form => (
+                          <Card key={form.id}>
+                              <CardHeader>
+                                  <CardTitle className="text-lg">{form.title}</CardTitle>
+                              </CardHeader>
+                              <CardContent className="space-y-4">
+                                  {form.fields?.map(field => <FormFieldRenderer key={field.id} field={field} />)}
+                                  <div className="flex items-center space-x-2 pt-4 border-t">
+                                      <Checkbox id={`consent-ack-${form.id}`}
+                                          checked={completedForms.has(form.id)}
+                                          onCheckedChange={(checked) => {
+                                              const newCompleted = new Set(completedForms);
+                                              if (checked) {
+                                                  newCompleted.add(form.id);
+                                              } else {
+                                                  newCompleted.delete(form.id);
+                                              }
+                                              setCompletedForms(newCompleted);
+                                          }}
+                                      />
+                                      <Label htmlFor={`consent-ack-${form.id}`} className="text-sm font-normal">
+                                          I have read, understood, and agree to the terms of this form.
+                                      </Label>
+                                  </div>
+                              </CardContent>
+                          </Card>
+                      ))}
+                    </CardContent>
+                    <CardFooter className="flex justify-between">
+                          <Button variant="ghost" onClick={() => setStep('services')} type="button">
+                              <ArrowLeft className="mr-2 h-4 w-4" /> Back
+                          </Button>
+                          <Button type="submit" disabled={isSubmitting || completedForms.size < requiredForms.length}>
+                                {isSubmitting && <Loader className="mr-2 h-4 w-4 animate-spin" />}
+                              Join Waitlist
+                          </Button>
+                    </CardFooter>
+                  </div>
+                )}
+                {step === 'confirmation' && (
+                  <div>
+                    <CardContent className="p-8 text-center space-y-4">
+                      <CheckCircle className="w-16 h-16 mx-auto text-green-500" />
+                      <h2 className="text-2xl font-bold">You're on the list!</h2>
+                      <p className="text-muted-foreground">
+                          You are number <span className="font-bold text-primary">{queuePosition}</span> in the queue.
+                          We will send a text message to the provided phone number when it's your turn.
+                      </p>
+                      <p className="text-sm">Feel free to have a seat!</p>
+                    </CardContent>
+                    <CardFooter>
+                        <Button className="w-full" onClick={resetFlow}>Done</Button>
+                    </CardFooter>
+                  </div>
+                )}
+              </motion.div>
+            </AnimatePresence>
+          </form>
         </Card>
     </div>
     </>
   );
 }
+
