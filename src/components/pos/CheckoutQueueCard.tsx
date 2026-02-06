@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React from 'react';
@@ -12,6 +11,7 @@ import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
+import { format } from 'date-fns';
 
 interface CheckoutQueueCardProps {
   appointment: Appointment & { client?: Client, service?: Service, addOnServices: Service[], staff?: Staff };
