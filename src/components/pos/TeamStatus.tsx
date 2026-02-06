@@ -14,6 +14,7 @@ import { format, differenceInMinutes, parseISO, isPast, differenceInDays, differ
 import { Reorder } from 'framer-motion';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { Separator } from '../ui/separator';
+import Link from 'next/link';
 
 interface TeamStatusProps {
   staff: (Staff & { stats?: any })[] | null;
@@ -23,12 +24,14 @@ interface TeamStatusProps {
   onReorder: (newOrder: Staff[]) => void;
 }
 
-const StaffMemberCard = ({ member, isNextUp, onStatusChange, appointments, services }: {
+const StaffMemberCard = ({ member, isNextUp, onStatusChange, appointments, services, onEdit, onViewActivity }: {
     member: Staff & { stats: any, availability: { status: string, serviceName?: string | null, isOvertime?: boolean, elapsedTime?: string | null } | null },
     isNextUp: boolean,
     onStatusChange: TeamStatusProps['onStatusChange'],
     appointments: Appointment[] | null,
     services: Service[] | null,
+    onEdit: (member: Staff) => void,
+    onViewActivity: (member: Staff & { stats: any }) => void,
 }) => {
     
     const [elapsedTime, setElapsedTime] = useState<string | null>(null);
@@ -176,7 +179,7 @@ const StaffMemberCard = ({ member, isNextUp, onStatusChange, appointments, servi
                     <h3 className="text-sm font-semibold truncate w-full">{member.name}</h3>
                     <p className="text-xs text-muted-foreground capitalize">{member.role}</p>
 
-                     <div className="text-xs font-semibold mt-2 flex min-h-[52px] flex-col items-center justify-center text-center">
+                     <div className="text-xs font-semibold mt-2 flex flex-col items-center justify-center text-center min-h-[52px]">
                         {elapsedTime && currentService ? (
                             <div>
                                 <p className="text-xs text-muted-foreground truncate">{currentService.name}</p>
@@ -193,16 +196,6 @@ const StaffMemberCard = ({ member, isNextUp, onStatusChange, appointments, servi
                         <div className="flex justify-between items-center"><span className="text-muted-foreground">Today's Tips</span><span className="font-semibold">${member.stats?.tips.toFixed(2)}</span></div>
                         <div className="flex justify-between items-center"><span className="text-muted-foreground">Services</span><span className="font-semibold">{member.stats?.completedServices}</span></div>
                     </div>
-                     <div className="text-xs text-muted-foreground mt-2 space-y-1 text-center w-full">
-                        <div className="flex items-center justify-center gap-2">
-                            <a href={`mailto:${member.email}`} className="p-1 hover:text-primary transition-colors" onClick={(e) => e.stopPropagation()}>
-                                <Mail className="w-3.5 h-3.5 flex-shrink-0" />
-                            </a>
-                            <a href={`tel:${member.phone}`} className="p-1 hover:text-primary transition-colors" onClick={(e) => e.stopPropagation()}>
-                                <Phone className="w-3.5 h-3.5 flex-shrink-0" />
-                            </a>
-                        </div>
-                    </div>
                     {licenseInfo && (licenseInfo.isExpired || licenseInfo.isExpiringSoon) && (
                         <div className="mt-2 text-left p-2 rounded-lg bg-destructive/10 text-destructive text-xs flex items-start gap-2">
                             <ShieldAlert className="h-3 w-3 mt-0.5 flex-shrink-0" />
@@ -213,7 +206,9 @@ const StaffMemberCard = ({ member, isNextUp, onStatusChange, appointments, servi
                     )}
                 </CardContent>
                 <CardFooter className="p-2 border-t mt-auto flex flex-col gap-2">
-                    {renderActionButtons()}
+                    <div className="w-full flex flex-col gap-2">
+                        {renderActionButtons()}
+                    </div>
                     <div className="grid grid-cols-2 gap-2 w-full">
                         <Button variant="secondary" size="sm" onClick={() => onViewActivity(member)}>
                             Dashboard
@@ -223,9 +218,9 @@ const StaffMemberCard = ({ member, isNextUp, onStatusChange, appointments, servi
                         </Button>
                     </div>
                      <Button asChild variant="link" size="sm" className="text-xs h-auto py-1 w-full">
-                    <Link href={`/staff/${member.id}`}>View Public Profile</Link>
-                </Button>
-            </CardFooter>
+                        <Link href={`/staff/${member.id}`}>View Public Profile</Link>
+                    </Button>
+                </CardFooter>
             </Card>
         </Reorder.Item>
     )
@@ -280,6 +275,8 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
                             isNextUp={member.id === nextUpStaffId}
                             appointments={appointments}
                             services={services}
+                            onViewActivity={() => {}}
+                            onEdit={() => {}}
                         />
                     ))}
                 </Reorder.Group>
@@ -288,3 +285,5 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, onStatusChange, a
         </div>
     );
 };
+
+    
