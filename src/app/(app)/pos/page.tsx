@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -33,7 +34,6 @@ import {
 import { ShoppingCart, Clock, TrendingUp, Users, DollarSign, Sparkles } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Html5Qrcode } from 'html5-qrcode';
-import { AssignStaffDialog } from '@/components/pos/AssignStaffDialog';
 import { Label } from '@/components/ui/label';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
@@ -287,207 +287,7 @@ export default function POSPage() {
             toast({ variant: 'destructive', title: "Error", description: "Could not save new staff order." });
         });
     };
-
-    const handleStaffMoveToFront = (staffId: string) => {
-        const item = orderedStaff.find(s => s.id === staffId);
-        if (!item) return;
-        const newOrder = [item, ...orderedStaff.filter(s => s.id !== staffId)];
-        handleStaffReorder(newOrder);
-    };
-
-    const handleStaffMoveToBack = (staffId: string) => {
-        const item = orderedStaff.find(s => s.id === staffId);
-        if (!item) return;
-        const newOrder = [...orderedStaff.filter(s => s.id !== staffId), item];
-        handleStaffReorder(newOrder);
-    };
-
-    const handleStaffSetPosition = (staffId: string, newPosition: number) => {
-        const item = orderedStaff.find(s => s.id === staffId);
-        if (!item) return;
-        const itemsWithout = orderedStaff.filter(s => s.id !== staffId);
-        
-        // Ensure position is within bounds
-        const finalPosition = Math.max(1, Math.min(newPosition, orderedStaff.length));
-        
-        itemsWithout.splice(finalPosition - 1, 0, item);
-        handleStaffReorder(itemsWithout);
-    };
-
-    const readyForCheckoutAppointments = useMemo(() => {
-        if (!appointments || !clients || !services || !staff) return [];
-        return appointments
-            .filter(apt => apt.status === 'ready_for_checkout')
-            .map(apt => {
-                const client = clients.find(c => c.id === apt.clientId);
-                const service = services.find(s => s.id === apt.serviceId);
-                const addOnServices = (apt.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
-                const staffMember = staff.find(s => s.id === apt.staffId);
-                return { ...apt, client, service, addOnServices, staff: staffMember };
-            }).filter((a): a is Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff } => !!(a.client && a.service));
-    }, [appointments, clients, services, staff]);
-
-    const payerOptions = useMemo(() => {
-        const clientIds = new Set<string>();
-        selectedAppointmentIds.forEach(aptId => {
-            const apt = readyForCheckoutAppointments.find(a => a.id === aptId);
-            if (apt) {
-                clientIds.add(apt.clientId);
-            }
-        });
-        return (clients || []).filter(c => clientIds.has(c.id));
-    }, [selectedAppointmentIds, readyForCheckoutAppointments, clients]);
     
-    useEffect(() => {
-        const newCart: any[] = [];
-        
-        selectedAppointmentIds.forEach(aptId => {
-            const apt = readyForCheckoutAppointments.find(a => a.id === aptId);
-            if (!apt) return;
-            
-            const mainService = services.find(s => s.id === apt.serviceId);
-            if (mainService) {
-                newCart.push({
-                    id: `svc-${apt.id}-${mainService.id}`,
-                    appointmentId: apt.id,
-                    name: mainService.name,
-                    price: mainService.price,
-                    quantity: 1,
-                    type: 'service',
-                    staffId: apt.staffId,
-                });
-            }
-
-            (apt.addOnIds || []).forEach(addOnId => {
-                const addOnService = services.find(s => s.id === addOnId);
-                if (addOnService) {
-                    newCart.push({
-                        id: `svc-${apt.id}-${addOnService.id}`,
-                        appointmentId: apt.id,
-                        name: addOnService.name,
-                        price: addOnService.price,
-                        quantity: 1,
-                        type: 'service',
-                        staffId: apt.staffId,
-                    });
-                }
-            });
-        });
-
-        const nonAppointmentItems = cart.filter(item => !item.appointmentId);
-        setCart([...newCart, ...nonAppointmentItems]);
-        
-        if (payerOptions.length === 1) {
-            setSelectedClientId(payerOptions[0].id);
-        } else if (payerOptions.length === 0 && selectedAppointmentIds.size === 0) {
-            // Keep current client if no appointments are selected
-        } else {
-            setSelectedClientId(null);
-        }
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedAppointmentIds, readyForCheckoutAppointments, services]);
-
-
-    const handleSelectAppointment = (appointmentId: string) => {
-        const newSet = new Set(selectedAppointmentIds);
-        if (newSet.has(appointmentId)) {
-            newSet.delete(appointmentId);
-        } else {
-            newSet.add(appointmentId);
-        }
-        setSelectedAppointmentIds(newSet);
-    };
-
-    const handleAddToCart = (item: InventoryItem | Service) => {
-        setCart(prevCart => {
-            const existingItem = prevCart.find(cartItem => cartItem.id === item.id);
-            if (existingItem) {
-                return prevCart.map(cartItem => 
-                    cartItem.id === item.id 
-                    ? { ...cartItem, quantity: cartItem.quantity + 1 }
-                    : cartItem
-                );
-            }
-            const price = 'price' in item ? item.price : ('msrp' in item ? item.msrp || 0 : 0);
-            return [...prevCart, { ...item, quantity: 1, price, type: 'price' in item ? 'service' : 'product' }];
-        });
-    };
-
-    const handleCartChange = (newCart: any[]) => {
-        setCart(newCart);
-    }
-    
-    const handleAddClient = (data: ClientFormData) => {
-        if (!firestore || !selectedTenant) return;
-    
-        const newClient: Omit<Client, 'id'> = {
-          name: data.name,
-          email: data.email || '',
-          phone: data.phone || '',
-          avatarUrl: data.avatarUrl || `https://picsum.photos/seed/${nanoid()}/100`,
-          lifetimeValue: 0,
-          lastAppointment: new Date().toISOString(),
-          status: 'active',
-          notes: data.notes,
-          referralCode: '', // referral code generation logic is missing here
-          birthday: data.birthday ? data.birthday.toISOString() : undefined,
-          address: data.address,
-          emergencyContact: data.emergencyContact,
-          intel: {
-            referralSource: data.intel?.referralSource
-          }
-        };
-        
-        addDocumentNonBlocking(collection(firestore, 'tenants', selectedTenant.id, 'clients'), newClient);
-    
-        toast({
-          title: "Client Added",
-          description: `${data.name} has been added to your client list.`,
-        });
-      }
-
-    const handleStatusChange = (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
-        if (!firestore || !staff || !selectedTenant) return;
-        const tenantId = selectedTenant.id;
-
-        const staffMember = staff.find(s => s.id === staffId);
-        if (!staffMember) return;
-        
-        const activityLogsRef = collection(firestore, 'tenants', tenantId, 'activityLogs');
-        const staffDocRef = doc(firestore, 'tenants', tenantId, 'staff', staffId);
-        const now = new Date().toISOString();
-
-        let staffUpdate: Partial<Staff> = {};
-        let logEntry: Omit<ActivityLog, 'id'> = { staffId, type: action, timestamp: now };
-
-        switch (action) {
-            case 'clock_in': staffUpdate = { active: true }; break;
-            case 'clock_out': staffUpdate = { active: false, onBreak: false, status: 'idle' }; break;
-            case 'break_start': staffUpdate = { onBreak: true, breakStartTime: now }; break;
-            case 'break_end':
-                if(staffMember.breakStartTime) {
-                    const duration = differenceInMinutes(new Date(now), parseISO(staffMember.breakStartTime));
-                    logEntry.durationMinutes = duration;
-                }
-                staffUpdate = { onBreak: false, breakStartTime: undefined }; 
-                break;
-        }
-        
-        addDocumentNonBlocking(activityLogsRef, logEntry);
-        updateDocumentNonBlocking(staffDocRef, staffUpdate);
-    };
-
-    const handleStatusChangeWithConfirmation = (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
-        const staffMember = staff?.find(s => s.id === staffId);
-        if (!staffMember) return;
-  
-        const titles = { clock_in: 'Confirm Clock In', clock_out: 'Confirm Clock Out', break_start: 'Confirm Start Break', break_end: 'Confirm End Break' };
-         const descriptions = { clock_in: `Are you sure you want to clock in ${staffMember.name}?`, clock_out: `Are you sure you want to clock out ${staffMember.name}?`, break_start: `Are you sure you want to start a break for ${staffMember.name}?`, break_end: `Are you sure you want to end the break for ${staffMember.name}?` };
-        
-        setConfirmation({ isOpen: true, title: titles[action], description: descriptions[action], onConfirm: () => { handleStatusChange(staffId, action); setConfirmation(null); }});
-    };
-
     const handleAssignNext = () => {
         if (!staff || !walkIns || !services) { toast({ title: "Data not loaded", description: "Please wait a moment and try again." }); return; }
     
@@ -713,6 +513,77 @@ export default function POSPage() {
       });
     };
 
+    const readyForCheckoutAppointments = useMemo(() => {
+        if (!appointments || !clients || !services || !staff) return [];
+        return appointments
+            .filter(apt => apt.status === 'ready_for_checkout')
+            .map(apt => {
+                const client = clients.find(c => c.id === apt.clientId);
+                const service = services.find(s => s.id === apt.serviceId);
+                const addOnServices = (apt.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
+                const staffMember = staff.find(s => s.id === apt.staffId);
+                return { ...apt, client, service, addOnServices, staff: staffMember };
+            }).filter((a): a is Appointment & { client: Client, service: Service, addOnServices: Service[], staff: Staff } => !!(a.client && a.service));
+    }, [appointments, clients, services, staff]);
+
+    const handleSelectAppointment = (appointmentId: string) => {
+        const newSet = new Set(selectedAppointmentIds);
+        if (newSet.has(appointmentId)) {
+            newSet.delete(appointmentId);
+        } else {
+            newSet.add(appointmentId);
+        }
+        setSelectedAppointmentIds(newSet);
+    };
+
+    const handleAddToCart = (item: InventoryItem | Service) => {
+        setCart(prevCart => {
+            const existingItem = prevCart.find(cartItem => cartItem.id === item.id);
+            if (existingItem) {
+                return prevCart.map(cartItem => 
+                    cartItem.id === item.id 
+                    ? { ...cartItem, quantity: cartItem.quantity + 1 }
+                    : cartItem
+                );
+            }
+            const price = 'price' in item ? item.price : ('msrp' in item ? item.msrp || 0 : 0);
+            return [...prevCart, { ...item, quantity: 1, price, type: 'price' in item ? 'service' : 'product' }];
+        });
+    };
+
+    const handleCartChange = (newCart: any[]) => {
+        setCart(newCart);
+    }
+    
+    const handleAddClient = (data: ClientFormData) => {
+        if (!firestore || !selectedTenant) return;
+    
+        const newClient: Omit<Client, 'id'> = {
+          name: data.name,
+          email: data.email || '',
+          phone: data.phone || '',
+          avatarUrl: data.avatarUrl || `https://picsum.photos/seed/${nanoid()}/100`,
+          lifetimeValue: 0,
+          lastAppointment: new Date().toISOString(),
+          status: 'active',
+          notes: data.notes,
+          referralCode: '', // referral code generation logic is missing here
+          birthday: data.birthday ? data.birthday.toISOString() : undefined,
+          address: data.address,
+          emergencyContact: data.emergencyContact,
+          intel: {
+            referralSource: data.intel?.referralSource
+          }
+        };
+        
+        addDocumentNonBlocking(collection(firestore, 'tenants', selectedTenant.id, 'clients'), newClient);
+    
+        toast({
+          title: "Client Added",
+          description: `${data.name} has been added to your client list.`,
+        });
+      }
+
     const checkoutHubProps = {
         cart, 
         onCartChange: handleCartChange,
@@ -748,9 +619,8 @@ export default function POSPage() {
                             appointments={appointments} 
                             services={services} 
                             onReorder={handleStaffReorder}
-                            onMoveToFront={handleStaffMoveToFront}
-                            onSetPosition={handleStaffSetPosition}
                             assignmentMode={assignmentMode}
+                            onAssignmentModeChange={setAssignmentMode}
                         />
                         <CheckoutQueue appointments={readyForCheckoutAppointments} onSelectAppointment={handleSelectAppointment} selectedAppointmentIds={selectedAppointmentIds} />
                         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
@@ -765,14 +635,11 @@ export default function POSPage() {
                                     appointments={inServiceAppointments} 
                                     services={services} 
                                     staff={staff} 
-                                    onAssignStaff={(walkIn, staffId) => handleAssignStaff(walkIn, staffId)} 
-                                    onAssignNext={handleAssignNext} 
+                                    onAssignStaff={(walkIn, staffId) => handleAssignStaff(walkIn, staffId)}
                                     onCancel={handleCancelWalkIn}
                                     onStartService={handleStartService}
                                     orderedWaitingQueue={orderedWaitingQueue}
                                     onReorder={handleReorder}
-                                    assignmentMode={assignmentMode}
-                                    onAssignmentModeChange={setAssignmentMode}
                                 />
                             </TabsContent>
                         </Tabs>
@@ -794,9 +661,9 @@ export default function POSPage() {
                             </Button>
                         </SheetTrigger>
                         <SheetContent side="bottom" className="h-[90vh] p-0 flex flex-col">
-                           <SheetHeader className="p-4 pb-2 border-b text-left">
-                                <SheetTitle>Current Sale</SheetTitle>
-                            </SheetHeader>
+                           <SheetHeader>
+                               <SheetTitle className="sr-only">Current Sale</SheetTitle>
+                           </SheetHeader>
                             <div className="p-4 flex-1 overflow-y-auto">
                                 <CheckoutHub {...checkoutHubProps} showTitle={false} />
                             </div>
